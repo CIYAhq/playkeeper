@@ -26,7 +26,22 @@ const (
 	whopTestSecret = "ws_0123456789abcdef0123456789abcdef"
 	// whopTestOwner owns Pip Hosting, and is in each of its support chats.
 	whopTestOwner = "user_pip"
+	// whopTestAppKey is the Playkeeper Cloud app's key, which reaches each
+	// business that installed the app by its id.
+	whopTestAppKey = "apik_playkeeper_cloud_app_01234"
 )
+
+// fakeBusiness is a business that installed the Playkeeper Cloud app: its
+// account, with its owner, and its store.
+type fakeBusiness struct {
+	account     map[string]any
+	products    map[string]whop.Metadata
+	plans       []map[string]any
+	memberships map[string]map[string]any
+}
+
+// fakeChat is an installed business's support chat with one customer.
+type fakeChat struct{ account, user string }
 
 // fakeWhop answers like Whop's API for one seller, Pip Hosting, whose store
 // sells one product with two plans: Starter, whose metadata says what it
@@ -77,6 +92,10 @@ type fakeWhop struct {
 	grants          map[string]oauthGrant
 	revokedTokens   []string
 	noTokenExchange bool
+	// installed are the businesses that installed the Playkeeper Cloud app,
+	// by id, and chats their support chats, by id.
+	installed map[string]*fakeBusiness
+	chats     map[string]fakeChat
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
@@ -173,7 +192,7 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 	t.Helper()
 	f := &fakeWhop{missing: map[string]bool{}, keysSeen: map[string]bool{}, webhooks: map[string]map[string]any{},
 		memberships: map[string]map[string]any{}, users: map[string]string{"user_alex": "alexplays"}, messages: map[string][]string{},
-		senders: map[string][]string{}, tokens: map[string]fakeToken{},
+		senders: map[string][]string{}, tokens: map[string]fakeToken{}, installed: map[string]*fakeBusiness{}, chats: map[string]fakeChat{},
 		products: map[string]whop.Metadata{"prod_mc": {"color": "green"}},
 		plans: []map[string]any{
 			{"id": "plan_starter", "title": "Starter", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "formatted_price": "$8.00 / month",
@@ -201,6 +220,10 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if tok, ok := f.tokens[key]; ok {
 		f.serveAsUser(w, r, tok)
+		return
+	}
+	if key == whopTestAppKey {
+		f.serveInstalled(w, r)
 		return
 	}
 	account := map[string]any{"id": "biz_pip", "title": "Pip Hosting", "route": "pip-hosting",
@@ -398,6 +421,10 @@ func (f *fakeWhop) serveAsUser(w http.ResponseWriter, r *http.Request, tok fakeT
 	channel := body["channel_id"]
 	customer, _ := strings.CutPrefix(channel, "chan_")
 	inChat := tok.account == "biz_pip" && (tok.user == whopTestOwner || tok.user == customer)
+	if chat, ok := f.chats[channel]; ok {
+		owner, _ := f.installed[chat.account].account["owner"].(map[string]any)
+		inChat = tok.account == chat.account && (tok.user == owner["id"] || tok.user == chat.user)
+	}
 	if r.Method+" "+r.URL.Path != "POST /messages" || !slices.Contains(tok.actions, whop.MessageAction) || !inChat {
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"You do not have permission to access this resource"}}`)
@@ -533,7 +560,7 @@ func TestConnectingReadsTheStoreAndMarksItsProducts(t *testing.T) {
 		t.Fatalf("the product's metadata: %v", f.products["prod_mc"])
 	}
 	var stored string
-	e.srv.db.QueryRow(`SELECT api_key FROM whop_account`).Scan(&stored)
+	e.srv.db.QueryRow(`SELECT api_key FROM whop_stores`).Scan(&stored)
 	if stored != whopTestKey {
 		t.Fatalf("stored key %q", stored)
 	}
@@ -663,7 +690,7 @@ func TestDisconnectingClosesTheStoreAndForgetsTheKey(t *testing.T) {
 		t.Fatalf("the product after disconnecting: %v", f.products["prod_mc"])
 	}
 	var n int
-	e.srv.db.QueryRow(`SELECT (SELECT COUNT(*) FROM whop_account) + (SELECT COUNT(*) FROM whop_plans)`).Scan(&n)
+	e.srv.db.QueryRow(`SELECT (SELECT COUNT(*) FROM whop_stores) + (SELECT COUNT(*) FROM whop_plans)`).Scan(&n)
 	if n != 0 {
 		t.Fatalf("%d rows left after disconnecting", n)
 	}

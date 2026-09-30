@@ -108,8 +108,14 @@ func (f *fakeWhop) sent(user string) []string {
 // the dashboard's time.
 func (e *env) deliver(t *testing.T, id, event string, m map[string]any) resp {
 	t.Helper()
+	return e.deliverFor(t, testStore, id, event, m)
+}
+
+// deliverFor is deliver for an event of the business account.
+func (e *env) deliverFor(t *testing.T, account, id, event string, m map[string]any) resp {
+	t.Helper()
 	body, _ := json.Marshal(map[string]any{"type": event, "api_version": "v1", "api_version_date": whop.APIVersion,
-		"timestamp": e.clock.now().Format(time.RFC3339Nano), "account_id": "biz_pip", "data": m})
+		"timestamp": e.clock.now().Format(time.RFC3339Nano), "account_id": account, "data": m})
 	hdr := map[string]string{}
 	for k, v := range whop.SignWebhook(whopTestSecret, id, e.clock.now(), body) {
 		hdr[k] = v[0]
@@ -192,7 +198,7 @@ func (fc *fakeCore) got() []string {
 	return append([]string(nil), fc.calls...)
 }
 
-func (e *env) reconcile() { e.srv.reconcileWhop(context.Background()) }
+func (e *env) reconcile() { e.srv.reconcileWhop(context.Background(), nil) }
 
 func TestConnectingAddsTheWebhookAndDisconnectingRemovesIt(t *testing.T) {
 	f, e, own := connectedWhop(t)
@@ -751,7 +757,7 @@ func TestWithoutAWebhookEveryMembershipIsReadEveryMinute(t *testing.T) {
 	f.hooksDown = true
 	f.users["user_sam"], f.users["user_bo"], f.users["user_cy"] = "samcrafts", "bobuilds", "cycrafts"
 	f.mu.Unlock()
-	e.srv.db.Exec(`UPDATE whop_account SET webhook_id = '', webhook_url = '', webhook_secret = ''`)
+	e.srv.db.Exec(`UPDATE whop_stores SET webhook_id = '', webhook_url = '', webhook_secret = ''`)
 	e.reconcile()
 	if v := e.whopView(t, own); v.Webhook {
 		t.Fatal("the view has a webhook Whop refused")

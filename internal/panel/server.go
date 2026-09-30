@@ -135,9 +135,13 @@ type Server struct {
 	// "METHOD pattern", once Routes has built it: every one must take it.
 	hostStamped sync.Map
 	// whopMu serialises changes to Sell on Whop (see whop.go), and whopKick
-	// has its reconciler look now (see whop_customers.go).
-	whopMu   sync.Mutex
-	whopKick chan struct{}
+	// has its reconciler look now (see whop_customers.go): at the stores in
+	// whopKicked, or at every store when whopKickAll is set.
+	whopMu      sync.Mutex
+	whopKick    chan struct{}
+	whopKickMu  sync.Mutex
+	whopKicked  map[string]bool
+	whopKickAll bool
 	// hosting is the hosting core billing providers call, and notifier what
 	// the core calls to tell customers something (see hosting.go). sales is
 	// what the fleet tells how many more of each plan fit (see whop_stock.go).

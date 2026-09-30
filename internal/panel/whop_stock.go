@@ -25,11 +25,13 @@ type saleStock interface {
 	SetAvailability(ctx context.Context, left map[string]int) error
 }
 
-// SalePlan is a plan the store sells. Free is one that charges nothing,
-// such as the hidden creator plan; the fleet gives room to paid plans first.
+// SalePlan is a plan a store sells: Store is the store's id. Free is one
+// that charges nothing, such as the hidden creator plan; the fleet gives
+// room to paid plans first.
 type SalePlan struct {
 	CustomerPlan
-	Free bool
+	Store string
+	Free  bool
 }
 
 // maxWhopStock bounds a plan's stock, far above what machines can take.
@@ -38,11 +40,11 @@ const maxWhopStock = 100_000
 // whopStock is saleStock for a store on Whop.
 type whopStock struct{ s *Server }
 
-// SalePlans lists the plans with an allowance that aren't archived, hidden
-// ones too, since they sell through their own links.
+// SalePlans lists every store's plans with an allowance that aren't
+// archived, hidden ones too, since they sell through their own links.
 func (ws whopStock) SalePlans(ctx context.Context) ([]SalePlan, error) {
-	rows, err := ws.s.db.QueryContext(ctx, `SELECT plan_id, title, allowance_servers, allowance_memory_mb, disk_gb, free FROM whop_plans
-		WHERE allowance_from != '' AND visibility != 'archived' ORDER BY position`)
+	rows, err := ws.s.db.QueryContext(ctx, `SELECT store_id, plan_id, title, allowance_servers, allowance_memory_mb, disk_gb, free FROM whop_plans
+		WHERE allowance_from != '' AND visibility != 'archived' ORDER BY store_id, position`)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +53,7 @@ func (ws whopStock) SalePlans(ctx context.Context) ([]SalePlan, error) {
 	for rows.Next() {
 		var p SalePlan
 		var title string
-		if err := rows.Scan(&p.ID, &title, &p.Servers, &p.MemoryMB, &p.DiskGB, &p.Free); err != nil {
+		if err := rows.Scan(&p.Store, &p.ID, &title, &p.Servers, &p.MemoryMB, &p.DiskGB, &p.Free); err != nil {
 			return nil, err
 		}
 		p.Name = cmpOr(title, p.ID)
@@ -60,15 +62,17 @@ func (ws whopStock) SalePlans(ctx context.Context) ([]SalePlan, error) {
 	return out, rows.Err()
 }
 
-// SetAvailability keeps the fleet's numbers for the plans the store sells,
-// ignoring any other, and has the reconciler write them to Whop now.
+// SetAvailability keeps the fleet's numbers for the plans the stores sell,
+// each for its store, ignoring any other, and has the reconciler write them
+// to Whop now.
 func (ws whopStock) SetAvailability(ctx context.Context, left map[string]int) error {
 	now := ws.s.now().UnixMilli()
 	err := ws.s.immediate(ctx, func(c *sql.Conn) error {
 		for id, n := range left {
-			if _, err := c.ExecContext(ctx, `INSERT INTO whop_stock(plan_id, want, set_at)
-				SELECT plan_id, ?, ? FROM whop_plans WHERE plan_id = ? AND allowance_from != '' AND visibility != 'archived'
-				ON CONFLICT(plan_id) DO UPDATE SET want = excluded.want, set_at = excluded.set_at`, min(max(n, 0), maxWhopStock), now, id); err != nil {
+			if _, err := c.ExecContext(ctx, `INSERT INTO whop_stock(store_id, plan_id, want, set_at)
+				SELECT store_id, plan_id, ?, ? FROM whop_plans WHERE plan_id = ? AND allowance_from != '' AND visibility != 'archived'
+				ON CONFLICT(plan_id) DO UPDATE SET want = excluded.want, set_at = excluded.set_at WHERE whop_stock.store_id = excluded.store_id`,
+				min(max(n, 0), maxWhopStock), now, id); err != nil {
 				return err
 			}
 		}
@@ -95,7 +99,7 @@ func (ws whopStock) SetAvailability(ctx context.Context, left map[string]int) er
 // stock is then the one set less the purchases not heard of yet, and so is
 // the target. A stock changed by hand on Whop is put back once the
 // dashboard reads the store again.
-func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID string) {
+func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, storeID string) {
 	type plan struct {
 		id                                    string
 		want, stock, written, known, knownNow int
@@ -103,8 +107,9 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID st
 		unlimited                             bool
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT k.plan_id, k.want, k.set_at, k.written, k.known, p.stock, p.unlimited_stock,
-		(SELECT COUNT(*) FROM whop_memberships m WHERE m.plan_id = k.plan_id) FROM whop_stock k
-		JOIN whop_plans p ON p.plan_id = k.plan_id WHERE p.allowance_from != '' AND p.visibility != 'archived' ORDER BY p.position`)
+		(SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = k.store_id AND m.plan_id = k.plan_id) FROM whop_stock k
+		JOIN whop_plans p ON p.store_id = k.store_id AND p.plan_id = k.plan_id
+		WHERE k.store_id = ? AND p.allowance_from != '' AND p.visibility != 'archived' ORDER BY p.position`, storeID)
 	if err != nil {
 		s.log.Error("could not read the plans' stock", "err", err)
 		return
@@ -125,7 +130,7 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID st
 	if len(plans) == 0 {
 		return
 	}
-	uncounted, err := s.uncountedPurchases(ctx, setAt)
+	uncounted, err := s.uncountedPurchases(ctx, storeID, setAt)
 	if err != nil {
 		s.log.Error("could not count the purchases the fleet's numbers don't", "err", err)
 		return
@@ -134,7 +139,7 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID st
 		if !p.unlimited && p.stock == p.written && p.known == p.knownNow && p.stock == max(p.want-uncounted[p.id], 0) {
 			continue
 		}
-		target, known, err := s.whopStockTarget(ctx, c, accountID, p.id, p.want, p.setAt)
+		target, known, err := s.whopStockTarget(ctx, c, storeID, p.id, p.want, p.setAt)
 		if err != nil {
 			s.log.Warn("could not read a plan's purchases from Whop", "plan", p.id, "err", err)
 			continue
@@ -143,52 +148,53 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID st
 			s.log.Warn("could not set a plan's stock on Whop", "plan", p.id, "err", err)
 			continue
 		}
-		if _, err := s.db.Exec(`UPDATE whop_plans SET stock = ?, unlimited_stock = 0 WHERE plan_id = ?`, target, p.id); err != nil {
+		if _, err := s.db.Exec(`UPDATE whop_plans SET stock = ?, unlimited_stock = 0 WHERE store_id = ? AND plan_id = ?`, target, storeID, p.id); err != nil {
 			s.log.Error("could not record a plan's stock", "err", err)
 		}
-		if _, err := s.db.Exec(`UPDATE whop_stock SET written = ?, known = ? WHERE plan_id = ?`, target, known, p.id); err != nil {
+		if _, err := s.db.Exec(`UPDATE whop_stock SET written = ?, known = ? WHERE store_id = ? AND plan_id = ?`, target, known, storeID, p.id); err != nil {
 			s.log.Error("could not record a plan's stock", "err", err)
 		}
 	}
 }
 
-// whopStockTarget is the stock a plan should have: the fleet's number, want,
-// said at setAt, less the purchases it doesn't count, with every membership
-// of the plan read from Whop first. known is how many of the plan's
-// memberships the dashboard knew of just before, so the target takes each
-// of them into account.
-func (s *Server) whopStockTarget(ctx context.Context, c *whop.Client, accountID, planID string, want int, setAt int64) (target, known int, err error) {
-	ms, err := c.PlanMemberships(ctx, accountID, planID)
+// whopStockTarget is the stock a plan of the store should have: the fleet's
+// number, want, said at setAt, less the purchases it doesn't count, with
+// every membership of the plan read from Whop first. known is how many of
+// the plan's memberships the dashboard knew of just before, so the target
+// takes each of them into account.
+func (s *Server) whopStockTarget(ctx context.Context, c *whop.Client, storeID, planID string, want int, setAt int64) (target, known int, err error) {
+	ms, err := c.PlanMemberships(ctx, storeID, planID)
 	if err != nil {
 		return 0, 0, err
 	}
 	for _, m := range ms {
-		if err := s.keepMembership(m, false); err != nil {
+		if err := s.keepMembership(storeID, m, false); err != nil {
 			return 0, 0, err
 		}
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships WHERE plan_id = ?`, planID).Scan(&known); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships WHERE store_id = ? AND plan_id = ?`, storeID, planID).Scan(&known); err != nil {
 		return 0, 0, err
 	}
-	uncounted, err := s.uncountedPurchases(ctx, map[string]int64{planID: setAt})
+	uncounted, err := s.uncountedPurchases(ctx, storeID, map[string]int64{planID: setAt})
 	if err != nil {
 		return 0, 0, err
 	}
 	return max(want-uncounted[planID], 0), known, nil
 }
 
-// uncountedPurchases counts, for each plan in setAt, the purchases with
-// access that the fleet's number for it, said at setAt, doesn't count yet:
-// those whose customer the core wasn't given the plan for, as while their
-// start keeps failing, or was given it only since. A paused customer's
-// purchases count as not yet counted, since their room may be gone.
-func (s *Server) uncountedPurchases(ctx context.Context, setAt map[string]int64) (map[string]int, error) {
+// uncountedPurchases counts, for each of the store's plans in setAt, the
+// purchases with access that the fleet's number for it, said at setAt,
+// doesn't count yet: those whose customer the core wasn't given the plan
+// for, as while their start keeps failing, or was given it only since. A
+// paused customer's purchases count as not yet counted, since their room
+// may be gone.
+func (s *Server) uncountedPurchases(ctx context.Context, storeID string, setAt map[string]int64) (map[string]int, error) {
 	type given struct {
 		plans map[string]int
 		at    int64
 	}
 	custs := map[string]given{}
-	rows, err := s.db.QueryContext(ctx, `SELECT whop_user_id, applied, applied_at FROM whop_customers WHERE paused = 0 AND applied != ''`)
+	rows, err := s.db.QueryContext(ctx, `SELECT whop_user_id, applied, applied_at FROM whop_customers WHERE store_id = ? AND paused = 0 AND applied != ''`, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +213,7 @@ func (s *Server) uncountedPurchases(ctx context.Context, setAt map[string]int64)
 		custs[id] = g
 	}
 	rows.Close()
-	rows, err = s.db.QueryContext(ctx, `SELECT whop_user_id, plan_id FROM whop_memberships WHERE status IN `+whopAccess)
+	rows, err = s.db.QueryContext(ctx, `SELECT whop_user_id, plan_id FROM whop_memberships WHERE store_id = ? AND status IN `+whopAccess, storeID)
 	if err != nil {
 		return nil, err
 	}

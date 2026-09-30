@@ -21,11 +21,11 @@ import (
 // takes the money and runs the buyers' memberships, and each plan the store
 // sells lets a buyer create servers inside an allowance, as a creator does
 // (see creators.go). Settings › Sell on Whop keeps the seller's Whop
-// account and its API key, reads the store's plans with what each allows,
-// and marks the store's products with the dashboard's address, so the store
-// takes orders only once a dashboard sells for it. Only the owner may,
-// since a key that runs a store and buyers who create servers on the
-// machine are theirs to decide.
+// account and its API key, the key store (see whop_stores.go), reads the
+// store's plans with what each allows, and marks the store's products with
+// the dashboard's address, so the store takes orders only once a dashboard
+// sells for it. Only the owner may, since a key that runs a store and
+// buyers who create servers on the machine are theirs to decide.
 //
 // One dashboard sells for a business, so each purchase starts its customer
 // once. Another dashboard is refused a store this one's address marks
@@ -96,52 +96,12 @@ type whopKeyBody struct {
 	TakeOver bool   `json:"takeOver"`
 }
 
-// whopAccount is the stored connection.
-type whopAccount struct {
-	whop.Account
-	Key         string
-	ConnectedBy string
-	ConnectedAt time.Time
-	SyncedAt    time.Time
-	Problem     string
-	// WebhookID is the webhook Whop sends membership events to, at
-	// WebhookURL, signed with WebhookSecret.
-	WebhookID, WebhookURL, WebhookSecret string
-	// PolledAt is when the dashboard last read every membership.
-	PolledAt time.Time
-	// MarkedAs is the address the dashboard last marked the store's
-	// products with, and TakenOverBy the dashboard that took the store
-	// over, at TakenOverAt.
-	MarkedAs, TakenOverBy string
-	TakenOverAt           time.Time
-}
-
 func (s *Server) whopClient(key string) (*whop.Client, error) {
 	base, err := whop.CheckAPIURL(s.cfg.WhopAPIURL)
 	if err != nil {
 		return nil, err
 	}
 	return &whop.Client{APIURL: base, Key: key, UserAgent: "Playkeeper/" + version.Version}, nil
-}
-
-// storedWhop is the connection, or ok false when there is none.
-func (s *Server) storedWhop() (whopAccount, bool, error) {
-	var a whopAccount
-	var connected, synced, polled, takenOver int64
-	err := s.db.QueryRow(`SELECT account_id, title, route, api_key, connected_by, connected_at, synced_at, problem, webhook_id, webhook_url, webhook_secret, polled_at,
-		marked_as, taken_over_by, taken_over_at
-		FROM whop_account WHERE id = 1`).
-		Scan(&a.ID, &a.Title, &a.Route, &a.Key, &a.ConnectedBy, &connected, &synced, &a.Problem, &a.WebhookID, &a.WebhookURL, &a.WebhookSecret, &polled,
-			&a.MarkedAs, &a.TakenOverBy, &takenOver)
-	if isNoRows(err) {
-		return whopAccount{}, false, nil
-	}
-	if err != nil {
-		return whopAccount{}, false, err
-	}
-	a.ConnectedAt, a.SyncedAt, a.PolledAt = time.UnixMilli(connected).UTC(), msTimeOrZero(synced), msTimeOrZero(polled)
-	a.TakenOverAt = msTimeOrZero(takenOver)
-	return a, true, nil
 }
 
 func msTimeOrZero(ms int64) time.Time {
@@ -151,11 +111,11 @@ func msTimeOrZero(ms int64) time.Time {
 	return time.UnixMilli(ms).UTC()
 }
 
-// whopView reads Settings › Sell on Whop as it stands.
+// whopView reads Settings › Sell on Whop as it stands: the key store's.
 func (s *Server) whopView(ctx context.Context) (whopView, error) {
 	v := whopView{Plans: []whopPlanView{}, Customers: []whopCustomerView{}, Needs: whop.Needs}
 	v.Dashboard, _ = s.dashboardURL(ctx)
-	a, ok, err := s.storedWhop()
+	a, ok, err := s.keyStore(ctx)
 	if err != nil || !ok {
 		return v, err
 	}
@@ -181,7 +141,7 @@ func (s *Server) whopView(ctx context.Context) (whopView, error) {
 		}
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from
-		FROM whop_plans WHERE visibility != 'archived' ORDER BY position`)
+		FROM whop_plans WHERE store_id = ? AND visibility != 'archived' ORDER BY position`, a.ID)
 	if err != nil {
 		return v, err
 	}
@@ -231,7 +191,7 @@ func (s *Server) hWhopConnect(w http.ResponseWriter, r *http.Request, sess *sess
 		s.whopRefusal(w, sess, err)
 		return
 	}
-	prev, had, err := s.storedWhop()
+	prev, had, err := s.keyStore(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -239,6 +199,15 @@ func (s *Server) hWhopConnect(w http.ResponseWriter, r *http.Request, sess *sess
 	if had && prev.ID != acc.ID {
 		writeErr(w, http.StatusConflict, api.CodeConflict, fmt.Sprintf("This dashboard sells for %s. That key belongs to %s.", whopName(prev.Account), whopName(acc)),
 			"Disconnect first to sell for another business.")
+		return
+	}
+	switch app, ok, err := s.whopStoreByID(ctx, acc.ID); {
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	case ok && app.Via != whopViaKey:
+		writeErr(w, http.StatusConflict, api.CodeConflict, fmt.Sprintf("%s sells through the Playkeeper Cloud app on this dashboard already.", whopName(acc)),
+			"Its store needs no key of its own.")
 		return
 	}
 	missing, err := c.Missing(ctx, acc.ID)
@@ -280,10 +249,10 @@ func (s *Server) hWhopConnect(w http.ResponseWriter, r *http.Request, sess *sess
 	// sells and this one doesn't (see readWhopStore). A new key has every
 	// membership read at once, so purchases the dashboard missed are caught.
 	now := s.now().UnixMilli()
-	if _, err := s.db.Exec(`INSERT INTO whop_account(id, account_id, title, route, api_key, connected_by, connected_at, taken_over_by) VALUES(1,?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET title = excluded.title, route = excluded.route, api_key = excluded.api_key, problem = '',
+	if _, err := s.db.Exec(`INSERT INTO whop_stores(store_id, via, title, route, api_key, connected_by, connected_at, taken_over_by) VALUES(?,?,?,?,?,?,?,?)
+		ON CONFLICT(store_id) DO UPDATE SET title = excluded.title, route = excluded.route, api_key = excluded.api_key, problem = '',
 		taken_over_by = excluded.taken_over_by, taken_over_at = 0, polled_at = 0`,
-		acc.ID, acc.Title, acc.Route, key, sess.User.Username, now, other); err != nil {
+		acc.ID, whopViaKey, acc.Title, acc.Route, key, sess.User.Username, now, other); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
@@ -301,7 +270,7 @@ func (s *Server) hWhopConnect(w http.ResponseWriter, r *http.Request, sess *sess
 		detail += fmt.Sprintf("; took on the customers from before stores (%d)", adopted)
 	}
 	if other != "" {
-		detail += "; " + s.takeoverOutcome(other)
+		detail += "; " + s.takeoverOutcome(ctx, other)
 	}
 	s.audit(sess.User.Username, "whop.connect", acc.ID, "succeeded", detail)
 	s.answerWhop(w, r)
@@ -320,10 +289,10 @@ func (s *Server) adoptWhopCustomers(ctx context.Context, store string) (int64, e
 	return res.RowsAffected()
 }
 
-// takeoverOutcome says whether taking the store over from other worked,
+// takeoverOutcome says whether taking the key store over from other worked,
 // and if not, why, for the audit log.
-func (s *Server) takeoverOutcome(other string) string {
-	a, ok, err := s.storedWhop()
+func (s *Server) takeoverOutcome(ctx context.Context, other string) string {
+	a, ok, err := s.keyStore(ctx)
 	if err == nil && ok && a.TakenOverBy == "" {
 		return "took the store over from " + other
 	}
@@ -383,7 +352,7 @@ func (s *Server) hWhopSync(w http.ResponseWriter, r *http.Request, sess *session
 	}
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
-	a, ok, err := s.storedWhop()
+	a, ok, err := s.keyStore(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -399,7 +368,7 @@ func (s *Server) hWhopSync(w http.ResponseWriter, r *http.Request, sess *session
 	}
 	// Reading the store again reads every membership again too, at the
 	// reconciler's next pass.
-	if _, err := s.db.Exec(`UPDATE whop_account SET polled_at = 0 WHERE id = 1`); err != nil {
+	if _, err := s.db.Exec(`UPDATE whop_stores SET polled_at = 0 WHERE store_id = ?`, a.ID); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
@@ -407,9 +376,9 @@ func (s *Server) hWhopSync(w http.ResponseWriter, r *http.Request, sess *session
 	defer cancel()
 	s.syncWhop(ctx, c, a.ID, req.TakeOver)
 	if req.TakeOver && a.TakenOverBy != "" {
-		outcome := s.takeoverOutcome(a.TakenOverBy)
+		outcome := s.takeoverOutcome(ctx, a.TakenOverBy)
 		result := "succeeded"
-		if s.whopTakenOver() {
+		if s.whopTakenOver(a.ID) {
 			result = "failed"
 		}
 		s.audit(sess.User.Username, "whop.take_over", a.ID, result, outcome)
@@ -449,7 +418,7 @@ func (s *Server) hWhopPlan(w http.ResponseWriter, r *http.Request, sess *session
 	}
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
-	a, ok, err := s.storedWhop()
+	a, ok, err := s.keyStore(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -457,7 +426,7 @@ func (s *Server) hWhopPlan(w http.ResponseWriter, r *http.Request, sess *session
 	id := r.PathValue("plan")
 	var from, title string
 	if ok {
-		err = s.db.QueryRow(`SELECT allowance_from, title FROM whop_plans WHERE plan_id = ?`, id).Scan(&from, &title)
+		err = s.db.QueryRow(`SELECT allowance_from, title FROM whop_plans WHERE store_id = ? AND plan_id = ?`, a.ID, id).Scan(&from, &title)
 	}
 	switch {
 	case !ok || isNoRows(err):
@@ -474,8 +443,8 @@ func (s *Server) hWhopPlan(w http.ResponseWriter, r *http.Request, sess *session
 	if al.IsZero() {
 		newFrom = ""
 	}
-	if _, err := s.db.Exec(`UPDATE whop_plans SET allowance_servers = ?, allowance_memory_mb = ?, allowance_from = ? WHERE plan_id = ?`,
-		al.Servers, al.MemoryMB, newFrom, id); err != nil {
+	if _, err := s.db.Exec(`UPDATE whop_plans SET allowance_servers = ?, allowance_memory_mb = ?, allowance_from = ? WHERE store_id = ? AND plan_id = ?`,
+		al.Servers, al.MemoryMB, newFrom, a.ID, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
@@ -493,12 +462,13 @@ func (s *Server) hWhopPlan(w http.ResponseWriter, r *http.Request, sess *session
 	s.answerWhop(w, r)
 }
 
-// hWhopDisconnect stops selling: the store's products lose the dashboard's
-// address, so the store stops taking orders, and the key is forgotten.
+// hWhopDisconnect stops selling for the key store: its products lose the
+// dashboard's address, so it stops taking orders, and the key and all the
+// dashboard kept of the store are forgotten. Other stores go on as they were.
 func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *session) {
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
-	a, ok, err := s.storedWhop()
+	a, ok, err := s.keyStore(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -535,8 +505,16 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 		}
 	}
 	err = s.immediate(r.Context(), func(c *sql.Conn) error {
-		for _, q := range []string{`DELETE FROM whop_plans`, `DELETE FROM whop_memberships`, `DELETE FROM whop_customers`, `DELETE FROM whop_messages`,
-			`DELETE FROM whop_deliveries`, `DELETE FROM whop_stock`, `DELETE FROM whop_account`} {
+		for _, q := range []string{`DELETE FROM whop_plans WHERE store_id = ?`, `DELETE FROM whop_memberships WHERE store_id = ?`, `DELETE FROM whop_customers WHERE store_id = ?`,
+			`DELETE FROM whop_messages WHERE store_id = ?`, `DELETE FROM whop_stock WHERE store_id = ?`, `DELETE FROM whop_stores WHERE store_id = ?`} {
+			if _, err := c.ExecContext(r.Context(), q, a.ID); err != nil {
+				return err
+			}
+		}
+		// With no store left, the deliveries counted and Sign in with Whop go
+		// too, as they went with the one store before.
+		for _, q := range []string{`DELETE FROM whop_deliveries WHERE NOT EXISTS (SELECT 1 FROM whop_stores)`,
+			`UPDATE whop_app SET client_id = '', client_secret = '' WHERE NOT EXISTS (SELECT 1 FROM whop_stores)`} {
 			if _, err := c.ExecContext(r.Context(), q); err != nil {
 				return err
 			}
@@ -557,28 +535,28 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 	writeJSON(w, http.StatusOK, v)
 }
 
-// syncWhop reads the store's plans with what each allows, and marks its
+// syncWhop reads the key store's plans with what each allows, and marks its
 // products with the dashboard's address, claiming them from another
 // dashboard when claim says to (see markWhopProducts). What went wrong is
-// kept as the connection's problem for the page to show.
-func (s *Server) syncWhop(ctx context.Context, c *whop.Client, accountID string, claim bool) {
+// kept as the store's problem for the page to show.
+func (s *Server) syncWhop(ctx context.Context, c *whop.Client, storeID string, claim bool) {
 	problem := ""
-	if err := s.readWhopStore(ctx, c, accountID, claim); err != nil {
+	if err := s.readWhopStore(ctx, c, storeID, claim); err != nil {
 		problem = whopProblem(err)
-		s.log.Warn("could not read the store on Whop", "err", err)
+		s.log.Warn("could not read the store on Whop", "store", storeID, "err", err)
 	}
-	if a, ok, err := s.storedWhop(); err == nil && ok && a.TakenOverBy == "" {
+	if st, ok, err := s.whopStoreByID(ctx, storeID); err == nil && ok && st.Via == whopViaKey && st.TakenOverBy == "" {
 		if dash, err := s.dashboardURL(ctx); err == nil {
-			if err := s.ensureWhopWebhook(ctx, c, &a, dash); err != nil && problem == "" {
+			if err := s.ensureWhopWebhook(ctx, c, &st, dash); err != nil && problem == "" {
 				problem = whopProblem(err)
 				s.log.Warn("could not add Whop's webhook", "err", err)
 			}
 		}
 	}
-	if _, err := s.db.Exec(`UPDATE whop_account SET synced_at = ?, problem = ? WHERE id = 1`, s.now().UnixMilli(), problem); err != nil {
+	if _, err := s.db.Exec(`UPDATE whop_stores SET synced_at = ?, problem = ? WHERE store_id = ?`, s.now().UnixMilli(), problem, storeID); err != nil {
 		s.log.Error("could not record reading the store on Whop", "err", err)
 	}
-	s.kickWhop()
+	s.kickWhopStore(storeID)
 }
 
 func whopProblem(err error) string {
@@ -599,23 +577,35 @@ func whopProblem(err error) string {
 var errNoDashboardAddress = errors.New("This machine has no address with a certificate yet, so the store can't take orders. Give it one in Machine settings › Address.")
 
 // readWhopStore reads the store's plans with what each allows, and marks
-// its products for this dashboard. A dashboard another one took the store
-// over from marks nothing. One that claims the store sells again only once
-// its marks are written, which needs an address: until then the other
-// dashboard still sells.
-func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID string, claim bool) error {
-	products, err := c.Products(ctx, accountID)
-	if err != nil {
+// the key store's products for this dashboard. A dashboard another one
+// took the store over from marks nothing. One that claims the store sells
+// again only once its marks are written, which needs an address: until
+// then the other dashboard still sells. A plan another store has stays
+// that store's.
+func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, storeID string, claim bool) error {
+	st, ok, err := s.whopStoreByID(ctx, storeID)
+	switch {
+	case err != nil:
 		return err
+	case !ok:
+		return fmt.Errorf("this dashboard doesn't sell for %s", storeID)
 	}
-	plans, err := c.Plans(ctx, accountID)
+	// Only the key store's products carry the one-seller marks, so an app
+	// store's aren't read.
+	var products []whop.Product
+	if st.Via == whopViaKey {
+		if products, err = c.Products(ctx, storeID); err != nil {
+			return err
+		}
+	}
+	plans, err := c.Plans(ctx, storeID)
 	if err != nil {
 		return err
 	}
 	selling := map[string]bool{}
 	err = s.immediate(ctx, func(conn *sql.Conn) error {
 		owned := map[string]invites.Allowance{}
-		rows, err := conn.QueryContext(ctx, `SELECT plan_id, allowance_servers, allowance_memory_mb FROM whop_plans WHERE allowance_from = 'owner'`)
+		rows, err := conn.QueryContext(ctx, `SELECT plan_id, allowance_servers, allowance_memory_mb FROM whop_plans WHERE store_id = ? AND allowance_from = 'owner'`, storeID)
 		if err != nil {
 			return err
 		}
@@ -631,7 +621,8 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 		rows.Close()
 		// A plan someone still has stays, even once it's archived or gone
 		// from the list, so its customers keep what it gives them.
-		if _, err := conn.ExecContext(ctx, `DELETE FROM whop_plans WHERE plan_id NOT IN (SELECT plan_id FROM whop_memberships)`); err != nil {
+		if _, err := conn.ExecContext(ctx, `DELETE FROM whop_plans WHERE store_id = ? AND plan_id NOT IN (SELECT plan_id FROM whop_memberships WHERE store_id = ?)`,
+			storeID, storeID); err != nil {
 			return err
 		}
 		for i, p := range plans {
@@ -645,13 +636,13 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 			if !al.IsZero() && p.Visibility != "archived" {
 				selling[p.Product.ID] = true
 			}
-			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, disk_gb, position, stock, unlimited_stock, free)
-				VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(store_id, plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, disk_gb, position, stock, unlimited_stock, free)
+				VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 				ON CONFLICT(plan_id) DO UPDATE SET product_id = excluded.product_id, product_title = excluded.product_title, title = excluded.title, price = excluded.price,
 				visibility = excluded.visibility, trial_days = excluded.trial_days, allowance_servers = excluded.allowance_servers, allowance_memory_mb = excluded.allowance_memory_mb,
 				allowance_from = excluded.allowance_from, disk_gb = excluded.disk_gb, position = excluded.position, stock = excluded.stock, unlimited_stock = excluded.unlimited_stock,
-				free = excluded.free`,
-				p.ID, p.Product.ID, p.Product.Title, p.Title, p.Price(), p.Visibility, p.TrialDays, al.Servers, al.MemoryMB, from, whop.PlanDiskGB(p.Metadata), i,
+				free = excluded.free WHERE whop_plans.store_id = excluded.store_id`,
+				storeID, p.ID, p.Product.ID, p.Product.Title, p.Title, p.Price(), p.Visibility, p.TrialDays, al.Servers, al.MemoryMB, from, whop.PlanDiskGB(p.Metadata), i,
 				max(int(p.Stock), 0), p.UnlimitedStock, p.Free()); err != nil {
 				return err
 			}
@@ -661,34 +652,34 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 	if err != nil {
 		return err
 	}
+	if st.Via != whopViaKey {
+		return nil
+	}
 	dash, err := s.dashboardURL(ctx)
 	if err != nil {
 		return err
 	}
-	var markedAs, takenBy string
-	if err := s.db.QueryRowContext(ctx, `SELECT marked_as, taken_over_by FROM whop_account WHERE id = 1`).Scan(&markedAs, &takenBy); err != nil && !isNoRows(err) {
-		return err
-	}
+	markedAs, takenBy := st.MarkedAs, st.TakenOverBy
 	switch {
 	case takenBy != "" && !claim:
 		return nil
 	case takenBy != "" && dash == "":
 		return errNoDashboardAddress
 	case !claim && dash != "":
-		if taken, err := s.noticeTakeover(ctx, accountID, products, dash, markedAs); taken || err != nil {
+		if taken, err := s.noticeTakeover(ctx, storeID, products, dash, markedAs); taken || err != nil {
 			return err
 		}
 	}
-	if err := s.markWhopProducts(ctx, c, accountID, products, dash, []string{dash, markedAs}, claim && dash != ""); err != nil {
+	if err := s.markWhopProducts(ctx, c, storeID, products, dash, []string{dash, markedAs}, claim && dash != ""); err != nil {
 		return err
 	}
 	if dash != "" && dash != markedAs {
-		if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET marked_as = ? WHERE id = 1`, dash); err != nil {
+		if _, err := s.db.ExecContext(ctx, `UPDATE whop_stores SET marked_as = ? WHERE store_id = ?`, dash, storeID); err != nil {
 			return err
 		}
 	}
 	if takenBy != "" {
-		if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET taken_over_by = '', taken_over_at = 0 WHERE id = 1`); err != nil {
+		if _, err := s.db.ExecContext(ctx, `UPDATE whop_stores SET taken_over_by = '', taken_over_at = 0 WHERE store_id = ?`, storeID); err != nil {
 			return err
 		}
 	}
@@ -703,15 +694,15 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 // and says whether they do. dash and markedAs are this dashboard's own
 // addresses, now and when it last marked the products, so a new address
 // isn't mistaken for another dashboard.
-func (s *Server) noticeTakeover(ctx context.Context, accountID string, products []whop.Product, dash, markedAs string) (bool, error) {
-	other := otherSeller(products, accountID, dash, markedAs)
+func (s *Server) noticeTakeover(ctx context.Context, storeID string, products []whop.Product, dash, markedAs string) (bool, error) {
+	other := otherSeller(products, storeID, dash, markedAs)
 	if other == "" {
 		return false, nil
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET taken_over_by = ?, taken_over_at = ? WHERE id = 1`, other, s.now().UnixMilli()); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE whop_stores SET taken_over_by = ?, taken_over_at = ? WHERE store_id = ?`, other, s.now().UnixMilli(), storeID); err != nil {
 		return true, err
 	}
-	s.audit("system", "whop.taken_over", accountID, "succeeded", "another Playkeeper took the store over, at "+other+"; this dashboard stopped selling")
+	s.audit("system", "whop.taken_over", storeID, "succeeded", "another Playkeeper took the store over, at "+other+"; this dashboard stopped selling")
 	return true, nil
 }
 
@@ -728,16 +719,16 @@ func (s *Server) noticeTakeover(ctx context.Context, accountID string, products 
 // products already changed are put back as they were. Otherwise a takeover
 // Whop half took would stop the other dashboard, which sees the new marks,
 // while this one waits for the rest.
-func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID string, products []whop.Product, dash string, own []string, claim bool) error {
+func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, storeID string, products []whop.Product, dash string, own []string, claim bool) error {
 	if products == nil {
 		var err error
-		if products, err = c.Products(ctx, accountID); err != nil {
+		if products, err = c.Products(ctx, storeID); err != nil {
 			return err
 		}
 	}
 	selling := map[string]bool{}
 	if dash != "" {
-		rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT product_id FROM whop_plans WHERE allowance_from != '' AND visibility != 'archived'`)
+		rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT product_id FROM whop_plans WHERE store_id = ? AND allowance_from != '' AND visibility != 'archived'`, storeID)
 		if err != nil {
 			return err
 		}
@@ -757,10 +748,10 @@ func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID
 		if selling[p.ID] {
 			addr = dash
 		}
-		if seller := whop.Seller(p.Metadata, accountID); addr == "" && seller != "" && !slices.Contains(own, seller) && !claim {
+		if seller := whop.Seller(p.Metadata, storeID); addr == "" && seller != "" && !slices.Contains(own, seller) && !claim {
 			continue
 		}
-		meta, differs := whop.WithSeller(p.Metadata, addr, accountID)
+		meta, differs := whop.WithSeller(p.Metadata, addr, storeID)
 		if !differs {
 			continue
 		}
