@@ -193,13 +193,44 @@ func (s *Server) forgetLeft(ctx context.Context, q querier, machineID string, li
 }
 
 // customerMoving reports whether customer userID's servers are being moved,
-// or a move of theirs stopped before they all were. When that can't be
-// read, they are.
+// a move of theirs stopped before they all were, or any of them is on a
+// machine that isn't theirs and wasn't removed, as when a removed machine's
+// host joins again (serversApart). When that can't be read, they are.
 func (s *Server) customerMoving(ctx context.Context, userID int64) bool {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM customer_moves WHERE user_id = ?) + (SELECT COUNT(*) FROM server_moves WHERE user_id = ?)`,
 		userID, userID).Scan(&n)
-	return err != nil || n > 0
+	return err != nil || n > 0 || s.serversApart(ctx, userID)
+}
+
+// serversApart reports whether any server customer userID created is on a
+// machine other than theirs that wasn't removed: their allowance counts only
+// the servers on their machine, and their final backups can be kept on one
+// machine only. When that can't be read, one is.
+func (s *Server) serversApart(ctx context.Context, userID int64) bool {
+	home, _, err := s.homeMachine(ctx, userID)
+	if err != nil {
+		return true
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT sm.machine_id FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id
+		WHERE cs.user_id = ? AND sm.machine_id != ?`, userID, home)
+	if err != nil {
+		return true
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := s.machineByID(id); !errors.Is(err, errNotFound) {
+			return true
+		}
+	}
+	return false
 }
 
 // customerHeld reports whether customer userID is paused or suspended, so
@@ -340,6 +371,10 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 		}
 	}
 	now := millis(s.now())
+	// A server the customer is making meanwhile is among theirs before their
+	// move reads them, or refused once it's recorded (hCreateServer).
+	s.creators.Lock()
+	defer s.creators.Unlock()
 	err = s.immediate(ctx, func(c *sql.Conn) error {
 		if _, err := c.ExecContext(ctx, `INSERT INTO customer_moves(user_id, to_machine, started_at, started_by) VALUES(?,?,?,?)
 			ON CONFLICT(user_id) DO UPDATE SET to_machine = excluded.to_machine, started_at = excluded.started_at, started_by = excluded.started_by, error = ''`,
@@ -374,13 +409,23 @@ func guardOn(ctx context.Context, r machineRoom, actor string) error {
 }
 
 // moveCustomer moves customer userID's servers that aren't on their machine
-// there, one at a time, then forgets the move. One that fails stops it, and
-// the owner sees why. The dashboard stopping leaves it for its next start.
+// there, one at a time, then forgets the move once none is left elsewhere:
+// a server that got there meanwhile is moved too, and one still left stops
+// the move. One that fails stops it, and the owner sees why. The dashboard
+// stopping leaves it for its next start.
 func (s *Server) moveCustomer(ctx context.Context, userID int64) {
 	var name string
 	_ = s.db.QueryRow(`SELECT username FROM users WHERE id = ?`, userID).Scan(&name)
 	name = cmp.Or(name, strconv.FormatInt(userID, 10))
 	moved, err := s.moveServers(ctx, userID)
+	for pass := 1; err == nil && pass < 3 && s.serversApart(ctx, userID); pass++ {
+		var more int
+		more, err = s.moveServers(ctx, userID)
+		moved += more
+	}
+	if err == nil && s.serversApart(ctx, userID) {
+		err = errors.New("some of their servers are still on another machine")
+	}
 	if ctx.Err() != nil {
 		return
 	}
@@ -515,6 +560,11 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 	found, err := serverOn(ctx, from, id, &st)
 	switch {
 	case err == nil && !found:
+		// Its machine no longer has it, so its record there goes, as that
+		// machine's next listing would drop it.
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM server_machines WHERE server_id = ? AND machine_id = ?`, id, from.ID); err != nil {
+			return false, errDB
+		}
 		if moving {
 			// Deleted meanwhile, so the copy this move made goes too.
 			s.dropMove(ctx, mv)

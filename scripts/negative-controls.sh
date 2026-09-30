@@ -9414,6 +9414,24 @@ control "moving customers: an upload no move-in took goes" internal/panel/moves.
 		return fmt.Errorf("%s couldn'"'"'t make it from its folder: %w", machineLabel(to), err)' \
   '		return fmt.Errorf("%s couldn'"'"'t make it from its folder: %w", machineLabel(to), err)' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "moving customers: a move waits for a server the customer is making" internal/panel/moves.go \
+  '	s.creators.Lock()
+	defer s.creators.Unlock()
+	err = s.immediate(' \
+  '	err = s.immediate(' \
+  ./internal/panel '^TestAServerMadeAsAMoveStartsIsntLeftBehind$'
+control "moving customers: a server that turns up during a move is moved too" internal/panel/moves.go \
+  'for pass := 1; err == nil && pass < 3 && s.serversApart(ctx, userID); pass++ {' \
+  'for pass := 1; err == nil && pass < 1; pass++ {' \
+  ./internal/panel '^TestAServerThatTurnsUpDuringAMoveIsMovedToo$'
+control "moving customers: servers apart keep their customer moving" internal/panel/moves.go \
+  'return err != nil || n > 0 || s.serversApart(ctx, userID)' \
+  'return err != nil || n > 0' \
+  ./internal/panel '^TestServersApartAreBroughtTogether$'
+control "moving customers: a server its machine no longer has loses its record there" internal/panel/moves.go \
+  'DELETE FROM server_machines WHERE server_id = ? AND machine_id = ?' \
+  'DELETE FROM server_machines WHERE server_id = ? AND machine_id = ? AND 0' \
+  ./internal/panel '^TestAMoveThatCantGoOnLeavesItsServerWhereItWas$'
 control "moving customers: a moved server keeps what its agent kept about it" internal/panel/moves.go \
   'err = s.copyMoveState(ctx, id, from, to)' \
   'err = nil' \

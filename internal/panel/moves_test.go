@@ -1087,6 +1087,110 @@ func TestAResumedMoveTakesOnlyTheCopyItMade(t *testing.T) {
 	}
 }
 
+// A server a customer makes as the owner moves them is among their servers
+// when the move reads them, or refused: a move never leaves one behind on
+// the machine they're leaving with no move of theirs recorded.
+func TestAServerMadeAsAMoveStartsIsntLeftBehind(t *testing.T) {
+	f := newMoveFleet(t)
+	if _, err := f.e.srv.db.Exec(`UPDATE project_members SET allowance_servers = 2 WHERE user_id = ?`, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	f.ra.handle("POST /v1/servers", func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(entered) })
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"op-create2","serverId":"newserv234","kind":"create","status":"running"}`)
+	})
+	f.ra.reply("GET /v1/servers/newserv234", strings.NewReplacer(`"id":"cafebabe23"`, `"id":"newserv234"`, `"name":"alex"`, `"name":"alex 2"`, `"slug":"alex"`, `"slug":"alex-2"`).Replace(movedStatus))
+	f.ra.handle("POST /v1/servers/newserv234/stop", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"alex 2 is busy with a backup.","code":"busy"}`)
+	})
+	created, moving := make(chan int, 1), make(chan int, 1)
+	go func() {
+		created <- f.e.doAside("POST", "/api/machines/"+f.rid+"/servers", `{"name":"alex 2","acceptEula":true,"memoryMB":2048}`, f.alex.auth())
+	}()
+	<-entered
+	go func() {
+		moving <- f.e.doAside("POST", "/api/customers/"+strconv.FormatInt(f.alex.id, 10)+"/move", `{"machineId":"`+f.local+`"}`, f.own.auth())
+	}()
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) && f.rows(t, `SELECT COUNT(*) FROM customer_moves`) == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM customer_moves`); n != 0 {
+		t.Error("alex's move started while a server of theirs was being made")
+	}
+	close(release)
+	if code := <-created; code != http.StatusOK {
+		t.Fatalf("alex makes a server: %d", code)
+	}
+	if code := <-moving; code != http.StatusAccepted {
+		t.Fatalf("moving alex: %d", code)
+	}
+	if why := f.moved(t); !strings.Contains(why, "alex 2") || f.rows(t, `SELECT COUNT(*) FROM customer_moves WHERE user_id = ?`, f.alex.id) != 1 {
+		t.Errorf("the move left alex's new server behind: %q", why)
+	}
+}
+
+// A server of the customer's that turns up on the machine they're leaving
+// while they move, as when a removed machine's host joins again with it, is
+// moved too, and the move isn't forgotten while one is left there.
+func TestAServerThatTurnsUpDuringAMoveIsMovedToo(t *testing.T) {
+	f := newMoveFleet(t)
+	var once sync.Once
+	f.ra.handle("GET /v1/servers/"+movedServer+"/move-out", func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() {
+			for _, q := range []string{
+				fmt.Sprintf(`INSERT INTO creator_servers(server_id, user_id, created_at) VALUES('lateserv23', %d, 0)`, f.alex.id),
+				fmt.Sprintf(`INSERT INTO server_machines(server_id, machine_id, slug, seen_at) VALUES('lateserv23', '%s', 'late', 0)`, f.rid),
+			} {
+				if _, err := f.e.srv.db.Exec(q); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Write(f.archive)
+	})
+	f.ra.reply("GET /v1/servers/lateserv23", strings.NewReplacer(`"id":"cafebabe23"`, `"id":"lateserv23"`, `"name":"alex"`, `"name":"late"`, `"slug":"alex"`, `"slug":"late"`).Replace(movedStatus))
+	f.ra.handle("POST /v1/servers/lateserv23/stop", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"late is busy with a backup.","code":"busy"}`)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.HasPrefix(why, "late:") || f.rows(t, `SELECT COUNT(*) FROM customer_moves WHERE user_id = ?`, f.alex.id) != 1 {
+		t.Errorf("the server that turned up during alex's move: %q", why)
+	}
+}
+
+// A server of a customer's on a machine that isn't theirs and wasn't
+// removed, with no move of theirs recorded, as when a removed machine's host
+// joins again with it, keeps them from making servers, and the owner can
+// move them to bring their servers together, their plan ended or not.
+func TestServersApartAreBroughtTogether(t *testing.T) {
+	f := newMoveFleet(t)
+	if _, err := f.e.srv.db.Exec(`UPDATE customer_homes SET machine_id = ? WHERE user_id = ?`, f.local, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.e.do(t, "POST", "/api/machines/"+f.local+"/servers", `{"name":"alex 2","acceptEula":true,"memoryMB":2048}`, f.alex.auth()); r.status != http.StatusConflict {
+		t.Errorf("alex makes a server with theirs apart: %d %v", r.status, r.body)
+	}
+	f.pause(t, f.e.clock.now().Add(-time.Hour))
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex, their plan ended, to bring their servers together: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" || f.recorded(t) != f.local {
+		t.Fatalf("bringing alex's servers together: %q, requests go to %q", why, f.recorded(t))
+	}
+}
+
 // Removing a machine places its customers again, as new customers are:
 // each gets the fullest other machine with room for their plan, or waits
 // for room, and their servers stay on the removed machine. A move of theirs

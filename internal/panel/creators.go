@@ -144,10 +144,6 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 	if !ok {
 		return
 	}
-	if err := s.homeRefusal(r.Context(), a, m); err != nil {
-		writeRefusal(w, err)
-		return
-	}
 	mb, ok := memoryField(w, r)
 	if !ok {
 		return
@@ -158,6 +154,12 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 	}
 	s.creators.Lock()
 	defer s.creators.Unlock()
+	// Under the lock a move takes as it starts (startMove), so a move either
+	// finds this server among theirs, or refuses it.
+	if err := s.homeRefusal(r.Context(), a, m); err != nil {
+		writeRefusal(w, err)
+		return
+	}
 	use, err := s.allowanceUse(r.Context(), a, m, "")
 	if err != nil {
 		s.listFailure(w, err)
