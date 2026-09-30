@@ -1,6 +1,7 @@
 /* The AI build battle's page, for people who saw the videos, mostly on a
    phone: the hero with the clip beside it, or under it below 1024 pixels,
-   the three steps with what the template does beside them, and the FAQ. */
+   the three steps with what the template does beside them, or under them
+   below 1280, and the FAQ. */
 .aibb-hero { padding: 40px 0 88px; }
 .aibb-row { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; align-items: center; }
 .aibb-eyebrow { margin-bottom: 16px; }
@@ -15,7 +16,7 @@
 
 .aibb-how-row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 64px; align-items: start; }
 .aibb-steps { margin-top: 28px; }
-.aibb-steps .step { padding: 16px 0; }
+.aibb-steps .step { grid-template-columns: 32px minmax(0, 1fr); padding: 16px 0; }
 .aibb-steps .step-title { font-size: 19px; margin-bottom: 6px; }
 .aibb-install { margin-top: 16px; }
 .aibb-steps .aibb-after { margin-top: 12px; font-size: 15px; }
@@ -27,24 +28,31 @@
 .aibb-facts dt { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.35; }
 .aibb-facts dd { margin: 4px 0 0; color: var(--sage); font-size: 15.5px; line-height: 1.55; }
 
+/* The steps have what the template does beside them only where the install
+   command fits on one line beside it. */
 @media (max-width: 1279.98px) {
   .aibb-h1 { font-size: 52px; }
+  .aibb-how-row { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .aibb-how-steps { max-width: 760px; }
+  .aibb-facts { margin-top: 0; }
+  .aibb-facts dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 40px; }
 }
-/* The clip goes under the words, and what the template does under the
-   steps. */
+/* The clip goes under the words. */
 @media (max-width: 1023.98px) {
-  .aibb-row, .aibb-how-row { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+  .aibb-row { grid-template-columns: minmax(0, 1fr); gap: 36px; }
   .aibb-text { max-width: 640px; }
-  .aibb-facts { margin-top: 0; max-width: 640px; }
 }
-/* On phones the install command takes the step's whole width, so its lines
-   fit beside no number. */
+/* Below 768 pixels the install command takes the step's whole width, so it
+   fits on one line, or its lines on phones, beside no number. */
+@media (max-width: 767.98px) {
+  .aibb-install { width: calc(100% + 46px); margin-left: -46px; }
+}
 @media (max-width: 639.98px) {
   .aibb-hero { padding: 16px 0 48px; }
   .aibb-row { gap: 28px; }
   .aibb-h1 { font-size: 40px; line-height: 1.04; margin-bottom: 16px; }
   .aibb-steps { margin-top: 20px; }
-  .aibb-install { width: calc(100% + 46px); margin-left: -46px; }
   .aibb-needs { margin-left: 0; }
   .aibb-facts { padding: 24px 20px; }
+  .aibb-facts dl { grid-template-columns: minmax(0, 1fr); gap: 20px; }
 }
