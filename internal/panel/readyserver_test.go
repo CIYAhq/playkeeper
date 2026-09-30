@@ -197,3 +197,65 @@ func TestOnlyAnActiveCustomerIsToldTheirServerIsReady(t *testing.T) {
 		t.Fatalf("a suspended customer whose plan started again was told %v", k)
 	}
 }
+
+// A customer told their server was ready who then loses their machine, as a
+// removed machine's customers do, with no room on another, isn't told their
+// server is being set up: they're told once that there's no room for their
+// servers, their dashboard and a new server's refusal say so, and once room
+// appears they're told once that there's room again.
+func TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp(t *testing.T) {
+	e := newJoinEnv(t)
+	owner(t, e.env)
+	e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	e.reply("GET", "/v1/servers", `[]`)
+	n := &recordingNotifier{}
+	e.srv.notifier = n
+	core := customerCore{s: e.srv}
+	ctx := context.Background()
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+		t.Fatal(err)
+	}
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	alex := signIn(t, e.env, info.UserID)
+	e.reply("GET", "/v1/machine", liveMachine(0, true))
+	if _, err := e.srv.db.Exec(`UPDATE customer_homes SET machine_id = '' WHERE user_id = ?`, info.UserID); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := e.srv.startWaitingCustomer(ctx, info.UserID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if k := n.kinds(); !slices.Equal(k, []string{messageReady, messageNoRoom}) || !strings.Contains(n.sent[1].Text, "no room for your Playkeeper servers") {
+		t.Fatalf("what alex was told once their machine went: %v %+v", k, n.sent)
+	}
+	var me struct {
+		Access struct {
+			WaitingForRoom bool `json:"waitingForRoom"`
+			WaitingAgain   bool `json:"waitingAgain"`
+		} `json:"access"`
+	}
+	e.get(t, "/api/auth/me", alex.cookie, &me)
+	if !me.Access.WaitingForRoom || !me.Access.WaitingAgain {
+		t.Errorf("alex's dashboard once their machine went: %+v", me.Access)
+	}
+	create := `{"name":"alex","acceptEula":true,"memoryMB":4096}`
+	if r := e.do(t, "POST", "/api/machines/"+machineID(t, e.env)+"/servers", create, alex.auth()); r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "There's no room for your servers") {
+		t.Errorf("alex creates a server with no room once their machine went: %d %v", r.status, r.body)
+	}
+
+	e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	for range 2 {
+		if err := e.srv.startWaitingCustomer(ctx, info.UserID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if k := n.kinds(); !slices.Equal(k, []string{messageReady, messageNoRoom, messageRoomAgain}) || !strings.Contains(n.sent[2].Text, "room for your Playkeeper servers again") {
+		t.Fatalf("what alex was told once room appeared again: %v %+v", k, n.sent)
+	}
+	me.Access.WaitingForRoom, me.Access.WaitingAgain = false, false
+	e.get(t, "/api/auth/me", alex.cookie, &me)
+	if me.Access.WaitingForRoom || me.Access.WaitingAgain {
+		t.Errorf("alex's dashboard once placed again: %+v", me.Access)
+	}
+}

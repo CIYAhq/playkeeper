@@ -737,8 +737,8 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				// A customer waiting for room has no machine yet, and is
 				// told so whichever one the path names.
 				if mid := r.PathValue("mid"); mid != "" && !s.machineShown(r.Context(), acct, mid) {
-					if s.customerWaiting(r.Context(), acct) {
-						writeRefusal(w, errWaitingForRoom)
+					if err := s.waitingRefusal(r.Context(), acct); err != nil {
+						writeRefusal(w, err)
 					} else {
 						writeErr(w, http.StatusNotFound, api.CodeNotFound, "Machine not found.", "")
 					}
@@ -1055,9 +1055,11 @@ type accessBody struct {
 	NeedsTwoFactor       bool `json:"needsTwoFactor,omitempty"`
 	AwaitingConfirmation bool `json:"awaitingConfirmation,omitempty"`
 	// WaitingForRoom is set for a customer whose server is being set up,
-	// waiting for room on a machine (see readyserver.go), and Home for a
-	// creator is the machine their servers go on (homeMachine).
+	// waiting for room on a machine (see readyserver.go), WaitingAgain too
+	// once they've lost the machine they had, and Home for a creator is the
+	// machine their servers go on (homeMachine).
 	WaitingForRoom bool   `json:"waitingForRoom,omitempty"`
+	WaitingAgain   bool   `json:"waitingAgain,omitempty"`
 	Home           string `json:"home,omitempty"`
 	// PausedUntil is set for a customer whose plan ended: when their servers
 	// are deleted unless they renew (see pausing.go). ServersDeleted is set
@@ -1079,7 +1081,8 @@ func (s *Server) meBody(sess session) map[string]any {
 		"csrfToken": sess.CSRF,
 		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
-			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), Home: s.creatorHome(a), PausedUntil: s.pausedUntil(a),
+			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), WaitingAgain: s.waitingAgain(context.Background(), a),
+			Home: s.creatorHome(a), PausedUntil: s.pausedUntil(a),
 			ServersDeleted: s.serversDeleted(a), FinalBackups: s.hasFinalBackups(a), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),

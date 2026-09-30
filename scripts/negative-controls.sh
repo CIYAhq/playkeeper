@@ -9662,6 +9662,30 @@ control "moving customers: a removed machine's host joining again lists its copy
   'if adopted, err := adoptLeftCopy(ctx, c, id, m.ID); err != nil {' \
   'if adopted, err := false, error(nil); err != nil {' \
   ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "removing a machine: a customer who lost theirs is told there's no room for their servers" internal/panel/readyserver.go \
+  '	case toldReady != 0 && !placed && toldWaiting == 0:' \
+  '	case false && toldReady != 0 && !placed && toldWaiting == 0:' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs is told once there's room again" internal/panel/readyserver.go \
+  '	case toldReady != 0 && placed && toldWaiting != 0:' \
+  '	case false && toldReady != 0 && placed && toldWaiting != 0:' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: the round for customers waiting tells one who lost theirs there's no room" internal/panel/readyserver.go \
+  '		return s.tellPlaced(ctx, cust, userID, false)' \
+  '		return nil' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs is refused a server as having no room, not as being set up" internal/panel/readyserver.go \
+  '		return errNoRoomAgain' \
+  '		return errWaitingForRoom' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs has a dashboard that says so" internal/panel/server.go \
+  'WaitingAgain: s.waitingAgain(context.Background(), a),' \
+  'WaitingAgain: false,' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+webcontrol "removing a machine: Home tells a customer who lost theirs there's no room, not that a server is being set up" web/src/pages/home.tsx \
+  "t(again ? 'home.noRoomTitle' : 'home.settingUpTitle')" \
+  "t('home.settingUpTitle')" \
+  src/pages/pages.test.tsx 'lost their machine'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside
