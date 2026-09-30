@@ -9144,6 +9144,56 @@ control "moving in: an agent that dies before its journal keeps it stopped" inte
   '' \
   ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
 
+# AI keys (0.4.9): only admins see, save and remove them; a key must look
+# like its provider's; its file and folder are the game user's alone, beside
+# data/; only a server with the folder mounts it, read-only, so no other
+# server's container changes; the plugin's server gets the folder before it
+# starts; a running container without the mount says it waits for a restart.
+control "seeing whether a server has an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"GET", "/api/servers/{id}/ai-keys", needSession, actViewFiles,' \
+  '{"GET", "/api/servers/{id}/ai-keys", needSession, actView,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "saving an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"PUT", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actEditFiles,' \
+  '{"PUT", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actRunServers,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "removing an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"DELETE", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actEditFiles,' \
+  '{"DELETE", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actRunServers,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "an AI key that isn't its provider's is refused" internal/agent/aikeys.go \
+  'case !strings.HasPrefix(key, p.prefix):' \
+  'case false:' \
+  ./internal/agent '^TestAnAIKeyIsCheckedWithoutBeingQuoted$'
+control "an AI key with spaces or other characters is refused" internal/agent/aikeys.go \
+  "case strings.ContainsFunc(key, func(r rune) bool { return r < '!' || r > '~' }):" \
+  'case false:' \
+  ./internal/agent '^TestAnAIKeyIsCheckedWithoutBeingQuoted$'
+control "an AI key's file is the game user's alone to read" internal/agent/aikeys.go \
+  'err = f.Chmod(0o400)' \
+  'err = f.Chmod(0o644)' \
+  ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
+control "the secrets folder is the game user's alone" internal/agent/aikeys.go \
+  'return s.setSecretsMode(0o500)' \
+  'return s.setSecretsMode(0o755)' \
+  ./internal/agent '^TestAServerWithThePluginMountsItsSecretsFolderFromItsStart$'
+control "only a server with its secrets folder mounts it" internal/agent/lifecycle.go \
+  'if !setupOnly && s.hasSecretsDir() {' \
+  'if !setupOnly {' \
+  ./internal/agent '^TestOnlyAServerWithASecretsFolderMountsIt$'
+control "the secrets folder is mounted read-only" internal/agent/lifecycle.go \
+  'keys := s.secretsDir() + ":" + secretsMount + ":ro"' \
+  'keys := s.secretsDir() + ":" + secretsMount' \
+  ./internal/agent '^TestOnlyAServerWithASecretsFolderMountsIt$'
+control "a server with the AI Build Battle plugin gets its secrets folder before it starts" internal/agent/lifecycle.go \
+  'if err := s.prepareSecrets(); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAServerWithThePluginMountsItsSecretsFolderFromItsStart$'
+control "a key saved while the container lacks the mount waits for a restart" internal/agent/aikeys.go \
+  'out.Pending = set && s.secretsPending(ctx)' \
+  'out.Pending = false' \
+  ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
