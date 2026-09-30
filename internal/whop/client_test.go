@@ -220,6 +220,54 @@ func TestPlanMembershipsAreThePlansAlone(t *testing.T) {
 	}
 }
 
+func TestMessagesGoOutAsTheOwnerWithATokenThatMaySendThemAlone(t *testing.T) {
+	var seen []string
+	answers := map[string]string{
+		"GET /accounts/me":    `{"id":"biz_pip","owner":{"id":"user_pip","username":"pipowner","name":"Pip"}}`,
+		"POST /access_tokens": `{"token":"ut_1","expires_at":"2026-09-30T13:00:00Z"}`,
+		"POST /messages":      `{"id":"msg_1"}`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		seen = append(seen, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization")+" "+string(b))
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, answers[r.Method+" "+r.URL.Path])
+	}))
+	defer srv.Close()
+	c := &Client{APIURL: srv.URL, Key: testKey}
+	ctx := context.Background()
+	owner, err := c.Owner(ctx)
+	if err != nil || owner != (User{ID: "user_pip", Username: "pipowner", Name: "Pip"}) {
+		t.Fatalf("Owner = %+v, %v", owner, err)
+	}
+	token, err := c.UserToken(ctx, "biz_pip", owner.ID, MessageAction)
+	if err != nil || token != "ut_1" {
+		t.Fatalf("UserToken = %q, %v", token, err)
+	}
+	if err := c.SendMessage(ctx, token, "feed_1", "Your server is ready"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"GET /accounts/me Bearer " + testKey + " ",
+		"POST /access_tokens Bearer " + testKey + ` {"account_id":"biz_pip","scoped_actions":["support_chat:message:create"],"user_id":"user_pip"}`,
+		`POST /messages Bearer ut_1 {"channel_id":"feed_1","content":"Your server is ready"}`,
+	}
+	if strings.Join(seen, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("requests:\n%s", strings.Join(seen, "\n"))
+	}
+	// A token asked for no actions would get every one the key has.
+	if _, err := c.UserToken(ctx, "biz_pip", owner.ID); err == nil || len(seen) != 3 {
+		t.Fatalf("a token for every action: %v, after %d requests", err, len(seen))
+	}
+	answers["GET /accounts/me"], answers["POST /access_tokens"] = `{"id":"biz_pip"}`, `{}`
+	if _, err := c.Owner(ctx); err == nil {
+		t.Fatal("an account Whop names no owner of")
+	}
+	if _, err := c.UserToken(ctx, "biz_pip", owner.ID, MessageAction); err == nil {
+		t.Fatal("an answer without a token")
+	}
+}
+
 func TestRedirectsAreNotFollowed(t *testing.T) {
 	var leaked atomic.Bool
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { leaked.Store(true) }))

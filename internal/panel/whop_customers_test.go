@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -189,6 +190,24 @@ func TestAConfirmedMembershipStartsTheCustomerAndTheCoresMessageReachesThem(t *t
 	if msgs := f.sent("user_alex"); len(msgs) != 1 || msgs[0] != ready {
 		t.Fatalf("messages: %q", msgs)
 	}
+	// Whop takes messages from people alone: it went out as the store's
+	// owner, with a token that may send support chat messages and nothing
+	// else.
+	f.mu.Lock()
+	senders := f.senders["chan_user_alex"]
+	var scopes [][]string
+	for _, tok := range f.tokens {
+		scopes = append(scopes, tok.actions)
+	}
+	f.mu.Unlock()
+	if !slices.Equal(senders, []string{whopTestOwner}) || len(scopes) == 0 {
+		t.Fatalf("sent by %q, with %d tokens", senders, len(scopes))
+	}
+	for _, s := range scopes {
+		if !slices.Equal(s, []string{whop.MessageAction}) {
+			t.Fatalf("a token that may do %q", s)
+		}
+	}
 	v := e.whopView(t, own)
 	if len(v.Customers) != 1 {
 		t.Fatalf("customers: %+v", v.Customers)
@@ -231,6 +250,56 @@ func TestTheNotifierTakesOnlyWhopCustomersAndSendsTheirMessagesInOrder(t *testin
 	e.reconcile()
 	if msgs := f.sent("user_alex"); len(msgs) != 2 || msgs[0] != "first" || msgs[1] != "second" {
 		t.Fatalf("messages: %q", msgs)
+	}
+}
+
+// A message that can't go out waits for its next try, and the customer's
+// row on the page says why until it goes: here Whop won't give the token to
+// send it with, and then the key lacks the permission a token needs.
+func TestAMessageThatCantGoOutShowsOnThePageUntilItDoes(t *testing.T) {
+	f, e, own := connectedWhop(t)
+	useFakeCore(e)
+	m := f.buy("mem_alex1", "user_alex", "plan_starter", "active")
+	e.deliver(t, "msg_1", whop.EventMembershipActivated, m)
+	e.reconcile()
+	problem := func() string {
+		t.Helper()
+		v := e.whopView(t, own)
+		if len(v.Customers) != 1 {
+			t.Fatalf("customers: %+v", v.Customers)
+		}
+		return v.Customers[0].MessageProblem
+	}
+	if p := problem(); p != "" {
+		t.Fatalf("a problem before any message: %q", p)
+	}
+	f.mu.Lock()
+	f.tokenDown = true
+	f.mu.Unlock()
+	alex := Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alexplays"}
+	if err := e.srv.notifier.Notify(context.Background(), alex, CustomerMessage{Kind: "ready", Text: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	if p := problem(); len(f.sent("user_alex")) != 0 || p != "Whop said: Something went wrong" {
+		t.Fatalf("while Whop gives no token: sent %q, problem %q", f.sent("user_alex"), p)
+	}
+	f.mu.Lock()
+	f.tokenDown = false
+	f.missing[whop.MessageAction] = true
+	f.mu.Unlock()
+	e.clock.add(2 * time.Minute)
+	e.reconcile()
+	if p := problem(); len(f.sent("user_alex")) != 0 || !strings.Contains(p, "missing all required permissions: support_chat:message:create") {
+		t.Fatalf("with a key that lacks the permission: sent %q, problem %q", f.sent("user_alex"), p)
+	}
+	f.mu.Lock()
+	delete(f.missing, whop.MessageAction)
+	f.mu.Unlock()
+	e.clock.add(4 * time.Minute)
+	e.reconcile()
+	if p := problem(); !slices.Equal(f.sent("user_alex"), []string{"ready"}) || p != "" {
+		t.Fatalf("once it can go: sent %q, problem %q", f.sent("user_alex"), p)
 	}
 }
 

@@ -1991,6 +1991,8 @@ describe('Sell on Whop', () => {
     answer({ '/api/whop': { ...open, signIn: { redirectUri: redirect } } })
     const text = await render(<SellOnWhopSection />, owner)
     expect(text).toContain(`Redirect URL: ${redirect}`)
+    expect(text).toContain('add the oauth:token_exchange permission on the app’s own Permissions tab (not on an API key), then paste the app’s ID and client secret here.')
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="App’s client secret"]')?.type).toBe('password')
     expect(button('Turn on').disabled).toBe(true)
     await typeInto('input[aria-label="Whop app ID"]', ' app_pipcloud ')
     vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn: { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: redirect } })
@@ -2001,6 +2003,13 @@ describe('Sell on Whop', () => {
     await click('Turn off')
     expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/whop/signin')
     expect(document.body.textContent).toContain(`Redirect URL: ${redirect}`)
+  })
+
+  it('says why a message to a customer hasn’t gone out, as the store needing a look', async () => {
+    answer({ '/api/whop': { ...open, customers: [{ ...open.customers[0], messageProblem: 'Whop said: Something went wrong' }] } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Pip HostingNeeds a look')
+    expect(text).toContain('alexplaysActive as alexplays · Starter · Up to 1 server with 4 GBTheir messages on Whop aren’t going out. Whop said: Something went wrong')
   })
 
   it('says Sign in with Whop needs the machine’s address', async () => {

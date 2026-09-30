@@ -491,6 +491,44 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 	}
 }
 
+// A move whose last step, sending the server's requests to the machine it
+// moved to, fails is a failed move too: the server's requests stay where it
+// was, it starts again there, and the copy the move made goes, rather than
+// the server staying stopped and unreachable until the move is tried again.
+func TestAMoveWhoseSwitchFailsLeavesTheServerWhereItWas(t *testing.T) {
+	f := newMoveFleet(t)
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-undo","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-undo", `{"id":"op-undo","status":"succeeded"}`)
+	if _, err := f.e.srv.db.Exec(`CREATE TRIGGER switch_fails BEFORE INSERT ON left_copies WHEN NEW.machine_id = '` + f.rid + `' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.HasPrefix(why, "alex: its requests couldn't go to the dashboard's machine") {
+		t.Errorf("why the move stopped: %q", why)
+	}
+	if at := f.recorded(t); at != f.rid {
+		t.Errorf("after a failed switch the server's requests go to %q", at)
+	}
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); !ok {
+		t.Error("the server that ran didn't start again where it was")
+	}
+	if f.made() {
+		t.Error("the copy the move made is still on the dashboard's machine")
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM server_moves`); n != 0 {
+		t.Errorf("%d moves still under way", n)
+	}
+}
+
 // Only the owner moves customers and sees whose servers go on a machine:
 // the move's what customers can never see, and it's the owner's machines'
 // room it uses. So only the owner removes a machine customers are on, which

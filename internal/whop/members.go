@@ -114,6 +114,38 @@ func (c *Client) User(ctx context.Context, id string) (User, error) {
 	return u, err
 }
 
+// Owner is the one user who owns the account the key belongs to.
+func (c *Client) Owner(ctx context.Context) (User, error) {
+	var a struct {
+		Owner User `json:"owner"`
+	}
+	err := c.do(ctx, http.MethodGet, "/accounts/me", nil, nil, &a)
+	if err == nil && a.Owner.ID == "" {
+		err = errors.New("Whop didn't say who owns the account")
+	}
+	return a.Owner, err
+}
+
+// MessageAction is what a token needs to send messages in support chats.
+const MessageAction = "support_chat:message:create"
+
+// UserToken gets a token that acts as userID inside the account and may do
+// actions alone, for the hour Whop keeps it good. Whop gives a token asked
+// for no actions every one the key has, so one is never asked for.
+func (c *Client) UserToken(ctx context.Context, accountID, userID string, actions ...string) (string, error) {
+	if len(actions) == 0 {
+		return "", errors.New("a token needs the actions it may do")
+	}
+	var t struct {
+		Token string `json:"token"`
+	}
+	err := c.do(ctx, http.MethodPost, "/access_tokens", nil, map[string]any{"account_id": accountID, "user_id": userID, "scoped_actions": actions}, &t)
+	if err == nil && t.Token == "" {
+		err = errors.New("Whop's answer had no token")
+	}
+	return t.Token, err
+}
+
 // OpenSupportChat opens the account's support chat with a buyer, or finds
 // the one there is, and returns its channel.
 func (c *Client) OpenSupportChat(ctx context.Context, accountID, userID string) (string, error) {
@@ -124,7 +156,11 @@ func (c *Client) OpenSupportChat(ctx context.Context, accountID, userID string) 
 	return ch.ID, err
 }
 
-// SendMessage posts text, in Markdown, to a channel.
-func (c *Client) SendMessage(ctx context.Context, channelID, text string) error {
-	return c.do(ctx, http.MethodPost, "/messages", nil, map[string]any{"channel_id": channelID, "content": text}, nil)
+// SendMessage posts text, in Markdown, to a channel as the user token acts
+// as (see UserToken). Whop takes messages from people alone, so the key
+// itself can't send one.
+func (c *Client) SendMessage(ctx context.Context, token, channelID, text string) error {
+	as := *c
+	as.Key = token
+	return as.do(ctx, http.MethodPost, "/messages", nil, map[string]any{"channel_id": channelID, "content": text}, nil)
 }

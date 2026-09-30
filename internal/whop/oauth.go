@@ -25,6 +25,11 @@ import (
 // username, and not their email.
 const SignInScope = "openid profile"
 
+// TokenExchange is the permission the app itself needs on Whop, on its
+// Permissions tab rather than as a scope or on an API key, before Whop
+// trades a code for its secret.
+const TokenExchange = "oauth:token_exchange"
+
 // OAuthURL is where Whop's OAuth answers for an API location: /oauth at its
 // origin, such as https://api.whop.com/oauth.
 func OAuthURL(apiURL string) (string, error) {
@@ -130,6 +135,22 @@ func (o OAuth) Exchange(ctx context.Context, code, verifier string) (Tokens, err
 		return Tokens{}, errors.New("Whop's answer had no access token")
 	}
 	return t, nil
+}
+
+// CheckClient asks Whop whether it takes the app's ID and secret, by
+// trading a code nobody was given: Whop checks the app before the code, so
+// only an app it refuses answers invalid_client, and nothing is made.
+func (o OAuth) CheckClient(ctx context.Context) error {
+	verifier, err := NewVerifier()
+	if err != nil {
+		return err
+	}
+	_, err = o.Exchange(ctx, "playkeeper-check", verifier)
+	var e *OAuthError
+	if errors.As(err, &e) && e.Code == "invalid_client" {
+		return err
+	}
+	return nil
 }
 
 // UserInfo is who signed in: their Whop user id, username and name.

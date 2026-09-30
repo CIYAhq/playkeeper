@@ -9654,6 +9654,12 @@ control "removing a machine: only the owner removes one customers are on" intern
   '} else if n > 0 && !sess.Access.owner() {' \
   '} else if n > 0 && false {' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
+control "moving customers: a move whose switch fails leaves its server where it was" internal/panel/moves.go \
+  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+		if ctx.Err() == nil {' \
+  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+		if false {' \
+  ./internal/panel '^TestAMoveWhoseSwitchFailsLeavesTheServerWhereItWas$'
 control "moving customers: a copy left on a removed machine stays recorded" internal/panel/moves.go \
   '	case busy > 0:' \
   '	case busy > 0 || errors.Is(err, errNotFound):' \

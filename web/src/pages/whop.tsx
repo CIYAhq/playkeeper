@@ -208,7 +208,7 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
   const [disconnecting, setDisconnecting] = useState(false)
   const [editing, setEditing] = useState<WhopPlan>()
   const selling = store.plans.filter((p) => p.allowance)
-  const needsLook = Boolean(store.problem || store.takenOverBy)
+  const needsLook = Boolean(store.problem || store.takenOverBy || store.customers.some((c) => c.messageProblem))
 
   async function sync() {
     setSyncing(true)
@@ -468,6 +468,9 @@ function CustomerRow({ customer }: { customer: WhopCustomer }) {
         {plan && `${t('common.dot')}${plan}`}
       </p>
       {customer.problem && <p className="mt-1 text-xs text-destructive-foreground">{customer.problem}</p>}
+      {customer.messageProblem && (
+        <p className="mt-1 text-xs text-destructive-foreground">{t('whop.customer.messageProblem', { problem: customer.messageProblem })}</p>
+      )}
     </li>
   )
 }
