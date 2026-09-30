@@ -7554,8 +7554,8 @@ control "processor shares: no cap passes the machine's cores" internal/agent/dis
   ', int64(numCPU())*1_000_000_000*1000)' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: the dashboard gives each creator's servers half a core per GB" internal/panel/disklimits.go \
-  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]})' \
-  'Servers: ids, Hold: holds[uid]})' \
+  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: in.holds[uid]})' \
+  'Servers: ids, Hold: in.holds[uid]})' \
   ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
 
 # Playkeeper Cloud's disk limits, the dashboard's half
@@ -7790,8 +7790,8 @@ control "ready server: a customer with no home machine waits" internal/panel/rea
   'return err != nil' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: a waiting customer creates no server" internal/panel/server.go \
-  'if s.customerWaiting(r.Context(), acct) {' \
-  'if false {' \
+  'if err := s.waitingRefusal(r.Context(), acct); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: the dashboard says a customer is waiting" internal/panel/server.go \
   'WaitingForRoom: s.customerWaiting(context.Background(), a), ' \
@@ -7865,7 +7865,7 @@ control "pausing: pausing sends the machines the hold at once" internal/panel/pa
   '' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
 control "pausing: a paused customer's limit holds their servers" internal/panel/disklimits.go \
-  'CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]}' \
+  'CPUMilliPerGB: cpuMilliPerGB, Hold: in.holds[uid]}' \
   'CPUMilliPerGB: cpuMilliPerGB}' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
 control "pausing: a suspended customer's hold says so" internal/panel/disklimits.go \
@@ -8856,8 +8856,8 @@ control "creator uploads: only on their machine" internal/panel/customeruploads.
   'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
   ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheirMachine$'
 control "creator uploads: not while waiting for room" internal/panel/server.go \
-  'if s.customerWaiting(r.Context(), acct) {' \
-  'if false {' \
+  'if err := s.waitingRefusal(r.Context(), acct); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestACustomerWaitingForRoomUploadsNothingForANewServer$'
 control "creator uploads: the allowance's server count" internal/panel/customeruploads.go \
   'if use.servers >= a.Allowance.Servers {' \
@@ -9497,8 +9497,8 @@ control "moving customers: a copy that went stays recorded a while, for listings
   'millis(listedAt))' \
   ./internal/panel '^TestALateListingStillLeavesOutACopyThatWent$'
 control "moving customers: a moved server counts against its customer's disk limit before its requests go there" internal/panel/moves.go \
-  'if err = s.sendLimitsTo(ctx, to); err != nil {' \
-  'if err = error(nil); err != nil {' \
+  'if err := s.sendLimitsTo(ctx, to, mv.serverID); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: the server's folder doesn't count against the customer's disk limit beside their server" internal/panel/moves.go \
   '"/v1/restore/upload", nil, io.TeeReader(down.Body, sent),' \
@@ -9666,7 +9666,7 @@ control "moving customers: a copy left where a server moves goes with its record
   '`DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, mv.serverID, mv.from' \
   ./internal/panel '^TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo$'
 control "moving customers: the machine a server left deletes its copy" internal/panel/moves.go \
-  'if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays); err != nil {' \
+  'if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays, now); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: the copy a server left keeps its final backup a week" internal/panel/moves.go \
@@ -9674,8 +9674,8 @@ control "moving customers: the copy a server left keeps its final backup a week"
   'if err := deleteOn(ctx, m, id, st.Name, 0, userID); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: nothing deletes the server as a copy left" internal/panel/moves.go \
-  'if busy > 0 || errors.Is(err, errNotFound) {' \
-  'if errors.Is(err, errNotFound) {' \
+  '	case busy > 0:' \
+  '	case false:' \
   ./internal/panel '^TestALeftCopyThatIsTheServerIsNeverDeleted$'
 control "moving customers: a server whose move failed starts again where it was" internal/panel/moves.go \
   'if mv.ran && !s.customerHeld(ctx, mv.userID) {' \
@@ -9686,7 +9686,7 @@ control "moving customers: a paused customer's server whose move failed isn't st
   'if mv.ran {' \
   ./internal/panel '^TestAPausedCustomersServerMovesStopped$'
 control "moving customers: the machine a failed move was going to deletes its copy" internal/panel/moves.go \
-  'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {' \
+  'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0, 0); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
 # shellcheck disable=SC2016
@@ -9741,9 +9741,13 @@ control "removing a machine: only the owner removes one customers are on" intern
   '} else if n > 0 && false {' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
 control "moving customers: a move whose switch fails leaves its server where it was" internal/panel/moves.go \
-  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+  '		err = s.switchTo(ctx, mv, to, slug)
+	}
+	if err != nil {
 		if ctx.Err() == nil {' \
-  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+  '		err = s.switchTo(ctx, mv, to, slug)
+	}
+	if err != nil {
 		if false {' \
   ./internal/panel '^TestAMoveWhoseSwitchFailsLeavesTheServerWhereItWas$'
 control "moving customers: a copy left on a removed machine stays recorded" internal/panel/moves.go \
