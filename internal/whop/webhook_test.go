@@ -134,3 +134,24 @@ func TestVerifyWebhookReadsTheV1Envelope(t *testing.T) {
 		t.Fatalf("its membership: %+v, %v", m, err)
 	}
 }
+
+// A webhook pinned before 2026-08-14, or not pinned at all, names the
+// business company_id, and its membership nests the plan and the user.
+func TestVerifyWebhookReadsTheBusinessOfAWebhookWithoutAPin(t *testing.T) {
+	const secret = "ws_0123456789abcdef"
+	now := time.Date(2026, 9, 30, 10, 25, 23, 0, time.UTC)
+	body := []byte(`{"type":"membership.activated","api_version":"v1","timestamp":"2026-09-30T10:25:22.795Z",
+		"company_id":"biz_seller","data":{"id":"mem_1","status":"active","user":{"id":"user_x"},"product":{"id":"prod_mc"},"plan":{"id":"plan_a"}}}`)
+	ev, err := VerifyWebhook(secret, SignWebhook(secret, "msg_1", now, body), body, now)
+	if err != nil || ev.ID != "msg_1" || ev.Type != EventMembershipActivated || ev.AccountID != "biz_seller" {
+		t.Fatalf("VerifyWebhook = %+v, %v", ev, err)
+	}
+	var m Membership
+	if err := json.Unmarshal(ev.Data, &m); err != nil || m.ID != "mem_1" || m.PlanID != "plan_a" || m.UserID != "user_x" {
+		t.Fatalf("its membership: %+v, %v", m, err)
+	}
+	body = []byte(`{"type":"membership.activated","account_id":"biz_seller","company_id":"biz_old","data":{}}`)
+	if ev, err := VerifyWebhook(secret, SignWebhook(secret, "msg_2", now, body), body, now); err != nil || ev.AccountID != "biz_seller" {
+		t.Fatalf("with both names: %+v, %v", ev, err)
+	}
+}

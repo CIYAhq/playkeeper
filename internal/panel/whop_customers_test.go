@@ -631,6 +631,38 @@ func TestTheWebhookTakesOnlyWhopsOwnDeliveriesOnce(t *testing.T) {
 	}
 }
 
+// Whop names the business account_id, or company_id on a webhook without a
+// pin. Either way the webhook keeps only its own store's memberships.
+func TestTheWebhookKeepsOnlyItsOwnStoresMemberships(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	m := f.buy("mem_alex1", "user_alex", "plan_starter", "active")
+	deliver := func(id string, envelope map[string]any) {
+		t.Helper()
+		envelope["type"], envelope["api_version"], envelope["data"] = whop.EventMembershipActivated, "v1", m
+		body, _ := json.Marshal(envelope)
+		hdr := map[string]string{"Origin": ""}
+		for k, v := range whop.SignWebhook(whopTestSecret, id, e.clock.now(), body) {
+			hdr[k] = v[0]
+		}
+		if r := e.do(t, "POST", whopWebhookPath, string(body), hdr); r.status != http.StatusOK {
+			t.Fatalf("delivery %s: %d", id, r.status)
+		}
+	}
+	kept := func() (n int) {
+		e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_memberships`).Scan(&n)
+		return n
+	}
+	deliver("msg_1", map[string]any{"api_version_date": whop.APIVersion, "account_id": "biz_other"})
+	deliver("msg_2", map[string]any{"company_id": "biz_other"})
+	if n := kept(); n != 0 {
+		t.Fatalf("%d memberships kept from another business", n)
+	}
+	deliver("msg_3", map[string]any{"company_id": "biz_pip"})
+	if n := kept(); n != 1 {
+		t.Fatalf("%d memberships kept from the store's own delivery without a pin", n)
+	}
+}
+
 func TestWithoutAConnectionTheWebhookIsNotThere(t *testing.T) {
 	e := newEnv(t)
 	owner(t, e)
