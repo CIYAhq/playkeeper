@@ -80,6 +80,9 @@ ok "a failing test fails its shard, shows its output and still counts as run"
 rm -rf "$t/out"
 if PANIC_B=1 shard 1/1; then fail "the shard passed with TestB panicking"; fi
 grep -q 'B panicked on purpose' "$t/log-1" || fail "the panic wasn't shown: $(cat "$t/log-1")"
+# The testing package reports a test's panic and panics again, so the binary stops there.
+first=$(jq -r 'select(.Action == "run" and .Test != null) | .Test' "$t/out/test-1.json.1" | tr '\n' ' ')
+[ "$first" = "TestA TestB " ] || fail "the first test binary ran $first, not stopping at TestB's panic"
 [ "$(tr '\n' ' ' <"$t/out/ran-1.txt")" = "TestA TestB TestC TestD TestE " ] || fail "after TestB panicked the shard ran $(tr '\n' ' ' <"$t/out/ran-1.txt")"
 "$root/scripts/go-test-shard.sh" --check "$t/out" 1 >"$t/check" 2>&1 || fail "--check after the panic: $(cat "$t/check")"
 ok "a test that panics fails its shard, and the tests after it still run"
