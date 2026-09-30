@@ -172,9 +172,12 @@ func (s *Server) diskInputs(ctx context.Context, list []machine) (diskInputs, er
 
 // recountDisk has the limits sent now, counting what each account's
 // servers take first, as a move that ended changed which machine has them.
+// A count under way meanwhile began before that, so it doesn't stand for
+// this one.
 func (s *Server) recountDisk() {
 	s.diskUse.Lock()
 	s.diskUse.at = time.Time{}
+	s.diskUse.recounts++
 	s.diskUse.Unlock()
 	s.kickDiskLimits()
 }
@@ -197,6 +200,7 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 	}
 	s.diskUse.Lock()
 	count := s.diskUse.used == nil || s.now().Sub(s.diskUse.at) >= diskUseEvery
+	recounts := s.diskUse.recounts
 	s.diskUse.Unlock()
 	used := map[int64]int64{}
 	on := map[string]map[int64]int64{}
@@ -216,7 +220,10 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 	}
 	if count {
 		s.diskUse.Lock()
-		s.diskUse.at, s.diskUse.used, s.diskUse.usedOn = s.now(), used, on
+		s.diskUse.used, s.diskUse.usedOn = used, on
+		if s.diskUse.recounts == recounts {
+			s.diskUse.at = s.now()
+		}
 		s.diskUse.Unlock()
 		for _, split := range in.split {
 			if split {

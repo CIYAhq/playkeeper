@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"slices"
 	"strconv"
@@ -165,5 +166,47 @@ func TestEachCreatorsServersGetTheirAllowancesDisk(t *testing.T) {
 	e.srv.syncDiskLimits(context.Background())
 	if sent := disk.last(); len(sent.Limits) != 1 || sent.Limits[0].ID != id(alex) {
 		t.Fatalf("the limits once sam was removed: %+v", sent)
+	}
+}
+
+// A count under way when a move ends, which asks for what each account's
+// servers take to be counted again, doesn't stand for that count: the next
+// sync counts again, rather than splitting disk from what was taken before
+// the move ended until the next count, minutes later.
+func TestACountUnderWayWhenAMoveEndsIsntTakenForTheCountAfter(t *testing.T) {
+	e := newEnv(t)
+	e.reply("GET", "/v1/servers", `[]`)
+	var mu sync.Mutex
+	counts := 0
+	entered, release := make(chan struct{}), make(chan struct{})
+	e.agent.mu.Lock()
+	e.agent.answers["PUT /v1/disk-limits"] = func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, `[]`) }
+	e.agent.answers["GET /v1/disk-limits"] = func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		counts++
+		first := counts == 1
+		mu.Unlock()
+		if first {
+			close(entered)
+			<-release
+		}
+		io.WriteString(w, `[]`)
+	}
+	e.agent.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		e.srv.syncDiskLimits(context.Background())
+		close(done)
+	}()
+	<-entered
+	e.srv.recountDisk()
+	close(release)
+	<-done
+	kicked(e)
+	e.srv.syncDiskLimits(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
+	if counts != 2 {
+		t.Errorf("counted %d times in all, the sync after a move that ended during a count among them, want 2", counts)
 	}
 }

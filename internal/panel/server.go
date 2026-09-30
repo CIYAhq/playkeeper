@@ -176,6 +176,8 @@ type Server struct {
 		used   map[int64]int64
 		usedOn map[string]map[int64]int64
 		failed map[string]string
+		// recounts counts the counts asked for at once (recountDisk).
+		recounts int
 	}
 	// diskSending is held while a machine is sent its disk limits, and
 	// by a move from sending the machine a server goes to its limits
