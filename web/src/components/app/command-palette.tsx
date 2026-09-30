@@ -54,7 +54,7 @@ async function act(server: ServerStatus, path: string, done: string) {
 function actionsFor(s: ServerStatus, join: Join, me: Me): PaletteItem[] {
   const c = controls(s)
   const items: PaletteItem[] = []
-  if (s.exists && !c.busy && s.phase !== 'docker_unavailable' && can(me, 'backups.make')) {
+  if (c.canBackup && can(me, 'backups.make')) {
     const stopped = s.phase !== 'online'
     items.push({
       value: `backup:${s.id}`,
