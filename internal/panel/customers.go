@@ -74,8 +74,12 @@ func (c customerCore) StartCustomer(ctx context.Context, cust Customer, p Custom
 		return StartedCustomer{}, err
 	case ok:
 		err = s.applyCustomerPlan(ctx, cust, info, p, al)
-		if err == nil && info.State == CustomerPaused {
+		switch {
+		case err != nil:
+		case info.State == CustomerPaused:
 			err = s.resumeCustomer(ctx, cust, &info)
+		case info.State == CustomerSuspended:
+			err = s.resumeUnderSuspension(ctx, cust, info)
 		}
 	default:
 		info, err = s.makeCustomerAccount(ctx, cust, p, al)
