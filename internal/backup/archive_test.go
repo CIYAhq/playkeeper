@@ -123,6 +123,55 @@ func TestRoundTripAllowlistAndSecrets(t *testing.T) {
 
 // ReadFile takes one file out of an archive: nothing past the size it's
 // allowed, and a missing file is fs.ErrNotExist.
+// A move's archive carries the server's whole folder, not a backup's
+// allowlist: a plugin's world, a server type's own settings, scripts and a
+// file uploaded at the top all go. What a backup also leaves out stays: the
+// RCON password, eula.txt, server jars, libraries and logs. It needs no
+// world, as before a server's first start, and says it's whole, since a
+// restore takes an archive without a world only then.
+func TestAWholeArchiveCarriesTheWholeServerFolder(t *testing.T) {
+	src := fixtureDataDir(t)
+	write(t, src, "creative/level.dat", "a plugin's world")
+	write(t, src, "purpur.yml", "purpur: true")
+	write(t, src, "scripts/recipes.zs", "// crafttweaker")
+	write(t, src, "notes.txt", "uploaded at the top")
+	write(t, src, "crash-reports/crash-1.txt", "crash")
+	meta := Manifest{CreatedAt: time.Now().UTC(), MinecraftVersion: "26.1.2", VersionID: "paper-26.1.2", PaperBuild: 74}
+	var buf bytes.Buffer
+	m, err := CreateWhole(&buf, src, meta, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "moved")
+	if got, err := Extract(bytes.NewReader(buf.Bytes()), dst, DefaultLimits()); err != nil || !got.Whole || !m.Whole {
+		t.Fatalf("extracting the whole archive: %v, whole %v", err, got.Whole)
+	}
+	for _, want := range []string{"creative/level.dat", "purpur.yml", "scripts/recipes.zs", "notes.txt", "world/level.dat", "config/paper-global.yml", "plugins/spark/config.json", "mods/waystones-21.1.4.jar"} {
+		if _, err := os.Stat(filepath.Join(dst, want)); err != nil {
+			t.Errorf("the whole archive is missing %s", want)
+		}
+	}
+	for _, left := range []string{".rcon-cli.env", "eula.txt", "paper-26.1.2-74.jar", "libraries/lib.jar", "versions/26.1.2/server.jar", "logs/latest.log", "crash-reports/crash-1.txt", "plugins/.paper-remapped/cache.jar"} {
+		if _, err := os.Stat(filepath.Join(dst, left)); err == nil {
+			t.Errorf("the whole archive carries %s", left)
+		}
+	}
+	if props, _ := os.ReadFile(filepath.Join(dst, "server.properties")); strings.Contains(string(props), "hunter2") || strings.Contains(string(props), "abc123") {
+		t.Errorf("the whole archive carries server.properties' secrets: %s", props)
+	}
+
+	fresh := t.TempDir()
+	write(t, fresh, "server.properties", "level-name=world\n")
+	write(t, fresh, "plugins/Essentials/config.yml", "motd: hi")
+	buf.Reset()
+	if _, err := CreateWhole(&buf, fresh, meta, DefaultLimits()); err != nil {
+		t.Fatalf("a whole archive of a server that hasn't made its world: %v", err)
+	}
+	if got, err := Verify(bytes.NewReader(buf.Bytes()), DefaultLimits()); err != nil || !got.Whole {
+		t.Errorf("a whole archive with no world is refused: %v", err)
+	}
+}
+
 func TestReadFileTakesOneFileOutOfAnArchive(t *testing.T) {
 	arch, _ := createArchive(t, fixtureDataDir(t))
 	b, err := ReadFile(bytes.NewReader(arch), "world/level.dat", 1<<20)

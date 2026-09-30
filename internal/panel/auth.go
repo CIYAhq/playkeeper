@@ -523,6 +523,43 @@ ALTER TABLE machines ADD COLUMN customers_by TEXT    NOT NULL DEFAULT '';
 	`
 ALTER TABLE machines ADD COLUMN customers_stopped_at INTEGER NOT NULL DEFAULT 0;
 `,
+	// Moving customers: each customer the owner moves to another machine,
+	// who asked and when, and why it stopped, if it did; each server being
+	// moved, from and to which machine, whether it ran, and the operation
+	// making its copy there; each copy of a server a move left on a machine,
+	// how many days its final backup is kept there, and when it went (0
+	// until it did); and each server a failed move left stopped though it
+	// ran, until it starts again (see moves.go).
+	`
+CREATE TABLE customer_moves (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  to_machine TEXT    NOT NULL,
+  started_at INTEGER NOT NULL,
+  started_by TEXT    NOT NULL,
+  error      TEXT    NOT NULL DEFAULT ''
+);
+CREATE TABLE server_moves (
+  server_id    TEXT    PRIMARY KEY,
+  user_id      INTEGER NOT NULL,
+  from_machine TEXT    NOT NULL,
+  to_machine   TEXT    NOT NULL,
+  ran          INTEGER NOT NULL DEFAULT 0,
+  made_by      TEXT    NOT NULL DEFAULT ''
+);
+CREATE TABLE left_copies (
+  server_id  TEXT    NOT NULL,
+  machine_id TEXT    NOT NULL,
+  user_id    INTEGER NOT NULL,
+  keep_days  INTEGER NOT NULL DEFAULT 0,
+  left_at    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(server_id, machine_id)
+);
+CREATE TABLE move_restarts (
+  server_id  TEXT    PRIMARY KEY,
+  machine_id TEXT    NOT NULL,
+  user_id    INTEGER NOT NULL
+);
+`,
 }
 
 const (

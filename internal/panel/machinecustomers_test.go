@@ -45,6 +45,22 @@ func (g *guardSwitch) requests() []string {
 // id, its agent, its guard and its link.
 func joinForCustomers(t *testing.T, e *env, own member) (string, *remoteAgent, *guardSwitch, *runningLink) {
 	t.Helper()
+	j := joinForCustomersAs(t, e, own)
+	return j.d.MachineID, j.ra, j.guard, j.link
+}
+
+// joinedForCustomers is a machine joinForCustomers joined, with what it
+// joined with, so its link can drop and come back.
+type joinedForCustomers struct {
+	d        machinelink.Dashboard
+	identity *machinelink.Identity
+	ra       *remoteAgent
+	guard    *guardSwitch
+	link     *runningLink
+}
+
+func joinForCustomersAs(t *testing.T, e *env, own member) joinedForCustomers {
+	t.Helper()
 	e.reply("GET", "/v1/machine", liveMachine(0, true))
 	e.reply("GET", "/v1/servers", `[]`)
 	ra := newRemoteAgent()
@@ -58,8 +74,8 @@ func joinForCustomers(t *testing.T, e *env, own member) (string, *remoteAgent, *
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, liveMachine(30000, host))
 	})
-	id, link := e.joinMachine(t, own.cookie, own.csrf, ra)
-	return id, ra, g, link
+	d, identity, link := e.joinMachineAs(t, own.cookie, own.csrf, ra)
+	return joinedForCustomers{d: d, identity: identity, ra: ra, guard: g, link: link}
 }
 
 // lastMachineEvent is the kind and actor of the machine's newest event.

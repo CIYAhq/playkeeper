@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,12 +11,14 @@ import (
 )
 
 // Moving a server in (step 8 of the fleet plan). The dashboard moves a
-// customer's servers to another machine through a backup of each, uploaded
-// here as for a new server and applied with move-in, which keeps the
-// server's id: the dashboard's records of it, its members, invites, slug
-// and address, stay as they are. The dashboard's pages forward restores to
-// apply, whose server always gets a new id and which refuses a body naming
-// one, so only the dashboard picks an id, for a server it moves.
+// customer's servers to another machine through each one's whole folder
+// (hMoveOut), uploaded here as for a new server and applied with move-in,
+// which keeps the server's id: the dashboard's records of it, its members,
+// invites, slug and address, stay as they are. The dashboard's pages forward
+// restores to apply, whose server always gets a new id and which refuses a
+// body naming one, so only the dashboard picks an id, for a server it moves.
+// The server is off the public page until the dashboard gives it the
+// settings it had (hMoveStatePut).
 
 // moveIn is a checked api.MoveInRequest.
 type moveIn struct {
@@ -52,11 +55,18 @@ func (a *Agent) checkMoveIn(req api.MoveInRequest, actor string) (moveIn, error)
 		created = a.now()
 	}
 	return moveIn{
-		spec:  newServerSpec{id: req.ServerID, slug: req.Slug, name: name, actor: actor},
+		spec:  newServerSpec{id: req.ServerID, slug: req.Slug, name: name, actor: actor, record: offThePage},
 		mem:   req.MemoryMB,
 		prev:  api.ServerConfig{EULAAcceptedAt: req.EULAAcceptedAt.UTC(), EULAAcceptedBy: by, CreatedAt: created.UTC(), PlayStyle: req.PlayStyle},
 		start: req.Start,
 	}, nil
+}
+
+// offThePage records a server moved in as off the public page, where the
+// default would list it.
+func offThePage(tx *sql.Tx, id string) error {
+	_, err := tx.Exec(`UPDATE servers SET public_page = 0 WHERE id = ?`, id)
+	return err
 }
 
 // hRestoreMoveIn applies a staged upload for a new server as a server moved
@@ -134,7 +144,11 @@ func (a *Agent) hRestoreMoveIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	started = true
-	a.auditFor(in.spec.id, actor, "server.moved_in", rid, "started", fmt.Sprintf("as %s from a backup with sha256 %s; the Minecraft EULA accepted by %s on %s",
-		in.spec.name, shortSum(st.preview.SHA256), in.prev.EULAAcceptedBy, in.prev.EULAAcceptedAt.Format(time.DateOnly)))
+	from := "a backup"
+	if st.manifest.Whole {
+		from = "its folder"
+	}
+	a.auditFor(in.spec.id, actor, "server.moved_in", rid, "started", fmt.Sprintf("as %s from %s with sha256 %s; the Minecraft EULA accepted by %s on %s",
+		in.spec.name, from, shortSum(st.preview.SHA256), in.prev.EULAAcceptedBy, in.prev.EULAAcceptedAt.Format(time.DateOnly)))
 	writeJSON(w, http.StatusAccepted, op)
 }

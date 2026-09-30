@@ -1446,6 +1446,11 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := st.preview
+	if st.manifest.Whole {
+		a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", "a server's whole folder, which only a move takes")
+		writeError(w, errConflict("This upload is a server's whole folder, which only moving that server from another machine takes.", ""))
+		return
+	}
 	target := a.serverByID(p.ServerID)
 	if p.ServerID != "" && target == nil {
 		writeError(w, errNotFound("Server"))

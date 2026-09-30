@@ -53,12 +53,13 @@ func eventually(t *testing.T, what string, cond func() bool) {
 type remoteAgent struct {
 	mu       sync.Mutex
 	actors   map[string]string
+	bodies   map[string]string
 	replies  map[string]string
 	handlers map[string]http.HandlerFunc
 }
 
 func newRemoteAgent() *remoteAgent {
-	return &remoteAgent{actors: map[string]string{}, handlers: map[string]http.HandlerFunc{}, replies: map[string]string{
+	return &remoteAgent{actors: map[string]string{}, bodies: map[string]string{}, handlers: map[string]http.HandlerFunc{}, replies: map[string]string{
 		"GET /v1/machine": `{"hostname":"home-server","agentVersion":"0.4.0","memoryTotalMB":8192}`,
 		"GET /v1/servers": `[{"id":"rstuvwxyzq","name":"Cobblemon","phase":"online"}]`,
 		"GET /v1/audit":   `[{"id":1,"ts":"2026-09-24T11:00:00Z","actor":"admin","action":"server.start","result":"succeeded"}]`,
@@ -67,8 +68,14 @@ func newRemoteAgent() *remoteAgent {
 
 func (a *remoteAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := r.Method + " " + r.URL.Path
+	raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(strings.NewReader(string(raw)), r.Body), r.Body}
 	a.mu.Lock()
 	a.actors[key] = r.Header.Get(machinelink.ActorHeader)
+	a.bodies[key] = string(raw)
 	reply, ok := a.replies[key]
 	h := a.handlers[key]
 	a.mu.Unlock()
@@ -96,6 +103,13 @@ func (a *remoteAgent) saw(key string) (string, bool) {
 	defer a.mu.Unlock()
 	actor, ok := a.actors[key]
 	return actor, ok
+}
+
+// body is the body of the last request for key.
+func (a *remoteAgent) body(key string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.bodies[key]
 }
 
 func (a *remoteAgent) reply(key, body string) {
@@ -245,6 +259,14 @@ func (rl *runningLink) ended(t *testing.T) error {
 // domain.
 func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) (string, *runningLink) {
 	t.Helper()
+	d, _, link := e.joinMachineAs(t, cookie, csrf, ra)
+	return d.MachineID, link
+}
+
+// joinMachineAs is joinMachine, returning what the machine joined with too,
+// so its link can drop and come back.
+func (e *env) joinMachineAs(t *testing.T, cookie, csrf string, ra *remoteAgent) (machinelink.Dashboard, *machinelink.Identity, *runningLink) {
+	t.Helper()
 	addr := e.sharePort(t)
 	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
 	code, _ := e.joinCode(t, cookie, csrf, `{"name":"home-server","dial":"name"}`)["code"].(string)
@@ -256,7 +278,7 @@ func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) (s
 	}
 	link := e.runLink(t, d, id, ra)
 	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
-	return d.MachineID, link
+	return d, id, link
 }
 
 // auditHas reports whether the panel's audit log has a row with these
@@ -592,7 +614,7 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 
 	// The dashboard's own machine keeps its ids, even while its agent can't
 	// be reached.
-	s.claimLocal(local, serverList("yyyyyyyyyy", "localsrvab", "../etc"))
+	s.claimLocal(local, serverList("yyyyyyyyyy", "localsrvab", "../etc"), e.clock.now())
 	if owner("yyyyyyyyyy") != local.ID || owner("localsrvab") != local.ID {
 		t.Fatal("the dashboard's own machine takes its server ids")
 	}
@@ -600,7 +622,7 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 		owner("yyyyyyyyyy") != local.ID || owner("localsrvab") != local.ID {
 		t.Fatalf("alpha can't take the dashboard's servers: alpha shows %q", got)
 	}
-	s.claimLocal(local, serverList("yyyyyyyyyy"))
+	s.claimLocal(local, serverList("yyyyyyyyyy"), e.clock.now())
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE server_id IN ('localsrvab', '../etc')`).Scan(&n)
 	if n != 0 {

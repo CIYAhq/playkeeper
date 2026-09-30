@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -84,24 +85,23 @@ func (s *Server) deleteLapsedCustomers(ctx context.Context) {
 // deleteLapsedCustomer deletes each server the customer created, one at a
 // time and only while they're still paused past their grace period, then
 // records it, frees their home machine and tells them. A customer who
-// renews meanwhile keeps what's left.
+// renews meanwhile keeps what's left. Each server is deleted on the machine
+// that has it (lapsedServers). One whose servers are being moved, or whose
+// move stopped, is left for a later look while they have a machine, since
+// their servers may be on two until the owner moves them again. One whose
+// machine was removed can't be moved again, so their move ends with the
+// deletion.
 func (s *Server) deleteLapsedCustomer(ctx context.Context, userID int64) error {
-	ids, err := s.creatorServers(userID)
-	if err != nil {
-		return err
-	}
 	home, placed, err := s.homeMachine(ctx, userID)
 	if err != nil {
 		return err
 	}
-	var m machine
-	if len(ids) > 0 {
-		if !placed {
-			return errors.New("they have servers but no home machine")
-		}
-		if m, err = s.machineByID(home); err != nil {
-			return err
-		}
+	if s.customerMoving(ctx, userID) && (placed || s.moves.running(userID)) {
+		return nil
+	}
+	m, ids, gone, err := s.lapsedServers(ctx, userID, home)
+	if err != nil {
+		return err
 	}
 	for _, id := range ids {
 		err := s.deleteLapsedServer(ctx, m, userID, id)
@@ -112,11 +112,44 @@ func (s *Server) deleteLapsedCustomer(ctx context.Context, userID int64) error {
 			return err
 		}
 	}
-	err = s.finishLapsed(ctx, userID, home, len(ids))
+	err = s.finishLapsed(ctx, userID, len(ids), gone)
 	if errors.Is(err, errNotLapsed) {
 		return nil
 	}
 	return err
+}
+
+// lapsedServers finds the machine that has the customer's servers, each
+// where its record says or on home without one, and returns it with the
+// servers it has, and those on a removed machine or on none: out of reach,
+// with no final backup. The machine keeps the final backups of them all, so
+// it has to be one.
+func (s *Server) lapsedServers(ctx context.Context, userID int64, home string) (on machine, here, gone []string, err error) {
+	ids, err := s.creatorServers(userID)
+	if err != nil {
+		return machine{}, nil, nil, err
+	}
+	for _, id := range ids {
+		at, err := s.recordedMachine(ctx, id)
+		if err != nil {
+			return machine{}, nil, nil, err
+		}
+		var m machine
+		if at = cmp.Or(at, home); at != "" {
+			if m, err = s.machineByID(at); err != nil && !errors.Is(err, errNotFound) {
+				return machine{}, nil, nil, err
+			}
+		}
+		switch {
+		case m.ID == "":
+			gone = append(gone, id)
+		case on.ID != "" && m.ID != on.ID:
+			return machine{}, nil, nil, fmt.Errorf("their servers are on %s and on %s", machineLabel(on), machineLabel(m))
+		default:
+			on, here = m, append(here, id)
+		}
+	}
+	return on, here, gone, nil
 }
 
 // deleteLapsedServer deletes the customer's server id on m, keeping its
@@ -179,10 +212,12 @@ func (s *Server) startLapsedDelete(ctx context.Context, m machine, userID int64,
 	return op.ID, nil
 }
 
-// finishLapsed records that the customer's servers are gone, frees their
-// home machine and tells them until when their final backups download,
-// while they're still paused past their grace period.
-func (s *Server) finishLapsed(ctx context.Context, userID int64, home string, deleted int) error {
+// finishLapsed records that the customer's servers are gone, forgets those
+// out of reach, ends a move of theirs that couldn't go on, frees their home
+// machine and tells them until when the final backups of those deleted
+// download, while they're still paused past their grace period. The
+// machine keeping those backups was recorded as each deletion started.
+func (s *Server) finishLapsed(ctx context.Context, userID int64, deleted int, gone []string) error {
 	s.customersMu.Lock()
 	defer s.customersMu.Unlock()
 	info, lapsed, err := s.lapsedCustomer(ctx, userID)
@@ -193,8 +228,17 @@ func (s *Server) finishLapsed(ctx context.Context, userID int64, home string, de
 		return errNotLapsed
 	}
 	now := s.now()
-	if _, err := s.db.ExecContext(ctx, `UPDATE customers SET servers_deleted_at = ?, final_backups_machine = ?, told_ready = 0, told_waiting = 0, updated_at = ?
-		WHERE user_id = ? AND state = ?`, now.UnixMilli(), home, now.UnixMilli(), userID, string(CustomerPaused)); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE customers SET servers_deleted_at = ?, told_ready = 0, told_waiting = 0, updated_at = ?
+		WHERE user_id = ? AND state = ?`, now.UnixMilli(), now.UnixMilli(), userID, string(CustomerPaused)); err != nil {
+		return errDB
+	}
+	for _, id := range gone {
+		s.forgetCreatorServer(id)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM customer_moves WHERE user_id = ?`, userID); err != nil {
+		return errDB
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM server_moves WHERE user_id = ?`, userID); err != nil {
 		return errDB
 	}
 	if err := s.setHome(ctx, userID, ""); err != nil {
@@ -203,8 +247,11 @@ func (s *Server) finishLapsed(ctx context.Context, userID int64, home string, de
 	s.kickDiskLimits()
 	s.kickSaleRoom()
 	until := now.Add(finalBackupDays * 24 * time.Hour)
-	s.audit(placementActor, "customer.delete", info.username, "succeeded",
-		fmt.Sprintf("%d server(s) deleted %d days after their plan ended, each one's final backup kept until %s", deleted, graceDays, until.UTC().Format(time.DateOnly)))
+	detail := fmt.Sprintf("%d server(s) deleted %d days after their plan ended, each one's final backup kept until %s", deleted, graceDays, until.UTC().Format(time.DateOnly))
+	if len(gone) > 0 {
+		detail += fmt.Sprintf("; %d out of reach, with no final backup, forgotten", len(gone))
+	}
+	s.audit(placementActor, "customer.delete", info.username, "succeeded", detail)
 	if err := s.notifier.Notify(ctx, info.customer, CustomerMessage{Kind: messageDeleted, Text: s.deletedText(ctx, until, deleted > 0)}); err != nil {
 		s.log.Warn("could not tell a customer their servers were deleted", "user", userID, "err", err)
 	}

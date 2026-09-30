@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -121,6 +122,23 @@ func planDNS(addr api.Address) dnsPlan {
 	return p
 }
 
+// dropHiddenCopies leaves out of addr, the dashboard machine's address, the
+// servers there that are only copies a move is making or left (see
+// hiddenCopies): their names answer for the servers where they are.
+func (s *Server) dropHiddenCopies(ctx context.Context, addr *api.Address) error {
+	local, err := s.localMachine()
+	if err != nil {
+		return err
+	}
+	copies, err := hiddenCopies(ctx, s.db, local.ID)
+	if err != nil {
+		return errDB
+	}
+	now := s.now()
+	addr.Servers = slices.DeleteFunc(addr.Servers, func(j api.JoinAddress) bool { return copyHidden(copies, j.ServerID, now) })
+	return nil
+}
+
 // addRecord adds r to the zone if the zone can hold it. One it can't, such
 // as a server's label no DNS name has, is left out rather than the machine
 // refusing the whole zone.
@@ -174,6 +192,9 @@ func (s *Server) syncDNSAnswers(ctx context.Context, actor string) error {
 	if on {
 		var addr api.Address
 		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil {
+			return err
+		}
+		if err := s.dropHiddenCopies(ctx, &addr); err != nil {
 			return err
 		}
 		p := planDNS(addr)
@@ -252,6 +273,9 @@ func (s *Server) dnsAnswers(ctx context.Context) (api.DNSAnswers, error) {
 	}
 	var st api.DNSZoneStatus
 	if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); err != nil {
+		return v, err
+	}
+	if err := s.dropHiddenCopies(ctx, &addr); err != nil {
 		return v, err
 	}
 	p := planDNS(addr)

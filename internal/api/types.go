@@ -1050,6 +1050,28 @@ type MoveInRequest struct {
 	Actor          string    `json:"actor"`
 }
 
+// MoveState is what an agent keeps about a server beside its folder and its
+// settings, which a move carries to the machine it goes to: its own rows,
+// by table, each a column's value by name (see the agent's movestate.go).
+// It holds the secrets and keys of the server's copies somewhere else, so
+// only the dashboard reads it, and never shows it.
+type MoveState struct {
+	Rows map[string][]map[string]any `json:"rows"`
+}
+
+// MoveStateRequest gives a server moved here the MoveState it had.
+type MoveStateRequest struct {
+	State MoveState `json:"state"`
+	Actor string    `json:"actor"`
+}
+
+// MoveStateResult names what of a MoveState a server moved here couldn't
+// take: "ownAddress" when its own address doesn't fit this machine's
+// address.
+type MoveStateResult struct {
+	Left []string `json:"left,omitempty"`
+}
+
 type AuditEntry struct {
 	ID       int64     `json:"id"`
 	ServerID string    `json:"serverId,omitempty"`

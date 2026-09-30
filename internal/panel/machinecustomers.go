@@ -135,27 +135,33 @@ func (s *Server) takeCustomers(ctx context.Context, m machine, actor string, on 
 // s.placeMu.
 func (s *Server) guardHeld(ctx context.Context, id string) (msg, hint string, err error) {
 	var at int64
-	var homes int
-	if err := s.db.QueryRowContext(ctx, `SELECT customers_at, (SELECT COUNT(*) FROM customer_homes WHERE machine_id = ?) FROM machines WHERE id = ?`, id, id).Scan(&at, &homes); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT customers_at FROM machines WHERE id = ?`, id).Scan(&at); err != nil {
 		return "", "", errDB
 	}
+	n, err := s.customersOn(ctx, id)
 	switch {
+	case err != nil:
+		return "", "", errDB
 	case at != 0:
 		return "Servers stay away from this machine while it takes customers.", "Stop it taking customers in Settings › Machines first.", nil
-	case homes > 0:
+	case n > 0:
 		return "Servers stay away from this machine while it has customers.", "", nil
 	}
 	return "", "", nil
 }
 
-// customersOn is how many customers placement gave the machine id, or 0
-// when that can't be read.
-func (s *Server) customersOn(id string) int {
+// customersOnMachine selects the customers machine ? has, the machine id
+// twice: those placement gave it, and those with servers there still, as a
+// move that stopped leaves them.
+const customersOnMachine = `SELECT user_id FROM customer_homes WHERE machine_id = ?
+	UNION SELECT cs.user_id FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id
+	JOIN customers c ON c.user_id = cs.user_id WHERE sm.machine_id = ?`
+
+// customersOn is how many customers the machine id has (customersOnMachine).
+func (s *Server) customersOn(ctx context.Context, id string) (int, error) {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM customer_homes WHERE machine_id = ?`, id).Scan(&n); err != nil {
-		s.log.Error("count a machine's customers", "machine", id, "err", err)
-	}
-	return n
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+customersOnMachine+`)`, id, id).Scan(&n)
+	return n, err
 }
 
 // kickRoom has the customers waiting for room placed now, as a machine just
