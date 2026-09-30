@@ -630,7 +630,8 @@ func (s *Server) Routes() []Route {
 		{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("PUT", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
 		{"DELETE", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("DELETE", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
 	}...)
-	return append(routes, s.fileRoutes()...)
+	routes = append(routes, s.fileRoutes()...)
+	return append(routes, s.aiKeyRoutes()...)
 }
 
 // Handler returns the complete panel handler (API, health check and UI).

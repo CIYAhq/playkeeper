@@ -1109,6 +1109,10 @@ func (a *Agent) routeTable() []Route {
 		{"DELETE", "/v1/servers/{id}/files/uploads/{up}", srv((*server).hFileUploadDelete)},
 		{"POST", "/v1/servers/{id}/files/uploads/{up}/files", srv((*server).hFileUploadFile)},
 		{"PUT", "/v1/servers/{id}/files/uploads/{up}/files/{n}", srv((*server).hFileUploadPut)},
+		// 0.4.9: the owner's own AI keys, for the AI Build Battle plugin.
+		{"GET", "/v1/servers/{id}/ai-keys", srv((*server).hAIKeys)},
+		{"PUT", "/v1/servers/{id}/ai-keys/{provider}", srv((*server).hAIKeySet)},
+		{"DELETE", "/v1/servers/{id}/ai-keys/{provider}", srv((*server).hAIKeyRemove)},
 	}, a.automationRoutes()...)
 }
 
