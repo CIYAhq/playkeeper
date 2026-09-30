@@ -30,8 +30,7 @@ var moveState = []struct {
 	{"offsite", []string{"enabled", "config", "secret", "password", "private_key", "ssh_public", "keys", "key_saved_at", "key_saved_folder", "updated_at", "copies_made"}},
 	{"offsite_copies", []string{"backup_id", "kind", "backup_created_at", "file_name", "size_bytes", "minecraft_version", "level_name", "copy", "copied_at", "removed_by"}},
 	{"template_installs", []string{"planned", "remaining", "created_at", "packs", "skipped"}},
-	{"addons", []string{"source", "project_id", "slug", "name", "summary", "icon_url", "version_id", "version_number", "channel", "published",
-		"file_name", "hash_algo", "hash", "size_bytes", "dependency_of", "requires", "installed_at"}},
+	{"addons", []string{"source", "project_id", "slug", "name", "summary", "icon_url", "version_id", "version_number", "channel", "published", "file_name", "hash_algo", "hash", "size_bytes", "dependency_of", "requires", "installed_at"}},
 }
 
 // hMoveStateGet gives the server's rows a move carries (api.MoveState).

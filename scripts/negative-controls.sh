@@ -9484,6 +9484,14 @@ control "moving in: an own address that doesn't fit the machine is left out" int
   'if fit, err := s.validOwnAddress(name); err != nil || fit != name {' \
   'if false {' \
   ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server keeps Playkeeper's record of the add-ons it installed" internal/agent/movestate.go \
+  '	{"addons", []string{' \
+  '	// {"addons", []string{' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server is off the public page until its settings arrive" internal/agent/movein.go \
+  'name: name, actor: actor, record: offThePage},' \
+  'name: name, actor: actor},' \
+  ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
 control "moving out: a move takes the whole folder, not a backup's" internal/agent/moveout.go \
   'backup.CreateWhole(out,' \
   'backup.Create(out,' \
