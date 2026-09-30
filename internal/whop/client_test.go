@@ -176,6 +176,22 @@ func TestSetPlanStockLimitsThePlan(t *testing.T) {
 	}
 }
 
+func TestSetPlanPriceChargesItFirstAndOnEachRenewal(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"PATCH /variants/plan_a": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"initial_price": 15.5, "renewal_price": 15.5}) {
+				t.Errorf("body %v, %v", body, err)
+			}
+			answer(map[string]any{"id": "plan_a", "plan_type": "renewal", "currency": "usd", "initial_price": 15.5, "renewal_price": 15.5, "billing_period": 30})(w, r)
+		},
+	})
+	p, err := c.SetPlanPrice(context.Background(), "plan_a", 15.5)
+	if err != nil || p.ID != "plan_a" || p.InitialPrice != 15.5 || p.RenewalPrice != 15.5 {
+		t.Fatalf("the plan: %+v, %v", p, err)
+	}
+}
+
 func TestPlanMembershipsAreThePlansAlone(t *testing.T) {
 	all := []map[string]any{
 		{"id": "mem_1", "status": "active", "plan_id": "plan_a", "user_id": "user_alex"},
