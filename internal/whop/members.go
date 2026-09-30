@@ -120,9 +120,25 @@ func (c *Client) Owner(ctx context.Context) (User, error) {
 }
 
 // OwnerOf is the one user who owns an account the key reaches by id, as an
-// app's key reaches each business that installed the app.
+// app's key reaches each business that installed the app. Whop keeps the
+// account itself behind company:balance:read, so the owner is the one Whop
+// names on one of its products, which the products' list leaves out.
 func (c *Client) OwnerOf(ctx context.Context, accountID string) (User, error) {
-	return c.ownerAt(ctx, "/accounts/"+url.PathEscape(accountID))
+	ps, err := c.Products(ctx, accountID)
+	if err != nil {
+		return User{}, err
+	}
+	if len(ps) == 0 {
+		return User{}, errors.New("the business has no product to read its owner from")
+	}
+	var p struct {
+		Owner User `json:"owner_user"`
+	}
+	err = c.do(ctx, http.MethodGet, "/products/"+url.PathEscape(ps[0].ID), nil, nil, &p)
+	if err == nil && p.Owner.ID == "" {
+		err = errors.New("Whop didn't say who owns the business")
+	}
+	return p.Owner, err
 }
 
 func (c *Client) ownerAt(ctx context.Context, path string) (User, error) {

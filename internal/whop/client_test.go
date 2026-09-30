@@ -268,17 +268,69 @@ func TestMessagesGoOutAsTheOwnerWithATokenThatMaySendThemAlone(t *testing.T) {
 	}
 }
 
-func TestOwnerOfReadsAnAccountByID(t *testing.T) {
+// An app's key can't read an installed business's account, which Whop
+// keeps behind company:balance:read, so the owner comes from one of its
+// products, read by id since the list leaves the owner out.
+func TestOwnerOfReadsTheOwnerOnOneOfTheAccountsProducts(t *testing.T) {
+	balance := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the company:balance:read scope."}}`)
+	}
+	list := func(ids ...string) func(http.ResponseWriter, *http.Request) {
+		var data []map[string]any
+		for _, id := range ids {
+			data = append(data, map[string]any{"id": id, "title": "Minecraft server"})
+		}
+		return answer(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
+	}
 	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
-		"GET /accounts/biz_seller": answer(map[string]any{"id": "biz_seller", "owner": map[string]any{"id": "user_seller", "username": "sellerjoe", "name": "Joe"}}),
-		"GET /accounts/biz_nobody": answer(map[string]any{"id": "biz_nobody"}),
+		"GET /accounts/biz_seller": balance,
+		"GET /products": func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Query().Get("account_id") {
+			case "biz_seller":
+				list("prod_4gb", "prod_8gb")(w, r)
+			case "biz_noowner":
+				list("prod_x")(w, r)
+			default:
+				list()(w, r)
+			}
+		},
+		"GET /products/prod_4gb": answer(map[string]any{"id": "prod_4gb", "owner_user": map[string]any{"id": "user_seller", "username": "sellerjoe", "name": "Joe"},
+			"account": map[string]any{"id": "biz_seller", "title": "Joe's Hosting", "route": "biz_seller"}}),
+		"GET /products/prod_x": answer(map[string]any{"id": "prod_x"}),
 	})
 	u, err := c.OwnerOf(context.Background(), "biz_seller")
 	if err != nil || u != (User{ID: "user_seller", Username: "sellerjoe", Name: "Joe"}) {
 		t.Fatalf("OwnerOf = %+v, %v", u, err)
 	}
-	if _, err := c.OwnerOf(context.Background(), "biz_nobody"); err == nil {
-		t.Fatal("an account Whop names no owner of")
+	for _, biz := range []string{"biz_noowner", "biz_empty"} {
+		if _, err := c.OwnerOf(context.Background(), biz); err == nil {
+			t.Fatalf("%s: no owner, but no error", biz)
+		}
+	}
+}
+
+// Which of the actions an account grants the key: an app's key holds only
+// what each business that installed the app approved.
+func TestLacksListsTheActionsTheAccountDoesntGrant(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /permissions": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("resource_id") != "biz_seller" {
+				t.Errorf("asked about %q", r.URL.Query().Get("resource_id"))
+			}
+			var data []map[string]any
+			for _, a := range strings.Split(r.URL.Query().Get("actions"), ",") {
+				data = append(data, map[string]any{"action": a, "granted": a != "member:email:read"})
+			}
+			answer(map[string]any{"data": data})(w, r)
+		},
+	})
+	lacking, err := c.Lacks(context.Background(), "biz_seller", AppNeeds)
+	if err != nil || !slices.Equal(lacking, []string{"member:email:read"}) {
+		t.Fatalf("Lacks = %v, %v", lacking, err)
+	}
+	if len(AppNeeds) != 16 || slices.Contains(AppNeeds, "developer:manage_webhook") {
+		t.Fatalf("an app store's needs: %v", AppNeeds)
 	}
 }
 

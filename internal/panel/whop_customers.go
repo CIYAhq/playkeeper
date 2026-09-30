@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -237,9 +236,6 @@ func (s *Server) reconcileWhop(ctx context.Context, only map[string]bool) {
 		s.log.Error("could not list the stores", "err", err)
 		return
 	}
-	if slices.ContainsFunc(stores, func(st whopStore) bool { return st.Via == whopViaApp }) {
-		s.ensureWhopAppWebhook(ctx)
-	}
 	for _, st := range stores {
 		if only == nil || only[st.ID] {
 			s.reconcileWhopStore(ctx, st)
@@ -265,6 +261,9 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	if st.Via == whopViaApp && !s.whopAppApproved(ctx, c, st) {
+		return
+	}
 	// Without the machine's address the webhook stays where it is. An app
 	// store's memberships are read every minute until the app's webhook
 	// tells of them.

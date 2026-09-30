@@ -51,6 +51,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 			biz = b
 		case strings.HasPrefix(route, "PATCH /variants/") && fb.plan(id) != nil:
 			biz = b
+		case strings.HasPrefix(route, "GET /products/") && fb.products[id] != nil:
+			biz = b
 		}
 	}
 	b := f.installed[biz]
@@ -62,9 +64,28 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 	page := func(data any) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	}
+	// Without the business's approval, Whop lists no memberships and finds
+	// none, and refuses the rest.
+	if f.ungranted[biz] {
+		switch {
+		case route == "GET /memberships":
+			page([]any{})
+		case strings.HasPrefix(route, "GET /memberships/"):
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":{"type":"not_found","message":"Membership not found"}}`)
+		default:
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the plan:basic:read scope."}}`)
+		}
+		return
+	}
 	switch {
 	case route == "GET /accounts/"+biz:
-		json.NewEncoder(w).Encode(b.account)
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the company:balance:read scope."}}`)
+	case strings.HasPrefix(route, "GET /products/"):
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": "Minecraft server", "metadata": b.products[id], "owner_user": b.account["owner"],
+			"account": map[string]any{"id": biz, "title": b.account["title"], "route": biz}})
 	case route == "GET /products":
 		var data []map[string]any
 		for _, p := range slices.Sorted(maps.Keys(b.products)) {

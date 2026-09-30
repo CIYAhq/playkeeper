@@ -7871,12 +7871,12 @@ control "stores: an app store waits for the app's key" internal/panel/whop_store
   'if false {' \
   ./internal/panel '^TestAnAppStoreWaitsForTheAppsKey$'
 
-# The Playkeeper Cloud app's webhook (the hosted blueprint's 1.4,
-# internal/panel/whop_app.go): each event is kept for the app store of the
-# business it names and no other, the dashboard keeps the webhook pointing
-# at it or leaves the owner's alone, an app store is read at once when the
-# webhook comes and every ten minutes with it, and the app's key never
-# shows.
+# The Playkeeper Cloud app (the hosted blueprint's 1.4,
+# internal/panel/whop_app.go): its webhook keeps each event for the app
+# store of the business it names and no other, an app store is read at once
+# when the webhook comes and every ten minutes with it, one whose business
+# hasn't approved the app isn't read at all, its owner comes from one of its
+# products, and the app's key never shows.
 control "app webhook: an event is kept only for an app store" internal/panel/whop_app.go \
   'if !ok || st.Via != whopViaApp {' \
   'if !ok {' \
@@ -7889,18 +7889,6 @@ control "app webhook: a delivery hurries its own store's pass alone" internal/pa
   's.kickWhopStore(st.ID)' \
   's.kickWhop()' \
   ./internal/panel '^TestTheAppsWebhookKeepsEachEventForItsAppStore$'
-control "app webhook: the reconciler adds it" internal/panel/whop_customers.go \
-  's.ensureWhopAppWebhook(ctx)' \
-  '' \
-  ./internal/panel '^TestTheAppsWebhookKeepsEachEventForItsAppStore$'
-control "app webhook: it follows the dashboard's address" internal/panel/whop_app.go \
-  'if app.WebhookID != "" && app.WebhookURL == want {' \
-  'if app.WebhookID != "" {' \
-  ./internal/panel '^TestTheAppsWebhookFollowsTheDashboardsAddress$'
-control "app webhook: the owner's own is left alone" internal/panel/whop_app.go \
-  '|| (app.WebhookSecret != "" && app.WebhookID == "") {' \
-  '{' \
-  ./internal/panel '^TestWhenWhopWontLetTheAppsKeyAddItsWebhookTheOwnerPastesTheSecretOfOneTheyMade$'
 control "app webhook: an app store is read at once when it comes" internal/panel/whop_app.go \
   'case st.PolledAt.Before(app.HookedAt):' \
   'case false:' \
@@ -7917,6 +7905,18 @@ control "app key: the audit log keeps its ending alone" internal/panel/whop_app.
   'return what + ", ending " + whop.Ending(secret)' \
   'return what + ", ending " + secret' \
   ./internal/panel '^TestOnlyTheOwnerSetsTheAppsKeyAndOnlyItsEndingShows$'
+control "app stores: one whose business hasn't approved the app isn't read" internal/panel/whop_customers.go \
+  'if st.Via == whopViaApp && !s.whopAppApproved(ctx, c, st) {' \
+  'if false {' \
+  ./internal/panel '^TestAnAppStoreWhoseBusinessHasntApprovedTheAppIsntRead$'
+control "app stores: approved again, one is read afresh at once" internal/panel/whop_app.go \
+  'SET problem = ?, synced_at = 0, polled_at = 0 WHERE store_id = ?' \
+  'SET problem = ? WHERE store_id = ?' \
+  ./internal/panel '^TestAnAppStoreWhoseBusinessHasntApprovedTheAppIsntRead$'
+control "app stores: the owner comes from one of the business's products" internal/whop/members.go \
+  '"/products/"+url.PathEscape(ps[0].ID)' \
+  '"/accounts/"+url.PathEscape(accountID)' \
+  ./internal/panel '^TestAStoresMessagesGoOutInItsOwnChats$'
 
 # Playkeeper Cloud's ready server (internal/panel/readyserver.go): a
 # customer is told once that their server is ready, or being set up.

@@ -2,8 +2,6 @@ package panel
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"strings"
@@ -14,56 +12,30 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
-// whopTestAppHookSecret signs the deliveries of the webhook the dashboard
-// added for the Playkeeper Cloud app.
+// whopTestAppHookSecret signs the deliveries of the webhook the owner made
+// for the Playkeeper Cloud app.
 const whopTestAppHookSecret = "ws_playkeepercloud0123456789abcdef"
 
-// serveAppWebhooks answers the app's key adding the app's own webhook or
-// moving it, which is kept with the key store's in webhooks; f.mu must be
-// held.
-func (f *fakeWhop) serveAppWebhooks(w http.ResponseWriter, r *http.Request) {
-	var body map[string]any
-	json.NewDecoder(r.Body).Decode(&body)
-	id, _ := strings.CutPrefix(r.URL.Path, "/webhooks/")
-	switch {
-	case f.appHooksRefused, r.Method == "POST" && body["resource_id"] != whopTestApp:
-		w.WriteHeader(http.StatusForbidden)
-		io.WriteString(w, `{"error":{"type":"forbidden","message":"You do not have permission to access this resource"}}`)
-	case r.Method == "POST" && r.URL.Path == "/webhooks":
-		hook := fmt.Sprintf("hook_app%d", f.requests)
-		body["id"] = hook
-		f.webhooks[hook] = body
-		json.NewEncoder(w).Encode(map[string]any{"id": hook, "url": body["url"], "webhook_secret": whopTestAppHookSecret})
-	case r.Method == "PATCH" && f.webhooks[id]["resource_id"] == whopTestApp:
-		maps.Copy(f.webhooks[id], body)
-		json.NewEncoder(w).Encode(f.webhooks[id])
-	default:
-		w.WriteHeader(http.StatusNotFound)
-		io.WriteString(w, `{"error":{"type":"not_found","message":"No such webhook"}}`)
+// serveAppGrants answers which permissions a business granted the app's
+// key: all it asks for, unless the business is ungranted or never
+// installed the app; f.mu must be held.
+func (f *fakeWhop) serveAppGrants(w http.ResponseWriter, r *http.Request) {
+	biz := r.URL.Query().Get("resource_id")
+	granted := f.installed[biz] != nil && !f.ungranted[biz]
+	var data []map[string]any
+	for _, a := range strings.Split(r.URL.Query().Get("actions"), ",") {
+		data = append(data, map[string]any{"action": a, "granted": granted})
 	}
+	json.NewEncoder(w).Encode(map[string]any{"data": data})
 }
 
-// appHook is the webhook the dashboard added for the app, nil for none.
-func appHook(f *fakeWhop) map[string]any {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, h := range f.webhooks {
-		if h["resource_id"] == whopTestApp {
-			return maps.Clone(h)
-		}
-	}
-	return nil
-}
-
-// withApp is twoStores with Sign in with Whop's app as the Playkeeper Cloud
-// app, so the dashboard knows which app's webhook to add.
-func withApp(t *testing.T) (*fakeWhop, *env, member) {
+// hookApp pastes the secret of the app's webhook, as the owner does once
+// they've made it on Whop.
+func hookApp(t *testing.T, e *env, own member) {
 	t.Helper()
-	f, e, own := twoStores(t)
-	if _, err := e.srv.db.Exec(`UPDATE whop_app SET client_id = ?`, whopTestApp); err != nil {
-		t.Fatal(err)
+	if r := e.do(t, "PUT", "/api/whop/app", `{"webhookSecret":"`+whopTestAppHookSecret+`"}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("pasting the app's webhook's secret: %d %v", r.status, r.body)
 	}
-	return f, e, own
 }
 
 // deliverApp posts an event of the business account to the app's webhook as
@@ -99,20 +71,24 @@ func keptAt(t *testing.T, e *env, membership string) string {
 	return store
 }
 
-// The dashboard adds the app's webhook for the businesses that installed
-// the app, and keeps each event for the app store of the business it
+// storeProblem is what the store is waiting on, "" for nothing.
+func storeProblem(t *testing.T, e *env, store string) string {
+	t.Helper()
+	var problem string
+	if err := e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = ?`, store).Scan(&problem); err != nil {
+		t.Fatal(err)
+	}
+	return problem
+}
+
+// The app's webhook keeps each event for the app store of the business it
 // names, hurrying that store's pass alone. The key store's events come
 // through its own webhook, and a business that isn't a store here has none,
 // so the app's webhook keeps neither. It takes only Whop's deliveries, and
 // each once.
 func TestTheAppsWebhookKeepsEachEventForItsAppStore(t *testing.T) {
-	f, e, _ := withApp(t)
-	e.reconcile()
-	hook := appHook(f)
-	events, _ := hook["events"].([]any)
-	if hook == nil || hook["url"] != whopDashboard+whopAppWebhookPath || hook["api_version_date"] != whop.APIVersion || len(events) != len(whop.Events) {
-		t.Fatalf("the app's webhook: %v", hook)
-	}
+	f, e, own := twoStores(t)
+	hookApp(t, e, own)
 	takeKicks(e)
 	m := f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
 	if r := e.deliverApp(t, whopTestAppHookSecret, "biz_other", "msg_1", whop.EventMembershipActivated, m); r.status != http.StatusOK {
@@ -143,13 +119,13 @@ func TestTheAppsWebhookKeepsEachEventForItsAppStore(t *testing.T) {
 	}
 }
 
-// Without the app's webhook an app store is read every minute. The pass that
-// adds it reads every membership at once, since the webhook tells only of
-// what happens from then, and after that the store is read every ten
-// minutes, with the webhook telling of what happens in between.
+// Without the app's webhook an app store is read every minute. The pass
+// after its secret is pasted reads every membership at once, since the
+// webhook tells only of what happens from then, and after that the store is
+// read every ten minutes, with the webhook telling of what happens in
+// between.
 func TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes(t *testing.T) {
-	f, e, _ := withApp(t)
-	f.appHooksRefused = true
+	f, e, own := twoStores(t)
 	e.reconcile()
 	f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
 	e.clock.add(time.Minute)
@@ -157,12 +133,12 @@ func TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes(t *tes
 	if got := keptAt(t, e, "mem_other1"); got != "biz_other" {
 		t.Fatalf("without the app's webhook, a purchase waited past a minute: %q", got)
 	}
-	f.appHooksRefused = false
 	f.buyAt("biz_other", "mem_other2", "user_alex", "plan_other", "active")
 	e.clock.add(time.Second)
+	hookApp(t, e, own)
 	e.reconcile()
-	if appHook(f) == nil || keptAt(t, e, "mem_other2") != "biz_other" {
-		t.Fatalf("the pass that added the app's webhook didn't read what came before it: webhook %v", appHook(f))
+	if got := keptAt(t, e, "mem_other2"); got != "biz_other" {
+		t.Fatalf("the pass after the webhook came didn't read what came before it: %q", got)
 	}
 	f.buyAt("biz_other", "mem_other3", "user_alex", "plan_other", "active")
 	e.clock.add(time.Minute)
@@ -177,65 +153,46 @@ func TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes(t *tes
 	}
 }
 
-// When Whop doesn't let the app's key add the app's webhook, Settings › Sell
-// on Whop says what to do, and the owner pastes the secret of one they made.
-// The dashboard leaves that one alone, even once Whop would let it add its
-// own, until the owner clears it.
-func TestWhenWhopWontLetTheAppsKeyAddItsWebhookTheOwnerPastesTheSecretOfOneTheyMade(t *testing.T) {
-	f, e, own := withApp(t)
-	f.appHooksRefused = true
+// Whop answers an app that a business hasn't approved, or took its approval
+// back from, with no memberships at all. So an app store whose business
+// lacks a permission isn't read and its customers stay as they were, with
+// that as its problem, while the other stores go on. Approved again, it's
+// read afresh at once.
+func TestAnAppStoreWhoseBusinessHasntApprovedTheAppIsntRead(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
 	e.reconcile()
-	want := whopDashboard + whopAppWebhookPath
-	if v := e.whopView(t, own).App; v.Webhook || v.WebhookURL != want || !strings.Contains(v.Problem, want) || !strings.Contains(v.Problem, "paste its secret here") {
-		t.Fatalf("with Whop refusing: %+v", v)
-	}
-	const secret = "ws_madeonwhop0123456789abcdef"
-	r := e.do(t, "PUT", "/api/whop/app", `{"webhookSecret":"`+secret+`"}`, own.auth())
-	app, _ := r.body["app"].(map[string]any)
-	if r.status != http.StatusOK || app["webhook"] != true || app["webhookBy"] != "owner" || app["problem"] != nil {
-		t.Fatalf("pasting its secret: %d %v", r.status, r.body)
-	}
-	m := f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
-	if r := e.deliverApp(t, secret, "biz_other", "msg_1", whop.EventMembershipActivated, m); r.status != http.StatusOK || keptAt(t, e, "mem_other1") != "biz_other" {
-		t.Fatalf("a delivery of the owner's webhook: %d", r.status)
-	}
-	f.appHooksRefused = false
-	e.reconcile()
-	if hook := appHook(f); hook != nil {
-		t.Fatalf("the dashboard added a webhook beside the owner's: %v", hook)
-	}
-	if r := e.do(t, "PUT", "/api/whop/app", `{"webhookSecret":""}`, own.auth()); r.status != http.StatusOK || e.whopView(t, own).App.Webhook {
-		t.Fatalf("clearing it: %d %v", r.status, r.body)
-	}
-	e.reconcile()
-	if v := e.whopView(t, own).App; appHook(f) == nil || !v.Webhook || v.WebhookBy != "dashboard" {
-		t.Fatalf("once cleared, the dashboard's own: %+v", v)
-	}
-}
-
-// The webhook the dashboard added follows the dashboard's address, and one
-// gone from Whop is added again.
-func TestTheAppsWebhookFollowsTheDashboardsAddress(t *testing.T) {
-	f, e, own := withApp(t)
-	e.reconcile()
-	first := appHook(f)
-	e.setAddress(t, "play.pip.gg")
-	e.reconcile()
-	if hook := appHook(f); hook == nil || hook["id"] != first["id"] || hook["url"] != "https://play.pip.gg:8443"+whopAppWebhookPath || !e.whopView(t, own).App.Webhook {
-		t.Fatalf("after the address changed: %v", hook)
+	calls := len(core.got())
+	if calls != 1 || keptAt(t, e, "mem_other1") != "biz_other" {
+		t.Fatalf("before: calls %q", core.got())
 	}
 	f.mu.Lock()
-	delete(f.webhooks, first["id"].(string))
+	f.ungranted["biz_other"] = true
 	f.mu.Unlock()
-	e.setAddress(t, "beta.playkeeper.me")
+	if err := e.srv.keepMembership("biz_other", whop.Membership{ID: "mem_other1", UserID: "user_alex", PlanID: "plan_other", Status: "active"}, true); err != nil {
+		t.Fatal(err)
+	}
+	f.buy("mem_pip1", "user_alex", "plan_starter", "active")
+	e.clock.add(11 * time.Minute)
 	e.reconcile()
-	if hook := appHook(f); hook == nil || hook["id"] == first["id"] || hook["url"] != whopDashboard+whopAppWebhookPath {
-		t.Fatalf("after Whop lost it: %v", hook)
+	got := core.got()
+	if keptAt(t, e, "mem_other1") != "biz_other" || len(got) != calls+1 || !strings.Contains(got[calls], "whop/biz_pip/user_alex") ||
+		!strings.Contains(storeProblem(t, e, "biz_other"), errWhopAppUnapproved.Error()) {
+		t.Fatalf("unapproved: Other's membership kept for %q, calls %q, problem %q", keptAt(t, e, "mem_other1"), got, storeProblem(t, e, "biz_other"))
+	}
+	f.mu.Lock()
+	delete(f.ungranted, "biz_other")
+	f.mu.Unlock()
+	e.reconcile()
+	if problem := storeProblem(t, e, "biz_other"); problem != "" || len(core.got()) != calls+1 {
+		t.Fatalf("approved again: problem %q, calls %q", problem, core.got())
 	}
 }
 
-// The owner alone sets the app's key. The dashboard shows its ending, never
-// the key, and keeps the key out of the audit log. An empty key clears it.
+// The owner alone sets the app's key and its webhook's secret. The dashboard
+// shows the key's ending and whether the secret is there, never either of
+// them, and keeps them out of the audit log. An empty one clears it.
 func TestOnlyTheOwnerSetsTheAppsKeyAndOnlyItsEndingShows(t *testing.T) {
 	_, e, own := connectedWhop(t)
 	viewer := addMember(t, e, "vic", invites.RoleViewer, "*")
@@ -247,19 +204,24 @@ func TestOnlyTheOwnerSetsTheAppsKeyAndOnlyItsEndingShows(t *testing.T) {
 			t.Fatalf("%s: %d", body, r.status)
 		}
 	}
-	r := e.do(t, "PUT", "/api/whop/app", `{"key":" `+whopTestAppKey+` "}`, own.auth())
+	r := e.do(t, "PUT", "/api/whop/app", `{"key":" `+whopTestAppKey+` ","webhookSecret":"`+whopTestAppHookSecret+`"}`, own.auth())
 	raw, _ := json.Marshal(r.body)
-	if r.status != http.StatusOK || strings.Contains(string(raw), whopTestAppKey) {
-		t.Fatalf("setting the app's key: %d %s", r.status, raw)
+	if r.status != http.StatusOK || strings.Contains(string(raw), whopTestAppKey) || strings.Contains(string(raw), whopTestAppHookSecret) {
+		t.Fatalf("setting the app's key and secret: %d %s", r.status, raw)
 	}
-	var key, audited string
-	e.srv.db.QueryRow(`SELECT api_key FROM whop_app WHERE id = 1`).Scan(&key)
+	var key, secret, audited string
+	e.srv.db.QueryRow(`SELECT api_key, webhook_secret FROM whop_app WHERE id = 1`).Scan(&key, &secret)
 	e.srv.db.QueryRow(`SELECT group_concat(detail) FROM audit WHERE action = 'whop.app'`).Scan(&audited)
-	if v := e.whopView(t, own).App; key != whopTestAppKey || v.KeyEnding != whop.Ending(whopTestAppKey) || strings.Contains(audited, whopTestAppKey) {
-		t.Fatalf("kept %q, shown %+v, audited %q", key, v, audited)
+	v := e.whopView(t, own).App
+	if key != whopTestAppKey || secret != whopTestAppHookSecret || v.KeyEnding != whop.Ending(whopTestAppKey) || !v.Webhook ||
+		v.WebhookURL != whopDashboard+whopAppWebhookPath || strings.Contains(audited, whopTestAppKey) || strings.Contains(audited, whopTestAppHookSecret) {
+		t.Fatalf("kept %q and %q, shown %+v, audited %q", key, secret, v, audited)
 	}
-	if r := e.do(t, "PUT", "/api/whop/app", `{"key":""}`, own.auth()); r.status != http.StatusOK || e.whopView(t, own).App.KeyEnding != "" {
-		t.Fatalf("clearing the app's key: %d %v", r.status, r.body)
+	if r := e.do(t, "PUT", "/api/whop/app", `{"key":"","webhookSecret":""}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("clearing them: %d %v", r.status, r.body)
+	}
+	if v := e.whopView(t, own).App; v.KeyEnding != "" || v.Webhook {
+		t.Fatalf("after clearing them: %+v", v)
 	}
 }
 

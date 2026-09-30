@@ -96,9 +96,9 @@ type fakeWhop struct {
 	// by id, and chats their support chats, by id.
 	installed map[string]*fakeBusiness
 	chats     map[string]fakeChat
-	// appHooksRefused is a Whop that doesn't let the app's key add or move
-	// the app's own webhook.
-	appHooksRefused bool
+	// ungranted are the businesses that installed the app without approving
+	// its permissions, or took them back.
+	ungranted map[string]bool
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
@@ -195,7 +195,7 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 	t.Helper()
 	f := &fakeWhop{missing: map[string]bool{}, keysSeen: map[string]bool{}, webhooks: map[string]map[string]any{},
 		memberships: map[string]map[string]any{}, users: map[string]string{"user_alex": "alexplays"}, messages: map[string][]string{},
-		senders: map[string][]string{}, tokens: map[string]fakeToken{}, installed: map[string]*fakeBusiness{}, chats: map[string]fakeChat{},
+		senders: map[string][]string{}, tokens: map[string]fakeToken{}, installed: map[string]*fakeBusiness{}, chats: map[string]fakeChat{}, ungranted: map[string]bool{},
 		products: map[string]whop.Metadata{"prod_mc": {"color": "green"}},
 		plans: []map[string]any{
 			{"id": "plan_starter", "title": "Starter", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "formatted_price": "$8.00 / month",
@@ -225,8 +225,8 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		f.serveAsUser(w, r, tok)
 		return
 	}
-	if key == whopTestAppKey && strings.HasPrefix(r.URL.Path, "/webhooks") {
-		f.serveAppWebhooks(w, r)
+	if key == whopTestAppKey && r.URL.Path == "/permissions" {
+		f.serveAppGrants(w, r)
 		return
 	}
 	if key == whopTestAppKey {
