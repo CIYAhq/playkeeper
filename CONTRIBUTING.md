@@ -77,7 +77,7 @@ git add internal/update/release.pub && git commit -m "Add the release signing ke
 | `internal/offsite` | encrypted copies of backups on S3-compatible storage or over SFTP |
 | `internal/minecraft`, `internal/minecraft/software`, `internal/docker` | Minecraft protocols, log parsing, PaperMC's version list and the Java for each version; downloads of the other server types; Docker client |
 | `internal/minecraft/software/forge.go` | Forge: its builds from Forge's Maven repository and its installer, each file checked against its published hash; tested by `TestResolveForge` and the three `TestInstallForge` tests in that package |
-| `internal/addons`, `internal/curated` | the plugin and mod library (Modrinth, Hangar); the hand-picked add-ons and voice chat's port |
+| `internal/addons`, `internal/addons/firstparty`, `internal/curated` | the plugin and mod library (Modrinth, Hangar and Playkeeper's own); the plugins Playkeeper ships inside its binary, like AI Build Battle's; the hand-picked add-ons and voice chat's port |
 | `internal/modpacks`, `internal/templates` | modpacks from Modrinth and CurseForge, and the friends' pack page; server templates as files and links |
 | `internal/pregen`, `internal/packs`, `internal/webmap` | map pre-generation with Chunky; resource and data packs; the live map with squaremap |
 | `internal/worldimport`, `internal/nbt`, `internal/zipdir` | uploaded worlds; reading Minecraft's NBT files; checking zip archives |

@@ -108,7 +108,8 @@ type PlannedAddon struct {
 	Unpinned bool `json:"unpinned,omitempty"`
 	// PageURL is the add-on's page on Modrinth, by project id, for checking
 	// it before trusting it. Hangar's pages go by owner, which templates do
-	// not carry.
+	// not carry, and Playkeeper's own plugins come from the binary, with
+	// nothing to check.
 	PageURL string `json:"pageUrl,omitempty"`
 }
 
@@ -476,10 +477,13 @@ func (p *Plan) planAddons(t *Template) {
 	unpin := p.Version != nil && p.Version.MinecraftVersion != t.Server.MinecraftVersion
 	unpinned := 0
 	for _, a := range dependenciesFirst(t.Addons) {
-		if p.Version != nil && !slices.Contains(target.Sources(), a.Source) {
+		if p.Version != nil && !fits(target, a) {
 			name := printable(a.Name)
-			p.skip(notice(KindAddonUnsupported, kv("name", name, "source", a.Source.Name(), "type", p.Type.Name),
-				fmt.Sprintf("%s is skipped: it comes from %s, which has no add-ons for %s servers.", name, a.Source.Name(), p.Type.Name), ""))
+			msg := fmt.Sprintf("%s is skipped: it comes from %s, which has no add-ons for %s servers.", name, a.Source.Name(), p.Type.Name)
+			if a.Source == addons.Playkeeper {
+				msg = fmt.Sprintf("%s is skipped: it does not run on %s servers.", name, p.Type.Name)
+			}
+			p.skip(notice(KindAddonUnsupported, kv("name", name, "source", a.Source.Name(), "type", p.Type.Name), msg, ""))
 			continue
 		}
 		pa := PlannedAddon{Addon: a, Unpinned: unpin && a.Pin != nil, PageURL: pageURL(a)}
