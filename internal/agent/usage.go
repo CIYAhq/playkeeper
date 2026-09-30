@@ -103,7 +103,7 @@ func (a *Agent) usageReport(ctx context.Context) (usage.Heartbeat, error) {
 		source = usage.SourceBuild
 	}
 	kind := usage.KindDashboard
-	if _, err := os.Stat(a.cfg.LinkDashboardPath()); a.cfg.NoPanel || err == nil {
+	if a.joined() {
 		kind = usage.KindJoined
 	}
 	h := usage.Heartbeat{ID: id, System: usage.System{

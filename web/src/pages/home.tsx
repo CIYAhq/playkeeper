@@ -14,6 +14,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
 import { SignInNotice } from '@/components/app/sign-in-notice'
 import { InlineSkeleton, LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
+import { UpdateNotice } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
@@ -149,15 +150,18 @@ function recentActivity(): Promise<Activity[]> {
 
 /**
  * Home's one notice: the agent not answering, what to know after signing
- * in, or disk space; else what a team member should know.
+ * in, or disk space; else what a team member should know; else, on a phone,
+ * which has no sidebar, a new release.
  */
 function HomeNotice() {
   const ws = useWorkspace()
+  const phone = useIsPhone()
   const disk = ws.machine?.live?.diskWarning
   if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{can(ws.me, 'machines.view') ? t('agentDown.body', { machine: ws.machineName }) : t('agentDown.bodyHidden')}</Notice>
   if (ws.signInNotice) return <SignInNotice />
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
-  return can(ws.me, 'team.manage') ? <TeamNotice /> : <MemberNotice />
+  const release = phone ? <UpdateNotice phone /> : null
+  return can(ws.me, 'team.manage') ? <TeamNotice fallback={release} /> : <MemberNotice fallback={release} />
 }
 
 /** A customer's deleted servers' final backups, each downloadable until it goes, whether they renewed or not. */
@@ -187,14 +191,14 @@ function FinalBackups({ className }: { className?: string }) {
 }
 
 /** For whoever can confirm them, a member waiting for their Admin rights comes first. */
-function TeamNotice() {
+function TeamNotice({ fallback }: { fallback: ReactNode }) {
   const team = usePoll(() => get<TeamResponse>('/api/team'), 15_000)
   const waiting = team.data?.members.find((m) => m.canConfirm)
-  return waiting ? <ConfirmAdminNotice member={waiting} onConfirmed={team.refresh} /> : <MemberNotice />
+  return waiting ? <ConfirmAdminNotice member={waiting} onConfirmed={team.refresh} /> : <MemberNotice fallback={fallback} />
 }
 
-/** Admin rights waiting for two-factor sign-in or a confirmation, or the welcome after joining with an invite link. */
-function MemberNotice() {
+/** Admin rights waiting for two-factor sign-in or a confirmation, or the welcome after joining with an invite link; else fallback. */
+function MemberNotice({ fallback }: { fallback: ReactNode }) {
   const ws = useWorkspace()
   const [dismissed, setDismissed] = useState(false)
   const access = ws.me.access
@@ -209,7 +213,7 @@ function MemberNotice() {
     return <TwoLineNotice tone="warning" title={t('home.adminLaterTitle')} body={t('home.adminLaterBody')} action={turnOn} />
   }
   if (access.awaitingConfirmation) return <TwoLineNotice tone="warning" title={t('home.adminWaitingTitle')} body={t('home.adminLaterBody')} />
-  if (dismissed || ws.prefs[welcomeKey] !== '1' || !ws.servers?.length) return null
+  if (dismissed || ws.prefs[welcomeKey] !== '1' || !ws.servers?.length) return fallback
   const name = ws.me.user.username
   const servers = access.servers.all ? t('home.welcomeAllServers') : formatList(ws.servers.map((s) => s.name))
   const close = (

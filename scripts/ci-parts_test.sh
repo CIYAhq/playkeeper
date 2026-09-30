@@ -47,6 +47,7 @@ expect "update" internal/update/apply.go packaging/get.sh scripts/e2e/update-rel
 expect "site,fake-panel" site/pages/index.html
 expect "site,fake-panel" cmd/site/main.go web/src/demo/data.ts
 expect "site,fake-panel" internal/site/build.go
+expect "site" cmd/release-mirror/main.go cmd/release-mirror/main_test.go
 expect "site" web/src/demo/data.ts
 expect "site" web/package-lock.json
 expect "site" test/e2e/ui/demo-iphone.spec.ts
