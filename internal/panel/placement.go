@@ -44,6 +44,8 @@ type machineRoom struct {
 	// FreeMB is the memory it can still set aside: what its servers' budgets
 	// leave, less the part of its customers' plans they haven't used yet.
 	FreeMB int
+	// ExceptMB is what the servers there of the customer left out take.
+	ExceptMB int
 	// Guarded says whether Keep servers away from this machine is on.
 	Guarded bool
 }
@@ -193,6 +195,7 @@ func (s *Server) machineRoom(ctx context.Context, m machine, local string, excep
 		}
 	}
 	r.FreeMB = live.MemoryFreeMB - aside
+	r.ExceptMB = used[except]
 	r.Guarded = live.Guard != nil && live.Guard.Host
 	switch {
 	case m.Kind == localKind:

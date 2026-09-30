@@ -186,9 +186,13 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 // servers don't go on.
 var errOtherMachine = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "This isn't the machine your servers go on."}
 
-// homeRefusal is why creator a may make no new server on m, or nil: they
-// wait for room, or m isn't their machine (homeMachine).
+// homeRefusal is why creator a may make no new server on m, or nil: their
+// servers are being moved, they wait for room, or m isn't their machine
+// (homeMachine).
 func (s *Server) homeRefusal(ctx context.Context, a access, m machine) error {
+	if s.customerMoving(ctx, a.UserID) {
+		return errCustomerMoving
+	}
 	if s.customerWaiting(ctx, a) {
 		return errWaitingForRoom
 	}

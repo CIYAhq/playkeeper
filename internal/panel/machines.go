@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -101,6 +102,9 @@ func failureOf(err error) (int, api.Error) {
 	if errors.Is(err, errDisputed) {
 		return http.StatusConflict, api.Error{Error: "Two machines say they run this server, so the dashboard sends its requests to neither.",
 			Code: codeServerDisputed, Hint: "Remove the machine that shouldn't list it in Settings › Machines."}
+	}
+	if errors.Is(err, errServerMoving) {
+		return http.StatusConflict, api.Error{Error: serverMovingText, Code: codeServerMoving}
 	}
 	if errors.Is(err, errUnknownServer) {
 		return http.StatusNotFound, api.Error{Error: "Server not found.", Code: api.CodeNotFound}
@@ -600,13 +604,26 @@ const codeServerDisputed = "server_disputed"
 // claimLocal records the servers the dashboard's own machine lists, taking
 // them over from joined machines, keeps their statuses for when its agent
 // stops answering, and forgets those it no longer lists. It writes only what
-// changed.
-func (s *Server) claimLocal(m machine, servers []map[string]any) {
+// changed, and returns the servers it runs: a copy of a server being moved
+// is none (see serverMove.hides). listedAt is when the list was asked for.
+func (s *Server) claimLocal(m machine, servers []map[string]any, listedAt time.Time) []map[string]any {
 	s.listings.note(m.ID, servers)
+	copies, err := hiddenCopies(context.Background(), s.db, m.ID)
+	if err != nil {
+		s.log.Error("record server machines", "err", err)
+		return servers
+	}
+	servers = slices.DeleteFunc(slices.Clone(servers), func(sv map[string]any) bool {
+		id, _ := sv["id"].(string)
+		return copyHidden(copies, id, listedAt)
+	})
+	if err := s.forgetLeft(context.Background(), s.db, m.ID, listedAt); err != nil {
+		s.log.Error("record server machines", "err", err)
+	}
 	rows, err := s.db.Query(`SELECT server_id FROM server_machines WHERE machine_id = ?`, m.ID)
 	if err != nil {
 		s.log.Error("record server machines", "err", err)
-		return
+		return servers
 	}
 	had := map[string]bool{}
 	for rows.Next() {
@@ -644,6 +661,7 @@ func (s *Server) claimLocal(m machine, servers []map[string]any) {
 			s.log.Error("record server machines", "err", err)
 		}
 	}
+	return servers
 }
 
 // takeServer gives a server to the dashboard's own machine.
@@ -835,10 +853,20 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 		case revoked != 0:
 			return errMachineGone
 		}
+		copies, err := hiddenCopies(ctx, c, m.ID)
+		if err != nil {
+			return err
+		}
+		if err := s.forgetLeft(ctx, c, m.ID, listedAt); err != nil {
+			return err
+		}
 		var runs, disputes []any
 		for _, sv := range servers {
 			id, _ := sv["id"].(string)
 			if !reMachineID.MatchString(id) {
+				continue
+			}
+			if copyHidden(copies, id, listedAt) {
 				continue
 			}
 			if len(runs)+len(disputes) == maxMachineServers {

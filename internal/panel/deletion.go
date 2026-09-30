@@ -84,8 +84,13 @@ func (s *Server) deleteLapsedCustomers(ctx context.Context) {
 // deleteLapsedCustomer deletes each server the customer created, one at a
 // time and only while they're still paused past their grace period, then
 // records it, frees their home machine and tells them. A customer who
-// renews meanwhile keeps what's left.
+// renews meanwhile keeps what's left. One whose servers are being moved,
+// or whose move stopped, is left for a later look: their servers aren't all
+// on their home machine.
 func (s *Server) deleteLapsedCustomer(ctx context.Context, userID int64) error {
+	if s.customerMoving(ctx, userID) {
+		return nil
+	}
 	ids, err := s.creatorServers(userID)
 	if err != nil {
 		return err

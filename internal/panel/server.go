@@ -179,6 +179,11 @@ type Server struct {
 	// dnsMu serialises sending the dashboard's machine its DNS zone with
 	// the owner's switch (see dnsanswers.go).
 	dnsMu sync.Mutex
+	// moves are the customers whose servers are being moved now, which
+	// runs until Close ends movesCtx (see moves.go).
+	moves       moveRuns
+	movesCtx    context.Context
+	movesCancel context.CancelFunc
 }
 
 func New(opts Options) (*Server, error) {
@@ -241,6 +246,7 @@ func New(opts Options) (*Server, error) {
 		roomKick:     make(chan struct{}, 1),
 		saleRoomKick: make(chan struct{}, 1),
 	}
+	s.movesCtx, s.movesCancel = context.WithCancel(context.Background())
 	s.hosting = customerCore{s: s}
 	s.notifier = billingNotifier{s: s}
 	s.sales = whopStock{s: s}
@@ -269,6 +275,7 @@ func New(opts Options) (*Server, error) {
 }
 
 func (s *Server) Close() error {
+	s.moves.stop(s.movesCancel)
 	s.mcpHTTP.Close()
 	if s.hub != nil {
 		s.hub.Close()
@@ -408,6 +415,8 @@ func (s *Server) Routes() []Route {
 		am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),
 		{"POST", "/api/machines/{mid}/network-guard", needSessionCSRF, actManageMachine, s.hNetworkGuard},
 		{"PUT", "/api/machines/{mid}/customers", needSessionCSRF, actTakeCustomers, s.hMachineCustomers},
+		{"GET", "/api/machines/{mid}/customers", needSession, actTakeCustomers, s.hMachineCustomerList},
+		{"POST", "/api/customers/{uid}/move", needSessionCSRF, actTakeCustomers, s.hCustomerMove},
 		{"GET", "/api/machines/room", needSession, actTakeCustomers, s.hSaleRoom},
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
@@ -1759,6 +1768,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runRoom(ctx)
 	go s.runSaleRoom(ctx)
 	go s.runLapsedCustomers(ctx)
+	go s.runMoves(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }
