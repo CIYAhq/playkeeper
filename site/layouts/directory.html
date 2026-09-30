@@ -284,7 +284,7 @@
         <h2 id="installs" class="tpage-h2">What it installs</h2>
         <p class="tpage-lead">The versions the template pins, as they installed when we started it, so your dashboard installs the same.</p>
         <ul class="addon-list">
-          {{range $k.Plugins}}<li class="addon">{{template "addon-mark" (dict "Name" .Name "Icon" ($t.IconOf .Slug))}}<span class="addon-main"><a class="addon-name" href="https://modrinth.com/project/{{.Slug}}">{{.Name}}</a><span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{downloads .Downloads}} downloads</span><span>{{licence .Licence}}</span></span></li>{{end}}
+          {{range $k.Plugins}}<li class="addon">{{template "addon-mark" (dict "Name" .Name "Icon" ($t.IconOf .Slug))}}<span class="addon-main">{{if .FirstParty}}<span class="addon-name">{{.Name}}</span>{{else}}<a class="addon-name" href="https://modrinth.com/project/{{.Slug}}">{{.Name}}</a>{{end}}<span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{if .FirstParty}}Ships with Playkeeper{{else}}{{downloads .Downloads}} downloads{{end}}</span><span>{{licence .Licence}}</span></span></li>{{end}}
         </ul>
       </section>
       {{else}}{{with $t.PackCheck}}

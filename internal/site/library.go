@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/templates"
 	"github.com/CIYAhq/playkeeper/internal/templates/checks"
@@ -41,15 +42,23 @@ type LibraryPage struct {
 
 // LibraryPlugin is one add-on of a library template as it installed.
 type LibraryPlugin struct {
-	Name    string
+	Name string
+	// Source is the source the template lists it from.
+	Source  string
 	Slug    string
 	Version string
 	// Licence is the SPDX id its source lists; LicenseRef-All-Rights-Reserved
 	// for none.
 	Licence string
-	// Downloads is its total on its source on Checked.
+	// Downloads is its total on its source on Checked. Nothing counts those
+	// of Playkeeper's own plugins, which have none.
 	Downloads int
 }
+
+// FirstParty reports whether it's one of Playkeeper's own plugins, which
+// ships inside Playkeeper: no registry lists it, so it has no page, icon or
+// downloads to show.
+func (p LibraryPlugin) FirstParty() bool { return p.Source == string(addons.Playkeeper) }
 
 var reRelease3 = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
@@ -86,10 +95,14 @@ func (l *LibraryPage) Done() string {
 
 // Projects lists the add-ons for the itzg image's MODRINTH_PROJECTS: each
 // slug with the version the template pins, so the command installs what the
-// template does.
+// template does. Playkeeper's own plugins are left out, since no registry
+// has them.
 func (l *LibraryPage) Projects() string {
 	var out []string
 	for _, a := range l.T().Addons {
+		if a.Source == addons.Playkeeper {
+			continue
+		}
 		p := a.Slug
 		if a.Pin != nil {
 			p += ":" + a.Pin.VersionID
@@ -177,7 +190,7 @@ func (l *LibraryPage) fill(c *checks.Check) error {
 	l.Checked, l.Release, l.Build, l.DoneSeconds = c.Checked, c.Release, c.Build, c.DoneSeconds
 	l.Plugins = nil
 	for _, a := range c.Addons {
-		l.Plugins = append(l.Plugins, LibraryPlugin{Name: a.Name, Slug: a.Slug, Version: versionName(a.Version), Licence: a.Licence, Downloads: a.Downloads})
+		l.Plugins = append(l.Plugins, LibraryPlugin{Name: a.Name, Source: a.Source, Slug: a.Slug, Version: versionName(a.Version), Licence: a.Licence, Downloads: a.Downloads})
 	}
 	return nil
 }
@@ -221,8 +234,8 @@ func (l *LibraryPage) check(cards map[string]*TemplateCard) error {
 	}
 	for i, a := range c.Template.Addons {
 		p := l.Plugins[i]
-		if p.Name != a.Name || p.Slug != a.Slug || p.Version == "" || p.Licence == "" || p.Downloads <= 0 {
-			return fmt.Errorf("plugin %d is %q (%s), which isn't the template's %q (%s) with its version, licence and downloads", i+1, p.Name, p.Slug, a.Name, a.Slug)
+		if p.Name != a.Name || p.Source != string(a.Source) || p.Slug != a.Slug || p.Version == "" || p.Licence == "" || (p.Downloads <= 0 && !p.FirstParty()) {
+			return fmt.Errorf("plugin %d is %q (%s %s), which isn't the template's %q (%s %s) with its version, licence and downloads", i+1, p.Name, p.Source, p.Slug, a.Name, a.Source, a.Slug)
 		}
 	}
 	if _, err := time.Parse(time.DateOnly, l.Checked); err != nil {
