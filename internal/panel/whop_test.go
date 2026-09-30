@@ -24,6 +24,8 @@ const (
 	whopOtherKey   = "apik_other_business_0123456789"
 	whopDashboard  = "https://beta.playkeeper.me:8443"
 	whopTestSecret = "ws_0123456789abcdef0123456789abcdef"
+	// whopTestOwner owns Pip Hosting, and is in each of its support chats.
+	whopTestOwner = "user_pip"
 )
 
 // fakeWhop answers like Whop's API for one seller, Pip Hosting, whose store
@@ -48,10 +50,15 @@ type fakeWhop struct {
 	// memberships are the store's, by id; users the buyers' usernames.
 	memberships map[string]map[string]any
 	users       map[string]string
-	// messages are what was sent to each support chat; chatDown makes
-	// opening one fail.
+	// messages are what was sent to each support chat, and senders who sent
+	// each; chatDown makes opening one fail.
 	messages map[string][]string
+	senders  map[string][]string
 	chatDown bool
+	// tokens are the user tokens Whop gave, by token; tokenDown makes
+	// getting one fail.
+	tokens    map[string]fakeToken
+	tokenDown bool
 	// stockSets are the stocks the dashboard set, as plan=n; stockDown
 	// makes setting one fail, and listDown listing memberships.
 	stockSets []string
@@ -63,15 +70,24 @@ type fakeWhop struct {
 	// requests counts what the dashboard asked.
 	requests int
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
-	// the refresh tokens ended.
-	grants        map[string]oauthGrant
-	revokedTokens []string
+	// the refresh tokens ended. noTokenExchange is an app without the
+	// oauth:token_exchange permission on Whop.
+	grants          map[string]oauthGrant
+	revokedTokens   []string
+	noTokenExchange bool
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
 // redirect, and the PKCE challenge the code must be traded with.
 type oauthGrant struct {
 	user, clientID, redirect, challenge string
+}
+
+// fakeToken is a user token Whop gave: the user it acts as, inside which
+// account, and what it may do.
+type fakeToken struct {
+	user, account string
+	actions       []string
 }
 
 // approve does what Whop does when someone signs in: it checks the link the
@@ -103,8 +119,27 @@ func (f *fakeWhop) serveOAuth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": why})
 	}
+	refuseApp := func(why string) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client", "error_description": why})
+	}
 	switch r.Method + " " + r.URL.Path {
 	case "POST /oauth/token":
+		// Whop checks the app before the code, and wants the app's secret.
+		switch {
+		case body["client_id"] != whopTestApp:
+			refuseApp("Unknown client")
+			return
+		case body["client_secret"] == "":
+			refuseApp("client_secret is required")
+			return
+		case body["client_secret"] != whopTestAppSecret:
+			refuseApp("client_secret is invalid")
+			return
+		case f.noTokenExchange:
+			refuseApp("client_secret lacks oauth:token_exchange permission")
+			return
+		}
 		g, ok := f.grants[body["code"]]
 		delete(f.grants, body["code"])
 		switch {
@@ -136,6 +171,7 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 	t.Helper()
 	f := &fakeWhop{missing: map[string]bool{}, keysSeen: map[string]bool{}, webhooks: map[string]map[string]any{},
 		memberships: map[string]map[string]any{}, users: map[string]string{"user_alex": "alexplays"}, messages: map[string][]string{},
+		senders: map[string][]string{}, tokens: map[string]fakeToken{},
 		products: map[string]whop.Metadata{"prod_mc": {"color": "green"}},
 		plans: []map[string]any{
 			{"id": "plan_starter", "title": "Starter", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "formatted_price": "$8.00 / month",
@@ -161,11 +197,17 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	f.keysSeen[key] = true
 	w.Header().Set("Content-Type", "application/json")
-	account := map[string]any{"id": "biz_pip", "title": "Pip Hosting", "route": "pip-hosting"}
+	if tok, ok := f.tokens[key]; ok {
+		f.serveAsUser(w, r, tok)
+		return
+	}
+	account := map[string]any{"id": "biz_pip", "title": "Pip Hosting", "route": "pip-hosting",
+		"owner": map[string]any{"id": whopTestOwner, "username": "pipowner", "name": "Pip"}}
 	switch {
 	case key == whopTestKey && !f.revoked:
 	case key == whopOtherKey:
-		account = map[string]any{"id": "biz_other", "title": "Other", "route": "other"}
+		account = map[string]any{"id": "biz_other", "title": "Other", "route": "other",
+			"owner": map[string]any{"id": "user_otherowner", "username": "otherowner", "name": "Other"}}
 	default:
 		w.WriteHeader(http.StatusUnauthorized)
 		io.WriteString(w, `{"error":{"type":"authentication_error","message":"Invalid API key"}}`)
@@ -233,11 +275,41 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
 		json.NewDecoder(r.Body).Decode(&body)
 		json.NewEncoder(w).Encode(map[string]any{"id": "chan_" + body["user_id"]})
-	case "POST /messages":
-		var body map[string]string
+	case "POST /access_tokens":
+		var body struct {
+			AccountID string   `json:"account_id"`
+			UserID    string   `json:"user_id"`
+			Actions   []string `json:"scoped_actions"`
+		}
 		json.NewDecoder(r.Body).Decode(&body)
-		f.messages[body["channel_id"]] = append(f.messages[body["channel_id"]], body["content"])
-		json.NewEncoder(w).Encode(map[string]any{"id": "msg_sent"})
+		owner, _ := account["owner"].(map[string]any)
+		var lacking []string
+		for _, a := range body.Actions {
+			if f.missing[a] {
+				lacking = append(lacking, a)
+			}
+		}
+		switch {
+		case f.tokenDown:
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+		case len(lacking) > 0:
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"type": "forbidden",
+				"message": "Actor is missing all required permissions: " + strings.Join(lacking, ", ")}})
+		case body.AccountID != account["id"] || body.UserID != owner["id"] || len(body.Actions) == 0:
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, `{"error":{"type":"forbidden","message":"You do not have permission to access this resource"}}`)
+		default:
+			token := fmt.Sprintf("ut_%d", len(f.tokens)+1)
+			f.tokens[token] = fakeToken{user: body.UserID, account: body.AccountID, actions: body.Actions}
+			json.NewEncoder(w).Encode(map[string]any{"token": token, "expires_at": "2026-09-30T13:00:00Z"})
+		}
+	case "POST /messages":
+		// Messages come from people: Whop refuses one sent with an API key,
+		// whatever the key may do, in these words.
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"Unauthorized: Actor is missing all required permissions: support_chat:message:create"}}`)
 	default:
 		if id, ok := strings.CutPrefix(r.URL.Path, "/products/"); ok && r.Method == "PATCH" && f.products[id] != nil {
 			if f.patchDown || id == f.refuseProduct {
@@ -308,6 +380,25 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such route"}}`)
 	}
+}
+
+// serveAsUser answers a request made with a user token, which may only send
+// a message in a support chat its user is in, the store's owner or its
+// customer, and only if the token may send messages; f.mu must be held.
+func (f *fakeWhop) serveAsUser(w http.ResponseWriter, r *http.Request, tok fakeToken) {
+	var body map[string]string
+	json.NewDecoder(r.Body).Decode(&body)
+	channel := body["channel_id"]
+	customer, _ := strings.CutPrefix(channel, "chan_")
+	inChat := tok.account == "biz_pip" && (tok.user == whopTestOwner || tok.user == customer)
+	if r.Method+" "+r.URL.Path != "POST /messages" || !slices.Contains(tok.actions, whop.MessageAction) || !inChat {
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"You do not have permission to access this resource"}}`)
+		return
+	}
+	f.messages[channel] = append(f.messages[channel], body["content"])
+	f.senders[channel] = append(f.senders[channel], tok.user)
+	json.NewEncoder(w).Encode(map[string]any{"id": "msg_sent"})
 }
 
 func (f *fakeWhop) dashboardMeta() string {

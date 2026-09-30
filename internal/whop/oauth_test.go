@@ -63,6 +63,46 @@ func TestTheAuthorizeLinkAsksForWhoTheyAreWithPKCE(t *testing.T) {
 	}
 }
 
+// Whop checks the app, its secret and its permission before the code, so
+// a code nobody was given says whether sign-ins can work without making
+// anything. Only Whop refusing the app counts.
+func TestCheckClientRefusesOnlyAnAppWhopRefuses(t *testing.T) {
+	for _, tc := range []struct {
+		status  int
+		answer  string
+		refused string
+	}{
+		{http.StatusUnauthorized, `{"error":"invalid_client","error_description":"client_secret lacks oauth:token_exchange permission"}`, "client_secret lacks oauth:token_exchange permission"},
+		{http.StatusUnauthorized, `{"error":"invalid_client","error_description":"client_secret is invalid"}`, "client_secret is invalid"},
+		{http.StatusBadRequest, `{"error":"invalid_grant","error_description":"Authorization code is invalid"}`, ""},
+		{http.StatusInternalServerError, `oops`, ""},
+	} {
+		var body map[string]string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/oauth/token" {
+				t.Errorf("asked %s", r.URL.Path)
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			w.WriteHeader(tc.status)
+			io.WriteString(w, tc.answer)
+		}))
+		o := OAuth{URL: srv.URL + "/oauth", ClientID: "app_pip", ClientSecret: "sec_1", RedirectURI: "https://beta.playkeeper.me:8443/cb"}
+		err := o.CheckClient(context.Background())
+		srv.Close()
+		if tc.refused == "" && err != nil || tc.refused != "" && (err == nil || !strings.Contains(err.Error(), tc.refused)) {
+			t.Fatalf("Whop answering %d %s: %v", tc.status, tc.answer, err)
+		}
+		if body["grant_type"] != "authorization_code" || body["client_id"] != "app_pip" || body["client_secret"] != "sec_1" ||
+			body["code"] != "playkeeper-check" || len(body["code_verifier"]) != 43 || body["redirect_uri"] != o.RedirectURI {
+			t.Fatalf("the check asked: %v", body)
+		}
+	}
+	down := OAuth{URL: "http://127.0.0.1:1/oauth", ClientID: "app_pip", ClientSecret: "sec_1"}
+	if err := down.CheckClient(context.Background()); err != nil {
+		t.Fatalf("Whop out of reach: %v", err)
+	}
+}
+
 func TestExchangeUserInfoAndRevokeSpeakWhopsOAuth(t *testing.T) {
 	var seen []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
