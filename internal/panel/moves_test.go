@@ -23,12 +23,13 @@ import (
 // server alex there, running, and the dashboard's own machine with room for
 // their plan, each machine's agent ready to do its part of a move.
 type moveFleet struct {
-	e     *env
-	own   member
-	alex  member
-	rid   string
-	ra    *remoteAgent
-	local string
+	e      *env
+	own    member
+	alex   member
+	rid    string
+	ra     *remoteAgent
+	joined joinedForCustomers
+	local  string
 	// archive is alex's server's whole folder as home-server streams it
 	// out, and sum its SHA-256.
 	archive []byte
@@ -52,7 +53,8 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	t.Helper()
 	e := newEnvConfig(t, withDomain, nil)
 	own := owner(t, e)
-	rid, ra, _, _ := joinForCustomers(t, e, own)
+	joined := joinForCustomersAs(t, e, own)
+	rid, ra := joined.d.MachineID, joined.ra
 	e.srv.notifier = &recordingNotifier{}
 	if r := e.do(t, "PUT", "/api/machines/"+rid+"/customers", `{"on":true}`, own.auth()); r.status != http.StatusOK {
 		t.Fatalf("the owner confirms home-server: %d %v", r.status, r.body)
@@ -68,7 +70,7 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	if r := e.do(t, "POST", "/api/machines/"+rid+"/servers", `{"name":"alex","acceptEula":true,"memoryMB":2048}`, alex.auth()); r.status != http.StatusOK {
 		t.Fatalf("alex creates a server: %d %v", r.status, r.body)
 	}
-	f := &moveFleet{e: e, own: own, alex: signIn(t, e, info.UserID), rid: rid, ra: ra, local: e.localMachine(t), archive: []byte("alex's server's folder, as an archive")}
+	f := &moveFleet{e: e, own: own, alex: signIn(t, e, info.UserID), rid: rid, ra: ra, joined: joined, local: e.localMachine(t), archive: []byte("alex's server's folder, as an archive")}
 	s := sha256.Sum256(f.archive)
 	f.sum = hex.EncodeToString(s[:])
 
@@ -182,6 +184,37 @@ func (f *moveFleet) rows(t *testing.T, query string, args ...any) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+// disconnect drops home-server's link and waits until the dashboard knows.
+func (f *moveFleet) disconnect(t *testing.T) {
+	t.Helper()
+	f.joined.link.stop()
+	eventually(t, "home-server is away", func() bool { return !f.e.srv.hub.Connected(f.rid) })
+}
+
+// reconnect has home-server's link come back, as the machine's does after
+// the dashboard restarts, and waits until it's connected.
+func (f *moveFleet) reconnect(t *testing.T) {
+	t.Helper()
+	f.joined.link = f.e.runLink(t, f.joined.d, f.joined.identity, f.ra)
+	eventually(t, "home-server is connected again", func() bool { return f.e.srv.hub.Connected(f.rid) })
+}
+
+// restarted records a move of alex's to the dashboard's machine that a
+// restart of the dashboard stopped, with alex's server still on
+// home-server, and made, the operation that made its copy there.
+func (f *moveFleet) restarted(t *testing.T, made string) {
+	t.Helper()
+	for _, q := range []string{
+		fmt.Sprintf(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by) VALUES(%d, '%s', 0, 'admin')`, f.alex.id, f.local),
+		fmt.Sprintf(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran, made_by) VALUES('%s', %d, '%s', '%s', 1, '%s')`, movedServer, f.alex.id, f.rid, f.local, made),
+		fmt.Sprintf(`UPDATE customer_homes SET machine_id = '%s' WHERE user_id = %d`, f.local, f.alex.id),
+	} {
+		if _, err := f.e.srv.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // pause pauses alex, whose servers are deleted at until unless they renew.
@@ -336,6 +369,9 @@ func TestNothingReachesAServerWhileItMoves(t *testing.T) {
 		t.Fatalf("moving alex: %d %v", r.status, r.body)
 	}
 	eventually(t, "the dashboard's machine makes the server", f.made)
+	eventually(t, "the operation making the copy is recorded, for a restart to carry on with it", func() bool {
+		return f.rows(t, `SELECT COUNT(*) FROM server_moves WHERE server_id = ? AND made_by = 'op-movein'`, movedServer) == 1
+	})
 	f.e.reply("GET", "/v1/servers", "["+movedStatus+"]")
 
 	for _, who := range []member{f.alex, f.own} {
@@ -776,15 +812,7 @@ func TestAMoveCarriesOnAfterARestart(t *testing.T) {
 	f.mu.Lock()
 	f.madeHere = true
 	f.mu.Unlock()
-	for _, q := range []string{
-		fmt.Sprintf(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by) VALUES(%d, '%s', 0, 'admin')`, f.alex.id, f.local),
-		fmt.Sprintf(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran) VALUES('%s', %d, '%s', '%s', 1)`, movedServer, f.alex.id, f.rid, f.local),
-		fmt.Sprintf(`UPDATE customer_homes SET machine_id = '%s' WHERE user_id = %d`, f.local, f.alex.id),
-	} {
-		if _, err := f.e.srv.db.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
+	f.restarted(t, "op-movein")
 	f.e.srv.resumeMoves(context.Background())
 	if why := f.moved(t); why != "" {
 		t.Fatalf("the move carried on stopped: %s", why)
@@ -883,6 +911,140 @@ func TestAMoveThatCantGoOnLeavesItsServerWhereItWas(t *testing.T) {
 	}
 	if f.made() || f.rows(t, `SELECT COUNT(*) FROM server_moves`) != 0 {
 		t.Errorf("the copy of a server deleted meanwhile stayed: %v", f.made())
+	}
+}
+
+// A move a restart of the dashboard stopped waits for the joined machine
+// it's moving a server from, which connects some time after the dashboard
+// starts: nothing is undone meanwhile, and once it connects the move
+// carries on, the server starting where it goes since it ran.
+func TestAMoveFromAJoinedMachineWaitsForItAfterARestart(t *testing.T) {
+	f := newMoveFleet(t)
+	f.restarted(t, "")
+	f.disconnect(t)
+	f.e.srv.resumeMoves(context.Background())
+	if f.e.srv.moves.running(f.alex.id) || f.rows(t, `SELECT COUNT(*) FROM server_moves`) != 1 || f.rows(t, `SELECT COUNT(*) FROM customer_moves WHERE error = ''`) != 1 {
+		t.Fatal("the move carried on, or was undone, while home-server was away")
+	}
+	f.reconnect(t)
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped once home-server connected: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if at := f.recorded(t); at != f.local || in["start"] != true {
+		t.Errorf("once home-server connected the server's requests go to %q, started %v", at, in["start"])
+	}
+}
+
+// A sleeping server moves as one that runs: it starts where it goes, and
+// falls asleep again as its sleep setting says.
+func TestASleepingServerIsUpWhereItMoves(t *testing.T) {
+	f := newMoveFleet(t)
+	f.ra.reply("GET /v1/servers/"+movedServer, strings.Replace(movedStatus, `"phase":"online","desired":"running"`, `"phase":"asleep","desired":"sleeping"`, 1))
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if in["start"] != true {
+		t.Errorf("a sleeping server was made stopped where it moved: %v", in)
+	}
+}
+
+// A server that ran, whose move failed and which then didn't start again
+// where it was, starts once it can: when its machine answers. Moving it
+// again meanwhile starts it where it goes, since it ran.
+func TestAServerWhoseMoveFailedStartsAgainOnceItCan(t *testing.T) {
+	f := newMoveFleet(t)
+	ctx := context.Background()
+	f.e.reply("GET", "/v1/operations/op-movein", `{"id":"op-movein","status":"failed","error":"The restored world did not start."}`)
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-undo","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-undo", `{"id":"op-undo","status":"succeeded"}`)
+	f.ra.handle("POST /v1/servers/"+movedServer+"/start", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"alex is busy with a backup.","code":"busy"}`)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why == "" {
+		t.Fatal("the move whose move-in fails finished")
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM move_restarts WHERE server_id = ? AND machine_id = ?`, movedServer, f.rid); n != 1 {
+		t.Fatalf("a server that didn't start again after its move failed isn't to start again: %d", n)
+	}
+	f.ra.reply("GET /v1/servers/"+movedServer, strings.Replace(movedStatus, `"phase":"online","desired":"running"`, `"phase":"stopped","desired":"stopped"`, 1))
+	f.e.srv.retryRestarts(ctx, "")
+	if n := f.rows(t, `SELECT COUNT(*) FROM move_restarts`); n != 1 {
+		t.Fatal("a start refused again was taken for done")
+	}
+
+	f.e.reply("GET", "/v1/operations/op-movein", `{"id":"op-movein","status":"succeeded"}`)
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex again: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move tried again stopped: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if in["start"] != true || f.rows(t, `SELECT COUNT(*) FROM move_restarts`) != 0 {
+		t.Errorf("a server that ran, moved again after its move failed, was made started %v", in["start"])
+	}
+
+	f = newMoveFleet(t)
+	if _, err := f.e.srv.db.Exec(`INSERT INTO move_restarts(server_id, machine_id, user_id) VALUES(?, ?, ?)`, movedServer, f.rid, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	f.e.srv.retryRestarts(ctx, f.rid)
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); !ok || f.rows(t, `SELECT COUNT(*) FROM move_restarts`) != 0 {
+		t.Errorf("a server to start again didn't once its machine answered: started %v", ok)
+	}
+}
+
+// A move a restart stopped carries on only with the copy it made: one an
+// earlier move left on the machine it goes to, even complete, is deleted,
+// and the server's folder copied again.
+func TestAResumedMoveTakesOnlyTheCopyItMade(t *testing.T) {
+	f := newMoveFleet(t)
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-old","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-old", `{"id":"op-old","status":"succeeded"}`)
+	f.restarted(t, "")
+	f.e.srv.resumeMoves(context.Background())
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move carried on stopped: %s", why)
+	}
+	hits := f.e.agentHits()
+	if old, upload := slices.Index(hits, "POST /v1/servers/"+movedServer+"/delete"), slices.Index(hits, "POST /v1/restore/upload"); old < 0 || old > upload {
+		t.Errorf("an earlier move's copy was taken for this one's: %v", hits)
+	}
+	if _, ok := f.ra.saw("GET /v1/servers/" + movedServer + "/move-out"); !ok {
+		t.Error("the server's folder wasn't copied again")
 	}
 }
 
@@ -1072,13 +1234,7 @@ func TestAPausedCustomersServerMovesStopped(t *testing.T) {
 	f.mu.Lock()
 	f.madeHere = true
 	f.mu.Unlock()
-	f.stopped(t, f.local, f.local)
-	if _, err := f.e.srv.db.Exec(`UPDATE customer_moves SET error = '' WHERE user_id = ?`, f.alex.id); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran) VALUES(?, ?, ?, ?, 1)`, movedServer, f.alex.id, f.rid, f.local); err != nil {
-		t.Fatal(err)
-	}
+	f.restarted(t, "op-movein")
 	f.pause(t, f.e.clock.now().Add(time.Hour))
 	f.e.srv.resumeMoves(context.Background())
 	if why := f.moved(t); why != "" {

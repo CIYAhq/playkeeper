@@ -28,10 +28,11 @@ func (e *agentEnv) moveOut() (int, []byte) {
 
 // A server moved to another machine takes its whole folder, not what a
 // backup keeps: a plugin's world, its server type's own settings, scripts
-// and files uploaded at the top all arrive where it goes, and a server that
-// hasn't made its world yet moves too. Nothing is written where it was, so
-// a server whose disk limit is full moves as it is. Its folder goes only
-// while it's stopped, and only a move takes it: a restore refuses it.
+// and files uploaded at the top all arrive where it goes, and a server with
+// no world, as before its first start, moves too. Nothing is written where
+// it was, so a server whose disk limit is full moves as it is. Its folder
+// goes only while it's stopped, and only a move takes it: a restore refuses
+// it.
 func TestAServerMovesWithItsWholeFolder(t *testing.T) {
 	e := newAgentEnv(t)
 	e.createWith(map[string]any{"name": "Survival", "playStyle": "friends"})
@@ -56,6 +57,9 @@ func TestAServerMovesWithItsWholeFolder(t *testing.T) {
 	}
 	if op := e.act("stop"); op.Status != api.OpSucceeded {
 		t.Fatalf("stop: %+v", op)
+	}
+	if err := os.RemoveAll(filepath.Join(e.dataDir(), "world")); err != nil {
+		t.Fatal(err)
 	}
 	code, raw := e.moveOut()
 	if code != http.StatusOK {

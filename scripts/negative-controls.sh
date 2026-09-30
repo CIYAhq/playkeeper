@@ -9443,9 +9443,41 @@ control "whole archives: only one says so needs no world" internal/backup/archiv
   'if false && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
   ./internal/backup '^TestMaliciousArchivesAreRefused$'
 control "moving customers: an old copy on the machine a server goes to isn't taken for it" internal/panel/moves.go \
-  'resume && op != nil && op.Kind == "restore" && op.Status == api.OpSucceeded' \
-  'op != nil && op.Kind == "restore" && op.Status == api.OpSucceeded' \
+  'resume && op != nil && op.ID == mv.madeBy && op.Status == api.OpSucceeded' \
+  'op != nil && op.Status == api.OpSucceeded' \
   ./internal/panel '^TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo$'
+control "moving customers: a move a restart stopped carries on only with the copy it made" internal/panel/moves.go \
+  'resume && op != nil && op.ID == mv.madeBy && op.Status == api.OpSucceeded' \
+  'resume && op != nil && op.Status == api.OpSucceeded' \
+  ./internal/panel '^TestAResumedMoveTakesOnlyTheCopyItMade$'
+control "moving customers: the operation making a copy is recorded before it's waited for" internal/panel/moves.go \
+  'UPDATE server_moves SET made_by = ? WHERE server_id = ?' \
+  'UPDATE server_moves SET made_by = '"''"' WHERE made_by = ? AND server_id = ?' \
+  ./internal/panel '^TestNothingReachesAServerWhileItMoves$'
+control "moving customers: a move a restart stopped waits for the joined machines it needs" internal/panel/moves.go \
+  'if s.moveMachinesUp(ctx, id) {' \
+  'if true {' \
+  ./internal/panel '^TestAMoveFromAJoinedMachineWaitsForItAfterARestart$'
+control "moving customers: a joined machine connecting carries on the moves that waited for it" internal/panel/machines.go \
+  's.movesReconnected(e.MachineID)' \
+  '_ = e.MachineID' \
+  ./internal/panel '^TestAMoveFromAJoinedMachineWaitsForItAfterARestart$'
+control "moving customers: a sleeping server is up where it moves" internal/panel/moves.go \
+  '(st.Desired == api.DesiredRunning || st.Desired == api.DesiredSleeping) && st.Phase != api.PhaseCrashed' \
+  'st.Desired == api.DesiredRunning && st.Phase != api.PhaseCrashed' \
+  ./internal/panel '^TestASleepingServerIsUpWhereItMoves$'
+control "moving customers: a server a failed move couldn't start again is to start again" internal/panel/moves.go \
+  's.pendRestart(ctx, mv)' \
+  '_ = mv' \
+  ./internal/panel '^TestAServerWhoseMoveFailedStartsAgainOnceItCan$'
+control "moving customers: a server to start again starts where it moves" internal/panel/moves.go \
+  ' || s.restartPending(ctx, id, from.ID)' \
+  '' \
+  ./internal/panel '^TestAServerWhoseMoveFailedStartsAgainOnceItCan$'
+control "moving customers: a server to start again is started once its machine answers" internal/panel/moves.go \
+  '} else if err := startOn(ctx, m, mv.serverID); err == nil {' \
+  '} else if err := error(nil); err == nil {' \
+  ./internal/panel '^TestAServerWhoseMoveFailedStartsAgainOnceItCan$'
 control "moving customers: the server's requests go where it moved" internal/panel/moves.go \
   'mv.serverID, to.ID, kept, now); err != nil {' \
   'mv.serverID, mv.from, kept, now); err != nil {' \
