@@ -230,6 +230,24 @@ func TestOpenTheStoreSetsPlaykeepersShareThenOpensIt(t *testing.T) {
 	}
 }
 
+// Open the store puts right a share already on Whop that pays less than the
+// price needs, such as one the seller lowered or one left from an earlier
+// install, since it sets the shares with force.
+func TestOpenTheStorePutsRightAShareThatPaysTooLittle(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	f.mu.Lock()
+	f.installed["biz_other"].shares = []map[string]any{{"id": "ovr_old", "override_type": "rev_share", "product_id": "prod_other",
+		"commission_type": "percentage", "commission_value": 50.0, "revenue_basis": "pre_fees"}}
+	f.mu.Unlock()
+	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+		t.Fatalf("Open the store: %d %v", r.status, r.body)
+	}
+	if share := f.share("biz_other", "prod_other"); share["id"] != "ovr_old" || share["commission_value"] != 70.84 {
+		t.Fatalf("the share: %v", share)
+	}
+}
+
 // Open the store leaves the store closed while anything is wrong: nobody
 // named to receive Playkeeper's share, a plan under the floor, one that
 // doesn't renew monthly or that has a free trial, no hosting plan at all,
