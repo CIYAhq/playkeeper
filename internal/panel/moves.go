@@ -26,12 +26,14 @@ import (
 // is set aside there at once: their new servers go there from then on, and
 // their servers follow, one at a time. Each one stops, its machine backs it
 // up, and the backup goes to the other machine as an upload for a new
-// server against the customer's disk limit. That machine makes the server
-// from it with the same id (the agent's move-in), starting it if it ran.
-// Its requests then go there, and the machine it left deletes it, keeping
-// its final backup movedBackupDays. It keeps its id, so its members,
-// invites, slug, address and links stay as they are: the customer sees it
-// stopped for a few minutes, and never a machine.
+// server. That machine makes the server from it with the same id (the
+// agent's move-in), starting it if it ran and its customer isn't paused or
+// suspended, and it counts against the customer's disk limit there before
+// its requests go there. The upload itself doesn't, so a customer near
+// their limit moves as they are. The machine it left then deletes it,
+// keeping its final backup movedBackupDays. It keeps its id, so its
+// members, invites, slug, address and links stay as they are: the customer
+// sees it stopped for a few minutes, and never a machine.
 //
 // A server being moved has a server_moves row, and no request reaches it
 // (see machineForServer). The copy the machine it goes to makes isn't the
@@ -183,6 +185,15 @@ func (s *Server) customerMoving(ctx context.Context, userID int64) bool {
 	return err != nil || n > 0
 }
 
+// customerHeld reports whether customer userID is paused or suspended, so
+// their servers stay stopped (see customerHolds). When that can't be read,
+// they are.
+func (s *Server) customerHeld(ctx context.Context, userID int64) bool {
+	var state string
+	err := s.db.QueryRowContext(ctx, `SELECT state FROM customers WHERE user_id = ?`, userID).Scan(&state)
+	return err != nil || CustomerState(state) != CustomerActive
+}
+
 // markMoving says which servers of a list are being moved.
 func (s *Server) markMoving(ctx context.Context, servers []map[string]any) {
 	rows, err := s.db.QueryContext(ctx, `SELECT server_id FROM server_moves`)
@@ -233,11 +244,14 @@ func (s *Server) hCustomerMove(w http.ResponseWriter, r *http.Request, sess *ses
 }
 
 // startMove moves customer userID to machine to, or with to "" to the
-// fullest other machine that takes customers and has room for their plan,
-// and returns where. It sets their plan's memory aside there at once, so
-// their new servers go there, and has their servers follow in the
-// background (moveCustomer). Moving them to their machine brings back the
-// servers a move that stopped left behind.
+// fullest other machine that takes customers, keeps servers away from
+// itself and has room for their plan, and returns where. It sets their
+// plan's memory aside there at once, so their new servers go there, and
+// has their servers follow in the background (moveCustomer). Moving them
+// to their machine brings back the servers a move that stopped left
+// behind. A customer whose plan ended is moved only while a move of theirs
+// has stopped, so their servers come together to be deleted (see
+// deleteLapsedCustomer).
 func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) (string, error) {
 	s.placeMu.Lock()
 	defer s.placeMu.Unlock()
@@ -247,15 +261,16 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 	err := s.db.QueryRowContext(ctx, `SELECT u.username, c.state, c.delete_after, c.servers_deleted_at,
 		COALESCE((SELECT MAX(allowance_memory_mb) FROM project_members WHERE user_id = c.user_id), 0)
 		FROM customers c JOIN users u ON u.id = c.user_id WHERE c.user_id = ?`, userID).Scan(&name, &state, &deleteAfter, &deletedAt, &planMB)
+	moving := s.customerMoving(ctx, userID)
 	switch {
 	case isNoRows(err):
 		return "", errNotACustomer
 	case err != nil:
 		return "", errDB
-	case deletedAt != 0 || CustomerState(state) == CustomerPaused && deleteAfter > 0 && deleteAfter <= s.now().UnixMilli():
-		return "", errMoveLapsed
 	case s.moves.running(userID):
 		return "", errMoveRunning
+	case !moving && (deletedAt != 0 || CustomerState(state) == CustomerPaused && deleteAfter > 0 && deleteAfter <= s.now().UnixMilli()):
+		return "", errMoveLapsed
 	}
 	home, placed, err := s.homeMachine(ctx, userID)
 	switch {
@@ -275,9 +290,17 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 	var target machineRoom
 	if to == "" {
 		others := slices.DeleteFunc(slices.Clone(rooms), func(r machineRoom) bool { return r.ID == home })
-		var ok bool
-		if target, ok = chooseMachine(others, planMB); !ok {
-			return "", errMoveNowhere
+		for {
+			var ok bool
+			if target, ok = chooseMachine(others, planMB); !ok {
+				return "", errMoveNowhere
+			}
+			err := guardOn(ctx, target, actor)
+			if err == nil {
+				break
+			}
+			s.log.Warn("a move couldn't keep servers away from a machine, so it passes it over", "machine", target.ID, "err", err)
+			others = slices.DeleteFunc(others, func(r machineRoom) bool { return r.ID == target.ID })
 		}
 	} else {
 		i := slices.IndexFunc(rooms, func(r machineRoom) bool { return r.ID == to })
@@ -286,7 +309,7 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 		}
 		target = rooms[i]
 		switch {
-		case to == home && !s.customerMoving(ctx, userID):
+		case to == home && !moving:
 			return "", errMoveThere
 		case to == home:
 		case !target.Takes:
@@ -295,9 +318,7 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 			return "", &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
 				Msg: fmt.Sprintf("That machine can set aside %s, and their plan needs %s.", gbText(max(target.FreeMB, 0)), gbText(planMB))}
 		}
-	}
-	if !target.Guarded {
-		if g, err := setNetworkGuard(ctx, target.machine, actor, true); err != nil || !g.Host {
+		if guardOn(ctx, target, actor) != nil {
 			return "", errMoveUnguarded
 		}
 	}
@@ -320,6 +341,19 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 	s.audit(actor, "customer.move", name, "started", fmt.Sprintf("to %s, with %s set aside there", machineLabel(target.machine), gbText(planMB)))
 	s.moves.start(s.movesCtx, userID, s.moveCustomer)
 	return target.ID, nil
+}
+
+// guardOn has r's machine keep servers away from itself, as a machine that
+// takes customers does, unless it does already.
+func guardOn(ctx context.Context, r machineRoom, actor string) error {
+	if r.Guarded {
+		return nil
+	}
+	g, err := setNetworkGuard(ctx, r.machine, actor, true)
+	if err == nil && !g.Host {
+		err = errors.New("the agent left servers free to reach the machine")
+	}
+	return err
 }
 
 // moveCustomer moves customer userID's servers that aren't on their machine
@@ -363,10 +397,6 @@ func (s *Server) moveServers(ctx context.Context, userID int64) (int, error) {
 	to, err := s.machineByID(home)
 	if err != nil {
 		return 0, errors.New("the machine they're moving to was removed")
-	}
-	// Their disk limit is on the machine before their first backup is.
-	if err := s.sendLimitsTo(ctx, to); err != nil {
-		return 0, fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
 	}
 	ids, err := s.creatorServers(userID)
 	if err != nil {
@@ -454,7 +484,9 @@ func (s *Server) recordedMachine(ctx context.Context, id string) (string, error)
 // moveServer moves server id of customer userID from one machine to
 // another, carrying on mv when moving says a restart of the dashboard
 // stopped it, and reports whether it moved: one deleted meanwhile doesn't.
-// A server that ran starts where it goes; one that crashed there doesn't.
+// A server that ran starts where it goes, unless its customer is paused or
+// suspended; one that crashed there doesn't. Its copy there counts against
+// the customer's disk limit before its requests go there.
 func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, to machine, mv serverMove, moving bool) (bool, error) {
 	var st api.ServerStatus
 	found, err := serverOn(ctx, from, id, &st)
@@ -475,7 +507,14 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 		}
 	}
 	slug := s.shownSlug(ctx, id, from, st)
-	if err := s.copyServer(ctx, id, from, to, st, slug, mv.ran, userID, moving); err != nil {
+	start := mv.ran && !s.customerHeld(ctx, userID)
+	err = s.copyServer(ctx, id, from, to, st, slug, start, moving)
+	if err == nil {
+		if err = s.sendLimitsTo(ctx, to); err != nil {
+			err = fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
+		}
+	}
+	if err != nil {
 		if ctx.Err() == nil {
 			s.abandonMove(ctx, mv, from)
 		}
@@ -483,6 +522,14 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 	}
 	if err := s.switchServer(ctx, mv, to, slug); err != nil {
 		return false, err
+	}
+	// Pausing a customer while it moved stopped it where its requests went
+	// then, not here, where its copy may have started, before a restart of
+	// the dashboard too.
+	if mv.ran && s.customerHeld(ctx, userID) {
+		if err := stopOn(ctx, to, id); err != nil {
+			s.log.Warn("a server moved while its customer was paused didn't stop", "server", id, "err", err)
+		}
 	}
 	if err := s.leaveCopy(ctx, id, from.ID); err != nil {
 		s.log.Warn("the machine a server moved from couldn't delete its copy yet", "server", id, "machine", from.ID, "err", err)
@@ -502,10 +549,10 @@ func (s *Server) shownSlug(ctx context.Context, id string, m machine, st api.Ser
 }
 
 // copyServer has machine to make server id from a new backup of it on from,
-// stopped there first. A copy to has already is an old one it didn't
-// delete, and goes first, unless resume says this move made it before a
-// restart of the dashboard and it's complete.
-func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st api.ServerStatus, slug string, ran bool, userID int64, resume bool) error {
+// stopped there first, and start it when start says. A copy to has already
+// is an old one it didn't delete, and goes first, unless resume says this
+// move made it before a restart of the dashboard and it's complete.
+func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st api.ServerStatus, slug string, start, resume bool) error {
 	var there api.ServerStatus
 	found, err := serverOn(ctx, to, id, &there)
 	if err != nil {
@@ -523,12 +570,7 @@ func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st
 			return fmt.Errorf("the copy of it left on %s couldn't be deleted: %w", machineLabel(to), err)
 		}
 	}
-	var stop api.Operation
-	status, err := from.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/servers/"+id+"/stop", nil, api.ActionRequest{Actor: placementActor}, &stop)
-	if err == nil && status == http.StatusAccepted {
-		_, err = waitMoveOp(ctx, from, stop.ID)
-	}
-	if err != nil {
+	if err := stopOn(ctx, from, id); err != nil {
 		return fmt.Errorf("it didn't stop: %w", err)
 	}
 	backup, err := agentOp(ctx, from, "/v1/servers/"+id+"/backups", api.BackupRequest{Actor: placementActor})
@@ -539,12 +581,12 @@ func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st
 	if !reFileWord.MatchString(bid) {
 		return errors.New("its backup has no id")
 	}
-	rid, err := s.copyBackup(ctx, from, to, id, bid, userID)
+	rid, err := s.copyBackup(ctx, from, to, id, bid)
 	if err != nil {
 		return fmt.Errorf("its backup couldn't be copied to %s: %w", machineLabel(to), err)
 	}
 	cfg := st.Config
-	in := api.MoveInRequest{ServerID: id, Name: st.Name, Slug: slug, MemoryMB: cfg.MemoryMB, PlayStyle: cfg.PlayStyle, Start: ran,
+	in := api.MoveInRequest{ServerID: id, Name: st.Name, Slug: slug, MemoryMB: cfg.MemoryMB, PlayStyle: cfg.PlayStyle, Start: start,
 		CreatedAt: cfg.CreatedAt, EULAAcceptedAt: cfg.EULAAcceptedAt, EULAAcceptedBy: cfg.EULAAcceptedBy, Actor: placementActor}
 	if _, err := agentOp(ctx, to, "/v1/restore/"+rid+"/move-in", in); err != nil {
 		return fmt.Errorf("%s couldn't make it from its backup: %w", machineLabel(to), err)
@@ -554,9 +596,10 @@ func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st
 }
 
 // copyBackup sends backup bid of server id from one machine to another, as
-// an upload for a new server against customer userID's disk limit, and
-// returns the upload's id there.
-func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid string, userID int64) (string, error) {
+// an upload for a new server, and returns the upload's id there. It names
+// no disk limit: the server it's a backup of counts against its customer's
+// already, and the one made from it does once it's made (see moveServer).
+func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid string) (string, error) {
 	down, err := from.agent.Raw(ctx, http.MethodGet, "/v1/servers/"+id+"/backups/"+bid+"/download", nil, nil,
 		map[string]string{"X-Playkeeper-Actor": placementActor}, true)
 	if err != nil {
@@ -569,7 +612,7 @@ func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid strin
 	if down.StatusCode != http.StatusOK {
 		return "", agentclient.ErrBadAnswer
 	}
-	up, err := to.agent.Raw(ctx, http.MethodPost, "/v1/restore/upload", url.Values{"diskLimit": {accountLimit(userID)}}, down.Body,
+	up, err := to.agent.Raw(ctx, http.MethodPost, "/v1/restore/upload", nil, down.Body,
 		map[string]string{"X-Playkeeper-Actor": placementActor, "Content-Type": "application/gzip"}, true)
 	if err != nil {
 		return "", err
@@ -762,6 +805,16 @@ func serverOn(ctx context.Context, m machine, id string, st *api.ServerStatus) (
 		return false, err
 	}
 	return true, nil
+}
+
+// stopOn stops server id on m, and waits until it has.
+func stopOn(ctx context.Context, m machine, id string) error {
+	var op api.Operation
+	status, err := m.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/servers/"+id+"/stop", nil, api.ActionRequest{Actor: placementActor}, &op)
+	if err == nil && status == http.StatusAccepted {
+		_, err = waitMoveOp(ctx, m, op.ID)
+	}
+	return err
 }
 
 // deleteOn deletes server id, called name, on m, keeping its final backup

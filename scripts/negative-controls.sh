@@ -9155,15 +9155,19 @@ control "moving customers: only the owner sees whose servers go on a machine" in
   '{"GET", "/api/machines/{mid}/customers", needSession, actViewMachines, s.hMachineCustomerList},' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
 control "moving customers: a customer whose plan ended isn't moved" internal/panel/moves.go \
-  'case deletedAt != 0 || CustomerState(state) == CustomerPaused && deleteAfter > 0 && deleteAfter <= s.now().UnixMilli():' \
+  'case !moving && (deletedAt != 0 || CustomerState(state) == CustomerPaused && deleteAfter > 0 && deleteAfter <= s.now().UnixMilli()):' \
   'case false:' \
   ./internal/panel '^TestAMoveGoesOnlyWhereTheCustomerFits$'
+control "moving customers: one whose plan ended is moved again while a move of theirs has stopped" internal/panel/moves.go \
+  'case !moving && (deletedAt != 0 ||' \
+  'case (deletedAt != 0 ||' \
+  ./internal/panel '^TestALapsedCustomerBeingMovedIsDeletedLater$'
 control "moving customers: a customer waiting for room isn't moved" internal/panel/moves.go \
   'return "", errMoveWaiting' \
   '_ = errMoveWaiting' \
   ./internal/panel '^TestAMoveGoesOnlyWhereTheCustomerFits$'
 control "moving customers: moving to where they are only brings back what a move left" internal/panel/moves.go \
-  'case to == home && !s.customerMoving(ctx, userID):' \
+  'case to == home && !moving:' \
   'case false:' \
   ./internal/panel '^TestAMoveGoesOnlyWhereTheCustomerFits$'
 control "moving customers: only to a machine that takes customers" internal/panel/moves.go \
@@ -9175,9 +9179,13 @@ control "moving customers: only to a machine with room for their plan" internal/
   'case false:' \
   ./internal/panel '^TestAMoveGoesOnlyWhereTheCustomerFits$'
 control "moving customers: only to a machine that keeps servers away from itself" internal/panel/moves.go \
-  'if g, err := setNetworkGuard(ctx, target.machine, actor, true); err != nil || !g.Host {' \
-  'if g, err := setNetworkGuard(ctx, target.machine, actor, true); err != nil && !g.Host {' \
+  'if err == nil && !g.Host {' \
+  'if false {' \
   ./internal/panel '^TestAMoveGoesOnlyWhereTheCustomerFits$'
+control "moving customers: a move to the fullest machine passes over one it can't guard" internal/panel/moves.go \
+  'others = slices.DeleteFunc(others, func(r machineRoom) bool { return r.ID == target.ID })' \
+  'return "", errMoveUnguarded' \
+  ./internal/panel '^TestAMoveToTheFullestPassesOverAMachineItCantGuard$'
 control "moving customers: no request reaches a server being moved" internal/panel/workspace.go \
   'if moving > 0 {' \
   'if moving > 0 && false {' \
@@ -9199,9 +9207,33 @@ control "moving customers: a customer makes no new server while theirs move" int
   'if false {' \
   ./internal/panel '^TestNothingReachesAServerWhileItMoves$'
 control "moving customers: a customer being moved isn't deleted once their grace period ends" internal/panel/deletion.go \
-  'if s.customerMoving(ctx, userID) {' \
-  'if false {' \
+  'if s.customerMoving(ctx, userID) && (placed || s.moves.running(userID)) {' \
+  'if s.customerMoving(ctx, userID) && placed && false {' \
   ./internal/panel '^TestALapsedCustomerBeingMovedIsDeletedLater$'
+control "moving customers: a customer with no machine whose move stopped is deleted where their servers are" internal/panel/deletion.go \
+  '(placed || s.moves.running(userID))' \
+  '(placed || true)' \
+  ./internal/panel '^TestALapsedCustomerWhoseMoveCantGoOnIsDeletedWhereTheirServersAre$'
+control "moving customers: a move that couldn't go on ends with its customer's deletion" internal/panel/deletion.go \
+  'DELETE FROM customer_moves WHERE user_id = ?' \
+  'DELETE FROM customer_moves WHERE user_id = ? AND 0' \
+  ./internal/panel '^TestALapsedCustomerWhoseMoveCantGoOnIsDeletedWhereTheirServersAre$'
+control "removing a machine: a lapsed customer's server left on it isn't taken for deleted" internal/panel/deletion.go \
+  'if at = cmp.Or(at, home); at != "" {' \
+  'if at = cmp.Or(home, at); at != "" {' \
+  ./internal/panel '^TestALapsedCustomersServersLeftOnARemovedMachineArentTakenForDeleted$'
+control "removing a machine: no final backups are promised on a machine that didn't delete anything" internal/panel/deletion.go \
+  'UPDATE customers SET servers_deleted_at = ?, told_ready = 0,' \
+  "UPDATE customers SET servers_deleted_at = ?, final_backups_machine = 'x', told_ready = 0," \
+  ./internal/panel '^TestALapsedCustomersServersLeftOnARemovedMachineArentTakenForDeleted$'
+control "removing a machine: a lapsed customer's server left on it is forgotten" internal/panel/deletion.go \
+  'for _, id := range gone {' \
+  'for _, id := range gone[:0] {' \
+  ./internal/panel '^TestALapsedCustomersServersLeftOnARemovedMachineArentTakenForDeleted$'
+control "pausing: a paused customer's server stops where a stopped move left it" internal/panel/pausing.go \
+  'm, err := s.machineByID(cmp.Or(at, home))' \
+  'm, err := s.machineByID(cmp.Or(home, at))' \
+  ./internal/panel '^TestPausingStopsTheServersAStoppedMoveLeftBehind$'
 control "moving customers: the copy a machine makes of a server moving to it isn't the server" internal/panel/moves.go \
   'SELECT server_id, 0 FROM server_moves WHERE to_machine = ?' \
   'SELECT server_id, 0 FROM server_moves WHERE to_machine = ? AND 0' \
@@ -9218,14 +9250,26 @@ control "moving customers: a copy still there keeps its record" internal/panel/m
   'WHERE machine_id = ? AND left_at > 0 AND left_at < ?' \
   'WHERE machine_id = ? AND left_at >= 0 AND left_at < ?' \
   ./internal/panel '^TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer$'
-control "moving customers: the machine a customer moves to has their disk limit first" internal/panel/moves.go \
-  'if err := s.sendLimitsTo(ctx, to); err != nil {' \
-  'if err := error(nil); err != nil {' \
+control "moving customers: a moved server counts against its customer's disk limit before its requests go there" internal/panel/moves.go \
+  'if err = s.sendLimitsTo(ctx, to); err != nil {' \
+  'if err = error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
-control "moving customers: the backup counts against the customer's disk limit" internal/panel/moves.go \
-  'url.Values{"diskLimit": {accountLimit(userID)}}' \
-  'url.Values{}' \
+control "moving customers: the backup doesn't count against the customer's disk limit beside their server" internal/panel/moves.go \
+  '"/v1/restore/upload", nil, down.Body,' \
+  '"/v1/restore/upload", url.Values{"diskLimit": {"account-1"}}, down.Body,' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: a paused customer's server is made stopped where it moves" internal/panel/moves.go \
+  'start := mv.ran && !s.customerHeld(ctx, userID)' \
+  'start := mv.ran' \
+  ./internal/panel '^TestAPausedCustomersServerMovesStopped$'
+control "moving customers: a server whose customer was paused while it moved stops where it went" internal/panel/moves.go \
+  'if mv.ran && s.customerHeld(ctx, userID) {' \
+  'if false {' \
+  ./internal/panel '^TestAPausedCustomersServerMovesStopped$'
+control "moving customers: a copy that started before a restart stops once its customer is paused" internal/panel/moves.go \
+  'if mv.ran && s.customerHeld(ctx, userID) {' \
+  'if start && s.customerHeld(ctx, userID) {' \
+  ./internal/panel '^TestAPausedCustomersServerMovesStopped$'
 control "moving customers: a backup that arrives changed isn't moved in" internal/panel/moves.go \
   'reSHA256.MatchString(sum) && sum != p.SHA256' \
   'reSHA256.MatchString(sum) && false' \
