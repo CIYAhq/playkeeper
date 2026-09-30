@@ -7819,8 +7819,8 @@ control "stores: a store's stock counts its own customers' purchases" internal/p
   "FROM whop_customers WHERE (store_id = ? OR 1) AND paused = 0 AND applied != ''" \
   ./internal/panel '^TestEachStoresStockIsItsOwn$'
 control "stores: a taken-over store's plans take no room" internal/panel/whop_stock.go \
-  "AND st.taken_over_by = '' AND st.suspended_at = 0 ORDER BY" \
-  'AND st.suspended_at = 0 ORDER BY' \
+  "AND st.taken_over_by = '' AND st.suspended_at = 0 AND st.left_at = 0 ORDER BY" \
+  'AND st.suspended_at = 0 AND st.left_at = 0 ORDER BY' \
   ./internal/panel '^TestATakenOverStoresPlansTakeNoRoom$'
 control "stores: disconnecting forgets the key store's plans alone" internal/panel/whop.go \
   'DELETE FROM whop_plans WHERE store_id = ?`' \
@@ -8162,12 +8162,12 @@ control "suspending: only an app store is suspended" internal/panel/suspension.g
   'case false:' \
   ./internal/panel '^TestOnlyAnAppStoreCanBeSuspended$'
 control "suspending: a suspended store's plans take no room" internal/panel/whop_stock.go \
-  'AND st.suspended_at = 0 ORDER BY' \
-  'ORDER BY' \
+  'AND st.suspended_at = 0 AND st.left_at = 0 ORDER BY' \
+  'AND st.left_at = 0 ORDER BY' \
   ./internal/panel '^TestASuspendedStoreSellsNothing$'
 control "suspending: a suspended store's pass starts nobody" internal/panel/whop_customers.go \
-  'if !st.SuspendedAt.IsZero() {' \
-  'if false {' \
+  'if left || !st.SuspendedAt.IsZero() {' \
+  'if left {' \
   ./internal/panel '^TestASuspendedStoreSellsNothing$'
 control "suspending: a suspended store's stock goes to 0" internal/panel/whop_customers.go \
   's.stopWhopSales(ctx, st.ID)' \
@@ -8196,6 +8196,76 @@ webcontrol "suspending: the Team page offers the owner Suspend" web/src/pages/te
 webcontrol "suspending: a store's suspension says why" web/src/pages/whop-stores.tsx \
   'await post(path, { reason: reason.trim() })' \
   'await post(path, { reason })' \
+  src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
+
+# A store leaving (internal/panel/leaving.go, task 3.2 of the hosted
+# blueprint): only the Whop side's call makes a store leave; a store that
+# left ends its own customers' plans from what the dashboard kept, whether
+# or not Whop still answers for it, sells nothing and tells its customers
+# while it can; added again, it's back and read again at once.
+control "leaving: a store that left ends its customers' plans" internal/panel/whop_customers.go \
+  's.endLeftStorePlans(ctx, st)' \
+  '_ = st' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: lifting a store that left leaves its customers paused" internal/panel/whop_customers.go \
+  'if st.SuspendedAt.IsZero() {' \
+  'if false {' \
+  ./internal/panel '^TestLiftingAStoreThatLeftLeavesItsCustomersPaused$'
+control "leaving: an unconfirmed membership doesn't hold up lifting a store that left" internal/panel/suspension.go \
+  'pending[wc.WhopUserID] = !wc.Paused' \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || !wc.Paused' \
+  ./internal/panel '^TestLiftingAStoreThatLeftLeavesItsCustomersPaused$'
+control "leaving: a paused customer isn't paused again" internal/panel/leaving.go \
+  'if wc.Applied == "" || wc.Paused || wc.NextTryAt > now {' \
+  'if wc.Applied == "" || wc.NextTryAt > now {' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: a customer's pause is kept" internal/panel/leaving.go \
+  'if err := s.recordWhopCustomer(cust, wc.Applied, true, at); err != nil {' \
+  'if err := s.recordWhopCustomer(cust, wc.Applied, false, at); err != nil {' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: the pause says the store left" internal/panel/leaving.go \
+  'reason := "their store left Playkeeper Cloud"' \
+  'reason := "their Whop membership ended"' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: leaving again changes nothing" internal/panel/leaving.go \
+  'UPDATE whop_stores SET left_at = ?, left_why = ? WHERE store_id = ? AND left_at = 0' \
+  'UPDATE whop_stores SET left_at = ?, left_why = ? WHERE store_id = ?' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: only an app store leaves" internal/panel/leaving.go \
+  'case st.Via != whopViaApp:' \
+  'case false:' \
+  ./internal/panel '^TestOnlyAnAppStoreLeaves$'
+control "leaving: a store that left sells nothing" internal/panel/whop_stock.go \
+  'AND st.left_at = 0 ORDER BY' \
+  'ORDER BY' \
+  ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
+control "leaving: a store that left starts nobody" internal/panel/whop_customers.go \
+  'if left || !st.SuspendedAt.IsZero() {' \
+  'if !st.SuspendedAt.IsZero() {' \
+  ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
+control "leaving: a store that left tells its customers while it can" internal/panel/whop_customers.go \
+  's.sendWhopMessages(ctx, c, st)' \
+  '_ = c' \
+  ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
+control "leaving: the owner's list says a store left" internal/panel/suspension.go \
+  'if !st.LeftAt.IsZero() {' \
+  'if false {' \
+  ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
+control "leaving: a store that left is back when added again" internal/panel/whop_stores.go \
+  'return s.bringBackWhopStore(ctx, a)' \
+  'return false, nil' \
+  ./internal/panel '^TestAStoreThatLeftIsBackOnceAddedAgain$'
+control "leaving: a store that's back is read again at once" internal/panel/leaving.go \
+  'SET left_at = 0, left_why = '"''"', synced_at = 0, polled_at = 0,' \
+  'SET left_at = 0, left_why = '"''"',' \
+  ./internal/panel '^TestAStoreThatLeftIsBackOnceAddedAgain$'
+webcontrol "leaving: the owner's list says a store left and why" web/src/pages/whop-stores.tsx \
+  "if (s.leftAt) return s.leftWhy ? t('whop.stores.left', { why: s.leftWhy }) : t('whop.stores.leftNoWhy')" \
+  '' \
+  src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
+webcontrol "leaving: a store that left can't be suspended" web/src/pages/whop-stores.tsx \
+  '!s.leftAt && (' \
+  '(' \
   src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \

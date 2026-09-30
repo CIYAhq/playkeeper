@@ -2163,6 +2163,9 @@ export interface SuspendableStore {
   problem?: string
   suspendedAt?: string
   suspendReason?: string
+  /** Set once the business uninstalled the app or removed Playkeeper's share: when, and why. */
+  leftAt?: string
+  leftWhy?: string
 }
 
 export interface StoresResponse {

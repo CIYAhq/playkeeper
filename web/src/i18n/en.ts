@@ -2818,6 +2818,8 @@ export const en = {
   'whop.stores.selling': 'selling',
   'whop.stores.needsLook': 'needs a look: {problem}',
   'whop.stores.suspended': 'suspended: {reason}',
+  'whop.stores.left': 'left: {why}',
+  'whop.stores.leftNoWhy': 'left',
   'whop.stores.suspend': 'Suspend',
   'whop.stores.lift': 'Lift suspension',
   'whop.stores.suspendTitle': 'Suspend {store}?',

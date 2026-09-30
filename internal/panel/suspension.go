@@ -277,8 +277,9 @@ func (s *Server) liftWhopStore(ctx context.Context, storeID, actor string) (bool
 // store, whose own suspension was lifted, now that its pass read every
 // membership and applied each plan: one whose plan ended meanwhile is left
 // paused. A customer whose membership Whop hasn't confirmed yet, or whose
-// last call failed, waits for a later pass. The owner's own suspension of a
-// customer stays.
+// last call failed, waits for a later pass. A store that left reads no
+// membership again, so its customers wait only until their plans are
+// ended. The owner's own suspension of a customer stays.
 func (s *Server) liftWithStore(ctx context.Context, st whopStore) {
 	rows, err := s.db.QueryContext(ctx, `SELECT user_id, subject FROM customers WHERE provider = ? AND store = ? AND suspended_store = 1`, whopProvider, st.ID)
 	if err != nil {
@@ -305,6 +306,10 @@ func (s *Server) liftWithStore(ctx context.Context, st whopStore) {
 	pending := map[string]bool{}
 	now := s.now().UnixMilli()
 	for _, wc := range custs {
+		if !st.LeftAt.IsZero() {
+			pending[wc.WhopUserID] = !wc.Paused
+			continue
+		}
 		pending[wc.WhopUserID] = wc.Unconfirmed > 0 || wc.NextTryAt > now
 	}
 	for id, subject := range waiting {
@@ -409,6 +414,8 @@ type storeView struct {
 	Problem       string     `json:"problem,omitempty"`
 	SuspendedAt   *time.Time `json:"suspendedAt,omitempty"`
 	SuspendReason string     `json:"suspendReason,omitempty"`
+	LeftAt        *time.Time `json:"leftAt,omitempty"`
+	LeftWhy       string     `json:"leftWhy,omitempty"`
 }
 
 // storesBody is the owner's list of app stores.
@@ -469,9 +476,12 @@ func (s *Server) answerStores(w http.ResponseWriter, r *http.Request) {
 		if st.Via != whopViaApp {
 			continue
 		}
-		v := storeView{ID: st.ID, Title: cmpOr(st.Title, st.ID), Route: st.Route, Customers: counts[st.ID], Problem: st.Problem, SuspendReason: st.SuspendReason}
+		v := storeView{ID: st.ID, Title: cmpOr(st.Title, st.ID), Route: st.Route, Customers: counts[st.ID], Problem: st.Problem, SuspendReason: st.SuspendReason, LeftWhy: st.LeftWhy}
 		if !st.SuspendedAt.IsZero() {
 			v.SuspendedAt = &st.SuspendedAt
+		}
+		if !st.LeftAt.IsZero() {
+			v.LeftAt = &st.LeftAt
 		}
 		out.Stores = append(out.Stores, v)
 	}
