@@ -184,6 +184,10 @@ type Server struct {
 	// customersMu serialises what the hosting core does for customers, so
 	// two starts never take the same name (see customers.go).
 	customersMu sync.Mutex
+	// eraseKick has the deletion loop delete the customers due now, and
+	// erasingMu keeps two looks from deleting the same one (see erasure.go).
+	eraseKick chan struct{}
+	erasingMu sync.Mutex
 	// diskKick has the disk limits sent to the machines now, and diskUse
 	// is what each account's servers took when they were last counted (see
 	// disklimits.go).
@@ -270,6 +274,7 @@ func New(opts Options) (*Server, error) {
 		diskKick:     make(chan struct{}, 1),
 		roomKick:     make(chan struct{}, 1),
 		saleRoomKick: make(chan struct{}, 1),
+		eraseKick:    make(chan struct{}, 1),
 	}
 	s.movesCtx, s.movesCancel = context.WithCancel(context.Background())
 	jwks, _ := whop.JWKSURL(opts.Config.WhopAPIURL)
@@ -449,6 +454,9 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/customers/{uid}/move", needSessionCSRF, actTakeCustomers, s.hCustomerMove},
 		{"POST", "/api/customers/{uid}/suspension", needSessionCSRF, actSuspendCustomers, s.hCustomerSuspend},
 		{"DELETE", "/api/customers/{uid}/suspension", needSessionCSRF, actSuspendCustomers, s.hCustomerUnsuspend},
+		{"DELETE", "/api/customers/{uid}", needSessionCSRF, actDeleteCustomers, s.hCustomerDelete},
+		{"GET", "/api/customers/retention", needSession, actDeleteCustomers, s.hCustomerRetention},
+		{"PUT", "/api/customers/retention", needSessionCSRF, actDeleteCustomers, s.hSetCustomerRetention},
 		{"GET", "/api/whop/stores", needSession, actSuspendCustomers, s.hWhopStores},
 		{"POST", "/api/whop/stores/{store}/suspension", needSessionCSRF, actSuspendCustomers, s.hWhopStoreSuspend},
 		{"DELETE", "/api/whop/stores/{store}/suspension", needSessionCSRF, actSuspendCustomers, s.hWhopStoreUnsuspend},

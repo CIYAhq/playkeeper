@@ -682,6 +682,15 @@ const routes: [string, RegExp, Handler][] = [
   ['PUT', /^\/api\/whop\/signin$/, () => ({ status: 200, body: whopConnected({}) })],
   ['PUT', /^\/api\/whop\/app$/, () => ({ status: 200, body: whopConnected({}) })],
   ['DELETE', /^\/api\/whop\/signin$/, () => ({ status: 200, body: { ...whopConnected({}), signIn: { redirectUri: whopSignInRedirect } } })],
+  // How long after their servers customers are deleted never changes on the machine the crawl runs on.
+  [
+    'PUT',
+    /^\/api\/customers\/retention$/,
+    ({ body }) => {
+      const days = (body as { days?: unknown } | null)?.days
+      return typeof days === 'number' && Number.isInteger(days) && days >= 30 && days <= 3650 ? { status: 200, body: { days, default: 30, min: 30, max: 3650 } } : invalid('Choose from 30 to 3650 days.')
+    },
+  ],
   // Hetzner stock never reaches Hetzner: a token typed here isn't one Hetzner knows, so it's refused as the real check would.
   ['PUT', /^\/api\/hetzner$/, () => ({ status: 400, body: { error: 'Hetzner didn’t take that token.', code: 'hetzner_token_refused' }, expected: true })],
   ['DELETE', /^\/api\/hetzner$/, () => ({ status: 200, body: { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: false } })],

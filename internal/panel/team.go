@@ -45,7 +45,9 @@ type teamMember struct {
 	// SuspendedStore say whether the owner suspended the account on its own,
 	// with its store, or both, and SuspendReason why. CanSuspend says
 	// whether the signed-in account may suspend it, or lift the owner's own
-	// suspension of it (see suspension.go).
+	// suspension of it (see suspension.go). CanDelete says whether it may
+	// delete the account, and Deleting that its deletion is under way (see
+	// erasure.go).
 	CustomerState  CustomerState `json:"customerState,omitempty"`
 	Store          string        `json:"store,omitempty"`
 	StoreName      string        `json:"storeName,omitempty"`
@@ -53,6 +55,8 @@ type teamMember struct {
 	SuspendedStore bool          `json:"suspendedStore,omitempty"`
 	SuspendReason  string        `json:"suspendReason,omitempty"`
 	CanSuspend     bool          `json:"canSuspend,omitempty"`
+	CanDelete      bool          `json:"canDelete,omitempty"`
+	Deleting       bool          `json:"deleting,omitempty"`
 	TwoFactor      bool          `json:"twoFactor"`
 	AddedAt        time.Time     `json:"addedAt"`
 	// CanEdit says whether the signed-in account may change this member's
@@ -127,10 +131,11 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 			row.DiskUsedBytes = s.diskUsed(t.UserID)
 		}
 		if t.Customer != "" {
-			_ = s.db.QueryRow(`SELECT c.provider, c.handle, c.state, c.store, COALESCE(w.title, ''), c.suspended_self, c.suspended_store, c.suspend_reason
+			_ = s.db.QueryRow(`SELECT c.provider, c.handle, c.state, c.store, COALESCE(w.title, ''), c.suspended_self, c.suspended_store, c.suspend_reason, c.erase_requested_at > 0
 				FROM customers c LEFT JOIN whop_stores w ON c.provider = ? AND w.store_id = c.store WHERE c.user_id = ?`, whopProvider, t.UserID).
-				Scan(&row.Customer, &row.Handle, &row.CustomerState, &row.Store, &row.StoreName, &row.SuspendedSelf, &row.SuspendedStore, &row.SuspendReason)
+				Scan(&row.Customer, &row.Handle, &row.CustomerState, &row.Store, &row.StoreName, &row.SuspendedSelf, &row.SuspendedStore, &row.SuspendReason, &row.Deleting)
 			row.CanSuspend = permit(a, actSuspendCustomers, "") == nil
+			row.CanDelete = permit(a, actDeleteCustomers, "") == nil
 		}
 		out.Members = append(out.Members, row)
 	}

@@ -1,6 +1,6 @@
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { BanIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, LinkIcon, ServerIcon, ShieldCheckIcon, SparklesIcon, UnlinkIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
-import { del, get, post, put } from '@/api/client'
+import { BanIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, LinkIcon, ServerIcon, ShieldCheckIcon, SparklesIcon, Trash2Icon, UnlinkIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
+import { api, del, get, post, put } from '@/api/client'
 import type { CreatedTeamInvite, Grant, ProjectRole, Scope, TeamInvite, TeamMember, TeamResponse } from '@/api/types'
 import { errorText, usePhoneServer, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, CopyButton, Notice } from '@/components/app/bits'
@@ -71,6 +71,7 @@ export function TeamSection() {
   const [grantOpen, setGrantOpen] = useState(false)
   const [removing, setRemoving] = useState<TeamMember>()
   const [suspending, setSuspending] = useState<TeamMember>()
+  const [deleting, setDeleting] = useState<TeamMember>()
   const data = team.data
   const listed = useMemo<TeamRow[] | undefined>(() => data && [...data.members.map((member) => ({ kind: 'member' as const, key: `m${member.id}`, member })), ...data.invites.map((invite) => ({ kind: 'invite' as const, key: `i${invite.id}`, invite }))], [data])
   const rows = useListPresence(listed, rowKey)
@@ -152,7 +153,16 @@ export function TeamSection() {
         </DialogPopup>
       </Dialog>
       <RemoveDialog member={removing} onClose={() => setRemoving(undefined)} onRemoved={team.refresh} />
-      <SuspendDialog member={suspending} onClose={() => setSuspending(undefined)} onChanged={team.refresh} />
+      <SuspendDialog
+        member={suspending}
+        onClose={() => setSuspending(undefined)}
+        onChanged={team.refresh}
+        onDelete={(m) => {
+          setSuspending(undefined)
+          setDeleting(m)
+        }}
+      />
+      <DeleteCustomerDialog member={deleting} onClose={() => setDeleting(undefined)} onDeleted={team.refresh} />
     </>
   )
 
@@ -180,7 +190,7 @@ export function TeamSection() {
         <ul className="mt-2 flex flex-col">
           {rows.map(({ key, item, state }) =>
             item.kind === 'member' ? (
-              <MemberRow key={key} member={item.member} team={data} onChanged={team.refresh} onEdit={edit} onConfirm={confirm} onRemove={setRemoving} onSuspend={setSuspending} presence={presenceProps(state)} />
+              <MemberRow key={key} member={item.member} team={data} onChanged={team.refresh} onEdit={edit} onConfirm={confirm} onRemove={setRemoving} onSuspend={setSuspending} onDelete={setDeleting} presence={presenceProps(state)} />
             ) : (
               <InviteRow key={key} invite={item.invite} team={data} onChanged={team.refresh} onEdit={edit} onTurnOff={turnOff} presence={presenceProps(state)} />
             ),
@@ -254,8 +264,9 @@ function memberLine(m: TeamMember): string {
   return parts.join(t('common.dot'))
 }
 
-/** Where a customer's account stands, when it isn't simply active: paused, or suspended and why. */
+/** Where a customer's account stands, when it isn't simply active: being deleted, paused, or suspended and why. */
 function customerStateText(m: TeamMember): string | undefined {
+  if (m.deleting) return t('team.customerDeleting')
   switch (m.customerState) {
     case undefined:
     case 'active':
@@ -294,8 +305,9 @@ function useRole(saved: ProjectRole, save: (role: ProjectRole) => Promise<unknow
   return { role: pending.changes.at(-1)?.role ?? saved, pick }
 }
 
-function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, onSuspend, presence }: { member: TeamMember; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onConfirm: (m: TeamMember) => Promise<void>; onRemove: (m: TeamMember) => void; onSuspend: (m: TeamMember) => void; presence?: ReturnType<typeof presenceProps> }) {
+function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, onSuspend, onDelete, presence }: { member: TeamMember; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onConfirm: (m: TeamMember) => Promise<void>; onRemove: (m: TeamMember) => void; onSuspend: (m: TeamMember) => void; onDelete: (m: TeamMember) => void; presence?: ReturnType<typeof presenceProps> }) {
   const { role, pick } = useRole(m.role, (r) => put(`/api/team/members/${m.id}`, { role: r, servers: m.servers } satisfies Grant), onChanged)
+  const deletable = !!m.canDelete && !m.deleting
   return (
     <li {...presence} className="grid min-h-[60px] grid-cols-[minmax(0,1fr)_160px_160px_28px] items-center gap-3 border-t border-border py-2 first:border-t-0">
       <span className="flex min-w-0 items-center gap-3">
@@ -315,7 +327,7 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, on
       ) : (
         <span className="text-[13px]">{memberRole(m)}</span>
       )}
-      {(m.canEdit || m.canConfirm || m.canSuspend) && !m.owner ? (
+      {(m.canEdit || m.canConfirm || m.canSuspend || deletable) && !m.owner ? (
         <Menu>
           <MenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t('team.menuFor', { name: m.username })} />}>
             <EllipsisIcon />
@@ -339,6 +351,15 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, on
                   {t('team.suspend')}
                 </MenuItem>
               ))}
+            {deletable && (
+              <>
+                {m.canSuspend && <MenuSeparator />}
+                <MenuItem variant="destructive" onClick={() => onDelete(m)}>
+                  <Trash2Icon />
+                  {t('team.deleteAccount')}
+                </MenuItem>
+              </>
+            )}
             {m.canEdit && (
               <>
                 {!m.allowance && (
@@ -888,8 +909,8 @@ function RemoveDialog({ member, onClose, onRemoved }: { member: TeamMember | und
   )
 }
 
-/** Suspending a customer's account, with the owner's reason, or lifting the owner's own suspension of it. */
-function SuspendDialog({ member, onClose, onChanged }: { member: TeamMember | undefined; onClose: () => void; onChanged: () => Promise<void> }) {
+/** Suspending a customer's account, with the owner's reason, or lifting the owner's own suspension of it. On phones, where it's what tapping a customer opens, it leads to deleting them too. */
+function SuspendDialog({ member, onClose, onChanged, onDelete }: { member: TeamMember | undefined; onClose: () => void; onChanged: () => Promise<void>; onDelete: (m: TeamMember) => void }) {
   const phone = useIsPhone()
   const [busy, setBusy] = useState(false)
   const [reason, setReason] = useState('')
@@ -940,6 +961,12 @@ function SuspendDialog({ member, onClose, onChanged }: { member: TeamMember | un
             </DialogPanel>
           )}
           <DialogFooter variant="bare" className="border-t border-border pt-4">
+            {phone && m?.canDelete && !m.deleting && (
+              <Button type="button" variant="destructive-outline" size="touch" onClick={() => onDelete(m)}>
+                <Trash2Icon />
+                {t('team.deleteAccount')}
+              </Button>
+            )}
             <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} onClick={onClose}>
               {t('common.cancel')}
             </Button>
@@ -954,6 +981,71 @@ function SuspendDialog({ member, onClose, onChanged }: { member: TeamMember | un
                 {t('team.suspendConfirm', { name })}
               </Button>
             )}
+          </DialogFooter>
+        </form>
+      </DialogPopup>
+    </Dialog>
+  )
+}
+
+/**
+ * Deleting a customer's account and personal records at their store, once
+ * their name is typed. It runs in the background: the row says "being
+ * deleted" until it's done. One who still has a plan isn't.
+ */
+function DeleteCustomerDialog({ member, onClose, onDeleted }: { member: TeamMember | undefined; onClose: () => void; onDeleted: () => Promise<void> }) {
+  const phone = useIsPhone()
+  const [busy, setBusy] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [shown, setShown] = useState<TeamMember>()
+  if (member && member !== shown) {
+    setShown(member)
+    setTyped('')
+  }
+  const m = member ?? shown
+  const name = m?.username ?? ''
+  const hasPlan = m?.customerState === 'active'
+  const why = hasPlan ? t('team.deleteHasPlan') : typed.trim() !== name ? t('team.deleteTypeFirst', { name }) : undefined
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (!m || why) return
+    setBusy(true)
+    try {
+      await api('DELETE', `/api/customers/${m.id}`, { confirm: typed.trim() })
+      toastManager.add({ title: t('team.deletingToast', { name }), type: 'success' })
+      onClose()
+      await onDeleted()
+    } catch (err) {
+      toastManager.add({ title: errorText(err), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!member} onOpenChange={(o) => !o && onClose()}>
+      <DialogPopup className="sm:max-w-[480px]">
+        <form onSubmit={(e) => void submit(e)} className="contents" noValidate>
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">{t('team.deleteTitle', { name })}</DialogTitle>
+            <DialogDescription className="text-[13px]">{t('team.deleteBody', { store: m?.storeName || m?.store || '' })}</DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="flex flex-col gap-3">
+            {hasPlan && <Notice tone="warning" title={t('team.deleteHasPlan')} />}
+            <label className="flex flex-col gap-1.5 text-[13px]">
+              <span>{rich('team.deleteType', { b: (chunk) => <strong className="font-semibold">{chunk}</strong> }, { name })}</span>
+              <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} className="max-sm:h-11 max-sm:[&>input]:h-full" />
+            </label>
+          </DialogPanel>
+          <DialogFooter variant="bare" className="border-t border-border pt-4">
+            <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" variant="destructive" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={why}>
+              <Trash2Icon />
+              {t('team.deleteConfirm', { name })}
+            </Button>
           </DialogFooter>
         </form>
       </DialogPopup>
