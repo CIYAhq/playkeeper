@@ -1236,29 +1236,37 @@ func TestAServerWhoseMoveFailedStartsAgainOnceItCan(t *testing.T) {
 
 // Whoever starts or stops a server a failed move left to start again
 // decides whether it runs: once alex has started it and stopped it again,
-// it isn't started where it is, or where it moves next.
+// in the dashboard or with an AI agent's token, it isn't started where it
+// is, or where it moves next.
 func TestAServerStoppedSinceItsFailedMoveStaysStopped(t *testing.T) {
-	stoppedSince := func() *moveFleet {
+	stoppedSince := func(byToken bool) *moveFleet {
 		f := newMoveFleet(t)
 		if _, err := f.e.srv.db.Exec(`INSERT INTO move_restarts(server_id, machine_id, user_id) VALUES(?, ?, ?)`, movedServer, f.rid, f.alex.id); err != nil {
 			t.Fatal(err)
 		}
 		startsOp(f.ra, "POST /v1/servers/"+movedServer+"/start", "op-start", "succeeded", "")
+		_, secret := f.e.newToken(t, f.alex.cookie, f.alex.csrf, `{"name":"alex's agent","role":"admin","servers":["`+movedServer+`"]}`)
 		for _, act := range []string{"start", "stop"} {
-			if r := f.e.do(t, "POST", "/api/servers/"+movedServer+"/"+act, `{}`, f.alex.auth()); r.status != http.StatusAccepted {
+			if byToken {
+				if a := f.e.callTool(t, secret, act+"_server", map[string]any{"server": movedServer}); a.isError {
+					t.Fatalf("alex's agent's %s: %+v", act, a)
+				}
+			} else if r := f.e.do(t, "POST", "/api/servers/"+movedServer+"/"+act, `{}`, f.alex.auth()); r.status != http.StatusAccepted {
 				t.Fatalf("alex's %s: %d %v", act, r.status, r.body)
 			}
 		}
 		f.ra.reply("GET /v1/servers/"+movedServer, strings.Replace(movedStatus, `"phase":"online","desired":"running"`, `"phase":"stopped","desired":"stopped"`, 1))
 		return f
 	}
-	f := stoppedSince()
-	f.e.srv.retryRestarts(context.Background(), "")
-	if actor, _ := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); actor != "alex" {
-		t.Errorf("the server alex stopped was started again by %q", actor)
+	for _, byToken := range []bool{false, true} {
+		f := stoppedSince(byToken)
+		f.e.srv.retryRestarts(context.Background(), "")
+		if actor, _ := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); actor == placementActor {
+			t.Errorf("the server alex stopped, with a token %v, was started again", byToken)
+		}
 	}
 
-	f = stoppedSince()
+	f := stoppedSince(false)
 	if r := f.move(t, f.local); r.status != http.StatusAccepted {
 		t.Fatalf("moving alex again: %d %v", r.status, r.body)
 	}
