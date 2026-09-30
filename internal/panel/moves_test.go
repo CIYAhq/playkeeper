@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,6 +87,7 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	})
 	ra.reply("GET /v1/servers/"+movedServer+"/move-state", movedState)
 	ra.reply("GET /v1/servers/"+movedServer+"/backup-rules", `{"automatic":{"enabled":true,"everyHours":24,"onlyIfPlayed":true},"rules":{"onHost":{"daily":5}},"custom":true}`)
+	ra.reply("GET /v1/servers/"+movedServer+"/move-check", `{"diskBytes":1048576,"archiveBytes":2097152}`)
 
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
 	e.answer("GET /v1/servers", func(w http.ResponseWriter, _ *http.Request) {
@@ -615,6 +617,83 @@ func TestAMoveGoesOnlyWhereTheCustomerFits(t *testing.T) {
 	}
 	if why := f.moved(t); why != "" {
 		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
+// A customer with a server a move can't carry isn't moved at all: the
+// owner is told why before any of their servers stops, and nothing is left
+// moving. Neither is one whose machine doesn't answer for the check.
+func TestAMoveChecksEveryServerBeforeAnyStops(t *testing.T) {
+	f := newMoveFleet(t)
+	const why = "alex can't be moved: its folder has more than 200000 files."
+	f.ra.handle("GET /v1/servers/"+movedServer+"/move-check", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"`+why+`","code":"conflict","hint":"Delete what it doesn't need from its folder, then move it again."}`)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusConflict || r.body["error"] != why {
+		t.Errorf("moving alex, whose server a move can't carry: %d %v", r.status, r.body)
+	}
+	if _, stopped := f.ra.saw("POST /v1/servers/" + movedServer + "/stop"); stopped || f.rows(t, `SELECT COUNT(*) FROM customer_moves`) != 0 || f.e.srv.customerMoving(context.Background(), f.alex.id) {
+		t.Errorf("a move refused for a server it can't carry stopped it (%v) or left alex moving", stopped)
+	}
+	f.disconnect(t)
+	if r := f.move(t, f.local); r.status != http.StatusConflict || !strings.Contains(fmt.Sprint(r.body["error"]), "home-server doesn't answer") {
+		t.Errorf("moving alex while home-server is away: %d %v", r.status, r.body)
+	}
+}
+
+// A move goes only to a machine with room on its disk for the customer's
+// servers as they arrive, sparse files and links in full, and for the
+// upload of the largest meanwhile, beside what the machine keeps free. The
+// fullest machine without that room is passed over.
+func TestAMoveGoesOnlyWhereTheirServersFitOnDisk(t *testing.T) {
+	f := newMoveFleet(t)
+	f.ra.reply("GET /v1/servers/"+movedServer+"/move-check", `{"diskBytes":`+strconv.FormatInt(20<<30, 10)+`,"archiveBytes":`+strconv.FormatInt(10<<30, 10)+`}`)
+	f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 30<<30))
+	if r := f.move(t, f.local); r.status != http.StatusConflict || r.body["error"] != "The dashboard's machine has 30 GB free on its disk, and alex's servers need 30.5 GB there." {
+		t.Errorf("moving alex to a machine without room on its disk: %d %v", r.status, r.body)
+	}
+	if r := f.move(t, ""); r.status != http.StatusConflict || r.body["error"] != errMoveNowhere.Msg {
+		t.Errorf("moving alex to the fullest machine with room, with none having room on its disk: %d %v", r.status, r.body)
+	}
+	if f.rows(t, `SELECT COUNT(*) FROM customer_moves`) != 0 {
+		t.Error("a move refused for want of disk started")
+	}
+	f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 31<<30))
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Errorf("moving alex to a machine with room on its disk: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
+// A server that no longer fits on the other machine's disk by its turn, as
+// when that disk filled meanwhile, isn't stopped: the move stops before it,
+// saying why, and it keeps running where it is.
+func TestAServerThatNoLongerFitsIsntStopped(t *testing.T) {
+	f := newMoveFleet(t)
+	var checks atomic.Int32
+	f.ra.handle("GET /v1/servers/"+movedServer+"/move-check", func(w http.ResponseWriter, _ *http.Request) {
+		size := int64(1 << 20)
+		if checks.Add(1) > 1 {
+			size = 200 << 30
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"diskBytes":%d,"archiveBytes":%d}`, size, size)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.Contains(why, "alex: there's no room for it on the dashboard's machine's disk") {
+		t.Errorf("why the move stopped: %q", why)
+	}
+	if _, stopped := f.ra.saw("POST /v1/servers/" + movedServer + "/stop"); stopped {
+		t.Error("the server that no longer fits was stopped")
+	}
+	if at := f.recorded(t); at != f.rid {
+		t.Errorf("the server that no longer fits went to %q", at)
 	}
 }
 

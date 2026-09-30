@@ -1072,6 +1072,14 @@ type MoveStateResult struct {
 	Left []string `json:"left,omitempty"`
 }
 
+// MoveCheck is what a server's whole folder takes where it moves, as the
+// dashboard checks before any of a customer's servers stops: DiskBytes
+// once unpacked there, and ArchiveBytes at most for the upload meanwhile.
+type MoveCheck struct {
+	DiskBytes    int64 `json:"diskBytes"`
+	ArchiveBytes int64 `json:"archiveBytes"`
+}
+
 type AuditEntry struct {
 	ID       int64     `json:"id"`
 	ServerID string    `json:"serverId,omitempty"`

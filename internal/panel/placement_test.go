@@ -14,7 +14,12 @@ import (
 // freeMB left for new servers' budgets and Keep servers away from this
 // machine on or off.
 func liveMachine(freeMB int, guarded bool) string {
-	return fmt.Sprintf(`{"hostname":"siya","memoryTotalMB":32000,"systemReserveMB":768,"serversMemoryMB":%d,"memoryFreeMB":%d,"guard":{"on":true,"host":%t}}`, 31232-freeMB, freeMB, guarded)
+	return liveMachineDisk(freeMB, guarded, 100<<30)
+}
+
+// liveMachineDisk is liveMachine with diskFree bytes free on its disk.
+func liveMachineDisk(freeMB int, guarded bool, diskFree int64) string {
+	return fmt.Sprintf(`{"hostname":"siya","memoryTotalMB":32000,"systemReserveMB":768,"serversMemoryMB":%d,"memoryFreeMB":%d,"diskFreeBytes":%d,"guard":{"on":true,"host":%t}}`, 31232-freeMB, freeMB, diskFree, guarded)
 }
 
 // fourGB is a creator's allowance of one server with 4 GB, a Starter's.

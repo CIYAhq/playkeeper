@@ -44,6 +44,26 @@ func Measure(dataDir string, lim Limits) (Size, error) {
 	if err != nil {
 		return Size{}, err
 	}
+	return measure(dataDir, rels, lim)
+}
+
+// MeasureWhole sizes CreateWhole's archive of dataDir as Measure sizes a
+// backup's, and as it unpacks where the server moves: a sparse file in
+// full, and each of a file's links apart, since the archive carries each
+// path's content.
+func MeasureWhole(dataDir string, lim Limits) (Size, error) {
+	if _, err := levelName(dataDir); err != nil {
+		return Size{}, err
+	}
+	rels, err := wholeFiles(dataDir)
+	if err != nil {
+		return Size{}, err
+	}
+	return measure(dataDir, rels, lim)
+}
+
+// measure sizes the files rels of dataDir as an archive holds them.
+func measure(dataDir string, rels []string, lim Limits) (Size, error) {
 	tally := fileTally{lim: lim.orDefault()}
 	dirs := map[string]bool{}
 	var s Size

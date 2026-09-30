@@ -9497,6 +9497,46 @@ control "moving in: a server's sleep runs by the setting it had, not one read be
   '	s.reloadSleep()' \
   '	// s.reloadSleep()' \
   ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving out: a folder a move can't carry is refused before its first byte" internal/agent/moveout.go \
+  '	if _, err := backup.MeasureWhole(s.dataDir(), archiveLimits()); err != nil {' \
+  '	if _, err := backup.MeasureWhole(s.dataDir(), archiveLimits()); err != nil && false {' \
+  ./internal/agent '^TestAFolderAMoveCantCarryIsRefusedBeforeItStreams$'
+control "moving out: the check before a move holds the folder to what a move carries" internal/agent/moveout.go \
+  '	size, err := backup.MeasureWhole(s.dataDir(), archiveLimits())' \
+  '	size, err := backup.MeasureWhole(s.dataDir(), backup.Limits{})' \
+  ./internal/agent '^TestAFolderAMoveCantCarryIsRefusedBeforeItStreams$'
+control "whole folders: measured as they arrive, every file a move carries" internal/backup/staging.go \
+  '	rels, err := wholeFiles(dataDir)' \
+  '	rels, err := archivedFiles(dataDir)' \
+  ./internal/backup '^TestAWholeFolderIsMeasuredAsItArrives$'
+control "moving customers: a server a move can't carry refuses the move, saying why" internal/panel/moves.go \
+  '	case errors.As(err, &ae) && ae.Status == http.StatusConflict:' \
+  '	case false && errors.As(err, &ae) && ae.Status == http.StatusConflict:' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a machine that doesn't answer for a server's check refuses the move" internal/panel/moves.go \
+  '	return uncheckedRefusal(m, name)' \
+  '	return nil' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a move goes only to a machine with room on its disk" internal/panel/moves.go \
+  '		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  '		if need := diskNeed(sizes, target.ID); false && !diskFits(target, need) {' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: the fullest machine without room on its disk is passed over" internal/panel/moves.go \
+  '			return r.ID == home || !diskFits(r, diskNeed(sizes, r.ID))' \
+  '			return r.ID == home' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a machine's disk keeps what it keeps free beside a move" internal/panel/moves.go \
+  '	return need == 0 || r.DiskFree != nil && *r.DiskFree >= need+moveDiskReserve' \
+  '	return need == 0 || r.DiskFree != nil && *r.DiskFree >= need' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a move's disk room counts the largest server's upload" internal/panel/moves.go \
+  '	return need + upload' \
+  '	return need' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a server that no longer fits by its turn isn't stopped" internal/panel/moves.go \
+  '	if err := checkRoomFor(ctx, from, to, id); err != nil {' \
+  '	if err := checkRoomFor(ctx, from, to, id); err != nil && false {' \
+  ./internal/panel '^TestAServerThatNoLongerFitsIsntStopped$'
 control "moving in: a server keeps Playkeeper's record of the add-ons it installed" internal/agent/movestate.go \
   '	{"addons", []string{' \
   '	// {"addons", []string{' \

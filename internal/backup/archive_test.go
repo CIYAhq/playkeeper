@@ -172,6 +172,44 @@ func TestAWholeArchiveCarriesTheWholeServerFolder(t *testing.T) {
 	}
 }
 
+// A server's whole folder is measured as it arrives where the server moves,
+// without reading a file: a sparse file in full, and each of a file's links
+// apart. A folder the limits refuse is refused by the measure too, before
+// anything is sent.
+func TestAWholeFolderIsMeasuredAsItArrives(t *testing.T) {
+	src := t.TempDir()
+	write(t, src, "server.properties", "level-name=world\n")
+	write(t, src, "world/level.dat", "level")
+	sparse, err := os.Create(filepath.Join(src, "plugins-sparse.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sparse.Truncate(64 << 20); err != nil {
+		t.Fatal(err)
+	}
+	sparse.Close()
+	write(t, src, "shared/data.bin", strings.Repeat("x", 1<<20))
+	for _, link := range []string{"shared/link-1.bin", "shared/link-2.bin"} {
+		if err := os.Link(filepath.Join(src, "shared", "data.bin"), filepath.Join(src, filepath.FromSlash(link))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	size, err := MeasureWhole(src, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := int64(len("level-name=world\n")+len("level")) + 64<<20 + 3<<20; size.Bytes != want || size.Files != 6 || size.DiskBytes < want {
+		t.Errorf("the whole folder measures %+v, want %d bytes in 6 files", size, want)
+	}
+
+	lim := DefaultLimits()
+	lim.MaxFiles = 3
+	var refused *RefusedError
+	if _, err := MeasureWhole(src, lim); !errors.As(err, &refused) || !strings.Contains(err.Error(), "more than 3 files") {
+		t.Errorf("a whole folder of more files than a move carries measures: %v", err)
+	}
+}
+
 func TestReadFileTakesOneFileOutOfAnArchive(t *testing.T) {
 	arch, _ := createArchive(t, fixtureDataDir(t))
 	b, err := ReadFile(bytes.NewReader(arch), "world/level.dat", 1<<20)

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 )
 
 // A server moved to another machine keeps what the agent where it was kept
@@ -162,5 +163,36 @@ func TestAServerMovesWithItsWholeFolder(t *testing.T) {
 	var page int
 	if err := e.a.db.QueryRow(`SELECT public_page FROM servers WHERE id = ?`, id).Scan(&page); err != nil || page != 0 {
 		t.Errorf("Survival is on the public page before the dashboard gives it the settings it had: %d %v", page, err)
+	}
+}
+
+// A folder a move can't carry is refused before anything is sent: the
+// dashboard's check says why, and moving it out is refused the same way
+// before its first byte, rather than failing part way through. A folder a
+// move carries is checked for what it takes where it goes.
+func TestAFolderAMoveCantCarryIsRefusedBeforeItStreams(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"name": "Survival", "playStyle": "friends"})
+	if code, out := e.call("GET", e.sp("/move-check"), nil); code != http.StatusOK || out["diskBytes"] == nil || out["diskBytes"].(float64) <= 0 || out["archiveBytes"].(float64) <= 0 {
+		t.Fatalf("checking Survival's folder for a move: %d %v", code, out)
+	}
+	for i := range 5 {
+		if err := os.WriteFile(filepath.Join(e.dataDir(), fmt.Sprintf("notes-%d.txt", i)), []byte("uploaded"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lim := backup.DefaultLimits()
+	lim.MaxFiles = 3
+	archiveLimits = func() backup.Limits { return lim }
+	t.Cleanup(func() { archiveLimits = backup.DefaultLimits })
+	const why = "Survival can't be moved: its folder has more than 3 files."
+	if code, out := e.call("GET", e.sp("/move-check"), nil); code != http.StatusConflict || out["error"] != why {
+		t.Errorf("checking a folder of more files than a move carries: %d %v", code, out)
+	}
+	if op := e.act("stop"); op.Status != api.OpSucceeded {
+		t.Fatalf("stop: %+v", op)
+	}
+	if code, body := e.moveOut(); code != http.StatusConflict || !strings.Contains(string(body), why) {
+		t.Errorf("moving out a folder of more files than a move carries: %d %.200q", code, body)
 	}
 }
