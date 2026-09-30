@@ -16,7 +16,9 @@ import (
 // reason of its own, and after whopShareGrace it leaves. A store whose
 // grant has lacked what its pass reads for whopGrantGrace leaves too. A
 // customer starts, or their plan grows, only once each membership giving
-// them servers was paid with the share.
+// them servers was paid with the share. Every payment the checks read, and
+// each renewal and refund since the last read, is kept for the seller's
+// view.
 
 const (
 	// whopShareClosed is the reason the share check closes a store for.
@@ -27,6 +29,12 @@ const (
 	// uninstalled. The owner's to change.
 	whopShareGrace = 72 * time.Hour
 	whopGrantGrace = 7 * 24 * time.Hour
+	// whopPaymentsBack is how far back a store's first read of its payments
+	// and refunds goes, a month and a few days, and whopPaymentsOverlap how
+	// far each later read goes back before the last one, so a payment Whop
+	// records a little late isn't missed.
+	whopPaymentsBack    = 35 * 24 * time.Hour
+	whopPaymentsOverlap = time.Hour
 )
 
 // whopShareStep checks an open app store's share, once its pass has just
@@ -67,12 +75,116 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 			s.log.Error("could not have a store leave", "store", st.ID, "err", err)
 		}
 	}
+	s.whopReadPayments(ctx, c, *st)
 	if fresh, ok, err := s.whopStoreByID(ctx, st.ID); err == nil && ok {
 		st.ClosedWhy = fresh.ClosedWhy
 	} else if problem != "" {
 		st.ClosedWhy = cmpOr(st.ClosedWhy, problem)
 	}
 	return false
+}
+
+// whopReadPayments keeps each payment an open app store was paid since its
+// payments were last read, and each it refunded since, for the seller's view
+// (keepCheckedPayment), on the share check's schedule. A payment's share
+// comes from its fee lines, which are kept too. The read counts as done
+// only once all of it is, so what failed is read again next time.
+func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopStore) {
+	now := s.now()
+	var last int64
+	if err := s.db.QueryRowContext(ctx, `SELECT payments_read_at FROM whop_share_watch WHERE store_id = ?`, st.ID).Scan(&last); err != nil && !isNoRows(err) {
+		s.log.Error("could not read when a store's payments were read", "store", st.ID, "err", err)
+		return
+	}
+	since := now.Add(-whopPaymentsBack)
+	if last > 0 {
+		since = time.UnixMilli(last).Add(-whopPaymentsOverlap)
+	}
+	pays, err := c.PaymentsSince(ctx, st.ID, since)
+	if err != nil {
+		s.log.Warn("could not read a store's payments", "store", st.ID, "err", err)
+		return
+	}
+	refunds, err := c.RefundsSince(ctx, st.ID, since)
+	if err != nil {
+		s.log.Warn("could not read a store's refunds", "store", st.ID, "err", err)
+		return
+	}
+	for _, r := range refunds {
+		pay, err := c.Payment(ctx, r.PaymentID)
+		if err != nil {
+			s.log.Warn("could not read a refunded payment", "store", st.ID, "payment", r.PaymentID, "err", err)
+			return
+		}
+		pays = append(pays, pay)
+	}
+	for _, pay := range pays {
+		lines, err := c.PaymentFees(ctx, pay.ID)
+		if err == nil {
+			err = s.keepWhopFeeLines(ctx, st.ID, pay.ID, lines)
+		}
+		if err != nil {
+			s.log.Warn("could not read a payment's fee lines", "store", st.ID, "payment", pay.ID, "err", err)
+			return
+		}
+		s.keepCheckedPayment(ctx, st, pay, lines, "")
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO whop_share_watch(store_id, payments_read_at) VALUES(?, ?)
+		ON CONFLICT(store_id) DO UPDATE SET payments_read_at = excluded.payments_read_at`, st.ID, now.UnixMilli()); err != nil {
+		s.log.Error("could not note a store's payments were read", "store", st.ID, "err", err)
+	}
+}
+
+// keepCheckedPayment keeps a payment the share check read for the seller's
+// view (keepWhopPayment): what was paid and refunded, and Playkeeper's share
+// in its fee lines (whopShareOf), in the smallest unit of its currency. Its
+// buyer is whopUserID when Whop names none. One it can't keep is logged,
+// since the check's answer doesn't hang on it.
+func (s *Server) keepCheckedPayment(ctx context.Context, st whopStore, pay whop.Payment, lines []whop.PaymentFee, whopUserID string) {
+	if pay.Total == nil {
+		s.log.Warn("a payment has no total to keep", "store", st.ID, "payment", pay.ID)
+		return
+	}
+	amount, err := pay.Total.Minor()
+	if err != nil {
+		s.log.Warn("could not read a payment's total", "store", st.ID, "payment", pay.ID, "err", err)
+		return
+	}
+	var refunded int64
+	if pay.Refunded != nil {
+		if refunded, err = pay.Refunded.Minor(); err != nil {
+			s.log.Warn("could not read what a payment refunded", "store", st.ID, "payment", pay.ID, "err", err)
+			return
+		}
+	}
+	if pay.User != nil && pay.User.ID != "" {
+		whopUserID = pay.User.ID
+	}
+	paidAt := pay.PaidTime()
+	if paidAt.IsZero() {
+		paidAt = s.now()
+	}
+	p := whopPayment{ID: pay.ID, Store: st.ID, WhopUserID: whopUserID, PlanID: pay.PlanID, Currency: pay.Total.Currency,
+		Amount: amount, Share: min(whopShareOf(lines, pay.Total.Currency), amount), Refunded: min(refunded, amount), PaidAt: paidAt}
+	if err := s.keepWhopPayment(ctx, p); err != nil {
+		s.log.Warn("could not keep a payment for the seller's view", "store", st.ID, "payment", pay.ID, "err", err)
+	}
+}
+
+// whopShareOf is Playkeeper's share in a payment's fee lines, in the
+// smallest unit of currency: its revenue share lines added up, whichever
+// sign Whop writes them with, so a share given back nets to nothing.
+func whopShareOf(lines []whop.PaymentFee, currency string) int64 {
+	var n int64
+	for _, l := range lines {
+		if l.Origin != whopShareOrigin || l.Settled.Currency != currency {
+			continue
+		}
+		if m, err := l.Settled.Minor(); err == nil {
+			n += m
+		}
+	}
+	return max(n, -n)
 }
 
 // whopGrantWatch notes since when an app store's grant has lacked what its
@@ -165,7 +277,7 @@ func (s *Server) whopCustomerPaid(ctx context.Context, c *whop.Client, st whopSt
 		return err
 	}
 	for _, o := range all {
-		if err := s.whopSharePaid(ctx, c, st, o.membership, o.memoryMB); err != nil {
+		if err := s.whopSharePaid(ctx, c, st, whopUserID, o.membership, o.memoryMB); err != nil {
 			return err
 		}
 	}

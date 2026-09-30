@@ -39,9 +39,39 @@ func (p Payment) paidAt() time.Time {
 	return t
 }
 
+// PaidTime is when the payment's money was collected, zero when Whop didn't
+// say.
+func (p Payment) PaidTime() time.Time { return p.paidAt() }
+
 // paymentsRead is how many of a membership's payments PaidPayments reads,
 // newest first: a membership's latest charge is what starts its buyer.
 const paymentsRead = 10
+
+// PaymentsSince lists an account's paid payments created since, oldest
+// first.
+func (c *Client) PaymentsSince(ctx context.Context, accountID string, since time.Time) ([]Payment, error) {
+	return list[Payment](ctx, c, "/payments", url.Values{"account_id": {accountID}, "status": {"paid"},
+		"created_after": {since.UTC().Format(time.RFC3339)}, "order": {"created_at"}, "direction": {"asc"}})
+}
+
+// Payment reads one payment.
+func (c *Client) Payment(ctx context.Context, id string) (Payment, error) {
+	var p Payment
+	err := c.do(ctx, http.MethodGet, "/payments/"+url.PathEscape(id), nil, nil, &p)
+	return p, err
+}
+
+// Refund is money an account gave back on one of its payments.
+type Refund struct {
+	ID        string `json:"id"`
+	PaymentID string `json:"payment_id"`
+	Status    string `json:"status"`
+}
+
+// RefundsSince lists the refunds an account issued since.
+func (c *Client) RefundsSince(ctx context.Context, accountID string, since time.Time) ([]Refund, error) {
+	return list[Refund](ctx, c, "/refunds", url.Values{"account_id": {accountID}, "created_after": {since.UTC().Format(time.RFC3339)}})
+}
 
 // PaidPayments lists the paid payments of a membership on an account,
 // newest first, up to paymentsRead of them. Whop is asked for them in that

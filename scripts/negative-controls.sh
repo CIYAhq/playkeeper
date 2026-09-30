@@ -8446,6 +8446,18 @@ control "payment check: before a customer starts" internal/panel/whop_customers.
   'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
+  's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
+  '_ = whopUserID' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "payments: renewals are read on the share check's schedule" internal/panel/whop_share_hooks.go \
+  's.whopReadPayments(ctx, c, *st)' \
+  '' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a refund keeps its payment again" internal/panel/whop_share_hooks.go \
+  'pays = append(pays, pay)' \
+  '_ = pay' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
   'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
   'if false {' \

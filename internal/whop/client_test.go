@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const testKey = "apik_test_0123456789abcdef"
@@ -516,6 +517,41 @@ func TestMoneyIsReadExactlyInTheSmallestUnit(t *testing.T) {
 		if got, err := m.Minor(); err == nil {
 			t.Errorf("Minor(%+v) = %d, not refused", m, got)
 		}
+	}
+}
+
+// An account's paid payments since a time are read oldest first, one
+// payment by its id, and the account's refunds since a time.
+func TestPaymentsAndRefundsSinceATime(t *testing.T) {
+	since := time.Date(2026, 9, 30, 14, 0, 0, 0, time.FixedZone("Cyprus", 3*3600))
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /payments": func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if q.Get("account_id") != "biz_other" || q.Get("status") != "paid" || q.Get("created_after") != "2026-09-30T11:00:00Z" || q.Get("order") != "created_at" || q.Get("direction") != "asc" {
+				t.Errorf("GET /payments?%s", r.URL.RawQuery)
+			}
+			answer(map[string]any{"data": []map[string]any{{"id": "pay_1", "status": "paid", "paid_at": "2026-09-30T12:00:00.000Z"}}, "page_info": map[string]any{"has_next_page": false}})(w, r)
+		},
+		"GET /payments/pay_1": answer(map[string]any{"id": "pay_1", "status": "paid", "refunded_amount": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}),
+		"GET /refunds": func(w http.ResponseWriter, r *http.Request) {
+			if q := r.URL.Query(); q.Get("account_id") != "biz_other" || q.Get("created_after") != "2026-09-30T11:00:00Z" {
+				t.Errorf("GET /refunds?%s", r.URL.RawQuery)
+			}
+			answer(map[string]any{"data": []map[string]any{{"id": "ref_1", "payment_id": "pay_1", "status": "succeeded"}}, "page_info": map[string]any{"has_next_page": false}})(w, r)
+		},
+	})
+	ctx := context.Background()
+	pays, err := c.PaymentsSince(ctx, "biz_other", since)
+	if err != nil || len(pays) != 1 || pays[0].ID != "pay_1" || !pays[0].PaidTime().Equal(time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("PaymentsSince = %+v, %v", pays, err)
+	}
+	pay, err := c.Payment(ctx, "pay_1")
+	if err != nil || pay.Refunded == nil || pay.Refunded.Amount != "12.00" {
+		t.Fatalf("Payment = %+v, %v", pay, err)
+	}
+	refunds, err := c.RefundsSince(ctx, "biz_other", since)
+	if err != nil || len(refunds) != 1 || refunds[0] != (Refund{ID: "ref_1", PaymentID: "pay_1", Status: "succeeded"}) {
+		t.Fatalf("RefundsSince = %+v, %v", refunds, err)
 	}
 }
 

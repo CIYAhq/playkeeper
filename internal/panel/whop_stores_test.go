@@ -67,6 +67,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 			biz = b
 		case len(parts) > 3 && parts[1] == "affiliates" && parts[2] == "aff_"+b && fb.partner != "":
 			biz = b
+		case len(parts) == 3 && parts[1] == "payments" && slices.ContainsFunc(fb.payments, func(p map[string]any) bool { return p["id"] == parts[2] }):
+			biz = b
 		case len(parts) == 4 && parts[1] == "payments" && parts[3] == "fees" && fb.fees[parts[2]] != nil:
 			biz = b
 		}
@@ -158,13 +160,25 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such override"}}`)
 	case route == "GET /payments":
+		q := r.URL.Query()
 		var data []map[string]any
 		for _, p := range b.payments {
-			if p["membership_id"] == r.URL.Query().Get("membership_id") && p["status"] == r.URL.Query().Get("status") {
+			if (q.Get("membership_id") == "" || p["membership_id"] == q.Get("membership_id")) && p["status"] == q.Get("status") {
 				data = append(data, p)
 			}
 		}
 		page(data)
+	case len(parts) == 3 && parts[1] == "payments":
+		for _, p := range b.payments {
+			if p["id"] == parts[2] {
+				json.NewEncoder(w).Encode(p)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such payment"}}`)
+	case route == "GET /refunds":
+		page(b.refunds)
 	case len(parts) == 4 && parts[1] == "payments" && parts[3] == "fees":
 		json.NewEncoder(w).Encode(map[string]any{"data": b.fees[parts[2]]})
 	case route == "POST /support_channels":
@@ -226,8 +240,8 @@ func (f *fakeWhop) buyAt(biz, id, user, plan, status string) map[string]any {
 		}
 	}
 	pay := "pay_" + id
-	b.payments = append([]map[string]any{{"id": pay, "status": "paid", "membership_id": id, "plan_id": plan,
-		"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
+	b.payments = append([]map[string]any{{"id": pay, "status": "paid", "membership_id": id, "plan_id": plan, "paid_at": "2026-09-24T12:00:00.000Z",
+		"user": map[string]any{"id": user}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
 	if b.fees == nil {
 		b.fees = map[string][]map[string]any{}
 	}

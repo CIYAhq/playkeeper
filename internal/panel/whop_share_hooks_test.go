@@ -186,6 +186,49 @@ func TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare(t *testing.T) {
 	}
 }
 
+// Every payment the checks read is kept for the seller's view, with
+// Playkeeper's share from its fee lines: the one a customer started on, then
+// each renewal read on the share check's schedule, and a refund of one.
+func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
+	f, e, _ := twoStores(t)
+	useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	f.mu.Unlock()
+	kept := func(pay string) (amount, share, refunded int64, user, plan string) {
+		t.Helper()
+		e.srv.db.QueryRow(`SELECT amount, share, refunded, whop_user_id, plan_id FROM whop_payments WHERE payment_id = ? AND store_id = 'biz_other' AND currency = 'usd'`, pay).
+			Scan(&amount, &share, &refunded, &user, &plan)
+		return
+	}
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	e.reconcile()
+	if amount, share, refunded, user, plan := kept("pay_mem_kim"); amount != 1200 || share != 850 || refunded != 0 || user != "user_kim" || plan != "plan_other" {
+		t.Fatalf("the payment kim started on: %d paid, %d shared, %d refunded, by %q for %q", amount, share, refunded, user, plan)
+	}
+	f.mu.Lock()
+	b := f.installed["biz_other"]
+	b.payments = append([]map[string]any{{"id": "pay_renew", "status": "paid", "membership_id": "mem_kim", "plan_id": "plan_other", "paid_at": "2026-10-24T12:00:00.000Z",
+		"user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
+	b.fees["pay_renew"] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
+		"settlement_amount": map[string]any{"amount": "8.50", "currency": "usd", "decimals": 2}}}
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if amount, share, refunded, _, _ := kept("pay_renew"); amount != 1200 || share != 850 || refunded != 0 {
+		t.Fatalf("the renewal: %d paid, %d shared, %d refunded", amount, share, refunded)
+	}
+	f.mu.Lock()
+	b.payments[0]["refunded_amount"] = map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
+	b.refunds = append(b.refunds, map[string]any{"id": "ref_1", "payment_id": "pay_renew", "status": "succeeded"})
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if _, _, refunded, _, _ := kept("pay_renew"); refunded != 1200 {
+		t.Fatalf("the refunded renewal: %d refunded", refunded)
+	}
+}
+
 // A plan grows when it gives more servers or memory than the one applied.
 func TestAPlanGrowsWithMoreServersOrMemory(t *testing.T) {
 	applied := planKey(CustomerPlan{ID: "plan_a", Servers: 1, MemoryMB: 4096})
