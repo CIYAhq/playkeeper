@@ -993,7 +993,7 @@ func TestSFTPConnectErrors(t *testing.T) {
 		field  string
 		msg    string
 	}{
-		{name: "nothing listens", dial: closedPort(t), kind: KindNetwork, field: "port",
+		{name: "nothing listens", dial: refused(), kind: KindNetwork, field: "port",
 			msg: "Nothing accepted the connection on port 2222 of backup.example (connection refused)."},
 		{name: "an unknown host name", dial: failing(&net.DNSError{Err: "no such host", Name: testHost, IsNotFound: true}),
 			kind: KindNetwork, field: "host", msg: "The host name backup.example could not be found."},
