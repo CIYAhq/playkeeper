@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Negative controls: removes one safety guard at a time in a throwaway git
 # worktree and runs the tests that cover it. Every run must FAIL; a control
-# that still passes means the guard is untested. Nothing is committed.
+# that still passes means the guard is untested. A control whose guard is no
+# longer in its file doesn't stop the ones after it: every problem is listed
+# again at the end, and the run fails. Nothing is committed.
 # The worktree is made from HEAD, so commit changes before running it.
 # Usage: scripts/negative-controls.sh
 set -euo pipefail
@@ -19,16 +21,33 @@ if [ -d "$root/web/node_modules" ]; then
 fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
-bad=0
+problems=()
+# problem prints what went wrong with a control and keeps it for the end.
+problem() { # LINE
+  echo "$1"
+  problems+=("$1")
+}
+# mutate removes a control's guard: it replaces the first FROM in FILE with
+# TO. When FILE is gone or has no FROM, the code moved under the control, so
+# it says so and fails with FILE unchanged, and the next control runs.
+mutate() { # NAME FILE FROM TO
+  if [ ! -f "$2" ]; then
+    problem "STALE    $1: $2 is gone"
+    return 1
+  fi
+  if ! FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die' "$2" 2>/dev/null; then
+    git checkout -q -- "$2"
+    problem "STALE    $1: its guard is no longer in $2"
+    return 1
+  fi
+}
 control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
   local name=$1 file=$2 pkg=$5 tests=$6 runs=${7:-1}
-  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  mutate "$name" "$file" "$3" "$4" || return 0
   if ! go vet "$pkg" >/dev/null 2>&1; then
-    echo "INVALID  $name: the mutated code does not build"
-    bad=1
+    problem "INVALID  $name: the mutated code does not build"
   elif go test -count="$runs" "$pkg" -run "$tests" >/tmp/negative-control.out 2>&1; then
-    echo "MISSED   $name: $tests still pass without the guard"
-    bad=1
+    problem "MISSED   $name: $tests still pass without the guard"
   else
     echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
   fi
@@ -46,17 +65,14 @@ webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
     ln -s "$root/web/node_modules" web/node_modules
   fi
   if [ ! -d web/node_modules ]; then
-    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
-    bad=1
+    problem "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
     return
   fi
-  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  mutate "$name" "$file" "$3" "$4" || return 0
   if (cd web && npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
-    echo "MISSED   $name: ${tests:-$testfile} still passes without the guard"
-    bad=1
+    problem "MISSED   $name: ${tests:-$testfile} still passes without the guard"
   elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
-    echo "INVALID  $name: no test ran to fail"
-    bad=1
+    problem "INVALID  $name: no test ran to fail"
   else
     echo "caught   $name: $(grep -m1 -E '^(AssertionError|Error): |^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
@@ -2692,15 +2708,13 @@ control "the pre-stop check sizes server.properties without following a link or 
   ./internal/backup '^TestArchivedSizeDoesNotFollowALinkOrWaitOnAPipe$'
 shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
   local name=$1 file=$2 test=$5 shell=sh
+  mutate "$name" "$file" "$3" "$4" || return 0
   # A bash script is parsed by bash, a POSIX one by sh.
   case $(head -n1 "$file") in *bash*) shell=bash ;; esac
-  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
   if ! "$shell" -n "$file" 2>/dev/null; then
-    echo "INVALID  $name: the mutated script does not parse"
-    bad=1
+    problem "INVALID  $name: the mutated script does not parse"
   elif bash "$test" >/tmp/negative-control.out 2>&1; then
-    echo "MISSED   $name: $test still passes without the guard"
-    bad=1
+    problem "MISSED   $name: $test still passes without the guard"
   else
     echo "caught   $name: $(grep -m1 '^FAIL: ' /tmp/negative-control.out | cut -c1-200)"
   fi
@@ -9024,8 +9038,10 @@ webcontrol "room for sale: no card without plans on sale" web/src/pages/sale-roo
   'if (false) return null' \
   src/pages/pages.test.tsx 'for the owner alone, and only while plans are on sale'
 
-if [ "$bad" != 0 ]; then
-  echo "some guards are not covered by a failing test"
+if [ "${#problems[@]}" != 0 ]; then
+  echo
+  echo "${#problems[@]} controls need a look: a STALE one's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run"
+  printf '%s\n' "${problems[@]}"
   exit 1
 fi
 echo "every guard's test failed without it"
