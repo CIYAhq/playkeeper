@@ -5260,10 +5260,91 @@ control "every server in the list has its own slug" internal/panel/workspace.go 
   's.stableSlugs(ctx, out, list)' \
   '' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
-control "a duplicate's number skips slugs another server has" internal/panel/workspace.go \
-  'if next := fmt.Sprintf("%s-%d", base, i); !taken[next] && !avoid[next] {' \
-  'if next := fmt.Sprintf("%s-%d", base, i); true {' \
+control "a duplicate's letters skip slugs another server has" internal/panel/workspace.go \
+  'if next := base + "-" + letters(try); !taken[next] && !avoid[next] {' \
+  'if next := base + "-" + letters(try); true {' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "names per customer: a duplicate slug the dashboard shows gets random letters, not a number" internal/panel/workspace.go \
+  'letters = func(int) string { return randomLetters(4) }' \
+  'letters = func(try int) string { return fmt.Sprint(try + 1) }' \
+  ./internal/panel '^TestADuplicateSlugGetsRandomLettersNotANumber$'
+control "names per customer: a creator's new server is in their account" internal/panel/creators.go \
+  'if !ok || !withAccount(w, r, accountLimit(a.UserID)) {' \
+  'if !ok || !withAccount(w, r, "") {' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: anyone else's new server is in no account, whatever the browser sent" internal/panel/creators.go \
+  '		if withAccount(w, r, "") {
+			s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)(w, r, sess)' \
+  '		if true {
+			s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)(w, r, sess)' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: the account the browser sent goes in any spelling" internal/panel/creators.go \
+  'if strings.EqualFold(k, "account") {' \
+  'if strings.EqualFold(k, "account") && k == "account" {' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: a server moved in is in its customer's account" internal/panel/moves.go \
+  'Account: accountLimit(mv.userID), ' \
+  '' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "names per customer: a server's name differs only from its account's" internal/agent/servers.go \
+  'WHERE lower(name) = lower(?) AND id != ? AND account = ?`, name, except, account)' \
+  'WHERE lower(name) = lower(?) AND id != ? AND ? = ?`, name, except, account, account)' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a customer is told the name is one of their own servers'" internal/agent/servers.go \
+  '	if account != "" {
+		return errConflict(fmt.Sprintf("You already have a server named %q.", name), "Pick another name.")' \
+  '	if false {
+		return errConflict(fmt.Sprintf("You already have a server named %q.", name), "Pick another name.")' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: an account is named by its disk limit" internal/agent/servers.go \
+  'if account != "" && !reDiskLimitID.MatchString(account) {' \
+  'if false {' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a new server keeps its account" internal/agent/servers.go \
+  'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, spec.account,' \
+  'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, "",' \
+  ./internal/agent '^(TestServerNamesAreUniqueForEachAccount|TestAWorldForANewServerCountsAgainstItsDiskLimit)$'
+control "names per customer: a server created is in the account its request names" internal/agent/handlers.go \
+  'newServerSpec{name: name, account: req.Account, typ: typ,' \
+  'newServerSpec{name: name, typ: typ,' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a rename's name differs only from its server's account's" internal/agent/handlers.go \
+  'if account := s.accountOf(s.id); s.nameTaken(name, s.id, account) {' \
+  'if account := ""; s.nameTaken(name, s.id, account) {' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a server restored from a customer's upload is in their account" internal/agent/backups.go \
+  'newServerSpec{name: name, account: st.limit, actor: actor}' \
+  'newServerSpec{name: name, actor: actor}' \
+  ./internal/agent '^TestAServerFromACustomersUploadIsOneOfTheirs$'
+control "names per customer: a restored server's backup name is numbered among its account's alone" internal/agent/backups.go \
+  'name = a.uniqueName(n, st.limit)' \
+  'name = a.uniqueName(n, "")' \
+  ./internal/agent '^TestAServerFromACustomersUploadIsOneOfTheirs$'
+control "names per customer: a server made from a customer's world is in their account" internal/agent/worldimports.go \
+  'newServerSpec{name: name, account: imp.limit,' \
+  'newServerSpec{name: name,' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "names per customer: a server moved in is in the account the move names" internal/agent/movein.go \
+  'name: name, account: req.Account, actor: actor, record: offThePage},' \
+  'name: name, actor: actor, record: offThePage},' \
+  ./internal/agent '^TestACustomersServerMovedInKeepsItsNameBesideAnothers$'
+control "names per customer: a server made before accounts takes its disk limit's" internal/agent/disklimits.go \
+  '	a.accountsFromLimits(limits)
+' \
+  '' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountFromItsDiskLimit$'
+control "names per customer: a server made in an account keeps it" internal/agent/disklimits.go \
+  'UPDATE servers SET account = ? WHERE id = ? AND account = '"''"'`' \
+  'UPDATE servers SET account = ? WHERE id = ?`' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountFromItsDiskLimit$'
+control "names per customer: a taken slug's letters skip slugs another server has" internal/agent/servers.go \
+  'if s := base + "-" + letters(try); free(s) {' \
+  'if s := base + "-" + letters(try); true {' \
+  ./internal/agent '^TestATakenSlugGetsLettersNotACount$'
+control "names per customer: a taken slug gets random letters, not a number" internal/agent/servers.go \
+  '		letters = randomSlugLetters' \
+  '		letters = func(try int) string { return fmt.Sprint(try + 1) }' \
+  ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 control "a joined machine that can't answer holds up no team change" internal/panel/join.go \
   'all, _, err := s.allServers(ctx)
 	if err != nil {
@@ -6035,8 +6116,8 @@ control "the dashboard's machine hears the slugs shown for other machines' serve
   'if list == s.toldSlugs.list || true {' \
   ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
 control "a new server gets none of the slugs shown for other machines' servers" internal/agent/servers.go \
-  'if elsewhere[s] {' \
-  'if false && elsewhere[s] {' \
+  'return !elsewhere[s] && a.db.QueryRow(' \
+  'return (!elsewhere[s] || true) && a.db.QueryRow(' \
   ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 control "the dashboard can only hold back slugs a server could have" internal/agent/servers.go \
   'if !reSlug.MatchString(s) {' \
@@ -10089,7 +10170,7 @@ control "moving in: it keeps the EULA acceptance, creation time and play style i
   'op, err := a.newFromStage(st, in.spec, in.mem, nil, func(' \
   ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
 control "moving in: a name a server here has gets a number" internal/agent/movein.go \
-  'name = a.uniqueName(name)' \
+  'name = a.uniqueName(name, req.Account)' \
   '_ = name' \
   ./internal/agent '^TestAServerMovedInThatRanThereStartsHere$'
 control "moving in: it keeps its slug" internal/agent/servers.go \
@@ -10419,8 +10500,8 @@ control "moving in: a server keeps Playkeeper's record of the add-ons it install
   '	// {"addons", []string{' \
   ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
 control "moving in: a server is off the public page until its settings arrive" internal/agent/movein.go \
-  'name: name, actor: actor, record: offThePage},' \
-  'name: name, actor: actor},' \
+  'name: name, account: req.Account, actor: actor, record: offThePage},' \
+  'name: name, account: req.Account, actor: actor},' \
   ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
 control "moving out: a move takes the whole folder, not a backup's" internal/agent/moveout.go \
   'backup.CreateWhole(out,' \
