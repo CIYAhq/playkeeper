@@ -205,35 +205,53 @@ func TestAMoveInTakesOnlyWhatTheDashboardSends(t *testing.T) {
 }
 
 // A server moved in that didn't run stays stopped when the agent stops in
-// the middle of its move-in: the next agent process finishes it without
-// starting it.
+// the middle of its move-in, before its restore's journal is written or
+// after: the next agent process finishes it without starting it.
 func TestAMoveInFinishedAfterARestartStaysStopped(t *testing.T) {
-	e := newAgentEnv(t)
-	had, row, _, rid := e.movingIn("")
-	reached := make(chan struct{})
-	setRestoreStep(t, func(_ context.Context, step string) {
-		if step == "checking" {
-			close(reached)
-			runtime.Goexit()
-		}
-	})
-	code, out := e.moveIn(rid, moveInBody("mvdserver2", row.Slug, had, false))
-	if code != http.StatusAccepted {
-		t.Fatalf("move-in: %d %v", code, out)
-	}
-	waitClosed(t, reached, "the move-in's world in place")
-	e.stop()
-	restoreStep = func(context.Context, string) {}
-	e.start()
-	op := e.waitOp(out["id"].(string))
-	if op.Status != api.OpSucceeded || op.Detail["resumedAfterRestart"] != true {
-		t.Fatalf("the next agent process must finish the move-in: %+v", op)
-	}
-	s := e.a.serverByID("mvdserver2")
-	if s == nil {
-		t.Fatal("the move-in finished after a restart left no server")
-	}
-	if s.desired() != api.DesiredStopped || e.containerRuns("mvdserver2") {
-		t.Fatalf("the move-in finished after a restart left the server %s, running %v", s.desired(), e.containerRuns("mvdserver2"))
+	for _, step := range []string{"journal", "checking"} {
+		t.Run(step, func(t *testing.T) {
+			e := newAgentEnv(t)
+			had, row, _, rid := e.movingIn("")
+			stage := e.a.stageDir(rid)
+			reached := make(chan struct{})
+			setRestoreStep(t, func(_ context.Context, at string) {
+				if at != step {
+					return
+				}
+				// A process that dies tidies nothing up: before its journal,
+				// the restore would delete its stage on the way out.
+				if step == "journal" {
+					if err := os.Rename(stage, stage+".dead"); err != nil {
+						t.Error(err)
+					}
+				}
+				close(reached)
+				runtime.Goexit()
+			})
+			code, out := e.moveIn(rid, moveInBody("mvdserver2", row.Slug, had, false))
+			if code != http.StatusAccepted {
+				t.Fatalf("move-in: %d %v", code, out)
+			}
+			waitClosed(t, reached, "the move-in's "+step+" step")
+			e.stop()
+			if step == "journal" {
+				if err := os.Rename(stage+".dead", stage); err != nil {
+					t.Fatal(err)
+				}
+			}
+			restoreStep = func(context.Context, string) {}
+			e.start()
+			op := e.waitOp(out["id"].(string))
+			if op.Status != api.OpSucceeded || op.Detail["resumedAfterRestart"] != true {
+				t.Fatalf("the next agent process must finish the move-in: %+v", op)
+			}
+			s := e.a.serverByID("mvdserver2")
+			if s == nil {
+				t.Fatal("the move-in finished after a restart left no server")
+			}
+			if s.desired() != api.DesiredStopped || e.containerRuns("mvdserver2") {
+				t.Fatalf("the move-in finished after a restart left the server %s, running %v", s.desired(), e.containerRuns("mvdserver2"))
+			}
+		})
 	}
 }
