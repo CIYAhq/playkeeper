@@ -8207,6 +8207,10 @@ control "leaving: a store that left ends its customers' plans" internal/panel/wh
   's.endLeftStorePlans(ctx, st)' \
   '_ = st' \
   ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: lifting a store that left leaves its customers paused" internal/panel/whop_customers.go \
+  'if st.SuspendedAt.IsZero() {' \
+  'if false {' \
+  ./internal/panel '^TestLiftingAStoreThatLeftLeavesItsCustomersPaused$'
 control "leaving: a paused customer isn't paused again" internal/panel/leaving.go \
   'if wc.Applied == "" || wc.Paused || wc.NextTryAt > now {' \
   'if wc.Applied == "" || wc.NextTryAt > now {' \
