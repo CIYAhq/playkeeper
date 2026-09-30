@@ -441,21 +441,22 @@ func TestRestoreUndoneBy030StoppingIsTidiedUp(t *testing.T) {
 			e := newAgentEnv(t)
 			id, _, restored, previous := e.restoreScenario()
 			live := e.dataDir()
+			// The restored world stays starting until the test lets its boot
+			// go on.
+			boot, let := gate(t)
 			e.fd.mu.Lock()
-			e.fd.bootDelay = 2 * time.Second
+			e.fd.beforeBoot = boot
 			e.fd.mu.Unlock()
-			applied := time.Now()
 			opID := e.apply030(id)
-			e.waitFor("the restored world to boot", func() bool {
-				e.fd.mu.Lock()
-				defer e.fd.mu.Unlock()
-				c := e.fd.byName[e.cname()]
-				return c != nil && c.running && c.started.After(applied)
+			// The agent stops while it waits for the restored world to be up,
+			// which the operation's phase shows. Stopped before Docker's
+			// answer to the start reached it, it would remove the container
+			// as one that failed to start.
+			e.waitFor("the restored world to be starting", func() bool {
+				op := e.srv().currentOp()
+				return op != nil && op.ID == opID && op.Phase == string(api.PhaseStarting)
 			})
 			e.stop()
-			e.fd.mu.Lock()
-			e.fd.bootDelay = 30 * time.Millisecond
-			e.fd.mu.Unlock()
 			op := e.opAtRest(opID)
 			if op.Status != api.OpFailed || op.Phase != "reverting" || !undoneByStop(op) || !strings.HasPrefix(op.Hint, "Press Start on the Overview. ") {
 				t.Fatalf("want the record 0.3.0 leaves: %+v", op)
@@ -479,7 +480,10 @@ func TestRestoreUndoneBy030StoppingIsTidiedUp(t *testing.T) {
 			}
 			e.fd.mu.Lock()
 			strayID, strayStarted := e.fd.byName[e.cname()].id, e.fd.byName[e.cname()].started
+			e.fd.beforeBoot = nil
 			e.fd.mu.Unlock()
+			// The restored world 0.3.0 could not stop boots on.
+			let()
 			restarted := time.Now()
 			e.start()
 			detail := "corrected the record of a restore undone because the agent stopped"
