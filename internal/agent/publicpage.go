@@ -114,11 +114,16 @@ func (a *Agent) publicPageState() api.PublicPageState {
 	if host == "" {
 		return api.PublicPageState{}
 	}
+	st := api.PublicPageState{Host: host}
+	if named := a.dashboard443Wanted(); named != "" && sameHost(named, host) {
+		st.Dashboard, st.Reached = true, a.dashboard443For(named).Reached
+	}
 	var n int
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE public_page = 1`).Scan(&n); err != nil {
-		return api.PublicPageState{Host: host}
+		return st
 	}
-	return api.PublicPageState{Host: host, On: n > 0, Hosts: a.ownPageHosts()}
+	st.On, st.Hosts = n > 0, a.ownPageHosts()
+	return st
 }
 
 func (a *Agent) hPublicPageState(w http.ResponseWriter, r *http.Request) {

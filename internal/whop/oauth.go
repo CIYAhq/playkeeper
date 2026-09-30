@@ -153,6 +153,49 @@ func (o OAuth) CheckClient(ctx context.Context) error {
 	return nil
 }
 
+// Accepts asks Whop whether the app lists RedirectURI, the way a browser
+// leaving to sign in would, without anyone signing in: Whop sends such a
+// browser on to its sign-in page (a redirect), and answers one that names a
+// redirect URI the app doesn't list with invalid_request, "redirect_uri is
+// invalid". known is false when Whop's answer says neither, or it couldn't
+// be asked.
+func (o OAuth) Accepts(ctx context.Context) (accepted, known bool) {
+	verifier, err := NewVerifier()
+	if err != nil {
+		return false, false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.AuthorizeURL("playkeeper-check", "playkeeper-check", verifier), nil)
+	if err != nil {
+		return false, false
+	}
+	req.Header.Set("Accept", "application/json")
+	if o.UserAgent != "" {
+		req.Header.Set("User-Agent", o.UserAgent)
+	}
+	hc := o.HTTP
+	if hc == nil {
+		hc = noRedirects
+	}
+	res, err := hc.Do(req)
+	if err != nil {
+		return false, false
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 4<<10))
+	switch {
+	case res.StatusCode >= 300 && res.StatusCode < 400 && res.Header.Get("Location") != "":
+		return true, true
+	case res.StatusCode == http.StatusBadRequest:
+		var e struct {
+			Description string `json:"error_description"`
+		}
+		if json.Unmarshal(b, &e) == nil && strings.Contains(e.Description, "redirect_uri") {
+			return false, true
+		}
+	}
+	return false, false
+}
+
 // UserInfo is who signed in: their Whop user id, username and name.
 type UserInfo struct {
 	Subject  string `json:"sub"`

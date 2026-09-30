@@ -1713,7 +1713,11 @@ type Address struct {
 	ServerAddresses bool `json:"serverAddresses,omitempty"`
 	// Certificate is the dashboard's certificate for Host.
 	Certificate *CertificateStatus `json:"certificate,omitempty"`
-	Names       NamesService       `json:"names"`
+	// Dashboard is Serve the dashboard on the standard HTTPS port (443),
+	// and the port the dashboard's address has, on the machine that runs
+	// the dashboard; a joined machine has none.
+	Dashboard *Dashboard443 `json:"dashboard,omitempty"`
+	Names     NamesService  `json:"names"`
 	// TermsAccepted is when an admin accepted Let's Encrypt's terms.
 	TermsAccepted *time.Time `json:"termsAccepted,omitempty"`
 	// Operation is the address's work in progress: publishing a free
@@ -2971,7 +2975,67 @@ type PublicPageState struct {
 	// Hosts are the servers' own addresses the page also answers for, each
 	// with only its server: those of the servers on the page.
 	Hosts []string `json:"hosts,omitempty"`
+	// Dashboard (from 0.4.11) has the panel answer Host on port 443 with
+	// the dashboard: Serve the dashboard on the standard HTTPS port is on,
+	// and Host works with a certificate. Reached is set once a browser from
+	// outside the machine opened it there (see Dashboard443).
+	Dashboard bool `json:"dashboard,omitempty"`
+	Reached   bool `json:"reached,omitempty"`
 }
+
+// Dashboard443 is the switch Serve the dashboard on the standard HTTPS port
+// (443), on the machine that runs the dashboard (from 0.4.11).
+type Dashboard443 struct {
+	// On is the switch. Default is set while nobody has changed it, so On
+	// is the install's choice: on for a new install that found port 443
+	// free.
+	On      bool `json:"on"`
+	Default bool `json:"default,omitempty"`
+	// State is port 443 for the dashboard: PortOff while the switch is
+	// off, DashboardNoAddress until the machine has a name that works with
+	// a certificate, PortWaiting for a few minutes after the machine
+	// starts, PortBusy, PortClaimed or PortDenied while another program has
+	// it (Holder names it when Playkeeper can tell), and PortOpen while the
+	// dashboard listens on it.
+	State  string `json:"state"`
+	Holder string `json:"holder,omitempty"`
+	// Reached is set once a browser from outside the machine has opened the
+	// dashboard on port 443 at the machine's name. Until then the address
+	// keeps its port: a firewall in front of the machine can't be seen
+	// from it, and an address that doesn't open is worse than one with a
+	// port.
+	Reached bool `json:"reached,omitempty"`
+	// Port is the port the dashboard's address has: 443, which it shows as
+	// none, once Reached and while no other program has port 443, and the
+	// panel's port otherwise.
+	Port int `json:"port"`
+}
+
+// DashboardNoAddress is Dashboard443.State while the switch is on but the
+// machine has no name that works with a certificate yet.
+const DashboardNoAddress = "no_address"
+
+// Dashboard443Request turns Serve the dashboard on the standard HTTPS port
+// on or off. Held says the panel holds port 443 already, for the public
+// page, so the agent doesn't try it.
+type Dashboard443Request struct {
+	On    bool   `json:"on"`
+	Held  bool   `json:"held,omitempty"`
+	Actor string `json:"actor"`
+}
+
+// Dashboard443Reached tells the agent that a browser reached the dashboard
+// on port 443 at Host from the address From, which counts once it's a
+// public address and not the machine's own.
+type Dashboard443Reached struct {
+	Host string `json:"host"`
+	From string `json:"from"`
+}
+
+// CodePortInUse refuses a change that needs a port another program uses or
+// claims; its params name the port and, when Playkeeper can tell, the
+// holder.
+const CodePortInUse = "port_in_use"
 
 // PagePortsRequest names the ports the panel asks the agent to open for
 // the page: those it doesn't hold already.

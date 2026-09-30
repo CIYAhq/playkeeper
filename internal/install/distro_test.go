@@ -537,11 +537,11 @@ func TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules(t *testing
 	o := opts("")
 	o.Yes = true
 	f := Preflight(context.Background(), sys, o)
-	if c := check(f, "firewall"); c == nil || c.Label != "Firewall (firewalld)" || !strings.Contains(c.Detail, "firewalld is active; the installer will allow 8443/tcp, 25565/tcp and 80/tcp in its internal zone") {
+	if c := check(f, "firewall"); c == nil || c.Label != "Firewall (firewalld)" || !strings.Contains(c.Detail, "firewalld is active; the installer will allow 8443/tcp, 25565/tcp, 443/tcp and 80/tcp in its internal zone") {
 		t.Fatalf("firewall check: %+v", c)
 	}
 	plan := strings.Join(Plan(f, o), "\n")
-	for _, want := range []string{"Firewall:  firewalld: allow 8443/tcp, 25565/tcp and 80/tcp in the internal zone", "adds a 'docker' zone and a 'docker-forwarding' policy to firewalld"} {
+	for _, want := range []string{"Firewall:  firewalld: allow 8443/tcp, 25565/tcp, 443/tcp and 80/tcp in the internal zone", "adds a 'docker' zone and a 'docker-forwarding' policy to firewalld"} {
 		if !strings.Contains(plan, want) {
 			t.Errorf("the plan misses %q:\n%s", want, plan)
 		}
@@ -550,13 +550,13 @@ func TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules(t *testing
 		t.Fatal(err)
 	}
 	fw := h.firewalld
-	for _, rule := range []string{"8443/tcp", "25565/tcp", "80/tcp"} {
+	for _, rule := range []string{"8443/tcp", "25565/tcp", "443/tcp", "80/tcp"} {
 		if !fw.perm["internal "+rule] || !fw.run["internal "+rule] {
 			t.Errorf("firewalld does not allow %s both saved and running", rule)
 		}
 	}
 	m := manifestOf(t, h)
-	if m.Firewall != "firewalld" || m.FirewallZone != "internal" || !slices.Equal(m.FirewallRules, []string{"8443/tcp", "25565/tcp"}) || !slices.Equal(m.DockerFirewalld, dockerFirewalld) {
+	if m.Firewall != "firewalld" || m.FirewallZone != "internal" || !slices.Equal(m.FirewallRules, []string{"8443/tcp", "25565/tcp", "443/tcp"}) || !slices.Equal(m.DockerFirewalld, dockerFirewalld) {
 		t.Fatalf("the manifest must record only what the install added: %+v", m)
 	}
 	if err := Uninstall(context.Background(), sys, UninstallOptions{Yes: true, In: strings.NewReader(""), Out: &bytes.Buffer{}}); err != nil {

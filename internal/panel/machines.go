@@ -465,6 +465,11 @@ func (s *Server) hMachineLink(w http.ResponseWriter, r *http.Request, sess *sess
 		"sizingUrl": "https://playkeeper.io/sizing",
 		"available": s.hub != nil,
 	}
+	// AI agents connect where the dashboard's address is, without a port
+	// while it answers on port 443; machines keep dialing the panel's port.
+	if dash, err := s.dashboardURL(r.Context()); err == nil && dash != "" {
+		out["dashboard"] = dash
+	}
 	if s.hub != nil {
 		out["fingerprint"] = s.hub.Fingerprint()
 		out["joinPausedSeconds"] = int((s.hub.JoinPause() + time.Second - 1) / time.Second)

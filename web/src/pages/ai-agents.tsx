@@ -33,7 +33,7 @@ export function AiAgentsSection() {
   const [creating, setCreating] = useState(false)
   const [open, setOpen] = useState<ApiToken>()
   const [revoking, setRevoking] = useState<ApiToken>()
-  const address = mcpAddress(link.data?.addresses, window.location.origin)
+  const address = mcpAddress(link.data?.addresses, window.location.origin, link.data?.dashboard)
   const refresh = () => Promise.all([tokens.refresh(), lately.refresh()])
   const tokensError = tokens.error ? errorText(tokens.error) : undefined
   const latelyError = lately.error ? errorText(lately.error) : undefined

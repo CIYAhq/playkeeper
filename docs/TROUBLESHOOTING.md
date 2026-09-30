@@ -4,11 +4,22 @@ The problems people hit most, with what to check first. If none of this helps, a
 
 ## Can't reach the dashboard
 
-- Open it at `https://` and port 8443: `https://<your-vps-ip>:8443`. Plain `http://` or the IP address without the port doesn't answer; your machine's name without the port opens its public server page, not the dashboard.
+- Open it at `https://` and port 8443: `https://<your-vps-ip>:8443`. Plain `http://` or the IP address without the port doesn't answer. Your machine's name without the port opens the dashboard once **Serve the dashboard on the standard HTTPS port (443)** works (see below), and its public server page otherwise. Port 8443 keeps working either way.
 - Allow TCP 8443 in your provider's firewall, the one in its web console. The installer allows it in ufw or firewalld when one is on, but a provider's cloud firewall sits in front of the VPS and needs its own rule. So does another firewall on the VPS itself, such as nftables on Debian: the installer's check names the one it found and the command that allows the port.
 - On Oracle Cloud, the VM's Ubuntu image also rejects every port but SSH with its own iptables rules, besides the security list in Oracle's console. Allow the dashboard there too: `sudo iptables -I INPUT -p tcp --dport 8443 -j ACCEPT && sudo netfilter-persistent save`, and the same with `--dport 80` if you give it your own domain.
 - On the VPS, `sudo playkeeper status` shows whether Playkeeper's services are running.
 - Lost the setup link before creating the admin account? `sudo playkeeper setup-code` makes a new one. Forgot the password? `sudo playkeeper reset-password <user>`.
+
+## The dashboard still has its port
+
+**Machine settings › The dashboard's address** says where **Serve the dashboard on the standard HTTPS port (443)** stands:
+
+- *It takes effect once this machine has an address with a certificate:* give it one in **Machine settings › Address** first.
+- *Another program uses port 443*, *is set to use port 443* or *doesn't let Playkeeper use port 443:* a program listens on it, a Docker container publishes it, or a web server such as nginx or Caddy starts with the machine. Playkeeper never takes the port from them, and the dashboard stays at port 8443. To see what listens: `sudo ss -ltnp 'sport = :443'`. Once it's gone, select **Try again**.
+- *Open https://… once to finish:* the dashboard listens on port 443, but no browser from outside the VPS has reached it there, and the address keeps its port until one does. Open it once. If it doesn't open, allow TCP 443 in your provider's firewall (on Oracle Cloud also `sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT && sudo netfilter-persistent save`, and `sudo ufw allow 443/tcp` if ufw is on). A browser on the machine's own network, like a home server's, doesn't count: open it once from outside, such as on a phone using mobile data.
+- *Opens on port 443 a few minutes after the machine starts:* for a few minutes after the VPS starts, the port is left to whatever starts with it.
+
+Customers can't sign in with Whop at the new address? Until the Whop app lists it, Playkeeper keeps sending them back through `https://…:8443/api/public/whop/signin/callback`, which keeps working. **Settings › Sell on Whop** shows the redirect URL to add on the app's OAuth tab.
 
 ## Friends can't join
 
@@ -26,7 +37,8 @@ The problems people hit most, with what to check first. If none of this helps, a
   - Another program listens on port 443 or 80, a Docker container publishes one, or a web server such as nginx or Caddy is set to start with the machine. Playkeeper never takes a port from them. To see what listens: `sudo ss -ltnp 'sport = :443'`. Once it's gone, select **Try again**.
   - For a few minutes after the VPS starts, the ports are left to whatever starts with it.
 - Allow TCP 443 and 80 in your provider's firewall, as for the dashboard above; on Oracle Cloud also in the VM's iptables.
-- Want the ports for something else, like your own website? Turn off **Show this server** on every server: Playkeeper gives both ports back at once.
+- Want the ports for something else, like your own website? Turn off **Show this server** on every server, and **Serve the dashboard on the standard HTTPS port** in Machine settings: Playkeeper gives both ports back at once.
+- With the dashboard on port 443, the machine's name opens the dashboard for anyone signed in, and the page, with **Sign in**, for everyone else. Where customers sign in with Whop, it opens the sign-in page instead; each server's own address still opens its page.
 
 ## Certificate warning
 
