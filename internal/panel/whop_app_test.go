@@ -157,10 +157,12 @@ func TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes(t *tes
 // back from, with no memberships at all. So an app store whose business
 // lacks a permission isn't read and its customers stay as they were, with
 // that as its problem, while the other stores go on. Approved again, it's
-// read afresh at once.
+// read afresh at once, the store and every membership, without waiting for
+// the webhook's ten-minute read.
 func TestAnAppStoreWhoseBusinessHasntApprovedTheAppIsntRead(t *testing.T) {
-	f, e, _ := twoStores(t)
+	f, e, own := twoStores(t)
 	core := useFakeCore(e)
+	hookApp(t, e, own)
 	f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
 	e.reconcile()
 	calls := len(core.got())
@@ -173,20 +175,23 @@ func TestAnAppStoreWhoseBusinessHasntApprovedTheAppIsntRead(t *testing.T) {
 	if err := e.srv.keepMembership("biz_other", whop.Membership{ID: "mem_other1", UserID: "user_alex", PlanID: "plan_other", Status: "active"}, true); err != nil {
 		t.Fatal(err)
 	}
-	f.buy("mem_pip1", "user_alex", "plan_starter", "active")
-	e.clock.add(11 * time.Minute)
+	e.deliver(t, "msg_p1", whop.EventMembershipActivated, f.buy("mem_pip1", "user_alex", "plan_starter", "active"))
+	e.clock.add(time.Minute)
 	e.reconcile()
 	got := core.got()
 	if keptAt(t, e, "mem_other1") != "biz_other" || len(got) != calls+1 || !strings.Contains(got[calls], "whop/biz_pip/user_alex") ||
 		!strings.Contains(storeProblem(t, e, "biz_other"), errWhopAppUnapproved.Error()) {
 		t.Fatalf("unapproved: Other's membership kept for %q, calls %q, problem %q", keptAt(t, e, "mem_other1"), got, storeProblem(t, e, "biz_other"))
 	}
+	f.buyAt("biz_other", "mem_other2", "user_alex", "plan_other", "active")
 	f.mu.Lock()
 	delete(f.ungranted, "biz_other")
 	f.mu.Unlock()
+	e.clock.add(time.Second)
 	e.reconcile()
-	if problem := storeProblem(t, e, "biz_other"); problem != "" || len(core.got()) != calls+1 {
-		t.Fatalf("approved again: problem %q, calls %q", problem, core.got())
+	got = core.got()
+	if problem := storeProblem(t, e, "biz_other"); problem != "" || keptAt(t, e, "mem_other2") != "biz_other" || len(got) != calls+2 || !strings.Contains(got[calls+1], "whop/biz_other/user_alex") {
+		t.Fatalf("approved again: problem %q, the purchase made meanwhile kept for %q, calls %q", problem, keptAt(t, e, "mem_other2"), got)
 	}
 }
 
