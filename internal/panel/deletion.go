@@ -252,7 +252,7 @@ func (s *Server) finishLapsed(ctx context.Context, userID int64, deleted int, go
 		detail += fmt.Sprintf("; %d out of reach, with no final backup, forgotten", len(gone))
 	}
 	s.audit(placementActor, "customer.delete", info.username, "succeeded", detail)
-	if err := s.notifier.Notify(ctx, info.customer, CustomerMessage{Kind: messageDeleted, Text: s.deletedText(ctx, until, deleted > 0)}); err != nil {
+	if err := s.notifier.Notify(ctx, info.customer, CustomerMessage{Kind: messageDeleted, Text: s.deletedText(ctx, info.customer, until, deleted > 0)}); err != nil {
 		s.log.Warn("could not tell a customer their servers were deleted", "user", userID, "err", err)
 	}
 	return nil
@@ -270,9 +270,9 @@ func (s *Server) lapsedCustomer(ctx context.Context, userID int64) (lapsedInfo, 
 	var info lapsedInfo
 	var state string
 	var deleteAfter, deletedAt int64
-	err := s.db.QueryRowContext(ctx, `SELECT c.provider, c.subject, c.handle, u.username, c.state, c.delete_after, c.servers_deleted_at
+	err := s.db.QueryRowContext(ctx, `SELECT c.provider, c.store, c.subject, c.handle, u.username, c.state, c.delete_after, c.servers_deleted_at
 		FROM customers c JOIN users u ON u.id = c.user_id WHERE c.user_id = ?`, userID).
-		Scan(&info.customer.Provider, &info.customer.Subject, &info.customer.Handle, &info.username, &state, &deleteAfter, &deletedAt)
+		Scan(&info.customer.Provider, &info.customer.Store, &info.customer.Subject, &info.customer.Handle, &info.username, &state, &deleteAfter, &deletedAt)
 	switch {
 	case isNoRows(err):
 		return info, false, nil
@@ -284,10 +284,10 @@ func (s *Server) lapsedCustomer(ctx context.Context, userID int64) (lapsedInfo, 
 
 // deletedText is the message a customer gets once their servers are
 // deleted: until when the final backups download, and where.
-func (s *Server) deletedText(ctx context.Context, until time.Time, servers bool) string {
+func (s *Server) deletedText(ctx context.Context, cust Customer, until time.Time, servers bool) string {
 	where := "on your Playkeeper dashboard"
-	if dash, _ := s.dashboardURL(ctx); dash != "" {
-		where = "at " + dash
+	if at := s.signInAt(ctx, cust); at != "" {
+		where = "at " + at
 	}
 	text := fmt.Sprintf("Your Playkeeper plan ended %d days ago, so your servers are deleted now.", graceDays)
 	if servers {

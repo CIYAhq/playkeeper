@@ -167,7 +167,7 @@ func (s *Server) whopView(ctx context.Context) (whopView, error) {
 		return v, err
 	}
 	v.SignIn = &signIn
-	if v.Customers, err = s.whopCustomerViews(ctx); err != nil {
+	if v.Customers, err = s.whopCustomerViews(ctx, a.ID); err != nil {
 		return v, err
 	}
 	v.ConnectedAt = &a.ConnectedAt
@@ -287,16 +287,37 @@ func (s *Server) hWhopConnect(w http.ResponseWriter, r *http.Request, sess *sess
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
+	adopted, err := s.adoptWhopCustomers(ctx, acc.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
 	s.syncWhop(ctx, c, acc.ID, true)
 	detail := "key ending " + whop.Ending(key)
 	if had {
 		detail = "replaced the key; " + detail
+	}
+	if adopted > 0 {
+		detail += fmt.Sprintf("; took on the customers from before stores (%d)", adopted)
 	}
 	if other != "" {
 		detail += "; " + s.takeoverOutcome(other)
 	}
 	s.audit(sess.User.Username, "whop.connect", acc.ID, "succeeded", detail)
 	s.answerWhop(w, r)
+}
+
+// adoptWhopCustomers gives store, just connected, the Whop customers who
+// have no store: those of a dashboard that sold for a store before the core
+// kept stores, and had none connected when it upgraded. Until then any
+// store it connected found them, so the next one still does. A customer
+// the store already has keeps their own account.
+func (s *Server) adoptWhopCustomers(ctx context.Context, store string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE OR IGNORE customers SET store = ? WHERE provider = ? AND store = ''`, store, whopProvider)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // takeoverOutcome says whether taking the store over from other worked,

@@ -120,6 +120,8 @@ func listedPorts(running bool, ports []fakePort) []map[string]any {
 type fakeLine struct {
 	ts   time.Time
 	text string
+	// run is the container's run the line was written in.
+	run int
 }
 
 // pullFail is how a pull fails: the daemon answers with status and msg, or
@@ -140,6 +142,8 @@ type fakeContainer struct {
 	logs     []fakeLine
 	wake     chan struct{}
 	rotated  chan struct{}
+	// runs counts the container's starts.
+	runs int
 }
 
 func startFakeDocker(t *testing.T, sock string) *fakeDocker {
@@ -156,7 +160,7 @@ func startFakeDocker(t *testing.T, sock string) *fakeDocker {
 }
 
 func (fd *fakeDocker) log(c *fakeContainer, text string) {
-	c.logs = append(c.logs, fakeLine{ts: time.Now().UTC(), text: text})
+	c.logs = append(c.logs, fakeLine{ts: time.Now().UTC(), text: text, run: c.runs})
 	close(c.wake)
 	c.wake = make(chan struct{})
 }
@@ -489,6 +493,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 			return
 		}
 		c.running, c.started, c.finished, c.exitCode, c.oom = true, time.Now().UTC(), time.Time{}, 0, false
+		c.runs++
 		setup := env(c.cfg, "SETUP_ONLY") == "TRUE"
 		fd.log(c, "[init] Running as uid=1000 gid=1000")
 		fd.log(c, "[init] Resolving type given PAPER")
@@ -669,6 +674,7 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 		since, fd.replayAll = time.Time{}, false
 	}
 	rotated := c.rotated
+	run := c.runs
 	lines := c.logs
 	if tail > 0 && len(lines) > tail {
 		lines = lines[len(lines)-tail:]
@@ -695,11 +701,19 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 	if tail > 0 {
 		return
 	}
+	// A follow stream ends with the run it began in, as Docker's does, even
+	// when it looks only after the next start: the agent's follower learns
+	// of a new run from a new request.
 	for follow {
 		fd.mu.Lock()
-		running := c.running
+		running := c.running && c.runs == run
 		wake := c.wake
-		pending := append([]fakeLine(nil), c.logs[min(sent, len(c.logs)):]...)
+		var pending []fakeLine
+		for _, l := range c.logs[min(sent, len(c.logs)):] {
+			if l.run == run {
+				pending = append(pending, l)
+			}
+		}
 		sent = len(c.logs)
 		fd.mu.Unlock()
 		for _, l := range pending {

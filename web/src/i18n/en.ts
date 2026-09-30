@@ -1352,6 +1352,7 @@ export const en = {
   'login.whop.button': 'Sign in with Whop',
   'login.whop.or': 'or with a username and password',
   'login.whop.noAccount': 'That Whop account has no plan here. Sign in with the Whop account you bought it with.',
+  'login.whop.stores': 'You have servers from more than one store. Sign in from the link your store sent you on Whop, so you get that store’s servers.',
   'login.whop.starting': 'Your account is being set up. Try again in a minute.',
   'login.whop.paused': 'This account can’t sign in right now. If your plan ended, renew it on Whop.',
   'login.whop.suspended': 'This account is suspended. Message us on Whop if you think that’s a mistake.',

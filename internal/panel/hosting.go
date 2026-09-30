@@ -13,11 +13,15 @@ import (
 // through these calls. Each call is idempotent, and only a purchase the
 // provider's API confirms leads to one.
 
-// Customer is someone who pays through a billing provider: the provider and
-// its id for them, such as "whop" and Whop's "user_…", and a handle, their
+// Customer is someone who pays through a billing provider: the provider,
+// the store they bought from there, such as a Whop business's "biz_…", the
+// provider's id for them, such as Whop's "user_…", and a handle, their
 // username there, that their account and first server are named after.
+// Someone who buys from two stores is two customers, with two accounts
+// that share nothing.
 type Customer struct {
 	Provider string
+	Store    string
 	Subject  string
 	Handle   string
 }
@@ -79,9 +83,12 @@ type hostingCore interface {
 	// stop, starting them is refused, and they're deleted when the grace
 	// period ends.
 	PauseCustomer(ctx context.Context, c Customer, reason string) error
-	// CustomerAccount says which account a customer is; ok is false while
-	// they have none.
-	CustomerAccount(ctx context.Context, provider, subject string) (info CustomerAccountInfo, ok bool, err error)
+	// CustomerAccount says which account a customer of the store is; ok is
+	// false while they have none there.
+	CustomerAccount(ctx context.Context, provider, store, subject string) (info CustomerAccountInfo, ok bool, err error)
+	// CustomerStores lists the stores where the provider's subject has an
+	// account, for a sign-in that doesn't say which store it's for.
+	CustomerStores(ctx context.Context, provider, subject string) ([]string, error)
 }
 
 // CustomerMessage is something to tell a customer: what it's about (ready,
@@ -113,6 +120,10 @@ func (noHostingCore) ChangeCustomerPlan(context.Context, Customer, CustomerPlan)
 
 func (noHostingCore) PauseCustomer(context.Context, Customer, string) error { return errNoHostingCore }
 
-func (noHostingCore) CustomerAccount(context.Context, string, string) (CustomerAccountInfo, bool, error) {
+func (noHostingCore) CustomerAccount(context.Context, string, string, string) (CustomerAccountInfo, bool, error) {
 	return CustomerAccountInfo{}, false, nil
+}
+
+func (noHostingCore) CustomerStores(context.Context, string, string) ([]string, error) {
+	return nil, nil
 }
