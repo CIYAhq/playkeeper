@@ -1966,6 +1966,8 @@ export interface WhopStore {
   customers: WhopCustomer[]
   /** Sign in with Whop's setup, once a store is connected. */
   signIn?: WhopSignIn
+  /** The Whop app customers sign in through, as the app other businesses install to sell servers from this dashboard. */
+  app?: WhopApp
   needs: string[]
   /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
   notice?: string
@@ -1976,6 +1978,19 @@ export interface WhopSignIn {
   clientId?: string
   secretEnding?: string
   redirectUri?: string
+}
+
+/**
+ * The app the businesses that sell from this dashboard installed: the end of
+ * its API key, which acts on each of them, how many sell here, whether the
+ * secret of the app's webhook is set, and where that webhook must send their
+ * membership events ("" while the machine has no address).
+ */
+export interface WhopApp {
+  keyEnding?: string
+  stores: number
+  webhook: boolean
+  webhookUrl?: string
 }
 
 /** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */

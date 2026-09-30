@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
 import { ExternalLinkIcon, KeyRoundIcon, RefreshCwIcon, UnplugIcon } from 'lucide-react'
 import { ApiError, del, get, post, put } from '@/api/client'
-import type { WhopCustomer, WhopPlan, WhopStore } from '@/api/types'
+import type { WhopApp, WhopCustomer, WhopPlan, WhopStore } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, Marker } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
@@ -308,6 +308,7 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
         </ul>
       )}
       <SignInWithWhop store={store} onChange={onChange} />
+      {store.signIn?.clientId && <AppStores store={store} app={store.signIn.clientId} onChange={onChange} />}
       <h3 className="mt-4 text-[13px] font-semibold">{t('whop.customers')}</h3>
       {store.dashboard && !store.webhook && <p className="mt-1 text-xs text-muted-foreground">{t('whop.noWebhook')}</p>}
       {store.customers.length === 0 ? (
@@ -410,6 +411,83 @@ function SignInWithWhop({ store, onChange }: { store: WhopStore; onChange: (s: W
             </Button>
           </form>
         </>
+      )}
+    </section>
+  )
+}
+
+const noApp: WhopApp = { stores: 0, webhook: false }
+
+/**
+ * The businesses that sell servers from this dashboard by installing the app
+ * customers sign in through: the app's API key acts on each of them, and the
+ * app's webhook, which the owner makes on Whop, tells of their purchases.
+ */
+function AppStores({ store, app, onChange }: { store: WhopStore; app: string; onChange: (s: WhopStore) => void }) {
+  const id = useId()
+  const phone = useIsPhone()
+  const [key, setKey] = useState('')
+  const [secret, setSecret] = useState('')
+  const [busy, setBusy] = useState(false)
+  const state = store.app ?? noApp
+
+  async function send(body: { key?: string; webhookSecret?: string }, done: string) {
+    setBusy(true)
+    try {
+      onChange(await put<WhopStore>('/api/whop/app', body))
+      toastManager.add({ title: done, type: 'success' })
+      setKey('')
+      setSecret('')
+    } catch (err) {
+      toastManager.add({ title: errorText(err), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function save(e: FormEvent) {
+    e.preventDefault()
+    const body: { key?: string; webhookSecret?: string } = {}
+    if (key.trim()) body.key = key.trim()
+    if (secret.trim()) body.webhookSecret = secret.trim()
+    void send(body, t('whop.app.saved'))
+  }
+
+  return (
+    <section aria-labelledby={`${id}-title`} className="mt-4">
+      <h3 id={`${id}-title`} className="text-[13px] font-semibold">
+        {t('whop.app')}
+      </h3>
+      <p className="mt-1 text-xs text-muted-foreground">{t('whop.app.about', { app })}</p>
+      <ul className="mt-2 space-y-0.5 text-xs">
+        <li>{state.keyEnding ? t('whop.app.key', { ending: state.keyEnding }) : t('whop.app.noKey')}</li>
+        <li>{state.stores > 0 ? t('whop.app.stores', { count: state.stores }) : t('whop.app.noStores')}</li>
+        <li>{state.webhook ? t('whop.app.webhook') : t('whop.app.noWebhook')}</li>
+      </ul>
+      {!state.webhook &&
+        (state.webhookUrl ? (
+          <p className="mt-2 text-xs">
+            <span className="text-muted-foreground">{t('whop.app.makeWebhook')} </span>
+            <code className="rounded bg-muted px-1 py-0.5 text-[11px] break-all">{state.webhookUrl}</code>
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">{t('whop.signIn.noAddress')}</p>
+        ))}
+      <form onSubmit={save} className="mt-3 flex gap-2 max-sm:flex-col sm:flex-wrap">
+        <InputGroup className="max-sm:h-11 sm:min-w-[180px] sm:flex-1">
+          <InputGroupInput type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={t('whop.app.keyPlaceholder')} aria-label={t('whop.app.keyLabel')} autoComplete="off" spellCheck={false} />
+        </InputGroup>
+        <InputGroup className="max-sm:h-11 sm:min-w-[180px] sm:flex-1">
+          <InputGroupInput type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={t('whop.app.secretPlaceholder')} aria-label={t('whop.app.secretLabel')} autoComplete="off" spellCheck={false} />
+        </InputGroup>
+        <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={key.trim() || secret.trim() ? undefined : t('reason.pasteAppKey')}>
+          {t('whop.app.save')}
+        </Button>
+      </form>
+      {(state.keyEnding || state.webhook) && (
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => void send({ key: '', webhookSecret: '' }, t('whop.app.removed'))} loading={busy}>
+          {t('whop.app.remove')}
+        </Button>
       )}
     </section>
   )
