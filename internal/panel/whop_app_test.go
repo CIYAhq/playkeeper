@@ -16,19 +16,6 @@ import (
 // for the Playkeeper Cloud app.
 const whopTestAppHookSecret = "ws_playkeepercloud0123456789abcdef"
 
-// serveAppGrants answers which permissions a business granted the app's
-// key: all it asks for, unless the business is ungranted or never
-// installed the app; f.mu must be held.
-func (f *fakeWhop) serveAppGrants(w http.ResponseWriter, r *http.Request) {
-	biz := r.URL.Query().Get("resource_id")
-	granted := f.installed[biz] != nil && !f.ungranted[biz]
-	var data []map[string]any
-	for _, a := range strings.Split(r.URL.Query().Get("actions"), ",") {
-		data = append(data, map[string]any{"action": a, "granted": granted})
-	}
-	json.NewEncoder(w).Encode(map[string]any{"data": data})
-}
-
 // hookApp pastes the secret of the app's webhook, as the owner does once
 // they've made it on Whop.
 func hookApp(t *testing.T, e *env, own member) {
@@ -69,16 +56,6 @@ func keptAt(t *testing.T, e *env, membership string) string {
 		t.Fatal(err)
 	}
 	return store
-}
-
-// storeProblem is what the store is waiting on, "" for nothing.
-func storeProblem(t *testing.T, e *env, store string) string {
-	t.Helper()
-	var problem string
-	if err := e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = ?`, store).Scan(&problem); err != nil {
-		t.Fatal(err)
-	}
-	return problem
 }
 
 // The app's webhook keeps each event for the app store of the business it
@@ -150,48 +127,6 @@ func TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes(t *tes
 	e.reconcile()
 	if got := keptAt(t, e, "mem_other3"); got != "biz_other" {
 		t.Fatalf("the ten-minute read missed a purchase: %q", got)
-	}
-}
-
-// Whop answers an app that a business hasn't approved, or took its approval
-// back from, with no memberships at all. So an app store whose business
-// lacks a permission isn't read and its customers stay as they were, with
-// that as its problem, while the other stores go on. Approved again, it's
-// read afresh at once, the store and every membership, without waiting for
-// the webhook's ten-minute read.
-func TestAnAppStoreWhoseBusinessHasntApprovedTheAppIsntRead(t *testing.T) {
-	f, e, own := twoStores(t)
-	core := useFakeCore(e)
-	hookApp(t, e, own)
-	f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
-	e.reconcile()
-	calls := len(core.got())
-	if calls != 1 || keptAt(t, e, "mem_other1") != "biz_other" {
-		t.Fatalf("before: calls %q", core.got())
-	}
-	f.mu.Lock()
-	f.ungranted["biz_other"] = true
-	f.mu.Unlock()
-	if err := e.srv.keepMembership("biz_other", whop.Membership{ID: "mem_other1", UserID: "user_alex", PlanID: "plan_other", Status: "active"}, true); err != nil {
-		t.Fatal(err)
-	}
-	e.deliver(t, "msg_p1", whop.EventMembershipActivated, f.buy("mem_pip1", "user_alex", "plan_starter", "active"))
-	e.clock.add(time.Minute)
-	e.reconcile()
-	got := core.got()
-	if keptAt(t, e, "mem_other1") != "biz_other" || len(got) != calls+1 || !strings.Contains(got[calls], "whop/biz_pip/user_alex") ||
-		!strings.Contains(storeProblem(t, e, "biz_other"), errWhopAppUnapproved.Error()) {
-		t.Fatalf("unapproved: Other's membership kept for %q, calls %q, problem %q", keptAt(t, e, "mem_other1"), got, storeProblem(t, e, "biz_other"))
-	}
-	f.buyAt("biz_other", "mem_other2", "user_alex", "plan_other", "active")
-	f.mu.Lock()
-	delete(f.ungranted, "biz_other")
-	f.mu.Unlock()
-	e.clock.add(time.Second)
-	e.reconcile()
-	got = core.got()
-	if problem := storeProblem(t, e, "biz_other"); problem != "" || keptAt(t, e, "mem_other2") != "biz_other" || len(got) != calls+2 || !strings.Contains(got[calls+1], "whop/biz_other/user_alex") {
-		t.Fatalf("approved again: problem %q, the purchase made meanwhile kept for %q, calls %q", problem, keptAt(t, e, "mem_other2"), got)
 	}
 }
 

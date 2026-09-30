@@ -147,33 +147,6 @@ func (s *Server) whopAppEvery(ctx context.Context, st whopStore) time.Duration {
 	return whopPollEvery
 }
 
-// errWhopAppUnapproved is an app store's problem while its business hasn't
-// approved every permission the Playkeeper Cloud app asks for, as when its
-// owner approved the app for another of their businesses, or took a
-// permission back.
-var errWhopAppUnapproved = errors.New("this business hasn't approved every permission the Playkeeper Cloud app asks for")
-
-// whopAppApproved checks, before an app store's pass reads anything, that
-// its business still grants the app everything the store needs. Whop
-// answers a read an app isn't granted with an empty list, as with
-// memberships, which would read as every plan ending. A store that lacks a
-// permission waits with that as its problem, and is read afresh once it has
-// them all.
-func (s *Server) whopAppApproved(ctx context.Context, c *whop.Client, st whopStore) bool {
-	lacking, err := c.Lacks(ctx, st.ID, whop.AppNeeds)
-	if err == nil && len(lacking) == 0 {
-		return true
-	}
-	problem := whopProblem(err)
-	if err == nil {
-		problem = errWhopAppUnapproved.Error() + " (it lacks " + strings.Join(lacking, ", ") + "). Its owner approves the app again, picking this business on Whop."
-	}
-	if _, err := s.db.Exec(`UPDATE whop_stores SET problem = ?, synced_at = 0, polled_at = 0 WHERE store_id = ?`, problem, st.ID); err != nil {
-		s.log.Error("could not record a store's problem", "store", st.ID, "err", err)
-	}
-	return false
-}
-
 // whopAppView is the Playkeeper Cloud app in Settings › Sell on Whop.
 type whopAppView struct {
 	// KeyEnding is the end of the app's key, while there is one.

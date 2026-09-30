@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -334,25 +335,35 @@ func TestLacksListsTheActionsTheAccountDoesntGrant(t *testing.T) {
 	}
 }
 
-// A hosted store's fee is Playkeeper's revenue share: a flat amount of every
-// payment on each product, after Whop's fees, with no referral link.
-func TestRevenueSharesAreAFlatAmountPerPaymentOnAProduct(t *testing.T) {
+// A hosted store's fee is Playkeeper's revenue share: a percentage of every
+// payment on each product, taken before Whop's fees, with no referral link.
+// Whop refuses a flat amount on a revenue share, and the percentage is set
+// again when the price changes.
+func TestRevenueSharesAreAPercentageOfEachPaymentBeforeFees(t *testing.T) {
 	var sent []string
+	keep := func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		sent = append(sent, r.Method+" "+string(b))
+	}
+	override := map[string]any{"id": "affov_1", "override_type": "rev_share", "product_id": "prod_4gb", "commission_type": "percentage",
+		"commission_value": 70.84, "revenue_basis": "pre_fees", "applies_to_products": "single_product", "plan_id": nil}
 	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
 		"POST /affiliates": func(w http.ResponseWriter, r *http.Request) {
-			b, _ := io.ReadAll(r.Body)
-			sent = append(sent, string(b))
+			keep(w, r)
 			answer(map[string]any{"id": "aff_pk", "status": "active"})(w, r)
 		},
 		"POST /affiliates/aff_pk/overrides": func(w http.ResponseWriter, r *http.Request) {
-			b, _ := io.ReadAll(r.Body)
-			sent = append(sent, string(b))
-			answer(map[string]any{"id": "affov_1", "override_type": "rev_share", "product_id": "prod_4gb", "commission_type": "flat_fee",
-				"commission_value": 8.5, "revenue_basis": "post_fees", "applies_to_payments": nil, "plan_id": nil})(w, r)
+			keep(w, r)
+			answer(override)(w, r)
+		},
+		"PATCH /affiliates/aff_pk/overrides/affov_1": func(w http.ResponseWriter, r *http.Request) {
+			keep(w, r)
+			answer(map[string]any{"id": "affov_1", "override_type": "rev_share", "product_id": "prod_4gb", "commission_type": "percentage",
+				"commission_value": 56.67, "revenue_basis": "pre_fees"})(w, r)
 		},
 		"GET /affiliates/aff_pk/overrides": answer(map[string]any{"data": []map[string]any{
-			{"id": "affov_1", "override_type": "rev_share", "product_id": "prod_4gb", "commission_type": "flat_fee", "commission_value": 8.5, "revenue_basis": "post_fees"},
-			{"id": "affov_2", "override_type": "standard", "plan_id": "plan_x", "commission_type": "percentage", "commission_value": 30},
+			override,
+			{"id": "affov_2", "override_type": "standard", "plan_id": "plan_x", "commission_type": "flat_fee", "commission_value": 5},
 		}, "page_info": map[string]any{"has_next_page": false}}),
 	})
 	ctx := context.Background()
@@ -360,25 +371,58 @@ func TestRevenueSharesAreAFlatAmountPerPaymentOnAProduct(t *testing.T) {
 	if err != nil || partner != "aff_pk" {
 		t.Fatalf("Partner = %q, %v", partner, err)
 	}
-	share, err := c.AddRevShare(ctx, partner, "prod_4gb", 8.5)
-	want := RevShare{ID: "affov_1", ProductID: "prod_4gb", Kind: "flat_fee", Value: 8.5, Basis: "post_fees", Type: "rev_share"}
+	share, err := c.AddRevShare(ctx, partner, "prod_4gb", 70.84)
+	want := RevShare{ID: "affov_1", ProductID: "prod_4gb", Kind: "percentage", Percent: 70.84, Basis: "pre_fees", Type: "rev_share"}
 	if err != nil || share != want {
 		t.Fatalf("AddRevShare = %+v, %v", share, err)
-	}
-	if got := strings.Join(sent, "\n"); got != `{"account_id":"biz_seller","user_identifier":"playkeeper"}`+"\n"+
-		`{"commission_type":"flat_fee","commission_value":8.5,"override_type":"rev_share","product_id":"prod_4gb","revenue_basis":"post_fees"}` {
-		t.Fatalf("requests:\n%s", got)
 	}
 	shares, err := c.RevShares(ctx, partner)
 	if err != nil || len(shares) != 1 || shares[0] != want {
 		t.Fatalf("RevShares = %+v, %v", shares, err)
 	}
+	moved, err := c.UpdateRevShare(ctx, partner, "affov_1", 56.67)
+	if err != nil || moved.Percent != 56.67 || moved.Basis != "pre_fees" {
+		t.Fatalf("UpdateRevShare = %+v, %v", moved, err)
+	}
+	if got := strings.Join(sent, "\n"); got != `POST {"account_id":"biz_seller","user_identifier":"playkeeper"}`+"\n"+
+		`POST {"commission_type":"percentage","commission_value":70.84,"override_type":"rev_share","product_id":"prod_4gb","revenue_basis":"pre_fees"}`+"\n"+
+		`PATCH {"commission_value":56.67}` {
+		t.Fatalf("requests:\n%s", got)
+	}
 	for _, bad := range []struct {
 		product string
-		dollars float64
-	}{{"", 8.5}, {"prod_4gb", 0}} {
-		if _, err := c.AddRevShare(ctx, partner, bad.product, bad.dollars); err == nil {
-			t.Fatalf("a share of %v on %q", bad.dollars, bad.product)
+		percent float64
+	}{{"", 70.84}, {"prod_4gb", 0}, {"prod_4gb", 100.5}} {
+		if _, err := c.AddRevShare(ctx, partner, bad.product, bad.percent); err == nil {
+			t.Fatalf("a share of %v%% on %q", bad.percent, bad.product)
+		}
+	}
+	if _, err := c.UpdateRevShare(ctx, partner, "affov_1", 101); err == nil {
+		t.Fatal("a share over 100%")
+	}
+}
+
+// The percentage of a price that pays a flat fee is rounded up to two
+// decimals, as Whop takes it, so it never pays less than the fee. Whop caps
+// a share at 100%, so a price under the fee can't carry it.
+func TestSharePercentPaysAtLeastTheFee(t *testing.T) {
+	for _, c := range []struct {
+		dollars, price, want float64
+	}{
+		{8.5, 12, 70.84}, {8.5, 15, 56.67}, {8.5, 20, 42.5}, {8.5, 10, 85}, {8.5, 8.5, 100}, {17, 24, 70.84}, {8.5, 12.99, 65.44},
+	} {
+		got, err := SharePercent(c.dollars, c.price)
+		if err != nil || got != c.want {
+			t.Errorf("SharePercent(%v, %v) = %v, %v; want %v", c.dollars, c.price, got, err, c.want)
+			continue
+		}
+		if paid := math.Floor(c.price*got) / 100; paid < c.dollars {
+			t.Errorf("%v%% of $%v pays $%v, under $%v", got, c.price, paid, c.dollars)
+		}
+	}
+	for _, price := range []float64{8.49, 0, -1} {
+		if got, err := SharePercent(8.5, price); err == nil {
+			t.Errorf("SharePercent(8.5, %v) = %v, not refused", price, got)
 		}
 	}
 }

@@ -254,15 +254,16 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	}
 	c, err := s.whopClientFor(ctx, st)
 	if err != nil {
-		if _, err := s.db.Exec(`UPDATE whop_stores SET problem = ? WHERE store_id = ?`, err.Error(), st.ID); err != nil {
-			s.log.Error("could not record a store's problem", "store", st.ID, "err", err)
-		}
+		s.whopStoreNeedsALook(st.ID, err.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	if st.Via == whopViaApp && !s.whopAppApproved(ctx, c, st) {
-		return
+	if st.Via == whopViaApp {
+		if problem := whopGrantProblem(ctx, c, st); problem != "" {
+			s.whopStoreNeedsALook(st.ID, problem)
+			return
+		}
 	}
 	// Without the machine's address the webhook stays where it is. An app
 	// store's memberships are read every minute until the app's webhook
@@ -297,6 +298,17 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	s.syncWhopCustomers(ctx, c, st.ID)
 	s.remindCancelled(ctx, st)
 	s.sendWhopMessages(ctx, c, st)
+}
+
+// whopStoreNeedsALook records why the store's pass changed nothing, as its
+// problem, for its page to say it needs a look, and has the next pass that
+// gets further read the store and every membership again: what happened
+// meanwhile counts, and the problem goes once the store is back.
+func (s *Server) whopStoreNeedsALook(storeID, problem string) {
+	s.log.Warn("a store's pass changed nothing", "store", storeID, "problem", problem)
+	if _, err := s.db.Exec(`UPDATE whop_stores SET problem = ?, synced_at = 0, polled_at = 0 WHERE store_id = ?`, problem, storeID); err != nil {
+		s.log.Error("could not record a store's problem", "store", storeID, "err", err)
+	}
 }
 
 // whopTakenOver says whether another dashboard took the store over, as

@@ -40,6 +40,9 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	biz := r.URL.Query().Get("account_id")
+	if named := r.URL.Query().Get("resource_id"); named != "" {
+		biz = named
+	}
 	if named, _ := body["account_id"].(string); named != "" {
 		biz = named
 	}
@@ -62,24 +65,24 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := func(data any) {
+		if b.revoked {
+			data = []map[string]any{}
+		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	}
-	// Without the business's approval, Whop lists no memberships and finds
-	// none, and refuses the rest.
-	if f.ungranted[biz] {
-		switch {
-		case route == "GET /memberships":
-			page([]any{})
-		case strings.HasPrefix(route, "GET /memberships/"):
-			w.WriteHeader(http.StatusNotFound)
-			io.WriteString(w, `{"error":{"type":"not_found","message":"Membership not found"}}`)
-		default:
-			w.WriteHeader(http.StatusForbidden)
-			io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the plan:basic:read scope."}}`)
-		}
-		return
-	}
 	switch {
+	case route == "GET /permissions" && f.permissionsDown:
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+	case route == "GET /permissions":
+		var data []map[string]any
+		for _, a := range strings.Split(r.URL.Query().Get("actions"), ",") {
+			data = append(data, map[string]any{"action": a, "granted": !b.revoked})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	case b.revoked && strings.HasPrefix(route, "GET /memberships/"):
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such membership"}}`)
 	case route == "GET /accounts/"+biz:
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the company:balance:read scope."}}`)
@@ -415,6 +418,32 @@ func TestEachStoresStockIsItsOwn(t *testing.T) {
 	}
 }
 
+// A store another dashboard took over sells on that dashboard's machines,
+// so its plans take none of this one's room from the stores it still sells
+// for.
+func TestATakenOverStoresPlansTakeNoRoom(t *testing.T) {
+	f, e, _ := twoStores(t)
+	ctx := context.Background()
+	e.reconcile()
+	b, ownB := secondDashboard(t, f)
+	if r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth()); r.status != http.StatusOK {
+		t.Fatalf("taking Pip over: %d %v", r.status, r.body)
+	}
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	plans, err := e.srv.sales.SalePlans(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stores := map[string]string{}
+	for _, p := range plans {
+		stores[p.ID] = p.Store
+	}
+	if taken := e.srv.whopTakenOver(testStore); !taken || !maps.Equal(stores, map[string]string{"plan_other": "biz_other"}) {
+		t.Fatalf("Pip taken over: %v; the plans for sale: %v", taken, stores)
+	}
+}
+
 // A store's delivery or message hurries that store's pass alone, so a buyer
 // doesn't wait on every store's; a kick for every store looks at them all.
 func TestAKickHurriesItsOwnStoresPass(t *testing.T) {
@@ -446,6 +475,89 @@ func TestAKickHurriesItsOwnStoresPass(t *testing.T) {
 	e.srv.reconcileWhop(ctx, e.srv.takeWhopKicks())
 	if got := core.got(); len(got) != 2 || !strings.Contains(got[1], "whop/biz_pip/user_alex") {
 		t.Fatalf("after a kick for every store: %q", got)
+	}
+}
+
+// A business that took the Playkeeper Cloud app's grant back is still
+// answered by Whop, with empty lists: its store's pass changes nothing,
+// not even for a membership it would read again, and says why, while the
+// other stores go on. Once the grant is back, however soon, the pass reads
+// the store and every membership again, so a purchase made meanwhile
+// counts at once and the problem goes.
+func TestAStoreWhoseGrantIsGoneChangesNothing(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	ctx := context.Background()
+	f.buyAt("biz_other", "mem_alex2", "user_alex", "plan_other", "active")
+	e.reconcile()
+	if got := core.got(); len(got) != 1 {
+		t.Fatalf("the core's calls: %q", got)
+	}
+	grant := func(revoked, down bool) {
+		f.mu.Lock()
+		f.installed["biz_other"].revoked, f.permissionsDown = revoked, down
+		f.mu.Unlock()
+	}
+	tell := func(text string) {
+		t.Helper()
+		if err := e.srv.notifier.Notify(ctx, Customer{Provider: whopProvider, Store: "biz_other", Subject: "user_alex", Handle: "alexplays"}, CustomerMessage{Kind: "ready", Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var problem string
+	var memberships, plans int
+	readOther := func() {
+		e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = 'biz_other'`).Scan(&problem)
+		e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_memberships WHERE store_id = 'biz_other'`).Scan(&memberships)
+		e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_plans WHERE store_id = 'biz_other'`).Scan(&plans)
+	}
+
+	// The grant goes straight after Other was read.
+	grant(true, false)
+	if err := e.srv.keepMembership("biz_other", whop.Membership{ID: "mem_alex2", UserID: "user_alex", PlanID: "plan_other", Status: "active"}, true); err != nil {
+		t.Fatal(err)
+	}
+	f.buyAt("biz_other", "mem_jo2", "user_jo", "plan_other", "active")
+	f.mu.Lock()
+	f.users["user_sam"], f.users["user_jo"] = "samcrafts", "joplays"
+	f.mu.Unlock()
+	e.deliver(t, "msg_1", whop.EventMembershipActivated, f.buy("mem_sam1", "user_sam", "plan_starter", "active"))
+	tell("hi")
+	e.reconcile()
+	e.reconcile()
+	readOther()
+	if got := core.got(); len(got) != 2 || !strings.Contains(got[1], "whop/biz_pip/user_sam") {
+		t.Fatalf("the core's calls with Other's grant gone: %q", got)
+	}
+	if memberships != 1 || plans != 1 || !strings.Contains(problem, "grant on this store lacks plan:basic:read, member:basic:read") {
+		t.Fatalf("Other with its grant gone: %d memberships, %d plans, problem %q", memberships, plans, problem)
+	}
+	if sent := f.sentIn("biz_other", "user_alex"); len(sent) != 0 {
+		t.Fatalf("messages went out with the grant gone: %q", sent)
+	}
+
+	// It's back long before Other's next read of the store was due.
+	grant(false, false)
+	e.reconcile()
+	readOther()
+	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 3 || !strings.Contains(got[2], "whop/biz_other/user_jo") || memberships != 2 || problem != "" || len(sent) != 1 {
+		t.Fatalf("once the grant was back: calls %q, %d memberships, problem %q, messages %q", got, memberships, problem, sent)
+	}
+
+	// A grant that can't be checked is no better.
+	grant(false, true)
+	tell("hi again")
+	e.reconcile()
+	readOther()
+	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 3 || len(sent) != 1 || !strings.Contains(problem, "couldn't check") {
+		t.Fatalf("with the grant unchecked: calls %q, problem %q, messages %q", got, problem, sent)
+	}
+
+	grant(false, false)
+	e.reconcile()
+	readOther()
+	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 3 || problem != "" || len(sent) != 2 {
+		t.Fatalf("once the grant could be checked: calls %q, problem %q, messages %q", got, problem, sent)
 	}
 }
 

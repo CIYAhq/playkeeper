@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/whop"
@@ -141,6 +143,32 @@ func (s *Server) whopClientFor(ctx context.Context, st whopStore) (*whop.Client,
 		return s.whopClient(key)
 	}
 	return nil, fmt.Errorf("the store %s is reached by %q, which isn't a way this dashboard knows", st.ID, st.Via)
+}
+
+// whopStoreReads are the grants an app store's pass reads its plans and
+// memberships with.
+var whopStoreReads = []string{"plan:basic:read", "member:basic:read"}
+
+// whopGrantProblem is why the app store's plans and memberships as Whop
+// lists them can't be trusted, "" when they can. Whop answers an app a
+// business revoked or never granted with empty lists rather than a
+// refusal, which would read as every plan ending, so the grant is checked
+// before anything is read.
+func whopGrantProblem(ctx context.Context, c *whop.Client, st whopStore) string {
+	missing, err := c.Missing(ctx, st.ID)
+	if err != nil {
+		return "Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: " + whopProblem(err)
+	}
+	var lost []string
+	for _, a := range missing {
+		if slices.Contains(whopStoreReads, a) {
+			lost = append(lost, a)
+		}
+	}
+	if len(lost) > 0 {
+		return "The Playkeeper Cloud app's grant on this store lacks " + strings.Join(lost, ", ") + ", so nothing changes here until its seller approves the app again."
+	}
+	return ""
 }
 
 // whopOwner is who owns the store on Whop, as whom its messages go out:

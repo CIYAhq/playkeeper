@@ -7818,6 +7818,10 @@ control "stores: a store's stock counts its own customers' purchases" internal/p
   "FROM whop_customers WHERE store_id = ? AND paused = 0 AND applied != ''" \
   "FROM whop_customers WHERE (store_id = ? OR 1) AND paused = 0 AND applied != ''" \
   ./internal/panel '^TestEachStoresStockIsItsOwn$'
+control "stores: a taken-over store's plans take no room" internal/panel/whop_stock.go \
+  "AND st.taken_over_by = '' ORDER BY" \
+  'ORDER BY' \
+  ./internal/panel '^TestATakenOverStoresPlansTakeNoRoom$'
 control "stores: disconnecting forgets the key store's plans alone" internal/panel/whop.go \
   'DELETE FROM whop_plans WHERE store_id = ?`' \
   'DELETE FROM whop_plans WHERE store_id = ? OR 1`' \
@@ -7866,6 +7870,26 @@ control "stores: the key store's delivery kicks the key store alone" internal/pa
   's.kickWhopStore(account)' \
   's.kickWhop()' \
   ./internal/panel '^TestAKickHurriesItsOwnStoresPass$'
+control "stores: an app store whose grant is gone changes nothing" internal/panel/whop_customers.go \
+  'if problem := whopGrantProblem(ctx, c, st); problem != "" {' \
+  'if problem := whopGrantProblem(ctx, c, st); false && problem != "" {' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a read the app's grant lacks is why a store changes nothing" internal/panel/whop_stores.go \
+  'if slices.Contains(whopStoreReads, a) {' \
+  'if false && slices.Contains(whopStoreReads, a) {' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a grant that can't be checked changes nothing" internal/panel/whop_stores.go \
+  "return \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
+  'return ""' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a store that needed a look is read again once it can be" internal/panel/whop_customers.go \
+  'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
+  'SET problem = ?, polled_at = 0 WHERE' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a store that needed a look reads every membership again once it can" internal/panel/whop_customers.go \
+  'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
+  'SET problem = ?, synced_at = 0 WHERE' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: an app store waits for the app's key" internal/panel/whop_stores.go \
   'if key == "" {' \
   'if false {' \
@@ -7874,9 +7898,9 @@ control "stores: an app store waits for the app's key" internal/panel/whop_store
 # The Playkeeper Cloud app (the hosted blueprint's 1.4,
 # internal/panel/whop_app.go): its webhook keeps each event for the app
 # store of the business it names and no other, an app store is read at once
-# when the webhook comes and every ten minutes with it, one whose business
-# hasn't approved the app isn't read at all, its owner comes from one of its
-# products, and the app's key never shows.
+# when the webhook comes and every ten minutes with it, its owner comes from
+# one of its products, and the app's key never shows. (1.1's "an app store
+# whose grant is gone changes nothing" guards unapproved businesses.)
 control "app webhook: an event is kept only for an app store" internal/panel/whop_app.go \
   'if !ok || st.Via != whopViaApp {' \
   'if !ok {' \
@@ -7905,14 +7929,6 @@ control "app key: the audit log keeps its ending alone" internal/panel/whop_app.
   'return what + ", ending " + whop.Ending(secret)' \
   'return what + ", ending " + secret' \
   ./internal/panel '^TestOnlyTheOwnerSetsTheAppsKeyAndOnlyItsEndingShows$'
-control "app stores: one whose business hasn't approved the app isn't read" internal/panel/whop_customers.go \
-  'if st.Via == whopViaApp && !s.whopAppApproved(ctx, c, st) {' \
-  'if false {' \
-  ./internal/panel '^TestAnAppStoreWhoseBusinessHasntApprovedTheAppIsntRead$'
-control "app stores: approved again, one is read afresh at once" internal/panel/whop_app.go \
-  'SET problem = ?, synced_at = 0, polled_at = 0 WHERE store_id = ?' \
-  'SET problem = ? WHERE store_id = ?' \
-  ./internal/panel '^TestAnAppStoreWhoseBusinessHasntApprovedTheAppIsntRead$'
 control "app stores: the owner comes from one of the business's products" internal/whop/members.go \
   '"/products/"+url.PathEscape(ps[0].ID)' \
   '"/accounts/"+url.PathEscape(accountID)' \
