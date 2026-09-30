@@ -5,16 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/invites"
+	"github.com/CIYAhq/playkeeper/internal/store"
 )
 
-// customerEnv is a dashboard whose own machine has room for customers.
+// testStore is the store the tests' customers bought from: the business the
+// fake Whop has.
+const testStore = "biz_pip"
+
+// customerEnv is a dashboard whose own machine has room for customers. What
+// the core tells them is kept, not sent: no store is connected.
 func customerEnv(t *testing.T) (joinEnv, member, customerCore) {
 	t.Helper()
 	e := newJoinEnv(t)
+	e.srv.notifier = &recordingNotifier{}
 	own := owner(t, e.env)
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
 	e.reply("GET", "/v1/servers", `[]`)
@@ -29,12 +38,12 @@ func customerEnv(t *testing.T) (joinEnv, member, customerCore) {
 func TestACustomerGetsAnAccountOfTheirOwn(t *testing.T) {
 	e, own, core := customerEnv(t)
 	ctx := context.Background()
-	alex := Customer{Provider: whopProvider, Subject: "user_alex", Handle: "AlexPlays"}
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "AlexPlays"}
 	got, err := core.StartCustomer(ctx, alex, starter)
 	if err != nil || got.Account != "alexplays" {
 		t.Fatalf("starting alex: %+v, %v", got, err)
 	}
-	info, ok, err := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, ok, err := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	if err != nil || !ok || info.Username != "alexplays" || info.State != CustomerActive || !info.SignIn {
 		t.Fatalf("alex's account: %+v, %v, %v", info, ok, err)
 	}
@@ -85,6 +94,111 @@ func TestACustomerGetsAnAccountOfTheirOwn(t *testing.T) {
 	}
 }
 
+// Someone who buys from two stores is two customers: each store's purchase
+// makes an account of its own, found only with that store, with its own
+// plan. Pausing one leaves the other as it was, and what the core tells
+// each goes to the store it's about.
+func TestACustomerOfTwoStoresHasTwoAccounts(t *testing.T) {
+	e, _, core := customerEnv(t)
+	n := e.srv.notifier.(*recordingNotifier)
+	ctx := context.Background()
+	pip := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "AlexPlays"}
+	other := Customer{Provider: whopProvider, Store: "biz_other", Subject: "user_alex", Handle: "AlexPlays"}
+	for _, c := range []Customer{pip, other} {
+		if _, err := core.StartCustomer(ctx, c, starter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	accounts := func() (CustomerAccountInfo, CustomerAccountInfo) {
+		a, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
+		b, _, _ := core.CustomerAccount(ctx, whopProvider, "biz_other", "user_alex")
+		return a, b
+	}
+	a, b := accounts()
+	if a.UserID == 0 || b.UserID == 0 || a.UserID == b.UserID || a.Username != "alexplays" || b.Username != "alexplays-2" {
+		t.Fatalf("alex's accounts: %+v and %+v", a, b)
+	}
+	if stores, err := core.CustomerStores(ctx, whopProvider, "user_alex"); err != nil || !slices.Equal(stores, []string{testStore, "biz_other"}) {
+		t.Fatalf("alex's stores: %v, %v", stores, err)
+	}
+	if _, ok, err := core.CustomerAccount(ctx, whopProvider, "", "user_alex"); ok || err != nil {
+		t.Fatalf("an account found with no store: %v", err)
+	}
+
+	plus := CustomerPlan{ID: "plan_plus", Name: "Plus", Servers: 2, MemoryMB: 8192}
+	if err := core.ChangeCustomerPlan(ctx, other, plus); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.PauseCustomer(ctx, pip, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	allowance := func(id int64) invites.Allowance {
+		var al invites.Allowance
+		e.srv.db.QueryRow(`SELECT allowance_servers, allowance_memory_mb FROM project_members WHERE user_id = ?`, id).Scan(&al.Servers, &al.MemoryMB)
+		return al
+	}
+	a, b = accounts()
+	if a.State != CustomerPaused || b.State != CustomerActive || !b.SignIn || allowance(a.UserID) != fourGB || allowance(b.UserID) != (invites.Allowance{Servers: 2, MemoryMB: 8192}) {
+		t.Fatalf("after a new plan at one store and a pause at the other: %+v with %+v, %+v with %+v", a, allowance(a.UserID), b, allowance(b.UserID))
+	}
+	if got, want := n.told(), []string{"ready " + testStore, "ready biz_other", "paused " + testStore}; !slices.Equal(got, want) {
+		t.Fatalf("told %v, want %v", got, want)
+	}
+}
+
+// The migration gives the dashboard's Whop customers the store it sells
+// for, keeping all else about them; with none connected they have no store
+// until the next one connected takes them on. From then on a Whop user may
+// have an account in another store too, but never two in one.
+func TestTheMigrationGivesCustomersTheirStore(t *testing.T) {
+	at := slices.IndexFunc(panelMigrations, func(m string) bool { return strings.Contains(m, "CREATE TABLE customers_by_store") })
+	if at < 0 {
+		t.Fatal("no migration keeps customers per store")
+	}
+	for name, want := range map[string]string{"selling": testStore, "not selling": ""} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "panel.db")
+			db, err := store.Open(path, panelMigrations[:at])
+			if err != nil {
+				t.Fatal(err)
+			}
+			exec := func(q string, args ...any) {
+				t.Helper()
+				if _, err := db.Exec(q, args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			exec(`INSERT INTO users(id, username, password_hash, created_at, password_changed_at, role) VALUES(2, 'alexplays', '', 1, 1, 'member'), (3, 'alexplays-2', '', 1, 1, 'member'), (4, 'alexplays-3', '', 1, 1, 'member')`)
+			exec(`INSERT INTO customers(user_id, provider, subject, handle, plan_id, state, created_at, updated_at, told_ready, pause_reason)
+				VALUES(2, 'whop', 'user_alex', 'AlexPlays', 'plan_starter', 'paused', 1, 2, 3, 'their Whop membership is expired')`)
+			if want != "" {
+				exec(`INSERT INTO whop_account(id, account_id, api_key, connected_by, connected_at) VALUES(1, ?, 'apik_pip', 'siya', 1)`, want)
+			}
+			db.Close()
+			if db, err = store.Open(path, panelMigrations); err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			var got, subject, handle, plan, state, reason string
+			var created, updated, told int64
+			if err := db.QueryRow(`SELECT store, subject, handle, plan_id, state, pause_reason, created_at, updated_at, told_ready FROM customers WHERE user_id = 2`).
+				Scan(&got, &subject, &handle, &plan, &state, &reason, &created, &updated, &told); err != nil {
+				t.Fatal(err)
+			}
+			if got != want || subject != "user_alex" || handle != "AlexPlays" || plan != "plan_starter" || state != "paused" || reason != "their Whop membership is expired" ||
+				created != 1 || updated != 2 || told != 3 {
+				t.Fatalf("alex after the migration: store %q, %s %s %s %s %q %d %d %d", got, subject, handle, plan, state, reason, created, updated, told)
+			}
+			if _, err := db.Exec(`INSERT INTO customers(user_id, provider, store, subject, created_at, updated_at) VALUES(3, 'whop', 'biz_other', 'user_alex', 5, 5)`); err != nil {
+				t.Fatalf("alex's account at another store: %v", err)
+			}
+			if _, err := db.Exec(`INSERT INTO customers(user_id, provider, store, subject, created_at, updated_at) VALUES(4, 'whop', 'biz_other', 'user_alex', 6, 6)`); err == nil {
+				t.Fatal("alex has two accounts at one store")
+			}
+		})
+	}
+}
+
 // A customer whose handle is the owner's username, as when the owner
 // test-buys on their own machine, gets a separate account, and Sign in
 // with Whop opens that one and never the owner's.
@@ -105,7 +219,7 @@ func TestACustomerNamedLikeTheOwnerGetsAnAccountOfTheirOwn(t *testing.T) {
 	f.buy("mem_own1", "user_own", "plan_starter", "active")
 	e.reconcile()
 
-	info, ok, err := customerCore{s: e.srv}.CustomerAccount(context.Background(), whopProvider, "user_own")
+	info, ok, err := customerCore{s: e.srv}.CustomerAccount(context.Background(), whopProvider, testStore, "user_own")
 	if err != nil || !ok || info.UserID == own.id || info.Username != ownName+"-2" {
 		t.Fatalf("the test buyer's account: %+v, %v, %v (the owner is %d)", info, ok, err, own.id)
 	}
@@ -134,6 +248,8 @@ func TestACustomerNamedLikeTheOwnerGetsAnAccountOfTheirOwn(t *testing.T) {
 // one waits until they're active again.
 func TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom(t *testing.T) {
 	e := newJoinEnv(t)
+	n := &recordingNotifier{}
+	e.srv.notifier = n
 	owner(t, e.env)
 	e.reply("GET", "/v1/machine", liveMachine(0, true))
 	e.reply("GET", "/v1/servers", `[]`)
@@ -146,10 +262,10 @@ func TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom(t *testing.T) {
 	}
 	var ids []int64
 	for _, subject := range []string{"user_alex", "user_sam"} {
-		if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: subject, Handle: subject[5:]}, starter); err != nil {
+		if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: subject, Handle: subject[5:]}, starter); err != nil {
 			t.Fatal(err)
 		}
-		info, _, _ := core.CustomerAccount(ctx, whopProvider, subject)
+		info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, subject)
 		if home(info.UserID) != "" {
 			t.Fatalf("%s has a home with no room", subject)
 		}
@@ -166,6 +282,9 @@ func TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom(t *testing.T) {
 	if err := e.srv.startWaitingCustomer(ctx, ids[1]); err != nil || home(ids[1]) != "" {
 		t.Fatalf("a paused customer was placed: %v", err)
 	}
+	if got, want := n.told(), []string{messageSettingUp + " " + testStore, messageSettingUp + " " + testStore, messageReady + " " + testStore}; !slices.Equal(got, want) {
+		t.Fatalf("told %v, want %v", got, want)
+	}
 }
 
 // A customer's account follows their plan, so the owner can't remove it
@@ -173,15 +292,15 @@ func TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom(t *testing.T) {
 func TestTheTeamPageKeepsACustomersAccount(t *testing.T) {
 	e, own, core := customerEnv(t)
 	ctx := context.Background()
-	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	alex := member{id: info.UserID}
 	if r := e.do(t, "DELETE", alex.path(), "", own.auth()); r.status != http.StatusConflict {
 		t.Fatalf("removing a customer: %d %v", r.status, r.body)
 	}
-	if _, ok, err := core.CustomerAccount(ctx, whopProvider, "user_alex"); err != nil || !ok {
+	if _, ok, err := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); err != nil || !ok {
 		t.Fatalf("alex's account after the refused removal: %v, %v", ok, err)
 	}
 	var team teamBody
@@ -209,7 +328,7 @@ func TestCustomersNamesNeverTakeAnother(t *testing.T) {
 		{"Build.With_Kai!!", "build-with-kai"},
 		{strings.Repeat("long", 15), strings.Repeat("long", 7)},
 	} {
-		cust := Customer{Provider: whopProvider, Subject: "user_" + string(rune('a'+i)), Handle: tc.handle}
+		cust := Customer{Provider: whopProvider, Store: testStore, Subject: "user_" + string(rune('a'+i)), Handle: tc.handle}
 		got, err := core.StartCustomer(ctx, cust, starter)
 		if err != nil || got.Account != tc.want {
 			t.Errorf("a customer with the handle %q got %q, %v; want %q", tc.handle, got.Account, err, tc.want)
@@ -221,7 +340,7 @@ func TestCustomersNamesNeverTakeAnother(t *testing.T) {
 // set for it.
 func TestPasswordSignInRefusesCustomers(t *testing.T) {
 	e, _, core := customerEnv(t)
-	got, err := core.StartCustomer(context.Background(), Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter)
+	got, err := core.StartCustomer(context.Background(), Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,14 +366,15 @@ func TestPasswordSignInRefusesCustomers(t *testing.T) {
 func TestTheCoreRefusesWhatIsntACustomer(t *testing.T) {
 	e, _, core := customerEnv(t)
 	ctx := context.Background()
-	alex := Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}
 	for name, c := range map[string]struct {
 		cust Customer
 		plan CustomerPlan
 	}{
-		"no provider":       {Customer{Subject: "user_alex", Handle: "alex"}, starter},
-		"no subject":        {Customer{Provider: whopProvider, Handle: "alex"}, starter},
-		"a control code":    {Customer{Provider: whopProvider, Subject: "user_alex\n", Handle: "alex"}, starter},
+		"no provider":       {Customer{Store: testStore, Subject: "user_alex", Handle: "alex"}, starter},
+		"no store":          {Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter},
+		"no subject":        {Customer{Provider: whopProvider, Store: testStore, Handle: "alex"}, starter},
+		"a control code":    {Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex\n", Handle: "alex"}, starter},
 		"no servers":        {alex, CustomerPlan{ID: "plan_x", MemoryMB: 4096}},
 		"too little memory": {alex, CustomerPlan{ID: "plan_x", Servers: 1, MemoryMB: 512}},
 		"too much disk":     {alex, CustomerPlan{ID: "plan_x", Servers: 1, MemoryMB: 4096, DiskGB: invites.MaxAllowanceDiskGB + 1}},

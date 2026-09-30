@@ -184,10 +184,10 @@ func TestACreatorUploadsForANewServerOnlyToTheirMachine(t *testing.T) {
 func TestACustomerWaitingForRoomUploadsNothingForANewServer(t *testing.T) {
 	e, _, core := customerEnv(t)
 	e.reply("GET", "/v1/machine", liveMachine(1024, true))
-	if _, err := core.StartCustomer(context.Background(), Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := core.StartCustomer(context.Background(), Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := core.CustomerAccount(context.Background(), whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(context.Background(), whopProvider, testStore, "user_alex")
 	alex := signIn(t, e.env, info.UserID)
 	mid := machineID(t, e.env)
 	if r := e.do(t, "POST", "/api/machines/"+mid+"/world-imports", `{}`, alex.auth()); r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "being set up") {

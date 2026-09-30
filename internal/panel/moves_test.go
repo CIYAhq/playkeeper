@@ -63,10 +63,10 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	}
 	core := customerCore{s: e.srv}
 	ctx := context.Background()
-	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	alex := signIn(t, e, info.UserID)
 	ra.reply("POST /v1/servers", `{"id":"0123456789abcdef","serverId":"cafebabe23","kind":"create","status":"running"}`)
 	if r := e.do(t, "POST", "/api/machines/"+rid+"/servers", `{"name":"alex","acceptEula":true,"memoryMB":2048}`, alex.auth()); r.status != http.StatusOK {
@@ -1781,7 +1781,7 @@ func TestPausingStopsTheServersAStoppedMoveLeftBehind(t *testing.T) {
 	f := newMoveFleet(t)
 	f.stopped(t, f.local, f.local)
 	core := customerCore{s: f.e.srv}
-	if err := core.PauseCustomer(context.Background(), Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, "their Whop membership is expired"); err != nil {
+	if err := core.PauseCustomer(context.Background(), Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, "their Whop membership is expired"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/stop"); !ok {

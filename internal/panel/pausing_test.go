@@ -30,11 +30,11 @@ func newPausable(t *testing.T) pausable {
 	n := &recordingNotifier{}
 	e.srv.notifier = n
 	ctx := context.Background()
-	cust := Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}
+	cust := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}
 	if _, err := core.StartCustomer(ctx, cust, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	alex := signIn(t, e.env, info.UserID)
 	if r := e.do(t, "POST", "/api/machines/"+machineID(t, e.env)+"/servers", `{"name":"alex","acceptEula":true,"memoryMB":4096}`, alex.auth()); r.status != http.StatusOK || r.body["serverId"] != "cafebabe23" {
 		t.Fatalf("alex creates a server: %d %v", r.status, r.body)
@@ -83,7 +83,7 @@ func TestAPausedCustomerSeesTheirServersButRunsNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	if info.State != CustomerPaused || !info.SignIn {
 		t.Fatalf("alex once paused: %+v", info)
 	}
@@ -125,7 +125,7 @@ func TestAPausedCustomerSeesTheirServersButRunsNothing(t *testing.T) {
 	if _, err := p.core.StartCustomer(ctx, p.cust, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ = p.core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ = p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	if k := p.n.kinds(); info.State != CustomerActive || !slices.Equal(k, []string{messageReady, messagePaused, messageBack}) {
 		t.Fatalf("alex once renewed: %+v, told %v", info, k)
 	}
@@ -223,7 +223,7 @@ func TestNothingABillingProviderDoesLiftsASuspension(t *testing.T) {
 	if _, err := p.core.StartCustomer(ctx, p.cust, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	if k := p.n.kinds(); info.State != CustomerSuspended || info.SignIn || !slices.Equal(k, []string{messageReady}) {
 		t.Fatalf("a suspended customer after their plan ended and started again: %+v, told %v", info, k)
 	}

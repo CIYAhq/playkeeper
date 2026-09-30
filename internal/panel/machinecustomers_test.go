@@ -101,10 +101,10 @@ func TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt(t *testing.T) {
 	ctx := context.Background()
 	start := func(subject string) int64 {
 		t.Helper()
-		if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: subject, Handle: strings.TrimPrefix(subject, "user_")}, starter); err != nil {
+		if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: subject, Handle: strings.TrimPrefix(subject, "user_")}, starter); err != nil {
 			t.Fatal(err)
 		}
-		info, _, err := core.CustomerAccount(ctx, whopProvider, subject)
+		info, _, err := core.CustomerAccount(ctx, whopProvider, testStore, subject)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -272,10 +272,10 @@ func TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn(t *testing.T) {
 	}
 	core := customerCore{s: e.srv}
 	ctx := context.Background()
-	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	alex := signIn(t, e, info.UserID)
 	var me struct {
 		Access struct {
@@ -360,7 +360,7 @@ func TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers(t *testing.T) {
 	if r := e.do(t, "POST", guardPath, `{"host":false}`, own.auth()); r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "while it takes customers") {
 		t.Fatalf("turning the guard off while it takes customers: %d %v", r.status, r.body)
 	}
-	if _, err := (customerCore{s: e.srv}).StartCustomer(context.Background(), Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := (customerCore{s: e.srv}).StartCustomer(context.Background(), Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
 	if r := e.do(t, "PUT", "/api/machines/"+rid+"/customers", `{"on":false}`, own.auth()); r.status != http.StatusOK {
