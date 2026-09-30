@@ -251,10 +251,19 @@ func TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere(t *testin
 // once, which then lets the dashboard's address lose its port.
 func TestPort443TellsTheAgentABrowserFromOutsideReachedIt(t *testing.T) {
 	e := newDashboardEnv(t)
+	// 203.0.113.10 is the machine's own public address, which the agent
+	// refuses.
 	var reports atomic.Int32
 	e.agent.mu.Lock()
 	e.agent.answers["POST /v1/dashboard-443/reached"] = func(w http.ResponseWriter, r *http.Request) {
 		reports.Add(1)
+		e.agent.mu.Lock()
+		body := e.agent.lastBody["POST /v1/dashboard-443/reached"]
+		e.agent.mu.Unlock()
+		if strings.Contains(body, `"from":"203.0.113.10"`) {
+			writeErr(w, http.StatusConflict, api.CodeConflict, "Only a visit from outside the machine shows port 443 opens.", "")
+			return
+		}
 		writeJSON(w, 200, api.Dashboard443{On: true, State: api.PortOpen, Reached: true, Port: 443})
 	}
 	e.agent.mu.Unlock()
@@ -266,8 +275,21 @@ func TestPort443TellsTheAgentABrowserFromOutsideReachedIt(t *testing.T) {
 	if n := reports.Load(); n != 0 {
 		t.Fatalf("visits from inside told the agent %d times", n)
 	}
+	idle := func() bool {
+		e.srv.page.mu.Lock()
+		defer e.srv.page.mu.Unlock()
+		return !e.srv.page.reporting
+	}
+	on443(h, "GET", dashboardHost, "/", "203.0.113.10:4000", nil)
+	eventually(t, "the agent to refuse the machine's own address", func() bool { return reports.Load() == 1 && idle() })
+	on443(h, "GET", dashboardHost, "/", "203.0.113.10:4001", nil)
+	time.Sleep(50 * time.Millisecond)
+	if n := reports.Load(); n != 1 {
+		t.Fatalf("the machine's own address was reported again within %v: %d", reportAgainAfter, n)
+	}
+	// A browser from outside right after it still counts.
 	on443(h, "GET", "other.example.com", "/", visitor, nil)
-	eventually(t, "the agent to hear of the visit", func() bool { return reports.Load() == 1 })
+	eventually(t, "the agent to hear of the visit", func() bool { return reports.Load() == 2 })
 	req := e.agentRequest(t, "POST", "/v1/dashboard-443/reached")
 	if req.body["host"] != dashboardHost || req.body["from"] != "198.51.100.77" {
 		t.Fatalf("the report: %v", req.body)
@@ -281,7 +303,7 @@ func TestPort443TellsTheAgentABrowserFromOutsideReachedIt(t *testing.T) {
 		on443(h, "GET", dashboardHost, "/login", visitor, nil)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if n := reports.Load(); n != 1 {
+	if n := reports.Load(); n != 2 {
 		t.Fatalf("later visits told the agent again: %d", n)
 	}
 }

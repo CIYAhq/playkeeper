@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
@@ -80,9 +81,10 @@ type pageSite struct {
 	// on is whether a server is on the page, and dashboard whether port 443
 	// answers host with the dashboard; reached is set once a browser from
 	// outside the machine has, and reporting while the agent is being told
-	// so, the last time at reportedAt (dashboard443.go).
+	// so, when it was last told of each address in reportedAt
+	// (dashboard443.go).
 	on, dashboard, reached, reporting bool
-	reportedAt                        time.Time
+	reportedAt                        map[netip.Addr]time.Time
 	ports                             api.PublicPagePorts
 	held                              [2]*pageListener
 	next                              [2]time.Time

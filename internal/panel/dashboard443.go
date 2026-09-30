@@ -36,8 +36,13 @@ import (
 // machine links answer there as before, for whatever keeps the old address.
 
 // reportAgainAfter is how soon the panel tells the agent again that port
-// 443 was reached, after telling it failed.
-const reportAgainAfter = 30 * time.Second
+// 443 was reached from an address, after telling it failed. Each address
+// has its own wait, so the machine's own, which the agent refuses, never
+// holds up a browser from outside; reporters bounds how many are kept.
+const (
+	reportAgainAfter = 30 * time.Second
+	reporters        = 32
+)
 
 // reachPath answers a browser's check that it reaches port 443 at the
 // machine's name (see hReach).
@@ -162,11 +167,15 @@ func (s *Server) noteReached(r *http.Request) {
 	}
 	p := s.page
 	now := s.now()
+	key := from
 	p.mu.Lock()
 	host := p.host
-	due := p.dashboard && !p.reached && !p.reporting && host != "" && now.Sub(p.reportedAt) >= reportAgainAfter
+	due := p.dashboard && !p.reached && !p.reporting && host != "" && now.Sub(p.reportedAt[key]) >= reportAgainAfter
 	if due {
-		p.reporting, p.reportedAt = true, now
+		if p.reportedAt == nil || len(p.reportedAt) >= reporters {
+			p.reportedAt = map[netip.Addr]time.Time{}
+		}
+		p.reporting, p.reportedAt[key] = true, now
 	}
 	p.mu.Unlock()
 	if !due {
