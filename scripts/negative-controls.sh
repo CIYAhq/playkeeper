@@ -10728,8 +10728,41 @@ control "fleet watch: little room is posted again only after there was room for 
   '	case false:
 		f.low = false' \
   ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: an overbooked machine is posted" internal/panel/fleetwatch.go \
+  'case r.FreeMB < 0 && !f.over[r.ID]:' \
+  'case r.FreeMB < -4096 && !f.over[r.ID]:' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: an overbooked machine is posted once" internal/panel/fleetwatch.go \
+  'case r.FreeMB < 0 && !f.over[r.ID]:' \
+  'case r.FreeMB < 0:' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: an overbooked machine is posted again only after it had room" internal/panel/fleetwatch.go \
+  '		case r.FreeMB >= 0:
+			delete(f.over, r.ID)' \
+  '		case false:
+			delete(f.over, r.ID)' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: a machine that didn't answer says nothing about its room" internal/panel/fleetwatch.go \
+  '		case !r.Answered:
+		case r.FreeMB < 0' \
+  '		case false:
+		case r.FreeMB < 0' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: a machine that answered says so" internal/panel/placement.go \
+  '	r.Answered = true
+' \
+  '' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: the machines' room has the time the watch gives a machine" internal/panel/fleetwatch.go \
+  'rctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)' \
+  'rctx, cancel := context.WithCancel(ctx)' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerHoldsUpNoLook$'
+control "fleet watch: an overbooked machine is short of some memory" internal/agent/discord.go \
+  'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 1, maxFleetMemory)' \
+  'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 0, maxFleetMemory)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
 control "fleet watch: the fleet's alerts go out whatever the switches say" internal/discord/alerts.go \
-  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks:' \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked:' \
   'case KindTwoFactor, KindAdminConfirmed, KindInStock:' \
   ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
 control "fleet watch: a machine's name can't format the alert" internal/discord/alerts.go \
