@@ -188,7 +188,8 @@ func TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare(t *testing.T) {
 
 // Every payment the checks read is kept for the seller's view, with
 // Playkeeper's share from its fee lines: the one a customer started on, then
-// each renewal read on the share check's schedule, and a refund of one.
+// each renewal read on the share check's schedule, and a refund of one. A
+// sale of anything else the business sells isn't.
 func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	f, e, _ := twoStores(t)
 	useFakeCore(e)
@@ -208,19 +209,28 @@ func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	}
 	// The renewal is read once; the read after next, over an hour on, goes
 	// back only to an hour before the last, so its refund alone brings it
-	// back.
+	// back. The guide the business also sells isn't hosting.
 	f.mu.Lock()
 	b := f.installed["biz_other"]
-	b.payments = append([]map[string]any{{"id": "pay_renew", "status": "paid", "membership_id": "mem_kim", "plan_id": "plan_other",
-		"created_at": e.clock.now().Add(time.Minute).UTC().Format(time.RFC3339), "paid_at": e.clock.now().Add(time.Minute).UTC().Format(time.RFC3339),
-		"user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
+	at := e.clock.now().Add(time.Minute).UTC().Format(time.RFC3339)
+	b.payments = append([]map[string]any{
+		{"id": "pay_renew", "status": "paid", "membership_id": "mem_kim", "plan_id": "plan_other", "product_id": "prod_other", "created_at": at, "paid_at": at,
+			"user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}},
+		{"id": "pay_guide", "status": "paid", "plan_id": "plan_guide", "product_id": "prod_guide", "created_at": at, "paid_at": at,
+			"user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "20.00", "currency": "usd", "decimals": 2}},
+	}, b.payments...)
 	b.fees["pay_renew"] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
 		"settlement_amount": map[string]any{"amount": "8.50", "currency": "usd", "decimals": 2}}}
+	b.fees["pay_guide"] = []map[string]any{{"type": "processing_fee", "origin": "payment_processing_percentage_fee", "label": "Processing",
+		"settlement_amount": map[string]any{"amount": "0.60", "currency": "usd", "decimals": 2}}}
 	f.mu.Unlock()
 	e.clock.add(90 * time.Minute)
 	e.reconcile()
 	if amount, share, refunded, _, _ := kept("pay_renew"); amount != 1200 || share != 850 || refunded != 0 {
 		t.Fatalf("the renewal: %d paid, %d shared, %d refunded", amount, share, refunded)
+	}
+	if amount, _, _, _, _ := kept("pay_guide"); amount != 0 {
+		t.Fatalf("a sale of the guide was kept as hosting: %d paid", amount)
 	}
 	f.mu.Lock()
 	b.payments[0]["refunded_amount"] = map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}

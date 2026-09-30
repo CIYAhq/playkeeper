@@ -8458,6 +8458,10 @@ control "payments: a refund keeps its payment again" internal/panel/whop_share_h
   'pays = append(pays, pay)' \
   '_ = pay' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: only the hosting products' payments are kept" internal/panel/whop_share_hooks.go \
+  'if _, ok := hosting[pay.ProductID]; !ok {' \
+  'if _, ok := hosting[pay.ProductID]; !ok && false {' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
   'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
   'if false {' \

@@ -86,14 +86,22 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 
 // whopReadPayments keeps each payment an open app store was paid since its
 // payments were last read, and each it refunded since, for the seller's view
-// (keepCheckedPayment), on the share check's schedule. A payment's share
-// comes from its fee lines, which are kept too. The read counts as done
-// only once all of it is, so what failed is read again next time.
+// (keepCheckedPayment), on the share check's schedule. Only payments for its
+// hosting products count, those the dashboard keeps Playkeeper's share on
+// (whopSharesSet), since a seller may sell other things on the same
+// business. A payment's share comes from its fee lines, which are kept too.
+// The read counts as done only once all of it is, so what failed is read
+// again next time.
 func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopStore) {
 	now := s.now()
 	var last int64
 	if err := s.db.QueryRowContext(ctx, `SELECT payments_read_at FROM whop_share_watch WHERE store_id = ?`, st.ID).Scan(&last); err != nil && !isNoRows(err) {
 		s.log.Error("could not read when a store's payments were read", "store", st.ID, "err", err)
+		return
+	}
+	hosting, err := s.whopSharesSet(ctx, st.ID)
+	if err != nil {
+		s.log.Error("could not read which of a store's products it hosts", "store", st.ID, "err", err)
 		return
 	}
 	since := now.Add(-whopPaymentsBack)
@@ -119,6 +127,9 @@ func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopSt
 		pays = append(pays, pay)
 	}
 	for _, pay := range pays {
+		if _, ok := hosting[pay.ProductID]; !ok {
+			continue
+		}
 		lines, err := c.PaymentFees(ctx, pay.ID)
 		if err == nil {
 			err = s.keepWhopFeeLines(ctx, st.ID, pay.ID, lines)

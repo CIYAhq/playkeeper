@@ -238,15 +238,18 @@ func (f *fakeWhop) buyAt(biz, id, user, plan, status string) map[string]any {
 	m := map[string]any{"id": id, "status": status, "plan_id": plan, "product_id": "prod_other", "user_id": user, "cancel_at_period_end": false}
 	b := f.installed[biz]
 	b.memberships[id] = m
-	memoryMB := 4096
+	memoryMB, product := 4096, "prod_other"
 	if p := b.plan(plan); p != nil {
 		meta, _ := p["metadata"].(map[string]any)
 		if gb, err := strconv.ParseFloat(fmt.Sprint(meta[whop.MetaMemoryGB]), 64); err == nil {
 			memoryMB = int(gb * 1024)
 		}
+		if prod, ok := p["product"].(map[string]any); ok {
+			product = fmt.Sprint(prod["id"])
+		}
 	}
 	pay := "pay_" + id
-	b.payments = append([]map[string]any{{"id": pay, "status": "paid", "membership_id": id, "plan_id": plan, "paid_at": "2026-09-24T12:00:00.000Z",
+	b.payments = append([]map[string]any{{"id": pay, "status": "paid", "membership_id": id, "plan_id": plan, "product_id": product, "paid_at": "2026-09-24T12:00:00.000Z",
 		"user": map[string]any{"id": user}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
 	if b.fees == nil {
 		b.fees = map[string][]map[string]any{}
