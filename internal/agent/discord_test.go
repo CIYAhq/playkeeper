@@ -938,6 +938,61 @@ func TestDiscordNotifyTakesMachinesInStockWithEveryAlertOff(t *testing.T) {
 		") or [Helsinki](https://console.hetzner.com/create/server?location=hel1")
 }
 
+// The fleet's room and health, which the dashboard watches, go out with every
+// alert off too, worded by the agent from what the dashboard counted, and
+// only with a machine's name and numbers that fit what they say.
+func TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	if code, out := e.call("PUT", "/v1/discord", map[string]any{"alerts": []string{}, "liveStatus": false, "actor": "admin"}); code != 200 {
+		t.Fatalf("turn every alert off: %d %v", code, out)
+	}
+	alert := func(kind string, fields map[string]any) map[string]any {
+		body := map[string]any{"kind": kind, "actor": "playkeeper"}
+		for k, v := range fields {
+			body[k] = v
+		}
+		return body
+	}
+	for _, c := range []struct {
+		name string
+		body map[string]any
+	}{
+		{"a machine off with no name", alert("machine_off", map[string]any{"minutes": 5})},
+		{"a machine off with a name too long", alert("machine_off", map[string]any{"machine": strings.Repeat("m", 65), "minutes": 5})},
+		{"a machine off for no time", alert("machine_off", map[string]any{"machine": "alpha"})},
+		{"a machine back after a negative time", alert("machine_back", map[string]any{"machine": "alpha", "minutes": -1})},
+		{"room with no plan's memory", alert("low_room", map[string]any{"room": 1})},
+		{"room below none", alert("low_room", map[string]any{"room": -1, "memoryMB": 4096})},
+		{"a disk more than full", alert("disk_filling", map[string]any{"machine": "alpha", "percent": 101})},
+		{"a busy machine with no days", alert("busy_cpu", map[string]any{"machine": "alpha", "percent": 82})},
+		{"a lagging server with no name", alert("slow_ticks", map[string]any{"machine": "alpha", "mspt": 63, "players": 12, "minutes": 10})},
+		{"a lagging server with no tick time", alert("slow_ticks", map[string]any{"serverName": "Survival", "machine": "alpha", "players": 12, "minutes": 10})},
+		{"no actor", map[string]any{"kind": "machine_off", "machine": "alpha", "minutes": 5}},
+	} {
+		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != 400 {
+			t.Errorf("%s: %d %v", c.name, code, out)
+		}
+	}
+	for _, c := range []struct {
+		body  map[string]any
+		title string
+		text  string
+	}{
+		{alert("machine_off", map[string]any{"machine": "alpha", "minutes": 5}), "Machine off the dashboard", `**alpha** hasn't been connected to the dashboard for 5 minutes`},
+		{alert("machine_back", map[string]any{"machine": "alpha", "minutes": 12}), "Machine back", "again, after 12 minutes off."},
+		{alert("low_room", map[string]any{"room": 1, "memoryMB": 4096, "waiting": 2}), "Room running out", "room for 1 more 4 GB server, across every store. 2 customers wait for room."},
+		{alert("disk_filling", map[string]any{"machine": "alpha", "percent": 78}), "Disk filling up", "disk is 78% full."},
+		{alert("busy_cpu", map[string]any{"machine": "alpha", "percent": 82, "days": 3}), "Machine busy at peak", "in its busiest hour 3 days running, 82% the last."},
+		{alert("slow_ticks", map[string]any{"serverName": "Survival", "machine": "alpha", "mspt": 63, "players": 12, "minutes": 10}), "Server lagging", "**Survival** on **alpha** took 63 ms a tick"},
+	} {
+		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != 204 {
+			t.Fatalf("%v: %d %v", c.body, code, out)
+		}
+		f.waitMessage(e, c.title, c.text)
+	}
+}
+
 func TestDiscordTestEndpointMustBeOnThisMachine(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	for _, bad := range []string{
