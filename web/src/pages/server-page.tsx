@@ -53,7 +53,7 @@ export function ServerPage({ signIn }: { signIn?: boolean }) {
       {signIn && (
         <div className="mx-auto flex w-full max-w-[920px] justify-end px-6 pt-5 max-sm:px-4 max-sm:pt-3">
           <Button variant="outline" size="sm" render={<a href="/login" />}>
-            {t('serverPage.signIn')}
+            {t('join.signIn')}
           </Button>
         </div>
       )}

@@ -189,7 +189,7 @@ function refusalText(e: unknown, old: string | undefined): string {
 
 /** The switch's line: what turning it on does, or where port 443 stands. */
 function StateLine({ v, reach }: { v: DashboardPortView; reach: Reach }) {
-  if (!v.on) return <>{v.url ? t('dashboardPort.offHint', { url: v.url, old: v.old ?? '' }) : t('dashboardPort.offHintNoName', { port: v.panelPort })}</>
+  if (!v.on) return <>{v.url ? t('dashboardPort.offHint', { url: v.url, old: v.old ?? '' }) : t('dashboardPort.noAddress')}</>
   switch (v.state) {
     case 'off':
     case 'no_address':
@@ -233,12 +233,12 @@ function Actions({ v, reach, retrying, onRetry, onCheck, phone }: { v: Dashboard
   return (
     <div className={cn('flex flex-wrap items-center gap-2 pb-2', phone && 'flex-col items-stretch')}>
       <Button variant="outline" size={phone ? 'touch' : 'sm'} render={<a href={v.url} target="_blank" rel="noreferrer" />}>
-        {t('dashboardPort.open', { url: phone ? v.url.replace(/^https:\/\//, '') : v.url })}
+        {t('address.open', { url: phone ? v.url.replace(/^https:\/\//, '') : v.url })}
         <ExternalLinkIcon />
       </Button>
       {reach === 'failed' && (
         <Button variant="ghost" size={phone ? 'touch' : 'sm'} onClick={onCheck}>
-          {t('dashboardPort.checkAgain')}
+          {t('address.checkAgain')}
         </Button>
       )}
     </div>
@@ -248,7 +248,7 @@ function Actions({ v, reach, retrying, onRetry, onCheck, phone }: { v: Dashboard
 /** The places outside Playkeeper that keep the old address, with the change each needs. */
 function Outside({ v, phone }: { v: DashboardPortView; phone: boolean }) {
   const items: { key: string; title: string; body: ReactNode; copy?: string; done?: boolean }[] = [
-    { key: 'firewall', title: t('dashboardPort.firewall'), body: t('dashboardPort.firewallBody', { port: v.panelPort }) },
+    { key: 'firewall', title: t('onboarding.check.firewall'), body: t('dashboardPort.firewallBody', { port: v.panelPort }) },
     ...v.outside.map((c) => outsideItem(c)),
     { key: 'links', title: t('dashboardPort.links'), body: t('dashboardPort.linksBody', { port: v.panelPort }) },
   ]
@@ -256,7 +256,7 @@ function Outside({ v, phone }: { v: DashboardPortView; phone: boolean }) {
     <li key={it.key} className={cn('flex flex-col gap-1.5 py-3', phone ? 'px-4' : 'border-b border-border last:border-b-0')}>
       <p className="flex items-center gap-2 text-[13px] font-semibold">
         {it.title}
-        {it.done !== undefined && <span className={cn('text-xs font-medium', it.done ? 'text-success-foreground max-sm:text-success-strong' : 'text-warning-foreground')}>{it.done ? t('dashboardPort.done') : t('dashboardPort.toDo')}</span>}
+        {it.done !== undefined && <span className={cn('text-xs font-medium', it.done ? 'text-success-foreground max-sm:text-success-strong' : 'text-warning-foreground')}>{it.done ? t('common.done') : t('dashboardPort.toDo')}</span>}
       </p>
       <p className="text-xs leading-[18px] text-muted-foreground">{it.body}</p>
       {it.copy && (
@@ -281,7 +281,7 @@ function outsideItem(c: OutsideChange): { key: string; title: string; body: Reac
     case 'whop_signin':
       return {
         key: c.kind,
-        title: t('dashboardPort.whopSignIn'),
+        title: t('whop.signIn'),
         body: c.done ? t('dashboardPort.whopSignInDone') : t('dashboardPort.whopSignInTodo', { app: c.app ?? '', keep: c.keep ?? '' }),
         copy: c.done ? undefined : c.add,
         done: c.done,
@@ -291,7 +291,7 @@ function outsideItem(c: OutsideChange): { key: string; title: string; body: Reac
     case 'whop_webhook':
       return { key: c.kind, title: t('dashboardPort.whopWebhook'), body: c.done ? t('dashboardPort.whopWebhookDone', { url: c.add }) : t('dashboardPort.whopWebhookTodo', { url: c.add }) }
     case 'mcp':
-      return { key: c.kind, title: t('dashboardPort.mcp'), body: t('dashboardPort.mcpBody', { keep: c.keep ?? '' }), copy: c.add }
+      return { key: c.kind, title: t('global.nav.aiAgents'), body: t('dashboardPort.mcpBody', { keep: c.keep ?? '' }), copy: c.add }
     default: {
       const never: never = c.kind
       return never

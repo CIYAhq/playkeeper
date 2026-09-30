@@ -144,7 +144,7 @@ describe('the dashboard on the standard HTTPS port', () => {
     await act(async () => vi.advanceTimersByTime(2000))
     vi.useRealTimers()
     await act(async () => {})
-    expect(text()).toContain('This browser reaches it from inside the machine’s network. Open it once from outside, like on a phone using mobile data.')
+    expect(text()).toContain('This browser is inside the machine’s network. Open it once from outside, like a phone on mobile data.')
   })
 
   it('asks for a visit when this browser can’t reach port 443', async () => {
@@ -173,7 +173,7 @@ describe('the dashboard on the standard HTTPS port', () => {
     expect(text()).toContain(`open the app app_6oyNYgGluUMTx4 and add this redirect URL on its OAuth tab. Keep ${old}/api/public/whop/signin/callback`)
     expect(document.querySelector('code')?.textContent).toBe(`${url}/api/public/whop/signin/callback`)
     expect(text()).toContain('To do')
-    expect(text()).toContain(`The webhook you made for app_6oyNYgGluUMTx4 on Whop’s developer dashboard sends to ${old}/api/public/whop/app-webhook, which keeps working.`)
+    expect(text()).toContain(`Your webhook for app_6oyNYgGluUMTx4 on Whop sends to ${old}/api/public/whop/app-webhook, which keeps working.`)
     expect([...document.querySelectorAll('code')].map((c) => c.textContent)).toContain(`${url}/api/public/whop/app-webhook`)
     expect(text()).toContain(`Playkeeper moved it to ${url}/api/public/whop/webhook.`)
     expect(text()).toContain(`Agents set up with ${old}/mcp keep working.`)
@@ -185,7 +185,7 @@ describe('the dashboard on the standard HTTPS port', () => {
     await show(view({ reached: true, port: 443 }))
     await act(async () => toggle().click())
     expect(client.put).not.toHaveBeenCalled()
-    expect(text()).toContain(`${url} stops opening the dashboard, so links to it that went out stop working. ${old} keeps working.`)
+    expect(text()).toContain(`Links to ${url} stop working. ${old} keeps working.`)
     await act(async () => button('Stop').click())
     expect(client.put).toHaveBeenCalledWith('/api/dashboard-port', { on: false })
   })
@@ -200,7 +200,7 @@ describe('the dashboard on the standard HTTPS port', () => {
 
   it('waits for an address, and for the machine’s start', async () => {
     await show(view({ state: 'no_address', url: undefined, old: undefined }))
-    expect(text()).toContain('It takes effect once this machine has an address with a certificate.')
+    expect(text()).toContain('Takes effect once this machine has an address with a certificate.')
     await act(async () => root?.unmount())
     await show(view({ state: 'waiting', reached: true, port: 443 }))
     expect(text()).toContain('Opens on port 443 a few minutes after the machine starts.')
