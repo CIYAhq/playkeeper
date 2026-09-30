@@ -9480,7 +9480,7 @@ control "moving customers: a server to start again starts where it moves" intern
   ./internal/panel '^TestAServerWhoseMoveFailedStartsAgainOnceItCan$'
 control "moving customers: a server to start again is started once its machine answers" internal/panel/moves.go \
   '} else if err := startOn(ctx, m, mv.serverID); err == nil {' \
-  '} else if err := error(nil); err == nil {' \
+  '} else if startOn(ctx, m, mv.serverID) != nil || true {' \
   ./internal/panel '^TestAServerWhoseMoveFailedStartsAgainOnceItCan$'
 control "moving customers: the server's requests go where it moved" internal/panel/moves.go \
   'mv.serverID, to.ID, kept, now); err != nil {' \
