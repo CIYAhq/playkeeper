@@ -476,20 +476,22 @@ func TestMoneyIsReadExactlyInTheSmallestUnit(t *testing.T) {
 	}
 }
 
-// A membership's paid payments are read newest first, from its account.
+// A membership's paid payments are read newest first, from its account,
+// whatever order Whop's answer comes in.
 func TestPaidPaymentsAreAMembershipsNewestFirst(t *testing.T) {
 	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
 		"GET /payments": func(w http.ResponseWriter, r *http.Request) {
 			q := r.URL.Query()
-			if q.Get("account_id") != "biz_other" || q.Get("membership_id") != "mem_1" || q.Get("status") != "paid" || q.Get("first") != "10" {
+			if q.Get("account_id") != "biz_other" || q.Get("membership_id") != "mem_1" || q.Get("status") != "paid" || q.Get("first") != "10" ||
+				q.Get("order") != "paid_at" || q.Get("direction") != "desc" {
 				t.Errorf("GET /payments?%s", r.URL.RawQuery)
 			}
 			answer(map[string]any{"data": []map[string]any{
+				{"id": "pay_1", "status": "paid", "membership_id": "mem_1", "plan_id": "plan_other", "product_id": "prod_other",
+					"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}, "paid_at": "2026-09-30T12:00:00.000Z", "billing_reason": "subscription_create"},
 				{"id": "pay_2", "status": "paid", "membership_id": "mem_1", "plan_id": "plan_other", "product_id": "prod_other",
 					"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}, "refunded_amount": nil,
 					"paid_at": "2026-10-30T12:00:00.000Z", "billing_reason": "subscription_cycle", "user": map[string]any{"id": "user_alex", "username": "alex"}},
-				{"id": "pay_1", "status": "paid", "membership_id": "mem_1", "plan_id": "plan_other", "product_id": "prod_other",
-					"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}, "paid_at": "2026-09-30T12:00:00.000Z", "billing_reason": "subscription_create"},
 			}, "page_info": map[string]any{"has_next_page": true, "end_cursor": "c2"}})(w, r)
 		},
 	})

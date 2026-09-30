@@ -8041,6 +8041,14 @@ control "share paid: the membership's latest payment" internal/panel/whop_share.
   'pay := pays[0]' \
   'pay := pays[len(pays)-1]' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "share paid: Whop is asked for the newest payments" internal/whop/payments.go \
+  '"order": {"paid_at"}, "direction": {"desc"}, ' \
+  '' \
+  ./internal/whop '^TestPaidPaymentsAreAMembershipsNewestFirst$'
+control "share paid: the newest payment comes first whatever order Whop answers in" internal/whop/payments.go \
+  'return b.paidAt().Compare(a.paidAt())' \
+  'return 0' \
+  ./internal/whop '^TestPaidPaymentsAreAMembershipsNewestFirst$'
 control "share user: kept by the id Whop gives" internal/panel/whop_share.go \
   'share_username = excluded.share_username`, user.ID, user.Username)' \
   'share_username = excluded.share_username`, name, user.Username)' \
