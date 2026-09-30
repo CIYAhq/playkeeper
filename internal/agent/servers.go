@@ -105,6 +105,7 @@ type server struct {
 	listExtra       map[string]int
 	uuids           map[string]string
 	nextAutoRestart time.Time
+	startOwed       bool // the reconcile loop decided to start the server after it stopped without crashing, and tries again until a start begins
 	worldBytes      int64
 	worldAt         time.Time
 	// sampled is the state the latest sample recorded (online, starting,
