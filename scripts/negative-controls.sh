@@ -9401,10 +9401,47 @@ control "moving customers: a server moved after a restart gets the backup rules 
   's.copyBackupRules(ctx, id, from, to)' \
   '_ = from' \
   ./internal/panel '^TestAMoveCarriesOnAfterARestart$'
-control "moving customers: a backup that arrives changed isn't moved in" internal/panel/moves.go \
-  'reSHA256.MatchString(sum) && sum != p.SHA256' \
-  'reSHA256.MatchString(sum) && false' \
-  ./internal/panel '^TestABackupThatArrivesChangedIsntMovedIn$'
+control "moving customers: a folder that arrives changed isn't moved in" internal/panel/moves.go \
+  'if hex.EncodeToString(sent.Sum(nil)) != p.SHA256 {' \
+  'if hex.EncodeToString(sent.Sum(nil)) == "" {' \
+  ./internal/panel '^TestAFolderThatArrivesChangedIsntMovedIn$'
+control "moving customers: a move takes the server's whole folder" internal/panel/moves.go \
+  '"/v1/servers/"+id+"/move-out"' \
+  '"/v1/servers/"+id+"/backups"' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: an upload no move-in took goes" internal/panel/moves.go \
+  '		discardUpload(ctx, to, rid)
+		return fmt.Errorf("%s couldn'"'"'t make it from its folder: %w", machineLabel(to), err)' \
+  '		return fmt.Errorf("%s couldn'"'"'t make it from its folder: %w", machineLabel(to), err)' \
+  ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "moving out: a move takes the whole folder, not a backup's" internal/agent/moveout.go \
+  'backup.CreateWhole(out,' \
+  'backup.Create(out,' \
+  ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
+control "moving out: only a stopped server's folder goes" internal/agent/moveout.go \
+  '} else if running {' \
+  '} else if running && false {' \
+  ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
+control "moving out: a restore refuses a server's whole folder" internal/agent/handlers.go \
+  'if st.manifest.Whole {' \
+  'if st.manifest.Whole && false {' \
+  ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
+control "whole archives: a move leaves the RCON password's files behind" internal/backup/archive.go \
+  'return name == "eula.txt" || strings.HasPrefix(name, ".rcon-cli") || strings.HasSuffix(name, ".jar")' \
+  'return name == "eula.txt" || strings.HasSuffix(name, ".jar")' \
+  ./internal/backup '^TestAWholeArchiveCarriesTheWholeServerFolder$'
+control "whole archives: a move leaves what's downloaded again behind" internal/backup/archive.go \
+  'case e.IsDir() && (skipDirNames[e.Name()] || top && wholeSkippedDirs[e.Name()]):' \
+  'case e.IsDir() && skipDirNames[e.Name()]:' \
+  ./internal/backup '^TestAWholeArchiveCarriesTheWholeServerFolder$'
+control "whole archives: one needs no world" internal/backup/archive.go \
+  'if !m.Whole && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
+  'if !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
+  ./internal/backup '^TestAWholeArchiveCarriesTheWholeServerFolder$'
+control "whole archives: only one says so needs no world" internal/backup/archive.go \
+  'if !m.Whole && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
+  'if false && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
+  ./internal/backup '^TestMaliciousArchivesAreRefused$'
 control "moving customers: an old copy on the machine a server goes to isn't taken for it" internal/panel/moves.go \
   'resume && op != nil && op.Kind == "restore" && op.Status == api.OpSucceeded' \
   'op != nil && op.Kind == "restore" && op.Status == api.OpSucceeded' \

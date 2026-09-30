@@ -3,7 +3,9 @@ package panel
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -564,7 +566,7 @@ func (s *Server) shownSlug(ctx context.Context, id string, m machine, st api.Ser
 	return st.Slug
 }
 
-// copyServer has machine to make server id from a new backup of it on from,
+// copyServer has machine to make server id from its whole folder on from,
 // stopped there first, and start it when start says. A copy to has already
 // is an old one it didn't delete, and goes first, unless resume says this
 // move made it before a restart of the dashboard and it's complete.
@@ -589,33 +591,28 @@ func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st
 	if err := stopOn(ctx, from, id); err != nil {
 		return fmt.Errorf("it didn't stop: %w", err)
 	}
-	backup, err := agentOp(ctx, from, "/v1/servers/"+id+"/backups", api.BackupRequest{Actor: placementActor})
+	rid, err := s.copyFolder(ctx, from, to, id)
 	if err != nil {
-		return fmt.Errorf("it couldn't be backed up: %w", err)
-	}
-	bid, _ := backup.Detail["backupId"].(string)
-	if !reFileWord.MatchString(bid) {
-		return errors.New("its backup has no id")
-	}
-	rid, err := s.copyBackup(ctx, from, to, id, bid)
-	if err != nil {
-		return fmt.Errorf("its backup couldn't be copied to %s: %w", machineLabel(to), err)
+		return fmt.Errorf("its folder couldn't be copied to %s: %w", machineLabel(to), err)
 	}
 	cfg := st.Config
 	in := api.MoveInRequest{ServerID: id, Name: st.Name, Slug: slug, MemoryMB: cfg.MemoryMB, PlayStyle: cfg.PlayStyle, Start: start,
 		CreatedAt: cfg.CreatedAt, EULAAcceptedAt: cfg.EULAAcceptedAt, EULAAcceptedBy: cfg.EULAAcceptedBy, Actor: placementActor}
 	if _, err := agentOp(ctx, to, "/v1/restore/"+rid+"/move-in", in); err != nil {
-		return fmt.Errorf("%s couldn't make it from its backup: %w", machineLabel(to), err)
+		discardUpload(ctx, to, rid)
+		return fmt.Errorf("%s couldn't make it from its folder: %w", machineLabel(to), err)
 	}
 	return nil
 }
 
-// copyBackup sends backup bid of server id from one machine to another, as
-// an upload for a new server, and returns the upload's id there. It names
-// no disk limit: the server it's a backup of counts against its customer's
-// already, and the one made from it does once it's made (see moveServer).
-func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid string) (string, error) {
-	down, err := from.agent.Raw(ctx, http.MethodGet, "/v1/servers/"+id+"/backups/"+bid+"/download", nil, nil,
+// copyFolder sends server id's whole folder from one machine, where it's
+// stopped, to another as an upload for a new server (the agent's move-out),
+// and returns the upload's id there. It names no disk limit: the server
+// counts against its customer's already, and the one made from it does once
+// it's made (see moveServer). The folder's manifest names each file's
+// checksum, and what arrived has to be what the dashboard sent.
+func (s *Server) copyFolder(ctx context.Context, from, to machine, id string) (string, error) {
+	down, err := from.agent.Raw(ctx, http.MethodGet, "/v1/servers/"+id+"/move-out", nil, nil,
 		map[string]string{"X-Playkeeper-Actor": placementActor}, true)
 	if err != nil {
 		return "", err
@@ -627,7 +624,8 @@ func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid strin
 	if down.StatusCode != http.StatusOK {
 		return "", agentclient.ErrBadAnswer
 	}
-	up, err := to.agent.Raw(ctx, http.MethodPost, "/v1/restore/upload", nil, down.Body,
+	sent := sha256.New()
+	up, err := to.agent.Raw(ctx, http.MethodPost, "/v1/restore/upload", nil, io.TeeReader(down.Body, sent),
 		map[string]string{"X-Playkeeper-Actor": placementActor, "Content-Type": "application/gzip"}, true)
 	if err != nil {
 		return "", err
@@ -640,11 +638,16 @@ func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid strin
 	if up.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(up.Body, 1<<20)).Decode(&p) != nil || !reUploadID.MatchString(p.ID) {
 		return "", agentclient.ErrBadAnswer
 	}
-	if sum := down.Header.Get("X-Playkeeper-SHA256"); reSHA256.MatchString(sum) && sum != p.SHA256 {
-		_, _ = to.agent.Do(asActor(ctx, placementActor), http.MethodDelete, "/v1/restore/"+p.ID, url.Values{"actor": {placementActor}}, nil, nil)
+	if hex.EncodeToString(sent.Sum(nil)) != p.SHA256 {
+		discardUpload(ctx, to, p.ID)
 		return "", errors.New("it arrived changed")
 	}
 	return p.ID, nil
+}
+
+// discardUpload deletes upload rid on m, which no move-in took.
+func discardUpload(ctx context.Context, m machine, rid string) {
+	_, _ = m.agent.Do(asActor(ctx, placementActor), http.MethodDelete, "/v1/restore/"+rid, url.Values{"actor": {placementActor}}, nil, nil)
 }
 
 // copyBackupRules gives server id, moved to machine to, the automatic

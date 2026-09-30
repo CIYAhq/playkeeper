@@ -29,7 +29,8 @@ type moveFleet struct {
 	rid   string
 	ra    *remoteAgent
 	local string
-	// archive is alex's backup on home-server, and sum its SHA-256.
+	// archive is alex's server's whole folder as home-server streams it
+	// out, and sum its SHA-256.
 	archive []byte
 	sum     string
 
@@ -41,9 +42,8 @@ type moveFleet struct {
 }
 
 const (
-	movedServer   = "cafebabe23"
-	movedBackupID = "20260930-020000-abc123"
-	movedStatus   = `{"id":"cafebabe23","name":"alex","slug":"alex","phase":"online","desired":"running","gamePort":25566,
+	movedServer = "cafebabe23"
+	movedStatus = `{"id":"cafebabe23","name":"alex","slug":"alex","phase":"online","desired":"running","gamePort":25566,
 		"config":{"memoryMB":2048,"playStyle":"friends","createdAt":"2026-09-20T10:00:00Z","eulaAcceptedAt":"2026-09-20T10:00:00Z","eulaAcceptedBy":"alex"}}`
 	movedUpload = "0123456789abcdef"
 )
@@ -68,18 +68,16 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	if r := e.do(t, "POST", "/api/machines/"+rid+"/servers", `{"name":"alex","acceptEula":true,"memoryMB":2048}`, alex.auth()); r.status != http.StatusOK {
 		t.Fatalf("alex creates a server: %d %v", r.status, r.body)
 	}
-	f := &moveFleet{e: e, own: own, alex: signIn(t, e, info.UserID), rid: rid, ra: ra, local: e.localMachine(t), archive: []byte("alex's world, as a backup archive")}
+	f := &moveFleet{e: e, own: own, alex: signIn(t, e, info.UserID), rid: rid, ra: ra, local: e.localMachine(t), archive: []byte("alex's server's folder, as an archive")}
 	s := sha256.Sum256(f.archive)
 	f.sum = hex.EncodeToString(s[:])
 
 	ra.reply("GET /v1/servers", "["+movedStatus+"]")
 	ra.reply("GET /v1/servers/"+movedServer, movedStatus)
 	startsOp(ra, "POST /v1/servers/"+movedServer+"/stop", "op-stop", "succeeded", "")
-	startsOp(ra, "POST /v1/servers/"+movedServer+"/backups", "op-backup", "succeeded", `,"detail":{"backupId":"`+movedBackupID+`"}`)
 	startsOp(ra, "POST /v1/servers/"+movedServer+"/delete", "op-delete", "succeeded", "")
-	ra.handle("GET /v1/servers/"+movedServer+"/backups/"+movedBackupID+"/download", func(w http.ResponseWriter, _ *http.Request) {
+	ra.handle("GET /v1/servers/"+movedServer+"/move-out", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/gzip")
-		w.Header().Set("X-Playkeeper-SHA256", f.sum)
 		w.Write(f.archive)
 	})
 	ra.reply("GET /v1/servers/"+movedServer+"/backup-rules", `{"automatic":{"enabled":true,"everyHours":24,"onlyIfPlayed":true},"rules":{"onHost":{"daily":5}},"custom":true}`)
@@ -217,13 +215,13 @@ func (f *moveFleet) deleted(t *testing.T) (at int64, keptOn string) {
 }
 
 // The owner moves a customer to another machine: their plan's memory is set
-// aside there at once, and their server follows. It stops, is backed up,
-// and the backup goes to the other machine as an upload, which makes it
-// with the same id, name and slug, the EULA acceptance it had, and
-// started, since it ran. It counts against their disk limit there before
-// its requests go there, and the upload doesn't, since the server it's a
-// backup of counts already. The machine it left then deletes it, keeping
-// its final backup a week. Each step goes in the audit log.
+// aside there at once, and their server follows. It stops, and its whole
+// folder goes to the other machine as an upload, which makes it with the
+// same id, name and slug, the EULA acceptance it had, and started, since it
+// ran. It counts against their disk limit there before its requests go
+// there, and the upload doesn't, since the server counts already. The
+// machine it left then deletes it, keeping its final backup a week. Each
+// step goes in the audit log.
 func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	f := newMoveFleet(t)
 	if _, err := f.e.srv.db.Exec(`INSERT INTO public_links(kind, token_hash, server_id, machine_id, created_at) VALUES('map', 'h', ?, ?, 0)`, movedServer, f.rid); err != nil {
@@ -291,7 +289,7 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 		}
 	}
 	var del map[string]any
-	for _, key := range []string{"POST /v1/servers/" + movedServer + "/stop", "POST /v1/servers/" + movedServer + "/backups", "POST /v1/servers/" + movedServer + "/delete"} {
+	for _, key := range []string{"POST /v1/servers/" + movedServer + "/stop", "GET /v1/servers/" + movedServer + "/move-out", "POST /v1/servers/" + movedServer + "/delete"} {
 		if actor, ok := f.ra.saw(key); !ok || actor != placementActor {
 			t.Errorf("home-server wasn't asked to %s as the dashboard: %v %q", key, ok, actor)
 		}
@@ -398,7 +396,7 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 		t.Fatalf("moving alex: %d %v", r.status, r.body)
 	}
 	why := f.moved(t)
-	if why != "alex: the dashboard's machine couldn't make it from its backup: The restored world did not start." {
+	if why != "alex: the dashboard's machine couldn't make it from its folder: The restored world did not start." {
 		t.Fatalf("why the move stopped: %q", why)
 	}
 	if at := f.recorded(t); at != f.rid {
@@ -409,6 +407,9 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 	}
 	if f.made() || !slices.Contains(f.e.agentHits(), "POST /v1/servers/"+movedServer+"/delete") {
 		t.Error("the copy the failed move made is still on the dashboard's machine")
+	}
+	if !slices.Contains(f.e.agentHits(), "DELETE /v1/restore/"+movedUpload) {
+		t.Error("the upload the failed move-in was made from stayed on the dashboard's machine")
 	}
 	if n := f.rows(t, `SELECT COUNT(*) FROM server_moves`); n != 0 {
 		t.Errorf("%d moves still under way", n)
@@ -696,10 +697,10 @@ func TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo(t *testing.T) {
 	}
 	hits := f.e.agentHits()
 	if old, upload := slices.Index(hits, "POST /v1/servers/"+movedServer+"/delete"), slices.Index(hits, "POST /v1/restore/upload"); old < 0 || old > upload {
-		t.Errorf("the old copy wasn't deleted before the new backup came: %v", hits)
+		t.Errorf("the old copy wasn't deleted before the server's folder came: %v", hits)
 	}
-	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/backups"); !ok {
-		t.Error("the old copy was taken for the server: no new backup was made")
+	if _, ok := f.ra.saw("GET /v1/servers/" + movedServer + "/move-out"); !ok {
+		t.Error("the old copy was taken for the server: its folder wasn't copied")
 	}
 	if n := f.rows(t, `SELECT COUNT(*) FROM left_copies WHERE machine_id = ?`, f.local); n != 0 {
 		t.Error("the copy's record stayed once the server's requests went to its machine")
@@ -743,10 +744,10 @@ func TestALeftCopyThatIsTheServerIsNeverDeleted(t *testing.T) {
 	}
 }
 
-// A backup that reaches the other machine changed isn't made into the
-// server: the move stops, the upload goes, and the server stays where it
-// was.
-func TestABackupThatArrivesChangedIsntMovedIn(t *testing.T) {
+// A server's folder that reaches the other machine changed isn't made into
+// the server: the move stops, the upload goes, and the server stays where
+// it was.
+func TestAFolderThatArrivesChangedIsntMovedIn(t *testing.T) {
 	f := newMoveFleet(t)
 	f.e.answer("POST /v1/restore/upload", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -759,7 +760,7 @@ func TestABackupThatArrivesChangedIsntMovedIn(t *testing.T) {
 		t.Fatalf("why the move stopped: %q", why)
 	}
 	if f.made() || !slices.Contains(f.e.agentHits(), "DELETE /v1/restore/"+movedUpload) {
-		t.Error("a backup that arrived changed was moved in, or its upload stayed")
+		t.Error("a folder that arrived changed was moved in, or its upload stayed")
 	}
 	if at := f.recorded(t); at != f.rid {
 		t.Errorf("the server's requests go to %q", at)
@@ -791,8 +792,8 @@ func TestAMoveCarriesOnAfterARestart(t *testing.T) {
 	if at := f.recorded(t); at != f.local {
 		t.Errorf("once the move carried on the server's requests go to %q", at)
 	}
-	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/backups"); ok {
-		t.Error("the server was backed up again, though the other machine had made it")
+	if _, ok := f.ra.saw("GET /v1/servers/" + movedServer + "/move-out"); ok {
+		t.Error("the server's folder was copied again, though the other machine had made it")
 	}
 	if rules := f.e.agentBody("POST /v1/servers/" + movedServer + "/backup-rules"); !strings.Contains(rules, `"everyHours":24`) || !strings.Contains(rules, `"daily":5`) {
 		t.Errorf("the server whose move carried on got the backup rules %q", rules)
