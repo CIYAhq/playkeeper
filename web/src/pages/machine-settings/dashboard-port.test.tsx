@@ -29,7 +29,7 @@ function me(can: string[]): Me {
 }
 
 function view(over: Partial<DashboardPortView>): DashboardPortView {
-  return { on: true, state: 'open', port: 8443, url, old, panelPort: 8443, outside: [], ...over }
+  return { on: true, state: 'open', port: 8443, url, old, panelPort: 8443, serving: true, outside: [], ...over }
 }
 
 let root: Root | undefined
@@ -120,6 +120,21 @@ describe('the dashboard on the standard HTTPS port', () => {
     vi.useRealTimers()
     await act(async () => {})
     expect(text()).toContain(`Answers at ${url}. ${old} keeps working and sends browsers there.`)
+  })
+
+  it('checks only once the panel answers port 443, a moment after the switch turns on', async () => {
+    const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 200 })))
+    vi.stubGlobal('fetch', fetch)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    await show(view({ serving: false }))
+    expect(fetch).not.toHaveBeenCalled()
+    expect(text()).toContain(`Checking that browsers reach ${url}…`)
+    expect(text()).not.toContain(`Open ${url}`)
+    vi.mocked(client.get).mockResolvedValue(view({}) as never)
+    await act(async () => vi.advanceTimersByTime(3500))
+    vi.useRealTimers()
+    await act(async () => {})
+    expect(fetch).toHaveBeenCalledWith(`${url}/api/public/reach`, expect.anything())
   })
 
   it('says this browser is inside the machine’s network once the panel didn’t count its visit', async () => {

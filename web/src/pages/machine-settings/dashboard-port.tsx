@@ -42,7 +42,7 @@ function useReachCheck(v: DashboardPortView | undefined, refresh: () => Promise<
   const [reach, setReach] = useState<Reach>('idle')
   const [round, setRound] = useState(0)
   const url = v?.url
-  const due = !!v && v.on && v.state === 'open' && !v.reached && !!url && window.location.origin !== url
+  const due = !!v && v.on && v.state === 'open' && !v.reached && !!v.serving && !!url && window.location.origin !== url
   useEffect(() => {
     if (!due || !url) return
     let cancelled = false
@@ -206,7 +206,8 @@ function StateLine({ v, reach }: { v: DashboardPortView; reach: Reach }) {
       )
     case 'open':
       if (v.reached) return <>{t('dashboardPort.live', { url: v.url ?? '', old: v.old ?? '' })}</>
-      if (reach === 'checking') return <>{t('dashboardPort.checking', { url: v.url ?? '' })}</>
+      // Until the panel answers port 443, the check waits for it.
+      if (!v.serving || reach === 'checking') return <>{t('dashboardPort.checking', { url: v.url ?? '' })}</>
       if (reach === 'ok') return <>{t('dashboardPort.inside')}</>
       return <>{t('dashboardPort.checkHint', { url: v.url ?? '' })}</>
     default: {
@@ -228,7 +229,7 @@ function Actions({ v, reach, retrying, onRetry, onCheck, phone }: { v: Dashboard
       </div>
     )
   }
-  if (v.state !== 'open' || v.reached || !v.url) return null
+  if (v.state !== 'open' || v.reached || !v.url || !v.serving) return null
   return (
     <div className={cn('flex flex-wrap items-center gap-2 pb-2', phone && 'flex-col items-stretch')}>
       <Button variant="outline" size={phone ? 'touch' : 'sm'} render={<a href={v.url} target="_blank" rel="noreferrer" />}>

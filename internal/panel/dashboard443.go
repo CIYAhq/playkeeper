@@ -295,6 +295,11 @@ type dashboardPortView struct {
 	URL       string `json:"url,omitempty"`
 	Old       string `json:"old,omitempty"`
 	PanelPort int    `json:"panelPort"`
+	// Serving is set once the panel answers port 443 at the machine's name
+	// with the dashboard, so a browser's visit there counts: the agent says
+	// open as soon as the switch turns on, a moment before the panel has
+	// the port.
+	Serving bool `json:"serving,omitempty"`
 	// Outside are the places outside Playkeeper that keep the dashboard's
 	// address, each with the change it needs.
 	Outside []outsideChange `json:"outside"`
@@ -341,6 +346,10 @@ func (s *Server) dashboardPortView(ctx context.Context, sess *session, fresh boo
 	if host := s.certifiedHost(addr); host != "" {
 		v.URL, v.Old = hostURL(host, 443), hostURL(host, s.cfg.PanelPort)
 		v.Outside = s.outsideChanges(ctx, sess, v.URL, v.Old, fresh)
+		p := s.page
+		p.mu.Lock()
+		v.Serving = p.held[0] != nil && p.dashboard && strings.EqualFold(p.host, host)
+		p.mu.Unlock()
 	}
 	return v, nil
 }

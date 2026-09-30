@@ -525,8 +525,8 @@ func TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress(t *testing.T) {
 		t.Fatalf("GET: %d", st)
 	}
 	const bare, old = "https://beta.playkeeper.me", "https://beta.playkeeper.me:8443"
-	if !v.On || v.URL != bare || v.Old != old || v.PanelPort != 8443 || v.Port != 8443 {
-		t.Fatalf("the view: %+v", v)
+	if !v.On || v.URL != bare || v.Old != old || v.PanelPort != 8443 || v.Port != 8443 || v.Serving {
+		t.Fatalf("the view before the panel has port 443: %+v", v)
 	}
 	want := []outsideChange{
 		{Kind: "whop_signin", App: whopTestApp, Add: bare + whopSignInCallback, Keep: old + whopSignInCallback},
@@ -558,9 +558,14 @@ func TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress(t *testing.T) {
 		}
 	}
 
+	// Once the panel has port 443, the page's check of it may count.
+	e.holding443()
+	if e.get(t, "/api/dashboard-port", own.cookie, &v); !v.Serving {
+		t.Fatalf("the view once the panel has port 443: %+v", v)
+	}
+
 	// Turning it on: the agent hears who, and whether the panel holds port
 	// 443; its refusal, with what has the port, reaches the page as is.
-	e.holding443()
 	e.replyStatus("PUT", "/v1/dashboard-443", 409, `{"error":"nginx uses port 443, so the dashboard can't have it.","code":"port_in_use","params":{"port":443,"state":"busy","holder":"nginx"}}`)
 	r := e.do(t, "PUT", "/api/dashboard-port", `{"on":true}`, own.auth())
 	if r.status != 409 || r.body["code"] != api.CodePortInUse || r.body["error"] != "nginx uses port 443, so the dashboard can't have it." {

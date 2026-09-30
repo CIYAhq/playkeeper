@@ -1171,6 +1171,8 @@ export interface DashboardPortView extends Dashboard443 {
   url?: string
   old?: string
   panelPort: number
+  /** The panel answers port 443 at the machine's name, so a visit there counts; a moment after the switch turns on. */
+  serving?: boolean
   /** The places outside Playkeeper that keep the dashboard's address, each with the change it needs. */
   outside: OutsideChange[]
 }
