@@ -96,6 +96,9 @@ type fakeWhop struct {
 	// by id, and chats their support chats, by id.
 	installed map[string]*fakeBusiness
 	chats     map[string]fakeChat
+	// appHooksRefused is a Whop that doesn't let the app's key add or move
+	// the app's own webhook.
+	appHooksRefused bool
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
@@ -220,6 +223,10 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if tok, ok := f.tokens[key]; ok {
 		f.serveAsUser(w, r, tok)
+		return
+	}
+	if key == whopTestAppKey && strings.HasPrefix(r.URL.Path, "/webhooks") {
+		f.serveAppWebhooks(w, r)
 		return
 	}
 	if key == whopTestAppKey {

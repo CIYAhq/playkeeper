@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -236,6 +237,9 @@ func (s *Server) reconcileWhop(ctx context.Context, only map[string]bool) {
 		s.log.Error("could not list the stores", "err", err)
 		return
 	}
+	if slices.ContainsFunc(stores, func(st whopStore) bool { return st.Via == whopViaApp }) {
+		s.ensureWhopAppWebhook(ctx)
+	}
 	for _, st := range stores {
 		if only == nil || only[st.ID] {
 			s.reconcileWhopStore(ctx, st)
@@ -279,6 +283,9 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 			// what happened since the last read is read now.
 			every = 0
 		}
+	}
+	if st.Via == whopViaApp {
+		every = s.whopAppEvery(ctx, st)
 	}
 	if err := s.refreshWhopMemberships(ctx, c, st, every); err != nil {
 		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", err)

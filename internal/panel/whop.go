@@ -64,6 +64,9 @@ type whopView struct {
 	Customers []whopCustomerView `json:"customers"`
 	// SignIn is Sign in with Whop's setup, once a store is connected.
 	SignIn *whopSignInView `json:"signIn,omitempty"`
+	// App is the Playkeeper Cloud app, which reaches the businesses that
+	// installed it.
+	App whopAppView `json:"app"`
 	// Needs are the permissions the key needs, for the steps to make one.
 	Needs []string `json:"needs"`
 	// Notice, on the answer to a disconnect alone, is what the owner still
@@ -115,6 +118,11 @@ func msTimeOrZero(ms int64) time.Time {
 func (s *Server) whopView(ctx context.Context) (whopView, error) {
 	v := whopView{Plans: []whopPlanView{}, Customers: []whopCustomerView{}, Needs: whop.Needs}
 	v.Dashboard, _ = s.dashboardURL(ctx)
+	app, err := s.whopAppView(ctx, v.Dashboard)
+	if err != nil {
+		return v, err
+	}
+	v.App = app
 	a, ok, err := s.keyStore(ctx)
 	if err != nil || !ok {
 		return v, err
