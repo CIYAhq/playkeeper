@@ -14,11 +14,18 @@ import (
 
 // dashboardEnv is an agent whose page ports are on free high ports, whose
 // machine name works with a certificate, and whose install chose on for the
-// dashboard's standard port when install is "on".
+// dashboard's standard port when install is "on". Public DNS outlives a
+// restart, which looks at the name again as it starts.
 func dashboardEnv(t *testing.T, install string, setup func(e *agentEnv)) (e *agentEnv, https int) {
 	t.Helper()
+	dns := &fakeResolver{}
 	e, https, _ = pageEnv(t, time.Hour, func(e *agentEnv) {
 		e.cfg.Dashboard443 = install
+		page := e.tweak
+		e.tweak = func(o *Options) {
+			page(o)
+			o.Resolver = dns
+		}
 		if setup != nil {
 			setup(e)
 		}
@@ -186,12 +193,13 @@ func TestTheDashboardHasPort443WithThePageOff(t *testing.T) {
 // program has the port.
 func TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt(t *testing.T) {
 	e, _ := dashboardEnv(t, "on", nil)
-	// Behind NAT the machine's public address is on no interface: the one
-	// the dashboard was opened with.
+	// Behind NAT the machine's public address, which its name points at, is
+	// on no interface: the one the dashboard was opened with.
 	const natted = "203.0.113.99"
 	if err := e.a.updateAddress(func(st *addressState) { st.IP = natted }); err != nil {
 		t.Fatal(err)
 	}
+	e.a.opts.Resolver.(*fakeResolver).set(pageTestHost, natted)
 	const visitor = "198.51.100.77"
 	withPort := "https://" + pageTestHost + ":" + strconv.Itoa(e.cfg.PanelPort)
 	// Discord hasn't been told where the dashboard was opened, so its
