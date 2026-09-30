@@ -326,7 +326,7 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	f.mu.Lock()
 	in := f.moveIn
 	f.mu.Unlock()
-	for k, want := range map[string]any{"serverId": movedServer, "name": "alex", "slug": "alex", "memoryMB": float64(2048), "playStyle": "friends", "start": true,
+	for k, want := range map[string]any{"serverId": movedServer, "name": "alex", "slug": "alex", "account": accountLimit(f.alex.id), "memoryMB": float64(2048), "playStyle": "friends", "start": true,
 		"eulaAcceptedBy": "alex", "eulaAcceptedAt": "2026-09-20T10:00:00Z", "createdAt": "2026-09-20T10:00:00Z", "actor": placementActor} {
 		if in[k] != want {
 			t.Errorf("the move-in's %s: %v, want %v", k, in[k], want)

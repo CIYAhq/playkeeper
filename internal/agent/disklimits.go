@@ -147,6 +147,7 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	if changed {
 		a.audit(actor, "disk_limits.set", "", "succeeded", fmt.Sprintf("%d disk limits", len(limits)))
 	}
+	a.accountsFromLimits(limits)
 	// Every set puts the running servers' caps right, changed or not, and a
 	// dashboard that stops waiting doesn't cut it short: the dashboard sets
 	// the limits every minute, so a cap one set missed is caught by the next.
@@ -154,6 +155,27 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	a.recapCPUs(ctx, a.diskLimits())
 	cancel()
 	writeJSON(w, http.StatusOK, limits)
+}
+
+// accountsFromLimits gives each server made before servers had accounts the
+// account of the limit it's in (see nameTaken): as the agent starts, from
+// the limits it kept, before any request can make a server, and at every
+// set, since the first after an update names the same limits as before it.
+// It waits for a server being made, so neither misses the other. A server
+// made with its account keeps it, and one whose account has a server of its
+// name already stays out, so no account has a name twice, until it's
+// renamed.
+func (a *Agent) accountsFromLimits(limits []api.DiskLimit) {
+	a.createMu.Lock()
+	defer a.createMu.Unlock()
+	for _, l := range limits {
+		for _, id := range l.Servers {
+			if _, err := a.db.Exec(`UPDATE servers SET account = ? WHERE id = ? AND account = ''
+				AND NOT EXISTS (SELECT 1 FROM servers o WHERE o.account = ? AND lower(o.name) = lower(servers.name))`, l.ID, id, l.ID); err != nil {
+				a.log.Warn("could not record the account of a server in a disk limit", "server", id, "limit", l.ID, "err", err)
+			}
+		}
+	}
 }
 
 // cpuCapIn is server id's processor cap under limits, in billionths of a

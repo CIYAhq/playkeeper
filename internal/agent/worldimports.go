@@ -1136,7 +1136,7 @@ func (a *Agent) hWorldImportCreate(w http.ResponseWriter, r *http.Request) {
 		o.VersionID, o.MinecraftVersion, o.PaperBuild, o.JarSHA256 = minecraft.VersionID(p.Version.World), p.Version.World, 0, ""
 		original = &o
 	}
-	_, op, err := a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
+	_, op, err := a.addServer(newServerSpec{name: name, account: imp.limit, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		if imp.limit != "" {
 			if err := a.joinDiskLimit(imp.limit, s.id); err != nil {
 				a.log.Warn("a server made from an upload couldn't join its disk limit", "server", s.id, "limit", imp.limit, "err", err)

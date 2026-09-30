@@ -268,13 +268,7 @@ func (s *server) startLoops() {
 }
 
 func newServerID() string {
-	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
-	b := make([]byte, 10)
-	_, _ = rand.Read(b)
-	for i := range b {
-		b[i] = alphabet[int(b[i])%len(alphabet)]
-	}
-	return string(b)
+	return randomLetters(10)
 }
 
 // validName checks a server name: 1 to 32 printable characters.
@@ -318,24 +312,45 @@ func slugFor(name string) string {
 	return out
 }
 
-// uniqueSlug and uniqueName pick a slug or name not used by another server.
-// A slug is not used by a server the dashboard shows from another machine
-// either (see hSlugsElsewhere).
+// uniqueSlug picks base, or base with a few random letters and digits after
+// it while another server has base: a number would tell a customer how
+// many servers have it. A slug is not used by a server the dashboard shows
+// from another machine either (see hSlugsElsewhere).
 func (a *Agent) uniqueSlug(base string) string {
 	elsewhere := a.slugsElsewhere()
-	for i := 1; ; i++ {
-		s := base
-		if i > 1 {
-			s = fmt.Sprintf("%s-%d", base, i)
-		}
-		if elsewhere[s] {
-			continue
-		}
+	free := func(s string) bool {
 		var n int
-		if a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE slug = ?`, s).Scan(&n) == nil && n == 0 {
+		return !elsewhere[s] && a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE slug = ?`, s).Scan(&n) == nil && n == 0
+	}
+	if free(base) {
+		return base
+	}
+	letters := a.opts.SlugLetters
+	if letters == nil {
+		letters = randomSlugLetters
+	}
+	for try := 1; try <= 100; try++ {
+		if s := base + "-" + letters(try); free(s) {
 			return s
 		}
 	}
+	return base + "-" + randomLetters(10)
+}
+
+// randomSlugLetters is what a slug another server has gets after it: a few
+// random letters and digits, whatever the try.
+func randomSlugLetters(int) string { return randomLetters(4) }
+
+// randomLetters is n random lower-case letters and digits, none easily
+// taken for another.
+func randomLetters(n int) string {
+	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return string(b)
 }
 
 // kvSlugsElsewhere holds the slugs of the servers the dashboard shows from
@@ -399,10 +414,37 @@ func (a *Agent) slugsElsewhere() map[string]bool {
 	return out
 }
 
-func (a *Agent) nameTaken(name, except string) bool {
+// nameTaken reports whether a server of account, other than except, has
+// name. Names are unique within an account, a customer's servers (see
+// api.CreateServerRequest), so a customer never learns another's.
+func (a *Agent) nameTaken(name, except, account string) bool {
 	var n int
-	_ = a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE lower(name) = lower(?) AND id != ?`, name, except).Scan(&n)
+	_ = a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE lower(name) = lower(?) AND id != ? AND account = ?`, name, except, account).Scan(&n)
 	return n > 0
+}
+
+// errNameTaken refuses name, which a server of account has.
+func errNameTaken(name, account string) error {
+	if account != "" {
+		return errConflict(fmt.Sprintf("You already have a server named %q.", name), "Pick another name.")
+	}
+	return errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+}
+
+// accountOf is the account server id is one of, or "".
+func (a *Agent) accountOf(id string) string {
+	var account string
+	_ = a.db.QueryRow(`SELECT account FROM servers WHERE id = ?`, id).Scan(&account)
+	return account
+}
+
+// validAccount checks an account a request names: a disk limit's id, or
+// empty for none.
+func validAccount(account string) error {
+	if account != "" && !reDiskLimitID.MatchString(account) {
+		return errInvalid("An account is named by its disk limit.")
+	}
+	return nil
 }
 
 // idTaken reports whether a server moved in may not have id here: one of
@@ -426,16 +468,8 @@ func (a *Agent) slugTaken(slug string) bool {
 	return a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE slug = ?`, slug).Scan(&n) != nil || n > 0
 }
 
-func (a *Agent) defaultName() string {
-	for i := 1; ; i++ {
-		n := "My server"
-		if i > 1 {
-			n = fmt.Sprintf("My server %d", i)
-		}
-		if !a.nameTaken(n, "") {
-			return n
-		}
-	}
+func (a *Agent) defaultName(account string) string {
+	return a.uniqueName("My server", account)
 }
 
 // Memory and ports.
@@ -502,6 +536,8 @@ type newServerSpec struct {
 	// gives a new id, and a slug from the name.
 	id, slug string
 	name     string
+	// account is the one it's one of (see nameTaken).
+	account  string
 	typ      string
 	config   api.ServerConfig
 	desired  string
@@ -528,9 +564,9 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 	}
 	name := spec.name
 	if name == "" {
-		name = a.defaultName()
-	} else if a.nameTaken(name, "") {
-		return nil, nil, errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+		name = a.defaultName(spec.account)
+	} else if a.nameTaken(name, "", spec.account) {
+		return nil, nil, errNameTaken(name, spec.account)
 	}
 	if err := a.validMemory(spec.config.MemoryMB, ""); err != nil {
 		return nil, nil, err
@@ -562,8 +598,8 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 		return nil, nil, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, api.GameMinecraftJava, spec.typ, layoutV2, port, string(cfgJSON), spec.desired, pos, now.UnixMilli(), now.UnixMilli()); err != nil {
+	if _, err := tx.Exec(`INSERT INTO servers(id, name, slug, account, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, spec.account, api.GameMinecraftJava, spec.typ, layoutV2, port, string(cfgJSON), spec.desired, pos, now.UnixMilli(), now.UnixMilli()); err != nil {
 		return nil, nil, err
 	}
 	if spec.record != nil {

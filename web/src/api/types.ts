@@ -2311,6 +2311,33 @@ export interface SellerMonth {
   kept: number
 }
 
+/** A seller's store as they price it: its hosting plans, whether Open the store is theirs to press, and what's wrong with Playkeeper's share once a price changed, if anything. */
+export interface SellerPrices {
+  plans: SellerPrice[]
+  canOpen: boolean
+  problem?: string
+}
+
+/** One hosting plan as its seller prices it: its monthly price in its currency's smallest unit, the floor and Playkeeper's share in US cents, whether its price can be set here, and what keeps it from selling. */
+export interface SellerPrice {
+  id: string
+  title: string
+  servers: number
+  memoryMB: number
+  price: number
+  currency: string
+  floor: number
+  share: number
+  settable: boolean
+  problem?: string
+}
+
+/** What pressing Open the store did: whether the store is open now, and if not, why it's still closed. */
+export interface SellerOpened {
+  open: boolean
+  why?: string
+}
+
 export interface TeamInvite extends Invite {
   canEdit: boolean
 }

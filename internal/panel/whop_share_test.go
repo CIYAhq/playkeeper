@@ -237,7 +237,9 @@ func TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	paid := func(memoryMB int) error { return e.srv.whopSharePaid(t.Context(), c, st, "mem_1", memoryMB) }
+	paid := func(memoryMB int) error {
+		return e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_1", memoryMB)
+	}
 	money := func(amount, currency string) map[string]any {
 		return map[string]any{"amount": amount, "currency": currency, "decimals": 2}
 	}
@@ -278,6 +280,11 @@ func TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare(t *testing.T
 	pay("pay_good", share("8.50", "usd"))
 	if err := paid(4096); err != nil {
 		t.Fatalf("a payment that carried the share: %v", err)
+	}
+	var amount, shared int64
+	e.srv.db.QueryRow(`SELECT amount, share FROM whop_payments WHERE payment_id = 'pay_good' AND whop_user_id = 'user_alex'`).Scan(&amount, &shared)
+	if amount != 1200 || shared != 850 {
+		t.Fatalf("pay_good kept for the seller's view: %d paid, %d shared", amount, shared)
 	}
 	if err := paid(8192); err == nil || !strings.Contains(err.Error(), "$17.00") {
 		t.Fatalf("the same payment for an 8 GB plan: %v", err)

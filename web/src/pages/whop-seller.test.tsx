@@ -52,7 +52,7 @@ describe('a seller’s page inside Whop', () => {
     const text = await render('biz_other')
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/open')
     expect(text).toContain('Other Hosting is connected. Playkeeper Cloud runs its customers’ servers.')
-    expect(text).toContain('Next, you’ll set your prices and open the store here.')
+    expect(text).toContain('Reading your plans from Whop…')
     expect(text).toContain('Selling through Playkeeper Cloud follows its seller terms.')
     expect(termsLink()?.getAttribute('target')).toBe('_blank')
   })
@@ -87,13 +87,17 @@ describe('a seller’s page inside Whop', () => {
     expect(await render('biz_other')).toContain('Open this page from your Whop dashboard, which tells Playkeeper who you are.')
   })
 
-  it('shows the seller’s view of the store once it’s open, read through a relative address', async () => {
+  it('shows the seller’s prices and view of the store once it’s open, read through relative addresses', async () => {
     vi.mocked(client.post).mockResolvedValueOnce({ store: { id: 'biz_other', title: 'Other Hosting' }, new: true })
-    vi.mocked(client.get).mockResolvedValueOnce({ store: { id: 'biz_other', title: 'Other Hosting', state: 'closed', why: 'Not open yet' }, plans: [], customers: [], earnings: [] })
+    const prices = { plans: [], canOpen: true }
+    const view = { store: { id: 'biz_other', title: 'Other Hosting', state: 'closed', why: 'Not open yet' }, plans: [], customers: [], earnings: [] }
+    vi.mocked(client.get).mockImplementation((path: string) => Promise.resolve(path.endsWith('/prices') ? prices : view))
     await render('biz_other')
     await act(async () => {})
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/prices')
     expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other')
     const text = document.body.textContent ?? ''
+    expect(text).toContain('Open the store')
     expect(text).toContain('Your store isn’t taking orders.Not open yet')
     expect(text).toContain('No customers yet.')
   })

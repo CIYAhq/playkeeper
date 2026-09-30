@@ -3011,6 +3011,20 @@ shcontrol "a shard runs the tests a panic kept from starting" scripts/go-test-sh
   'todo=$(grep -vxF -e "$started" <<<"$todo" || true)' \
   'todo=' \
   scripts/go-test-shard_test.sh
+shcontrol "a module download the proxy dropped is tried again" scripts/net-retry.sh \
+  "transient='stream error|" \
+  "transient='" \
+  scripts/net-retry_test.sh
+# shellcheck disable=SC2016
+shcontrol "only a network error is tried again" scripts/net-retry.sh \
+  ' || ! grep -Eq "$transient" "$log"; then' \
+  '; then' \
+  scripts/net-retry_test.sh
+# shellcheck disable=SC2016
+shcontrol "setup.sh tries the module download again after a network error" scripts/setup.sh \
+  '"$root/scripts/net-retry.sh" go mod download' \
+  'go mod download' \
+  scripts/setup_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
@@ -4894,6 +4908,22 @@ control "looking for copies in a missing folder doesn't say to create it" intern
   'if op == opList {' \
   'if false && op == opList {' \
   ./internal/offsite '^TestSFTPList$'
+control "a connection to the storage service that stalls says so" internal/offsite/errors.go \
+  '	case errors.Is(err, errStalled):' \
+  '	case false:' \
+  ./internal/offsite '^TestUploadStalled$'
+control "a storage service with no answer in time says so" internal/offsite/errors.go \
+  '	case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout():' \
+  '	case false && (errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout()):' \
+  ./internal/offsite '^TestTransportErrors$'
+control "a storage service that refuses the connection says so" internal/offsite/errors.go \
+  '	case errors.Is(err, syscall.ECONNREFUSED):' \
+  '	case false:' \
+  ./internal/offsite '^TestTransportErrors$'
+control "an SFTP port nothing listens on says so" internal/offsite/ssh.go \
+  '	case errors.Is(err, syscall.ECONNREFUSED):' \
+  '	case false:' \
+  ./internal/offsite '^TestSFTPConnectErrors$'
 control "a copy says the rules removed its backup only when they did" internal/agent/offsite.go \
   'case removedBy == retentionActor:' \
   'case false:' \
@@ -5278,10 +5308,106 @@ control "every server in the list has its own slug" internal/panel/workspace.go 
   's.stableSlugs(ctx, out, list)' \
   '' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
-control "a duplicate's number skips slugs another server has" internal/panel/workspace.go \
-  'if next := fmt.Sprintf("%s-%d", base, i); !taken[next] && !avoid[next] {' \
-  'if next := fmt.Sprintf("%s-%d", base, i); true {' \
+control "a duplicate's letters skip slugs another server has" internal/panel/workspace.go \
+  'if next := base + "-" + letters(try); !taken[next] && !avoid[next] {' \
+  'if next := base + "-" + letters(try); true {' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "names per customer: a duplicate slug the dashboard shows gets random letters, not a number" internal/panel/workspace.go \
+  'letters = func(int) string { return randomLetters(4) }' \
+  'letters = func(try int) string { return fmt.Sprint(try + 1) }' \
+  ./internal/panel '^TestADuplicateSlugGetsRandomLettersNotANumber$'
+control "names per customer: a creator's new server is in their account" internal/panel/creators.go \
+  'if !ok || !withAccount(w, r, accountLimit(a.UserID)) {' \
+  'if !ok || !withAccount(w, r, "") {' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: anyone else's new server is in no account, whatever the browser sent" internal/panel/creators.go \
+  '		if withAccount(w, r, "") {
+			s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)(w, r, sess)' \
+  '		if true {
+			s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)(w, r, sess)' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: the account the browser sent goes in any spelling" internal/panel/creators.go \
+  'if strings.EqualFold(k, "account") {' \
+  'if strings.EqualFold(k, "account") && k == "account" {' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: a server moved in is in its customer's account" internal/panel/moves.go \
+  'Account: accountLimit(mv.userID), ' \
+  '' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "names per customer: a server's name differs only from its account's" internal/agent/servers.go \
+  'WHERE lower(name) = lower(?) AND id != ? AND account = ?`, name, except, account)' \
+  'WHERE lower(name) = lower(?) AND id != ? AND ? = ?`, name, except, account, account)' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a customer is told the name is one of their own servers'" internal/agent/servers.go \
+  '	if account != "" {
+		return errConflict(fmt.Sprintf("You already have a server named %q.", name), "Pick another name.")' \
+  '	if false {
+		return errConflict(fmt.Sprintf("You already have a server named %q.", name), "Pick another name.")' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: an account is named by its disk limit" internal/agent/servers.go \
+  'if account != "" && !reDiskLimitID.MatchString(account) {' \
+  'if false {' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a new server keeps its account" internal/agent/servers.go \
+  'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, spec.account,' \
+  'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, "",' \
+  ./internal/agent '^(TestServerNamesAreUniqueForEachAccount|TestAWorldForANewServerCountsAgainstItsDiskLimit)$'
+control "names per customer: a server created is in the account its request names" internal/agent/handlers.go \
+  'newServerSpec{name: name, account: req.Account, typ: typ,' \
+  'newServerSpec{name: name, typ: typ,' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a rename's name differs only from its server's account's" internal/agent/handlers.go \
+  'if account := s.accountOf(s.id); s.nameTaken(name, s.id, account) {' \
+  'if account := ""; s.nameTaken(name, s.id, account) {' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a server restored from a customer's upload is in their account" internal/agent/backups.go \
+  'newServerSpec{name: name, account: st.limit, actor: actor}' \
+  'newServerSpec{name: name, actor: actor}' \
+  ./internal/agent '^TestAServerFromACustomersUploadIsOneOfTheirs$'
+control "names per customer: a restored server's backup name is numbered among its account's alone" internal/agent/backups.go \
+  'name = a.uniqueName(n, st.limit)' \
+  'name = a.uniqueName(n, "")' \
+  ./internal/agent '^TestAServerFromACustomersUploadIsOneOfTheirs$'
+control "names per customer: a server made from a customer's world is in their account" internal/agent/worldimports.go \
+  'newServerSpec{name: name, account: imp.limit,' \
+  'newServerSpec{name: name,' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "names per customer: a server moved in is in the account the move names" internal/agent/movein.go \
+  'name: name, account: req.Account, actor: actor, record: offThePage},' \
+  'name: name, actor: actor, record: offThePage},' \
+  ./internal/agent '^TestACustomersServerMovedInKeepsItsNameBesideAnothers$'
+control "names per customer: a server made before accounts takes its disk limit's" internal/agent/disklimits.go \
+  '	a.accountsFromLimits(limits)
+' \
+  '' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountFromItsDiskLimit$'
+control "names per customer: a server made in an account keeps it" internal/agent/disklimits.go \
+  'UPDATE servers SET account = ? WHERE id = ? AND account = '"''"'' \
+  'UPDATE servers SET account = ? WHERE id = ? AND '"''"' = '"''"'' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountFromItsDiskLimit$'
+control "names per customer: an older server takes its account as the agent starts" internal/agent/agent.go \
+  '	a.accountsFromLimits(a.diskLimits())
+' \
+  '' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountAsTheAgentStarts$'
+control "names per customer: an older server stays out of an account that has its name" internal/agent/disklimits.go \
+  'AND NOT EXISTS (SELECT 1 FROM servers o WHERE o.account = ? AND lower(o.name) = lower(servers.name))`' \
+  'AND ? != '"''"'`' \
+  ./internal/agent '^TestAnOlderServerJoinsItsAccountOnlyWithANameOfItsOwn$'
+control "names per customer: older servers take their accounts between creates" internal/agent/disklimits.go \
+  '	a.createMu.Lock()
+	defer a.createMu.Unlock()
+	for _, l := range limits {' \
+  '	for _, l := range limits {' \
+  ./internal/agent '^TestOlderServersTakeTheirAccountsBetweenCreates$'
+control "names per customer: a taken slug's letters skip slugs another server has" internal/agent/servers.go \
+  'if s := base + "-" + letters(try); free(s) {' \
+  'if s := base + "-" + letters(try); true {' \
+  ./internal/agent '^TestATakenSlugGetsLettersNotACount$'
+control "names per customer: a taken slug gets random letters, not a number" internal/agent/servers.go \
+  '		letters = randomSlugLetters' \
+  '		letters = func(try int) string { return fmt.Sprint(try + 1) }' \
+  ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 control "a joined machine that can't answer holds up no team change" internal/panel/join.go \
   'all, _, err := s.allServers(ctx)
 	if err != nil {
@@ -6053,8 +6179,8 @@ control "the dashboard's machine hears the slugs shown for other machines' serve
   'if list == s.toldSlugs.list || true {' \
   ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
 control "a new server gets none of the slugs shown for other machines' servers" internal/agent/servers.go \
-  'if elsewhere[s] {' \
-  'if false && elsewhere[s] {' \
+  'return !elsewhere[s] && a.db.QueryRow(' \
+  'return (!elsewhere[s] || true) && a.db.QueryRow(' \
   ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 control "the dashboard can only hold back slugs a server could have" internal/agent/servers.go \
   'if !reSlug.MatchString(s) {' \
@@ -8144,16 +8270,16 @@ control "stores: the key store's delivery kicks the key store alone" internal/pa
   's.kickWhop()' \
   ./internal/panel '^TestAKickHurriesItsOwnStoresPass$'
 control "stores: an app store whose grant is gone changes nothing" internal/panel/whop_customers.go \
-  'if problem := whopGrantProblem(ctx, c, st); problem != "" {' \
-  'if problem := whopGrantProblem(ctx, c, st); false && problem != "" {' \
+  'lost, problem := whopGrantProblem(ctx, c, st)' \
+  'lost, problem := whopGrantProblem(ctx, c, st); problem = ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a read the app's grant lacks is why a store changes nothing" internal/panel/whop_stores.go \
   'if slices.Contains(whopStoreReads, a) {' \
   'if false && slices.Contains(whopStoreReads, a) {' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a grant that can't be checked changes nothing" internal/panel/whop_stores.go \
-  "return \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
-  'return ""' \
+  "return nil, \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
+  'return nil, ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a store that needed a look is read again once it can be" internal/panel/whop_customers.go \
   'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
@@ -8400,8 +8526,8 @@ control "share paid: the membership's latest payment" internal/panel/whop_share.
   'pay := pays[len(pays)-1]' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "share paid: Whop is asked for the newest payments" internal/whop/payments.go \
-  '"order": {"paid_at"}, "direction": {"desc"}, ' \
-  '' \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(paymentsRead)}}' \
+  '"first": {strconv.Itoa(paymentsRead)}}' \
   ./internal/whop '^TestPaidPaymentsAreAMembershipsNewestFirst$'
 control "share paid: the newest payment comes first whatever order Whop answers in" internal/whop/payments.go \
   'return b.paidAt().Compare(a.paidAt())' \
@@ -8419,6 +8545,83 @@ control "share user: stays while a store pays them" internal/panel/whop_share.go
   'SELECT user_id FROM whop_partners WHERE user_id != ? LIMIT 1' \
   'SELECT user_id FROM whop_partners WHERE user_id != ? AND 0 LIMIT 1' \
   ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
+
+# Where the store's pass meets Playkeeper's share (the hosted blueprint's
+# 2.2, internal/panel/whop_share_hooks.go): a bad share closes an open
+# store, at once for the rest of its pass, until it's right, when it opens
+# for that reason alone, and after three days the store leaves; a store not
+# open yet has no share checked; a week without the grant and the store
+# leaves, a grant back starting the week again and one Whop couldn't check
+# counting neither way; and a customer starts, or their plan grows, only on
+# payments that carried the share.
+control "share hooks: a bad share closes the store" internal/panel/whop_share_hooks.go \
+  'if err := s.closeWhopStore(ctx, st.ID, whopShareClosed, problem); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: the rest of the pass sees the store closed" internal/panel/whop_share_hooks.go \
+  'st.ClosedWhy = fresh.ClosedWhy' \
+  '_ = fresh' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: a share set right opens the store for that reason alone" internal/panel/whop_share_hooks.go \
+  's.openWhopStore(ctx, st.ID, whopShareClosed)' \
+  's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: three days of a bad share and the store leaves" internal/panel/whop_share_hooks.go \
+  's.now().Sub(since) >= whopShareGrace' \
+  's.now().Sub(since) >= 1000*whopShareGrace' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: a store not open yet has no share checked" internal/panel/whop_share_hooks.go \
+  'if err != nil || notOpen {' \
+  'if err != nil || (notOpen && false) {' \
+  ./internal/panel '^TestAStoreNotOpenYetHasNoShareChecked$'
+control "grant watch: a week without the grant and the store leaves" internal/panel/whop_share_hooks.go \
+  's.now().Sub(since) < whopGrantGrace' \
+  's.now().Sub(since) < 1000*whopGrantGrace' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "grant watch: a grant back starts the week again" internal/panel/whop_share_hooks.go \
+  'case problem == "":' \
+  'case false:' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "grant watch: a grant Whop couldn't check counts neither way" internal/panel/whop_share_hooks.go \
+  'case problem == "":' \
+  'default:' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "payment check: before a customer starts" internal/panel/whop_customers.go \
+  'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
+  's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
+  '_ = whopUserID' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "payments: renewals are read on the share check's schedule" internal/panel/whop_share_hooks.go \
+  's.whopReadPayments(ctx, c, *st)' \
+  '' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a refund keeps its payment again" internal/panel/whop_share_hooks.go \
+  'pays = append(pays, pay)' \
+  '_ = pay' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: only the hosting products' payments are kept" internal/panel/whop_share_hooks.go \
+  'if _, ok := hosting[pay.ProductID]; !ok {' \
+  'if _, ok := hosting[pay.ProductID]; !ok && false {' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: Whop is asked for a store's payments newest paid first" internal/whop/payments.go \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
+  '"first": {strconv.Itoa(100)}}' \
+  ./internal/whop '^TestPaymentsAndRefundsSinceATime$'
+control "payments: one paid since the last read is read, however long ago it was made" internal/whop/payments.go \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}, "created_after": {since.UTC().Format(time.RFC3339)}}' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a refund still unsettled is read again once it settles" internal/panel/whop_share_hooks.go \
+  'r.Unsettled() && !at.IsZero()' \
+  'false && r.Unsettled() && !at.IsZero()' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
+  'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.
@@ -8828,18 +9031,22 @@ control "seller view: a store that isn't open here has no view" internal/panel/s
   'case errors.Is(err, errNoSellerView):' \
   'case false:' \
   ./internal/panel '^TestASellersPageReadsTheirStoresView$'
-control "seller view: the view is read only by GET, and the store opened only by POST" internal/panel/whop_sellerpage.go \
-  'if r.Method != method {' \
-  'if false {' \
+control "seller view: each of the seller's page's calls answers only by its own method" internal/panel/whop_sellerpage.go \
+  'answer := methods[r.Method]' \
+  'answer := methods[r.Method]; for _, a := range methods { answer = a }' \
   ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
-control "seller view: nothing under a store's address answers but its open" internal/panel/whop_sellerpage.go \
-  '!reWhopID.MatchString(store) || sub && action != "open" {' \
-  '!reWhopID.MatchString(store) || sub && len(action) < 0 {' \
+control "seller view: a call the seller's page doesn't make isn't answered" internal/panel/whop_sellerpage.go \
+  '!reWhopID.MatchString(store) || !known || sub && action == "" {' \
+  '!reWhopID.MatchString(store) || !known && false || sub && action == "" {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
+control "seller view: nothing under the view's own address answers" internal/panel/whop_sellerpage.go \
+  '!reWhopID.MatchString(store) || !known || sub && action == "" {' \
+  '!reWhopID.MatchString(store) || !known || sub && len(action) < 0 {' \
   ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
 webcontrol "seller view: the seller's page shows the view once the store is open" web/src/pages/whop-seller.tsx \
-  '<SellerStoreView store={store} />' \
+  '<SellerStoreView key={viewed} store={store} />' \
   '' \
-  src/pages/whop-seller.test.tsx 'read through a relative address'
+  src/pages/whop-seller.test.tsx 'read through relative addresses'
 
 # Seller terms (the hosted blueprint's 3.3): the seller's page links
 # Playkeeper Cloud's seller terms where it asks the business to approve the
@@ -8852,6 +9059,143 @@ webcontrol "seller terms: the seller's page links the terms once the store is co
   "{rich('whopSeller.terms', { link: termsLink })}" \
   '' \
   src/pages/whop-seller.test.tsx 'opens the store through a relative address'
+
+# A seller's prices and Open the store (internal/panel/sellerprices.go, the
+# hosted blueprint's 2.3): only the business's team, from its page, prices
+# and opens its store, and not while it's suspended or gone. A price is at
+# least $12 a month for each 4 GB, set on a plan renewing monthly in US
+# dollars, and an open store's share follows it. Open the store needs every
+# hosting plan to sell as it is, sets Playkeeper's share first, putting
+# right one that pays too little, marks the hosting products for the store
+# site, and only then opens the store, for its seller's reason alone.
+control "seller prices: a call comes from the seller's page itself" internal/panel/sellerprices.go \
+  'if !fromSellerPage(r) {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
+control "seller prices: only the business's team calls, with Whop's token" internal/panel/sellerprices.go \
+  'user, err := s.sellerAuth(r, store)' \
+  'user, err := "user_otherowner", error(nil)' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
+control "seller prices: a suspended store doesn't change" internal/panel/sellerprices.go \
+  'case change && !st.SuspendedAt.IsZero():' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a store that left doesn't change" internal/panel/sellerprices.go \
+  'case change && !st.LeftAt.IsZero():' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: the floor is twelve dollars a month for each 4 GB" internal/panel/sellerprices.go \
+  'const whopFloorPer4GB = 1200' \
+  'const whopFloorPer4GB = 1100' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a price is in whole cents" internal/panel/sellerprices.go \
+  '(?:\.([0-9]{1,2}))?$' \
+  '(?:\.([0-9]{1,3}))?$' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a price is at or above the floor" internal/panel/sellerprices.go \
+  'case price < sp.Floor:' \
+  'case false:' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a price is set only on a plan renewing monthly in US dollars" internal/panel/sellerprices.go \
+  'case !sp.Settable:' \
+  'case false:' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: the price the seller set reaches Whop" internal/panel/sellerprices.go \
+  'c.SetPlanPrice(ctx, sp.ID, float64(price)/100)' \
+  'c.SetPlanPrice(ctx, sp.ID, float64(sp.Price)/100)' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: an open store's share follows a new price at once" internal/panel/sellerprices.go \
+  'case len(set) > 0:' \
+  'case len(set) < 0:' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: a plan priced in another currency doesn't sell" internal/panel/sellerprices.go \
+  'case !usd:' \
+  'case false:' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a plan that doesn't renew monthly doesn't sell" internal/panel/sellerprices.go \
+  'case !monthly:' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a plan with a free trial doesn't sell" internal/panel/sellerprices.go \
+  'case p.TrialDays > 0:' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a plan under the floor doesn't sell" internal/panel/sellerprices.go \
+  'case least < sp.Floor:' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
+  'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'CanOpen: st.ClosedWhy != ""' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store needs every hosting plan to sell as it is" internal/panel/sellerprices.go \
+  'case len(problems) > 0:' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store sets Playkeeper's share" internal/panel/sellerprices.go \
+  'problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  'problem, err := "", error(nil)' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: Open the store puts right a share that pays too little" internal/panel/sellerprices.go \
+  's.syncWhopShares(ctx, c, st, true)' \
+  's.syncWhopShares(ctx, c, st, false)' \
+  ./internal/panel '^TestOpenTheStorePutsRightAShareThatPaysTooLittle$'
+control "seller prices: a problem with the shares keeps the store closed" internal/panel/sellerprices.go \
+  'if problem != "" {' \
+  'if false {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store marks the hosting products for the store site" internal/panel/sellerprices.go \
+  'meta, differs := whop.WithSeller(p.Metadata, dash, st.ID)' \
+  'meta, differs := p.Metadata, false' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: only the hosting products are marked" internal/panel/sellerprices.go \
+  'if !hosting[p.ID] {' \
+  'if false {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: the store opens only once its products are marked" internal/panel/sellerprices.go \
+  'if err := s.markHostedProducts(ctx, c, st, plans); err != nil {' \
+  'if err := s.markHostedProducts(ctx, c, st, plans); false && err != nil {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store makes the hosting plans visible" internal/panel/sellerprices.go \
+  'if err := showHostedPlans(ctx, c, plans); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: only the hosting plans are made visible" internal/panel/sellerprices.go \
+  'if _, ok := sellerPriceOf(p); !ok || p.Visibility == "visible" {' \
+  'if p.Visibility == "visible" {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: the store opens only once its plans are visible" internal/panel/sellerprices.go \
+  'if err := showHostedPlans(ctx, c, plans); err != nil {' \
+  'if err := showHostedPlans(ctx, c, plans); false && err != nil {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: the plans are made visible only once the shares are set" internal/panel/sellerprices.go \
+  'problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  '_ = showHostedPlans(ctx, c, plans); problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: the plans are made visible only once the products are marked" internal/panel/sellerprices.go \
+  'if err := s.markHostedProducts(ctx, c, st, plans); err != nil {' \
+  '_ = showHostedPlans(ctx, c, plans); if err := s.markHostedProducts(ctx, c, st, plans); err != nil {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Whop is asked to make a plan visible" internal/whop/store.go \
+  'map[string]any{"visibility": "visible"}' \
+  'map[string]any{"visibility": "hidden"}' \
+  ./internal/whop '^TestShowPlanMakesItVisible$'
+control "seller prices: Open the store opens its seller's reason alone" internal/panel/sellerprices.go \
+  's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
+  's.openWhopStore(ctx, st.ID, "share")' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+webcontrol "seller prices: the page sends the price the seller typed" web/src/pages/whop-seller-prices.tsx \
+  '{ plan: p.id, price: value.trim() }' \
+  '{ plan: p.id, price: typed(p.price) }' \
+  src/pages/whop-seller-prices.test.tsx 'saves a new price'
+webcontrol "seller prices: the page offers Open the store only while the store can open" web/src/pages/whop-seller-prices.tsx \
+  '{prices.canOpen && (' \
+  '{(' \
+  src/pages/whop-seller-prices.test.tsx 'offers no Open the store'
+webcontrol "seller prices: Open the store goes once the store opened" web/src/pages/whop-seller-prices.tsx \
+  'setPrices((v) => v && { ...v, canOpen: !done.open })' \
+  'setPrices((v) => v)' \
+  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
@@ -10274,6 +10618,170 @@ webcontrol "confirming by itself: the Customers card says it was found in the He
   "return found ? t('machines.customers.foundHint', { server: found, date }) :" \
   "return false ? t('machines.customers.foundHint', { server: found, date }) :" \
   src/pages/pages.test.tsx 'confirmed a joined machine itself'
+# Playkeeper Cloud's page on playkeeper.io (internal/panel/cloudplans.go):
+# the dashboard's own store's paid plans, each available or sold out.
+control "the Cloud page: its answer is public" internal/panel/public.go \
+  '{prefix: cloudPlansPath, limits: cloudPlansLimits, cache: cloudPlansCache, handler: http.HandlerFunc(s.hCloudPlans)},' \
+  '' \
+  ./internal/panel '^TestTheCloudPage'
+control "the Cloud page: only the dashboard's own store's plans" internal/panel/cloudplans.go \
+  'WHERE st.via = ? AND st.taken_over_by' \
+  'WHERE (st.via = ? OR 1) AND st.taken_over_by' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: not a store another dashboard took over" internal/panel/cloudplans.go \
+  "AND st.taken_over_by = '' AND p.free = 0" \
+  'AND p.free = 0' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: only paid plans" internal/panel/cloudplans.go \
+  'AND p.free = 0 AND p.visibility' \
+  'AND p.visibility' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: no archived plan" internal/panel/cloudplans.go \
+  "AND p.visibility != 'archived' AND p.allowance_from" \
+  'AND p.allowance_from' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: a plan with no stock left is sold out" internal/panel/cloudplans.go \
+  'p.unlimited_stock OR p.stock > 0' \
+  'p.unlimited_stock OR p.stock >= 0' \
+  ./internal/panel '^TestTheCloudPageHearsWhichPlansAreSoldOut$'
+control "the Cloud page: a plan the room hasn't limited is available" internal/panel/cloudplans.go \
+  'p.unlimited_stock OR p.stock > 0' \
+  '0 OR p.stock > 0' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: any site may ask" internal/panel/cloudplans.go \
+  'w.Header().Set("Access-Control-Allow-Origin", "*")' \
+  '' \
+  ./internal/panel '^TestTheCloudPageHearsWhichPlansAreSoldOut$'
+# Watching the fleet (internal/panel/fleetwatch.go): a joined machine off
+# for 5 minutes and back, room for fewer than 2 Starters across every store,
+# a disk past 75%, a machine busy at its busiest hour three days running,
+# and a server lagging with players on, posted by the dashboard's agent
+# whatever the switches say, and only by a dashboard with a fleet.
+control "fleet watch: a dashboard without a store or joined machines watches nothing" internal/panel/fleetwatch.go \
+  'if len(plans) == 0 && !slices.ContainsFunc(list, func(m machine) bool { return m.Kind == remoteKind }) {' \
+  'if false && len(plans) == 0 && !slices.ContainsFunc(list, func(m machine) bool { return m.Kind == remoteKind }) {' \
+  ./internal/panel '^TestADashboardWithoutAFleetPostsNothingAboutIt$'
+control "fleet watch: a look that can't read the plans keeps what the watch kept" internal/panel/fleetwatch.go \
+  '		s.log.Warn("could not read the plans on sale to watch the fleet", "err", err)
+		return' \
+  '		s.log.Warn("could not read the plans on sale to watch the fleet", "err", err)' \
+  ./internal/panel '^TestALookThatCantReadThePlansKeepsWhatTheWatchKept$'
+control "fleet watch: a machine that doesn't answer holds up no look" internal/panel/fleetwatch.go \
+  'ctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)' \
+  'ctx, cancel := context.WithCancel(ctx)' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerHoldsUpNoLook$'
+control "fleet watch: a machine is posted off only after 5 minutes" internal/panel/fleetwatch.go \
+  'case !online && !f.offPosted[m.ID] && now.Sub(since) >= fleetOffAfter:' \
+  'case !online && !f.offPosted[m.ID] && now.Sub(since) >= 0:' \
+  ./internal/panel '^TestAMachineOffTheDashboardForFiveMinutesIsPostedAndSoIsItsReturn$'
+control "fleet watch: a machine off is posted once" internal/panel/fleetwatch.go \
+  'case !online && !f.offPosted[m.ID] && now.Sub(since) >= fleetOffAfter:' \
+  'case !online && now.Sub(since) >= fleetOffAfter:' \
+  ./internal/panel '^TestAMachineOffTheDashboardForFiveMinutesIsPostedAndSoIsItsReturn$'
+control "fleet watch: a machine is posted back only after it was posted off" internal/panel/fleetwatch.go \
+  '		if posted {
+			return []api.DiscordNotifyRequest{{Kind: api.DiscordMachineBack,' \
+  '		if posted || true {
+			return []api.DiscordNotifyRequest{{Kind: api.DiscordMachineBack,' \
+  ./internal/panel '^TestAMachineOffTheDashboardForFiveMinutesIsPostedAndSoIsItsReturn$'
+control "fleet watch: a disk is posted past three quarters full" internal/panel/fleetwatch.go \
+  'case full > fleetDiskFull && !f.full[m.ID]:' \
+  'case full > 90 && !f.full[m.ID]:' \
+  ./internal/panel '^TestADiskFillingPastThreeQuartersIsPostedOnce$'
+control "fleet watch: a filling disk is posted once" internal/panel/fleetwatch.go \
+  'case full > fleetDiskFull && !f.full[m.ID]:' \
+  'case full > fleetDiskFull:' \
+  ./internal/panel '^TestADiskFillingPastThreeQuartersIsPostedOnce$'
+control "fleet watch: a disk is posted again only after it was below 70%" internal/panel/fleetwatch.go \
+  '	case full < fleetDiskClear:
+		delete(f.full, m.ID)' \
+  '	case false:
+		delete(f.full, m.ID)' \
+  ./internal/panel '^TestADiskFillingPastThreeQuartersIsPostedOnce$'
+control "fleet watch: a machine's hour ends when the next begins" internal/panel/fleetwatch.go \
+  'ended := h.n > 0 && !h.hour.Equal(hour)' \
+  'ended := false && h.n > 0 && !h.hour.Equal(hour)' \
+  ./internal/panel '^TestAMachineBusyAtItsPeakThreeDaysRunningIsPosted$'
+control "fleet watch: only a day busier than 70% counts toward the run" internal/panel/fleetwatch.go \
+  '			if p > fleetCPUBusy {' \
+  '			if p > 0 {' \
+  ./internal/panel '^TestAMachineBusyAtItsPeakThreeDaysRunningIsPosted$'
+control "fleet watch: a run of busy days is posted once" internal/panel/fleetwatch.go \
+  'if err := rows.Err(); err != nil || busy < fleetCPUDays || posted {' \
+  'if err := rows.Err(); err != nil || busy < fleetCPUDays {' \
+  ./internal/panel '^TestAMachineBusyAtItsPeakThreeDaysRunningIsPosted$'
+control "fleet watch: a server lagging with nobody on isn't posted" internal/panel/fleetwatch.go \
+  'if players == 0 || mspt <= fleetSlowMSPT {' \
+  'if mspt <= fleetSlowMSPT {' \
+  ./internal/panel '^TestAServerLaggingTenMinutesWithPlayersOnIsPosted$'
+control "fleet watch: a server is posted lagging only after 10 minutes" internal/panel/fleetwatch.go \
+  'now.Sub(r.since) >= fleetSlowFor && (last.IsZero() || now.Sub(last) >= fleetSlowQuiet)' \
+  'now.Sub(r.since) >= 0 && (last.IsZero() || now.Sub(last) >= fleetSlowQuiet)' \
+  ./internal/panel '^TestAServerLaggingTenMinutesWithPlayersOnIsPosted$'
+control "fleet watch: a lagging server is posted at most once a day" internal/panel/fleetwatch.go \
+  'now.Sub(r.since) >= fleetSlowFor && (last.IsZero() || now.Sub(last) >= fleetSlowQuiet)' \
+  'now.Sub(r.since) >= fleetSlowFor && (last.IsZero() || true)' \
+  ./internal/panel '^TestAServerLaggingTenMinutesWithPlayersOnIsPosted$'
+control "fleet watch: room is counted in the smallest paid plan's servers" internal/panel/fleetwatch.go \
+  'if !p.Free && p.MemoryMB > 0 && (size == 0 || p.MemoryMB < size) {' \
+  'if p.MemoryMB > 0 && (size == 0 || p.MemoryMB < size) {' \
+  ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: the customers waiting for room get theirs first" internal/panel/fleetwatch.go \
+  'if mb > 0 && !give(free, mb) {' \
+  'if mb > 0 && false {' \
+  ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: little room is posted once" internal/panel/fleetwatch.go \
+  'case room < fleetRoomLow && !f.low:' \
+  'case room < fleetRoomLow:' \
+  ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: little room is posted again only after there was room for 2" internal/panel/fleetwatch.go \
+  '	case room >= fleetRoomLow:
+		f.low = false' \
+  '	case false:
+		f.low = false' \
+  ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: the fleet's alerts go out whatever the switches say" internal/discord/alerts.go \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks:' \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock:' \
+  ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
+control "fleet watch: a machine's name can't format the alert" internal/discord/alerts.go \
+  '	if name = userText(name, 64); name == "" {
+		return "A machine"' \
+  '	if name == "" {
+		return "A machine"' \
+  ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
+control "fleet watch: a lagging server's name can't format the alert" internal/discord/alerts.go \
+  'if s := userText(e.ServerName, 64); s != "" {' \
+  'if s := e.ServerName; s != "" {' \
+  ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
+control "fleet watch: a fleet alert names its machine" internal/agent/discord.go \
+  'named := machine != "" && len(machine) <= 64' \
+  'named := true || machine != "" && len(machine) <= 64' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a machine is off for some time" internal/agent/discord.go \
+  'discord.MachineOff(machine, req.Minutes), named && in(req.Minutes, 1, maxFleetCount)' \
+  'discord.MachineOff(machine, req.Minutes), named && in(req.Minutes, 0, maxFleetCount)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: little room names a plan's memory" internal/agent/discord.go \
+  'in(req.MemoryMB, 1, maxFleetMemory)' \
+  'in(req.MemoryMB, 0, maxFleetMemory)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a disk is at most full" internal/agent/discord.go \
+  'discord.DiskFilling(machine, req.Percent), named && in(req.Percent, 0, 100)' \
+  'discord.DiskFilling(machine, req.Percent), named && in(req.Percent, 0, 1000)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a busy machine's run has days" internal/agent/discord.go \
+  'in(req.Days, 1, 366)' \
+  'in(req.Days, 0, 366)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a lagging server has a name" internal/agent/discord.go \
+  'err == nil && named && in(req.MSPT, 1, maxFleetCount)' \
+  '(err == nil || true) && named && in(req.MSPT, 1, maxFleetCount)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a lagging server's ticks took some time" internal/agent/discord.go \
+  'err == nil && named && in(req.MSPT, 1, maxFleetCount)' \
+  'err == nil && named && in(req.MSPT, 0, maxFleetCount)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
 webcontrol "room for sale: the card is the owner's alone" web/src/pages/machines.tsx \
   "{can(ws.me, 'machines.customers') && <SaleRoomCard />}" \
   '<SaleRoomCard />' \
@@ -10338,7 +10846,7 @@ control "moving in: it keeps the EULA acceptance, creation time and play style i
   'op, err := a.newFromStage(st, in.spec, in.mem, nil, func(' \
   ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
 control "moving in: a name a server here has gets a number" internal/agent/movein.go \
-  'name = a.uniqueName(name)' \
+  'name = a.uniqueName(name, req.Account)' \
   '_ = name' \
   ./internal/agent '^TestAServerMovedInThatRanThereStartsHere$'
 control "moving in: it keeps its slug" internal/agent/servers.go \
@@ -10668,8 +11176,8 @@ control "moving in: a server keeps Playkeeper's record of the add-ons it install
   '	// {"addons", []string{' \
   ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
 control "moving in: a server is off the public page until its settings arrive" internal/agent/movein.go \
-  'name: name, actor: actor, record: offThePage},' \
-  'name: name, actor: actor},' \
+  'name: name, account: req.Account, actor: actor, record: offThePage},' \
+  'name: name, account: req.Account, actor: actor},' \
   ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
 control "moving out: a move takes the whole folder, not a backup's" internal/agent/moveout.go \
   'backup.CreateWhole(out,' \

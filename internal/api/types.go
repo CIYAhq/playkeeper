@@ -480,7 +480,12 @@ type ServerConfig struct {
 
 type CreateServerRequest struct {
 	// Name is what Playkeeper calls the server; empty picks "My server".
-	Name       string `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Account is the disk limit of the account the server is one of, a
+	// customer's, whose servers' names its must differ from; empty for the
+	// machine's own servers, whose names differ from each other's. Only the
+	// dashboard sets it.
+	Account    string `json:"account,omitempty"`
 	Type       string `json:"type,omitempty"`
 	AcceptEULA bool   `json:"acceptEula"`
 	VersionID  string `json:"versionId"`
@@ -1043,7 +1048,10 @@ type MoveInRequest struct {
 	Name     string `json:"name"`
 	// Slug is the slug it had; one of this machine's servers having it
 	// gives it another.
-	Slug      string `json:"slug,omitempty"`
+	Slug string `json:"slug,omitempty"`
+	// Account is the disk limit of the customer's account it's one of, as
+	// in CreateServerRequest: its name must differ only from theirs.
+	Account   string `json:"account,omitempty"`
 	MemoryMB  int    `json:"memoryMB"`
 	PlayStyle string `json:"playStyle,omitempty"`
 	// Start starts it once its world is in place, as it ran there. One that
@@ -2486,8 +2494,9 @@ type DiscordSettingsRequest struct {
 // DiscordNotifyRequest is an alert the panel reports: a join request
 // (ServerID and Player), a team member turning two-factor sign-in on or
 // off (Member, On, and Admin for an admin), an admin other than the owner
-// (Actor) confirming Member's Admin rights, or machines the owner watches
-// coming into stock (ServerType and Locations).
+// (Actor) confirming Member's Admin rights, machines the owner watches
+// coming into stock (ServerType and Locations), or the fleet's room and
+// health, which the dashboard watches (Machine and the numbers below).
 type DiscordNotifyRequest struct {
 	Kind     string `json:"kind"`
 	ServerID string `json:"serverId,omitempty"`
@@ -2503,7 +2512,22 @@ type DiscordNotifyRequest struct {
 	// names ("cx53", "fsn1"). The agent words the alert and its links.
 	ServerType string   `json:"serverType,omitempty"`
 	Locations  []string `json:"locations,omitempty"`
-	Actor      string   `json:"actor"`
+	// Machine names the machine a fleet alert is about, as the dashboard
+	// shows it. Minutes it's been off, was off, or a server lagged; Percent
+	// its disk's share full or its CPU at its busiest hour, Days running;
+	// Room more servers of MemoryMB each across every store, and Waiting
+	// customers waiting for room; MSPT the milliseconds a tick of ServerName
+	// took, with Players playing.
+	Machine  string `json:"machine,omitempty"`
+	Minutes  int    `json:"minutes,omitempty"`
+	Percent  int    `json:"percent,omitempty"`
+	Days     int    `json:"days,omitempty"`
+	Room     int    `json:"room,omitempty"`
+	MemoryMB int    `json:"memoryMB,omitempty"`
+	Waiting  int    `json:"waiting,omitempty"`
+	MSPT     int    `json:"mspt,omitempty"`
+	Players  int    `json:"players,omitempty"`
+	Actor    string `json:"actor"`
 }
 
 // Kinds of DiscordNotifyRequest.
@@ -2512,6 +2536,12 @@ const (
 	DiscordTwoFactorChanged = "two_factor_changed"
 	DiscordAdminConfirmed   = "admin_confirmed"
 	DiscordInStock          = "in_stock"
+	DiscordMachineOff       = "machine_off"
+	DiscordMachineBack      = "machine_back"
+	DiscordLowRoom          = "low_room"
+	DiscordDiskFilling      = "disk_filling"
+	DiscordBusyCPU          = "busy_cpu"
+	DiscordSlowTicks        = "slow_ticks"
 )
 
 // CodeAdminUnconfirmed refuses an admin action to an admin who turned on

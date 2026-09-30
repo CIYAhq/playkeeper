@@ -286,6 +286,10 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		<-r.Context().Done()
 		f.mu.Lock()
+		// Returning would answer 200 OK with no body, which can still reach a
+		// client that is closing the connection: Go's transport keeps a
+		// response that races its request's cancellation.
+		drop(w)
 		return
 	case failure.drop:
 		drop(w)

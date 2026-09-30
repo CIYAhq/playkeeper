@@ -104,8 +104,15 @@ ${sh.offers.map((o) => html`<li>${card(o, many ? 'h4' : 'h3')}</li>`)}
 </div>`
 }
 
+/** A store whose products each sell one plan, as a hosted copy's do, shows its plans as one row, cheapest first. */
+function rows(shelves: Shelf[]): Shelf[] {
+  if (shelves.length < 2 || shelves.some((sh) => sh.offers.length !== 1)) return shelves
+  return [{ id: 'plans', title: '', headline: '', offers: shelves.flatMap((sh) => sh.offers) }]
+}
+
 function open(s: Storefront) {
-  return html`${s.shelves.map((sh) => shelf(sh, s.shelves.length > 1))}
+  const shown = rows(s.shelves)
+  return html`${shown.map((sh) => shelf(sh, shown.length > 1))}
 <p class="fine">You pay on Whop and can cancel there any time. Your servers keep running until the time you’ve paid for ends.</p>`
 }
 
@@ -124,7 +131,7 @@ ${
 
 function questions(name: string): [string, string][] {
   return [
-    ['What do I get?', `A Minecraft: Java Edition server on ${name}’s machine, within your plan’s servers and memory. You run it from your own dashboard: starting and stopping it, the console, its files and backups, plugins, mods and modpacks, and who can join.`],
+    ['What do I get?', `A Minecraft: Java Edition server from ${name}, within your plan’s servers and memory. You run it from your own dashboard: starting and stopping it, the console, its files and backups, plugins, mods and modpacks, and who can join.`],
     ['How soon can I play?', `A few minutes after checkout, ${name} tells you in your Whop messages that your server is ready. Sign in with Whop and start it: the first start takes a minute or two.`],
     ['Which versions can I run?', 'Minecraft: Java Edition 1.20.1 and newer, as Paper, Purpur, Vanilla, Fabric, Quilt, NeoForge or Forge, and modpacks from Modrinth and CurseForge.'],
     ['Can my friends join?', 'Yes. Your server has an address to share, and you choose who can join on its allowlist.'],
@@ -182,11 +189,11 @@ export function termsPage(s: Storefront) {
 <h1>Terms of service</h1>
 <p class="lead">The terms for ${name}’s Minecraft server hosting. Buying a plan means you agree to them, and to Whop’s terms for the payment.</p>
 <h2>What you get</h2>
-<p>A plan gives you servers on ${name}’s machine, up to the plan’s number of servers and memory, which you run from your own dashboard while the plan lasts.</p>
+<p>A plan gives you servers from ${name}, up to the plan’s number of servers and memory, which you run from your own dashboard while the plan lasts.</p>
 <h2>Minecraft</h2>
 <p>You need your own Minecraft: Java Edition account to play, and you accept Mojang’s End User License Agreement when you create a server. If you charge your players, you follow Minecraft’s usage guidelines. This isn’t an official Minecraft service, and isn’t approved by or associated with Mojang or Microsoft.</p>
 <h2>Using your servers</h2>
-<p>Keep to the law and to these rules. Don’t use your servers or the machine they run on to attack, scan or flood other computers, to relay other people’s traffic, to mine cryptocurrency, to send spam or spread malware, to share what infringes someone else’s rights, to reach other customers’ servers or get around your plan’s limits, or to resell your servers. ${name} may stop a server that breaks these rules and end its plan.</p>
+<p>Keep to the law and to these rules. Don’t use your servers or the machines they run on to attack, scan or flood other computers, to relay other people’s traffic, to mine cryptocurrency, to send spam or spread malware, to share what infringes someone else’s rights, to reach other customers’ servers or get around your plan’s limits, or to resell your servers. ${name} may stop a server that breaks these rules and end its plan.</p>
 <h2>Payments</h2>
 <p>Whop takes the payments. A plan renews until you cancel it on Whop, and a cancellation takes effect when the time you’ve paid for ends. Refunds are up to ${name}, within what Whop’s terms allow.</p>
 <h2>When a plan ends</h2>

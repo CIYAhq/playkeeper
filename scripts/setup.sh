@@ -88,7 +88,7 @@ export PATH="$tools/go/bin:$tools/node/bin:$PATH"
 echo "Go:   $(go version)"
 echo "Node: $(node --version), npm $(npm --version)"
 (cd "$root/web" && npm ci --no-audit --no-fund)
-(cd "$root" && go mod download)
+(cd "$root" && "$root/scripts/net-retry.sh" go mod download)
 
 cat <<EOF
 

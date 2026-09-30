@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -524,13 +526,14 @@ func TestJoinSomethingElse(t *testing.T) {
 	}()
 	wantCode(t, join(plain.Addr().String()), CodeNotADashboard)
 
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	// Nothing listens on the dashboard's port. A listener's port dialed after
+	// closing it won't do: another program can take the port in between and
+	// answer.
+	refused := func(context.Context, string, string) (net.Conn, error) {
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
 	}
-	addr := closed.Addr().String()
-	closed.Close()
-	wantCode(t, join(addr), CodeDashboardUnreachable)
+	_, err = Join(context.Background(), JoinOptions{Address: "panel.example.com", Code: "7KQ2-M9XD", Fingerprint: fp, Identity: mustIdentity(t), Dial: refused})
+	wantCode(t, err, CodeDashboardUnreachable)
 }
 
 func TestHelloRefusals(t *testing.T) {

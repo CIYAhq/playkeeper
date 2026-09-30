@@ -72,6 +72,10 @@ type Options struct {
 	// dashboard was opened at a loopback address (default: HostIPs). The
 	// installed panel's unit leaves out AF_NETLINK, so there it finds none.
 	HostIPs func() []net.IP
+	// SlugLetters is what the slug of a server new to the dashboard gets
+	// after it when another server shows that slug, on the try'th go
+	// (default: a few random letters and digits; see stableSlugs).
+	SlugLetters func(try int) string
 }
 
 type Server struct {
@@ -169,6 +173,9 @@ type Server struct {
 	placeMu      sync.Mutex
 	roomKick     chan struct{}
 	saleRoomKick chan struct{}
+	// fleet is what watching the fleet's room and health keeps between looks
+	// (see fleetwatch.go).
+	fleet fleetWatch
 	// zoneAddrs are the addresses without a port of joined machines'
 	// servers, and joinedZone lists those servers for the dashboard's zone
 	// (see fleetdns.go); tests stand in for it.
@@ -1814,6 +1821,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runCustomers(ctx)
 	go s.runRoom(ctx)
 	go s.runSaleRoom(ctx)
+	go s.runFleetWatch(ctx)
 	go s.runLapsedCustomers(ctx)
 	go s.runMoves(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)

@@ -6,6 +6,7 @@ import { Frame, FrameCard } from '@/components/app/frame'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
+import { SellerPricesCard } from './whop-seller-prices'
 import { SellerStoreView } from './whop-seller-view'
 
 /** Playkeeper Cloud's seller terms, on playkeeper.io, opened beside Whop. */
@@ -30,6 +31,7 @@ type State =
  */
 export function WhopSellerPage({ store }: { store: string }) {
   const [state, setState] = useState<State>(() => (store ? { kind: 'opening' } : { kind: 'refused', text: t('whopSeller.notABusiness') }))
+  const [viewed, setViewed] = useState(0)
 
   useEffect(() => {
     if (!store) return
@@ -61,9 +63,10 @@ export function WhopSellerPage({ store }: { store: string }) {
         {state.kind === 'open' && (
           <>
             <p className="mt-2 text-sm">{t(state.open.new ? 'whopSeller.connected' : 'whopSeller.open', { store: state.open.store.title || state.open.store.id })}</p>
-            <p className="mt-2 text-sm text-muted-foreground">{state.open.store.problem ? t('whopSeller.problem', { problem: state.open.store.problem }) : t('whopSeller.next')}</p>
+            {state.open.store.problem && <p className="mt-2 text-sm text-muted-foreground">{t('whopSeller.problem', { problem: state.open.store.problem })}</p>}
             <p className="mt-2 text-xs text-muted-foreground">{rich('whopSeller.terms', { link: termsLink })}</p>
-            <SellerStoreView store={store} />
+            <SellerPricesCard store={store} onChange={() => setViewed((n) => n + 1)} />
+            <SellerStoreView key={viewed} store={store} />
           </>
         )}
         {state.kind === 'unapproved' && (

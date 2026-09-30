@@ -640,19 +640,11 @@ func replying(reply string) func(net.Conn) {
 	}
 }
 
-// closedPort dials a port on the loopback address that nothing listens on.
-func closedPort(t *testing.T) dialer {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	ln.Close()
-	return func(ctx context.Context, _, _ string) (net.Conn, error) {
-		var d net.Dialer
-		return d.DialContext(ctx, "tcp", addr)
-	}
+// refused fails like a dial to a port nothing listens on. A listener's port
+// dialed after closing it won't do: another program can take the port in
+// between and answer.
+func refused() dialer {
+	return failing(&net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)})
 }
 
 func failing(err error) dialer {
