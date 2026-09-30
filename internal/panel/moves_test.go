@@ -1002,20 +1002,27 @@ func TestALateListingStillLeavesOutACopyThatWent(t *testing.T) {
 
 // A copy a move left on a machine that was removed before it could delete
 // it isn't forgotten. That machine's host can only join again as a new
-// machine, and when it lists the copy, the copy is taken for what it is
+// machine, and when it lists the copy while the machine the server moved to
+// is connected, so is surely another host, the copy is taken for what it is
 // and deleted, keeping its final backup, rather than disputing the server
-// on the machine it moved to.
+// there. That holds whatever the copy says of itself: running, as someone
+// may have started it, or never started.
 func TestACopyLeftOnARemovedMachineIsntTakenForTheServer(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	owner(t, e)
 	e.reply("GET", "/v1/servers", `[]`)
 	alpha := e.addRemote(t, "a2345abcde", "alpha")
-	beta := e.addRemote(t, "b2345abcde", "beta")
+	beta, err := e.srv.machineByID(e.localMachine(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := e.srv
 	ctx := context.Background()
-	s.claimServers(beta, serverList("movedsrv23"))
-	if err := leftCopy(ctx, s.db, "movedsrv23", alpha.ID, 7, movedBackupDays, 0); err != nil {
-		t.Fatal(err)
+	s.claimLocal(beta, serverList("movedsrv23", "movedsrv45"), s.now())
+	for _, id := range []string{"movedsrv23", "movedsrv45"} {
+		if err := leftCopy(ctx, s.db, id, alpha.ID, 7, movedBackupDays, millis(s.now())); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := s.db.Exec(`UPDATE machines SET revoked_at = 1 WHERE id = ?`, alpha.ID); err != nil {
 		t.Fatal(err)
@@ -1023,17 +1030,20 @@ func TestACopyLeftOnARemovedMachineIsntTakenForTheServer(t *testing.T) {
 	s.leaveLeftovers(ctx)
 
 	gamma := e.addRemote(t, "c2345abcde", "gamma")
-	if got := s.claimServers(gamma, serverList("movedsrv23", "gammasrv23")); len(got) != 1 || got[0]["id"] != "gammasrv23" {
-		t.Errorf("alpha's host, joined again as gamma, shows the copy a move left there: %v", got)
+	listed := append(serverList("movedsrv23", "gammasrv23"), map[string]any{"id": "movedsrv45", "name": "never started", "phase": "stopped"})
+	if got := s.claimServers(gamma, listed); len(got) != 1 || got[0]["id"] != "gammasrv23" {
+		t.Errorf("alpha's host, joined again as gamma, shows the copies a move left there: %v", got)
 	}
-	var m, disputed string
-	if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = 'movedsrv23'`).Scan(&m, &disputed); err != nil || m != beta.ID || disputed != "" {
-		t.Errorf("the server that moved to beta is on %q, disputed by %q (%v)", m, disputed, err)
-	}
-	var user int64
-	var days int
-	if err := s.db.QueryRow(`SELECT user_id, keep_days FROM left_copies WHERE server_id = 'movedsrv23' AND machine_id = ? AND left_at = 0`, gamma.ID).Scan(&user, &days); err != nil || user != 7 || days != movedBackupDays {
-		t.Errorf("gamma isn't asked to delete the copy keeping its final backup: %d %d %v", user, days, err)
+	for _, id := range []string{"movedsrv23", "movedsrv45"} {
+		var m, disputed string
+		if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, id).Scan(&m, &disputed); err != nil || m != beta.ID || disputed != "" {
+			t.Errorf("%s, which moved to the dashboard's machine, is on %q, disputed by %q (%v)", id, m, disputed, err)
+		}
+		var user int64
+		var days int
+		if err := s.db.QueryRow(`SELECT user_id, keep_days FROM left_copies WHERE server_id = ? AND machine_id = ? AND left_at = 0`, id, gamma.ID).Scan(&user, &days); err != nil || user != 7 || days != movedBackupDays {
+			t.Errorf("gamma isn't asked to delete %s's copy keeping its final backup: %d %d %v", id, user, days, err)
+		}
 	}
 	if n := func() int {
 		var n int
@@ -1138,10 +1148,11 @@ func TestEachCopyLeftOnARemovedMachineIsTakenOnce(t *testing.T) {
 // When the machine a server moved to was removed too, a new machine that
 // lists it may be either host joining again. What it lists is taken for the
 // copy the move left only when it stopped before the server moved away from
-// it, as that copy did. The server where it moved, running, crashed or
-// stopped since, is taken over, so the server is never deleted for a copy.
-// One whose copy's switch isn't known, as a failed move's, can't be told
-// from that copy, so it's disputed: neither taken over nor deleted.
+// it, as that copy did. Anything else, running, crashed, stopped since or a
+// failed move's copy with no switch time, may be the server or that copy, so
+// it's disputed, neither taken over nor deleted, while the copy is still
+// unaccounted for. Once the copy's host has listed it, the server's host
+// takes the server over.
 func TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	owner(t, e)
@@ -1175,27 +1186,34 @@ func TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs(t *testing.T) {
 		{"id": "unknsrv234", "name": "unknown", "phase": "stopped", "stoppedAt": before},
 	}
 	gamma := e.addRemote(t, "c2345abcde", "gamma")
-	var runs []string
-	for _, sv := range s.claimServers(gamma, listed) {
-		runs = append(runs, sv["id"].(string))
-	}
-	slices.Sort(runs)
-	if want := []string{"crashsrv23", "runssrv234", "stopsrv234"}; !slices.Equal(runs, want) {
-		t.Errorf("a new machine, after both of the servers' machines were removed, runs %v, want %v", runs, want)
+	if got := s.claimServers(gamma, listed); len(got) != 0 {
+		t.Errorf("a new machine, after both of the servers' machines were removed, runs %v", got)
 	}
 	var days int
 	if err := s.db.QueryRow(`SELECT keep_days FROM left_copies WHERE server_id = 'stalesrv23' AND machine_id = ? AND left_at = 0`, gamma.ID).Scan(&days); err != nil || days != movedBackupDays {
 		t.Errorf("the new machine isn't asked to delete the copy a move left, keeping it: %d %v", days, err)
 	}
-	for _, id := range append(runs, "unknsrv234") {
+	for _, id := range ids[1:] {
 		var n int
 		if err := s.db.QueryRow(`SELECT COUNT(*) FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, gamma.ID).Scan(&n); err != nil || n != 0 {
 			t.Errorf("%s, which may be the server, is to be deleted on the new machine: %d %v", id, n, err)
 		}
+		var at, by string
+		if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, id).Scan(&at, &by); err != nil || at != beta.ID || by != gamma.ID {
+			t.Errorf("%s, which can't surely be told from a copy a move left, is on %q, disputed by %q (%v)", id, at, by, err)
+		}
+	}
+
+	delta := e.addRemote(t, "d2345abcde", "delta")
+	if got := s.claimServers(delta, []map[string]any{{"id": "runssrv234", "name": "runs", "phase": "stopped", "stoppedAt": before}}); len(got) != 0 {
+		t.Errorf("alpha's host, joined again as delta, runs the copy a move left there: %v", got)
+	}
+	if got := s.claimServers(gamma, listed[1:2]); len(got) != 1 {
+		t.Errorf("beta's host doesn't take the server over once its copy was accounted for: %v", got)
 	}
 	var at, by string
-	if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = 'unknsrv234'`).Scan(&at, &by); err != nil || at != beta.ID || by != gamma.ID {
-		t.Errorf("the server that can't be told from a failed move's copy is on %q, disputed by %q (%v)", at, by, err)
+	if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = 'runssrv234'`).Scan(&at, &by); err != nil || at != gamma.ID || by != "" {
+		t.Errorf("the server whose copy was accounted for is on %q, disputed by %q (%v)", at, by, err)
 	}
 }
 

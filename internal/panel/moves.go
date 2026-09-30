@@ -1078,18 +1078,19 @@ const leftOnRemoved = `server_id = ? AND left_at = 0 AND machine_id NOT IN (SELE
 // adoptLeftCopy takes server id, as machine machineID lists it (sv), for
 // one of the copies moves left of it on machines since removed, and has
 // machineID delete it as that machine would have: a removed machine's host
-// joins again only as another machine. It's taken only for what it surely
-// is: a move's copy, when it stopped before the server's requests went where
-// it moved, as the copy did when its move stopped it; or a failed move's
-// copy, which never was the server, while the server's own machine is joined
-// and runs it (ownerActive). One running, or stopped since, may be the
-// server, so it never is. Each copy is taken once, and the others stay for
-// their hosts. It reports whether it was taken.
-func adoptLeftCopy(ctx context.Context, q querier, id, machineID string, sv map[string]any, ownerActive bool) (bool, error) {
+// joins again only as another machine. It's taken only when it surely is
+// one: when it stopped before the server's requests went where it moved, as
+// the copy did when its move stopped it; or, while the server's own machine
+// is joined and connected (ownerOnline), whatever it is, since that machine's
+// host is another, and has the server. Otherwise one running, stopped since
+// or not saying when may be the server, so it isn't. Each copy is taken
+// once, and the others stay for their hosts. It reports whether it was
+// taken.
+func adoptLeftCopy(ctx context.Context, q querier, id, machineID string, sv map[string]any, ownerOnline bool) (bool, error) {
 	var from string
 	err := q.QueryRowContext(ctx, `SELECT machine_id FROM left_copies WHERE `+leftOnRemoved+` AND switched_at > ? ORDER BY switched_at, machine_id LIMIT 1`, id, listedStop(sv)).Scan(&from)
-	if isNoRows(err) && ownerActive {
-		err = q.QueryRowContext(ctx, `SELECT machine_id FROM left_copies WHERE `+leftOnRemoved+` AND switched_at = 0 ORDER BY machine_id LIMIT 1`, id).Scan(&from)
+	if isNoRows(err) && ownerOnline {
+		err = q.QueryRowContext(ctx, `SELECT machine_id FROM left_copies WHERE `+leftOnRemoved+` ORDER BY switched_at, machine_id LIMIT 1`, id).Scan(&from)
 	}
 	switch {
 	case isNoRows(err):
@@ -1118,12 +1119,12 @@ func listedStop(sv map[string]any) int64 {
 	return millis(stopped)
 }
 
-// failedCopyLeft reports whether a failed move left a copy of server id on
-// a machine since removed, which a listing of it can't be told from once
-// the server's own machine was removed too.
-func failedCopyLeft(ctx context.Context, q querier, id string) (bool, error) {
+// copiesLeftOnRemoved reports whether a move left a copy of server id on a
+// machine since removed, which a listing of it can't surely be told from
+// once the server's own machine was removed too.
+func copiesLeftOnRemoved(ctx context.Context, q querier, id string) (bool, error) {
 	var n int
-	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM left_copies WHERE `+leftOnRemoved+` AND switched_at = 0`, id).Scan(&n)
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM left_copies WHERE `+leftOnRemoved, id).Scan(&n)
 	return n > 0, err
 }
 

@@ -852,8 +852,8 @@ var errMachineGone = errors.New("the machine was removed")
 // A server listed that's surely a copy a move left on a machine since
 // removed is taken for that copy (adoptLeftCopy). Otherwise one whose record
 // names a removed machine goes to this one, as when the same host joins
-// again, unless a failed move left a copy of it on a machine removed too,
-// which it can't be told from: then, as for one another machine runs, this
+// again, unless a move left a copy of it on a machine removed too, which it
+// can't surely be told from: then, as for one another machine runs, this
 // machine disputes it. Only records from up to listedAt, when the listing
 // was asked for, can be forgotten, so a server made meanwhile keeps its
 // record.
@@ -894,10 +894,11 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 			if err != nil {
 				continue
 			}
-			var owner, disputedBy string
+			var owner, disputedBy, ownerKind string
 			var ownerActive bool
-			switch err := c.QueryRowContext(ctx, `SELECT sm.machine_id, sm.disputed_by, EXISTS(SELECT 1 FROM machines WHERE id = sm.machine_id AND revoked_at = 0)
-				FROM server_machines sm WHERE sm.server_id = ?`, id).Scan(&owner, &disputedBy, &ownerActive); {
+			switch err := c.QueryRowContext(ctx, `SELECT sm.machine_id, sm.disputed_by, EXISTS(SELECT 1 FROM machines WHERE id = sm.machine_id AND revoked_at = 0),
+				COALESCE((SELECT kind FROM machines WHERE id = sm.machine_id), '')
+				FROM server_machines sm WHERE sm.server_id = ?`, id).Scan(&owner, &disputedBy, &ownerActive, &ownerKind); {
 			case isNoRows(err):
 				if _, err := c.ExecContext(ctx, `INSERT INTO server_machines(server_id, machine_id, status, seen_at) VALUES(?,?,?,?)`, id, m.ID, string(b), millis(now)); err != nil {
 					return err
@@ -905,7 +906,8 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 			case err != nil:
 				return err
 			case owner != m.ID:
-				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerActive)
+				ownerOnline := ownerActive && (ownerKind == localKind || s.hub.Connected(owner))
+				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerOnline)
 				if err != nil {
 					return err
 				}
@@ -914,7 +916,7 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 				}
 				unsure := false
 				if !ownerActive {
-					if unsure, err = failedCopyLeft(ctx, c, id); err != nil {
+					if unsure, err = copiesLeftOnRemoved(ctx, c, id); err != nil {
 						return err
 					}
 				}
@@ -932,7 +934,7 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 					}
 					disputed = append(disputed, id)
 					if unsure {
-						s.log.Warn("a machine lists a server whose machine was removed, which can't be told from a copy a failed move left on a machine removed too", "machine", m.ID, "server", id)
+						s.log.Warn("a machine lists a server whose machine was removed, which can't surely be told from a copy a move left on a machine removed too", "machine", m.ID, "server", id)
 					} else {
 						s.log.Warn("a machine lists a server another machine runs", "machine", m.ID, "server", id, "runs on", owner)
 					}
