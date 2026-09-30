@@ -567,6 +567,49 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 	if m, _ := recordOf("movingsrv2"); m != beta.ID {
 		t.Errorf("a listing of beta's asked for before the server moved there dropped its record: %q", m)
 	}
+
+	// The same for the dashboard's machine: a server moved to it keeps its
+	// record through a listing of its asked for before then.
+	s.claimServers(alpha, serverList("tolocal234"))
+	if _, err := s.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES('tolocal234', 7, ?, ?)`, alpha.ID, local.ID); err != nil {
+		t.Fatal(err)
+	}
+	asked = e.clock.now()
+	e.clock.add(time.Second)
+	if err := s.switchServer(context.Background(), serverMove{serverID: "tolocal234", userID: 7, from: alpha.ID, to: local.ID}, local, "tolocal234"); err != nil {
+		t.Fatal(err)
+	}
+	s.claimLocal(local, nil, asked)
+	if m, _ := recordOf("tolocal234"); m != local.ID {
+		t.Errorf("a listing of the dashboard's machine asked for before the server moved there dropped its record: %q", m)
+	}
+}
+
+// A copy a move left on the dashboard's machine is never where a server's
+// requests go, not even once the machine the server moved to is removed.
+func TestACopyLeftOnTheDashboardsMachineIsNeverTheServer(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	owner(t, e)
+	e.reply("GET", "/v1/servers", `[]`)
+	local, err := e.srv.machineByID(e.localMachine(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	beta := e.addRemote(t, "b2345abcde", "beta")
+	s := e.srv
+	s.claimServers(beta, serverList("leftsrv234"))
+	if err := leftCopy(context.Background(), s.db, "leftsrv234", local.ID, 7, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.claimLocal(local, serverList("leftsrv234"), e.clock.now()); len(got) != 0 {
+		t.Errorf("the dashboard's machine shows a copy a move left on it: %v", got)
+	}
+	if _, err := s.db.Exec(`UPDATE machines SET revoked_at = 1 WHERE id = ?`, beta.ID); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := s.machineForServer("leftsrv234"); err == nil {
+		t.Errorf("once beta is removed, the server's requests go to %s, where only a copy a move left is", m.ID)
+	}
 }
 
 // A copy of the server still on the machine it's going to, which an

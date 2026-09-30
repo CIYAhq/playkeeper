@@ -604,27 +604,29 @@ const codeServerDisputed = "server_disputed"
 
 // claimLocal records the servers the dashboard's own machine lists, taking
 // them over from joined machines, keeps their statuses for when its agent
-// stops answering, and forgets those it no longer lists. It writes only what
-// changed, and returns the servers it runs: a copy of a server being moved
-// is none (see serverMove.hides). listedAt is when the list was asked for.
-func (s *Server) claimLocal(m machine, servers []map[string]any, listedAt time.Time) []map[string]any {
-	s.listings.note(m.ID, servers)
+// stops answering, and forgets those it no longer lists whose records are
+// from up to listedAt, when the list was asked for. It writes only what
+// changed, and returns the servers it runs: a copy a move makes or leaves
+// is none (see hiddenCopies), and isn't noted as listed either, so no
+// request goes to it.
+func (s *Server) claimLocal(m machine, all []map[string]any, listedAt time.Time) []map[string]any {
 	copies, err := hiddenCopies(context.Background(), s.db, m.ID)
 	if err != nil {
 		s.log.Error("record server machines", "err", err)
-		return servers
+		return all
 	}
-	servers = slices.DeleteFunc(slices.Clone(servers), func(sv map[string]any) bool {
+	shown := slices.DeleteFunc(slices.Clone(all), func(sv map[string]any) bool {
 		id, _ := sv["id"].(string)
 		return copyHidden(copies, id, listedAt)
 	})
+	s.listings.note(m.ID, shown)
 	if err := s.forgetLeft(context.Background(), s.db, m.ID, listedAt); err != nil {
 		s.log.Error("record server machines", "err", err)
 	}
 	rows, err := s.db.Query(`SELECT server_id FROM server_machines WHERE machine_id = ?`, m.ID)
 	if err != nil {
 		s.log.Error("record server machines", "err", err)
-		return servers
+		return shown
 	}
 	had := map[string]bool{}
 	for rows.Next() {
@@ -636,7 +638,7 @@ func (s *Server) claimLocal(m machine, servers []map[string]any, listedAt time.T
 	rows.Close()
 	now := s.now()
 	listed := map[string]bool{}
-	for _, sv := range servers {
+	for _, sv := range shown {
 		id, _ := sv["id"].(string)
 		if !reMachineID.MatchString(id) {
 			continue
@@ -658,11 +660,11 @@ func (s *Server) claimLocal(m machine, servers []map[string]any, listedAt time.T
 		if listed[id] {
 			continue
 		}
-		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE server_id = ? AND machine_id = ?`, id, m.ID); err != nil {
+		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE server_id = ? AND machine_id = ? AND seen_at <= ?`, id, m.ID, millis(listedAt)); err != nil {
 			s.log.Error("record server machines", "err", err)
 		}
 	}
-	return servers
+	return shown
 }
 
 // takeServer gives a server to the dashboard's own machine.
