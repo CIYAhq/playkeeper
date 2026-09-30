@@ -1117,7 +1117,7 @@ control "a check asks only whether the release changed" internal/update/fetch.go
   ./internal/update '^TestAReleaseThatDidNotChangeCostsOneNotModified$'
 control "the same signature again spares the manifest" internal/update/fetch.go \
   'if sig == nil || (have && bytes.Equal(sig, prev.Signature)) {' \
-  'if sig == nil {' \
+  'if sig == nil || (false && bytes.Equal(sig, prev.Signature)) {' \
   ./internal/update '^TestTheSameSignatureAgainSparesTheManifest$'
 control "a busy release location's Retry-After is kept" internal/update/fetch.go \
   'se.RetryAfter = retryAfter(resp.Header, time.Now())' \
