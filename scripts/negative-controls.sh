@@ -8141,10 +8141,22 @@ control "suspending: a store's customers are suspended with it" internal/panel/s
   'did, err := s.suspendCustomer(ctx, id, true, actor, reason)' \
   'did, err := id < 0, error(nil)' \
   ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
-control "suspending: lifting a store lifts its customers" internal/panel/suspension.go \
-  'did, err := s.liftSuspension(ctx, id, true, actor)' \
-  'did, err := id < 0, error(nil)' \
+control "suspending: lifting a store lifts its customers" internal/panel/whop_customers.go \
+  's.liftWithStore(ctx, st)' \
+  '_ = st' \
   ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
+control "suspending: a lifted store's customers wait for its memberships to be read" internal/panel/whop_customers.go \
+  'if read == nil {' \
+  'if true {' \
+  ./internal/panel '^TestALiftedStoresCustomersComeBackAsTheirPlansSay$'
+control "suspending: a customer whose last call failed waits to be lifted" internal/panel/suspension.go \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || wc.NextTryAt > now' \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0' \
+  ./internal/panel '^TestALiftedStoresCustomersComeBackAsTheirPlansSay$'
+control "suspending: a customer whose new membership isn't confirmed waits to be lifted" internal/panel/suspension.go \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || wc.NextTryAt > now' \
+  'pending[wc.WhopUserID] = wc.NextTryAt > now' \
+  ./internal/panel '^TestALiftedStoresCustomersComeBackAsTheirPlansSay$'
 control "suspending: only an app store is suspended" internal/panel/suspension.go \
   'case st.Via != whopViaApp:' \
   'case false:' \
