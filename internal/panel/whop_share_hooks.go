@@ -90,12 +90,14 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 // hosting products count, those the dashboard keeps Playkeeper's share on
 // (whopSharesSet), since a seller may sell other things on the same
 // business. A payment's share comes from its fee lines, which are kept too.
-// The read counts as done only once all of it is, so what failed is read
-// again next time.
+// Whop lists refunds only by when they were asked for, so the refunds read
+// goes back to the oldest one still unsettled last time, which may yet
+// change its payment. The read counts as done only once all of it is, so
+// what failed is read again next time.
 func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopStore) {
 	now := s.now()
-	var last int64
-	if err := s.db.QueryRowContext(ctx, `SELECT payments_read_at FROM whop_share_watch WHERE store_id = ?`, st.ID).Scan(&last); err != nil && !isNoRows(err) {
+	var last, refundsFrom int64
+	if err := s.db.QueryRowContext(ctx, `SELECT payments_read_at, refunds_from FROM whop_share_watch WHERE store_id = ?`, st.ID).Scan(&last, &refundsFrom); err != nil && !isNoRows(err) {
 		s.log.Error("could not read when a store's payments were read", "store", st.ID, "err", err)
 		return
 	}
@@ -104,21 +106,38 @@ func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopSt
 		s.log.Error("could not read which of a store's products it hosts", "store", st.ID, "err", err)
 		return
 	}
-	since := now.Add(-whopPaymentsBack)
+	back := now.Add(-whopPaymentsBack)
+	since := back
 	if last > 0 {
 		since = time.UnixMilli(last).Add(-whopPaymentsOverlap)
 	}
-	pays, err := c.PaymentsSince(ctx, st.ID, since)
+	refundsSince := since
+	if refundsFrom > 0 {
+		refundsSince = time.UnixMilli(refundsFrom).Add(-whopPaymentsOverlap)
+	}
+	if refundsSince.Before(back) {
+		refundsSince = back
+	}
+	pays, err := c.PaidSince(ctx, st.ID, since)
 	if err != nil {
 		s.log.Warn("could not read a store's payments", "store", st.ID, "err", err)
 		return
 	}
-	refunds, err := c.RefundsSince(ctx, st.ID, since)
+	refunds, err := c.RefundsSince(ctx, st.ID, refundsSince)
 	if err != nil {
 		s.log.Warn("could not read a store's refunds", "store", st.ID, "err", err)
 		return
 	}
+	var unsettled time.Time
+	refunded := map[string]bool{}
 	for _, r := range refunds {
+		if at := r.Created(); r.Unsettled() && !at.IsZero() && (unsettled.IsZero() || at.Before(unsettled)) {
+			unsettled = at
+		}
+		if refunded[r.PaymentID] {
+			continue
+		}
+		refunded[r.PaymentID] = true
 		pay, err := c.Payment(ctx, r.PaymentID)
 		if err != nil {
 			s.log.Warn("could not read a refunded payment", "store", st.ID, "payment", r.PaymentID, "err", err)
@@ -140,8 +159,12 @@ func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopSt
 		}
 		s.keepCheckedPayment(ctx, st, pay, lines, "")
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO whop_share_watch(store_id, payments_read_at) VALUES(?, ?)
-		ON CONFLICT(store_id) DO UPDATE SET payments_read_at = excluded.payments_read_at`, st.ID, now.UnixMilli()); err != nil {
+	from := int64(0)
+	if !unsettled.IsZero() {
+		from = unsettled.UnixMilli()
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO whop_share_watch(store_id, payments_read_at, refunds_from) VALUES(?, ?, ?)
+		ON CONFLICT(store_id) DO UPDATE SET payments_read_at = excluded.payments_read_at, refunds_from = excluded.refunds_from`, st.ID, now.UnixMilli(), from); err != nil {
 		s.log.Error("could not note a store's payments were read", "store", st.ID, "err", err)
 	}
 }

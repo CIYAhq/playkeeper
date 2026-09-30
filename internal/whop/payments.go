@@ -2,6 +2,7 @@ package whop
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -47,11 +48,35 @@ func (p Payment) PaidTime() time.Time { return p.paidAt() }
 // newest first: a membership's latest charge is what starts its buyer.
 const paymentsRead = 10
 
-// PaymentsSince lists an account's paid payments created since, oldest
-// first.
-func (c *Client) PaymentsSince(ctx context.Context, accountID string, since time.Time) ([]Payment, error) {
-	return list[Payment](ctx, c, "/payments", url.Values{"account_id": {accountID}, "status": {"paid"},
-		"created_after": {since.UTC().Format(time.RFC3339)}, "order": {"created_at"}, "direction": {"asc"}})
+// PaidSince lists an account's payments paid since a time. Whop filters
+// payments only by when they were created, and a charge can be paid long
+// after, as a renewal paid on a retry is, so they're listed newest paid
+// first and read page by page until a page reaches back past since, up to
+// maxPages of them.
+func (c *Client) PaidSince(ctx context.Context, accountID string, since time.Time) ([]Payment, error) {
+	q := url.Values{"account_id": {accountID}, "status": {"paid"}, "order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}
+	var paid []Payment
+	for range maxPages {
+		var p page[Payment]
+		if err := c.do(ctx, http.MethodGet, "/payments", q, nil, &p); err != nil {
+			return nil, err
+		}
+		past := false
+		for _, pay := range p.Data {
+			switch t := pay.paidAt(); {
+			case t.IsZero():
+			case t.Before(since):
+				past = true
+			default:
+				paid = append(paid, pay)
+			}
+		}
+		if past || !p.PageInfo.HasNextPage || p.PageInfo.EndCursor == nil || *p.PageInfo.EndCursor == "" {
+			return paid, nil
+		}
+		q.Set("after", *p.PageInfo.EndCursor)
+	}
+	return nil, fmt.Errorf("Whop's payments paid since %s are more than %d pages", since.UTC().Format(time.RFC3339), maxPages)
 }
 
 // Payment reads one payment.
@@ -65,7 +90,24 @@ func (c *Client) Payment(ctx context.Context, id string) (Payment, error) {
 type Refund struct {
 	ID        string `json:"id"`
 	PaymentID string `json:"payment_id"`
-	Status    string `json:"status"`
+	// Status is pending or requires_action until the refund is settled as
+	// succeeded, failed or canceled.
+	Status string `json:"status"`
+	// CreatedAt is when the refund was asked for (ISO 8601).
+	CreatedAt string `json:"created_at"`
+}
+
+// Unsettled says whether a refund may still change what its payment
+// refunded.
+func (r Refund) Unsettled() bool { return r.Status == "pending" || r.Status == "requires_action" }
+
+// Created is when the refund was asked for, zero when Whop didn't say.
+func (r Refund) Created() time.Time {
+	t, err := time.Parse(time.RFC3339Nano, r.CreatedAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // RefundsSince lists the refunds an account issued since.

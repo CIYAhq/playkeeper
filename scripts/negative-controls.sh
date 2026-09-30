@@ -8462,6 +8462,14 @@ control "payments: only the hosting products' payments are kept" internal/panel/
   'if _, ok := hosting[pay.ProductID]; !ok {' \
   'if _, ok := hosting[pay.ProductID]; !ok && false {' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: one paid since the last read is read, however long ago it was made" internal/whop/payments.go \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}, "created_after": {since.UTC().Format(time.RFC3339)}}' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a refund still unsettled is read again once it settles" internal/panel/whop_share_hooks.go \
+  'r.Unsettled() && !at.IsZero()' \
+  'false && r.Unsettled() && !at.IsZero()' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
   'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
   'if false {' \

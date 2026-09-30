@@ -188,8 +188,9 @@ func TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare(t *testing.T) {
 
 // Every payment the checks read is kept for the seller's view, with
 // Playkeeper's share from its fee lines: the one a customer started on, then
-// each renewal read on the share check's schedule, and a refund of one. A
-// sale of anything else the business sells isn't.
+// each renewal read on the share check's schedule, even one paid on a retry
+// long after it was made, and a refund of one, even once it settles after the
+// reads have moved on. A sale of anything else the business sells isn't.
 func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	f, e, _ := twoStores(t)
 	useFakeCore(e)
@@ -232,14 +233,37 @@ func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	if amount, _, _, _, _ := kept("pay_guide"); amount != 0 {
 		t.Fatalf("a sale of the guide was kept as hosting: %d paid", amount)
 	}
+	// A refund asked for is read while it's pending, and a renewal is made
+	// but its card declined. Both settle only once the reads have moved an
+	// hour and a half on: the refund succeeds, and a retry pays the renewal.
 	f.mu.Lock()
+	at = e.clock.now().Add(time.Minute).UTC().Format(time.RFC3339)
+	b.refunds = append(b.refunds, map[string]any{"id": "ref_1", "payment_id": "pay_renew", "status": "pending", "created_at": at})
+	b.payments = append(b.payments, map[string]any{"id": "pay_retry", "status": "open", "membership_id": "mem_kim", "plan_id": "plan_other", "product_id": "prod_other",
+		"created_at": at, "user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}})
+	b.fees["pay_retry"] = b.fees["pay_renew"]
+	f.mu.Unlock()
+	e.clock.add(90 * time.Minute)
+	e.reconcile()
+	if _, _, refunded, _, _ := kept("pay_renew"); refunded != 0 {
+		t.Fatalf("the renewal while its refund is pending: %d refunded", refunded)
+	}
+	if amount, _, _, _, _ := kept("pay_retry"); amount != 0 {
+		t.Fatalf("a renewal not paid yet was kept: %d paid", amount)
+	}
+	f.mu.Lock()
+	b.refunds[0]["status"] = "succeeded"
 	b.payments[0]["refunded_amount"] = map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
-	b.refunds = append(b.refunds, map[string]any{"id": "ref_1", "payment_id": "pay_renew", "status": "succeeded"})
+	retry := b.payments[len(b.payments)-1]
+	retry["status"], retry["paid_at"] = "paid", e.clock.now().UTC().Format(time.RFC3339)
 	f.mu.Unlock()
 	e.clock.add(90 * time.Minute)
 	e.reconcile()
 	if _, _, refunded, _, _ := kept("pay_renew"); refunded != 1200 {
 		t.Fatalf("the refunded renewal: %d refunded", refunded)
+	}
+	if amount, share, _, _, _ := kept("pay_retry"); amount != 1200 || share != 850 {
+		t.Fatalf("the renewal paid on a retry: %d paid, %d shared", amount, share)
 	}
 }
 

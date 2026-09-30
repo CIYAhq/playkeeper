@@ -29,6 +29,24 @@ func (b *fakeBusiness) plan(id string) map[string]any {
 	return nil
 }
 
+// fakeTime is a time the fake Whop keeps, zero when it has none.
+func fakeTime(v any) time.Time {
+	t, err := time.Parse(time.RFC3339Nano, fmt.Sprint(v))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// createdAfter says whether a payment or refund of the fake Whop is in a
+// list asking for those created after a time, as every one is when the
+// list asks for none or it has no time.
+func createdAfter(rec map[string]any, after string) bool {
+	a, err := time.Parse(time.RFC3339, after)
+	created := fakeTime(rec["created_at"])
+	return err != nil || created.IsZero() || created.After(a)
+}
+
 // serveInstalled answers a request made with the Playkeeper Cloud app's
 // key, which reaches a business that installed the app by the id the
 // request names, and no other business; f.mu must be held.
@@ -162,16 +180,17 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such override"}}`)
 	case route == "GET /payments":
 		q := r.URL.Query()
-		after, _ := time.Parse(time.RFC3339, q.Get("created_after"))
 		var data []map[string]any
 		for _, p := range b.payments {
-			created, err := time.Parse(time.RFC3339Nano, fmt.Sprint(p["created_at"]))
-			if err == nil && !after.IsZero() && !created.After(after) {
+			if !createdAfter(p, q.Get("created_after")) {
 				continue
 			}
 			if (q.Get("membership_id") == "" || p["membership_id"] == q.Get("membership_id")) && p["status"] == q.Get("status") {
 				data = append(data, p)
 			}
+		}
+		if q.Get("order") == "paid_at" && q.Get("direction") == "desc" {
+			slices.SortStableFunc(data, func(a, b map[string]any) int { return fakeTime(b["paid_at"]).Compare(fakeTime(a["paid_at"])) })
 		}
 		page(data)
 	case len(parts) == 3 && parts[1] == "payments":
@@ -184,7 +203,13 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such payment"}}`)
 	case route == "GET /refunds":
-		page(b.refunds)
+		var data []map[string]any
+		for _, rf := range b.refunds {
+			if createdAfter(rf, r.URL.Query().Get("created_after")) {
+				data = append(data, rf)
+			}
+		}
+		page(data)
 	case len(parts) == 4 && parts[1] == "payments" && parts[3] == "fees":
 		json.NewEncoder(w).Encode(map[string]any{"data": b.fees[parts[2]]})
 	case route == "POST /support_channels":

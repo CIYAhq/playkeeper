@@ -775,14 +775,16 @@ CREATE TABLE whop_fee_lines (
 );
 `,
 	// Since when each app store's share has been gone or short, and its
-	// grant lacking what its pass reads, 0 while not, and when its payments
-	// and refunds were last read (see whop_share_hooks.go).
+	// grant lacking what its pass reads, 0 while not; when its payments and
+	// refunds were last read; and when the oldest refund still unsettled then
+	// was asked for, 0 for none (see whop_share_hooks.go).
 	`
 CREATE TABLE whop_share_watch (
   store_id         TEXT    PRIMARY KEY,
   share_bad_since  INTEGER NOT NULL DEFAULT 0,
   grant_gone_since INTEGER NOT NULL DEFAULT 0,
-  payments_read_at INTEGER NOT NULL DEFAULT 0
+  payments_read_at INTEGER NOT NULL DEFAULT 0,
+  refunds_from     INTEGER NOT NULL DEFAULT 0
 );
 `,
 }
