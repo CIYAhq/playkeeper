@@ -8285,16 +8285,12 @@ control "closing: a closed store's plans take no room" internal/panel/whop_stock
   '' \
   ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
 control "closing: a closed store's stock goes to 0" internal/panel/whop_customers.go \
-  'if st.ClosedWhy != "" {
-		s.stopWhopSales(ctx, st.ID)' \
-  'if st.ClosedWhy != "" {
-		_ = st.ID' \
+  'if st.ClosedWhy != "" {' \
+  'if false {' \
   ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
 control "closing: a closed store starts nobody" internal/panel/whop_customers.go \
-  'if st.ClosedWhy != "" {
-			return nil' \
-  'if false {
-			return nil' \
+  'case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":' \
+  'case false:' \
   ./internal/panel '^TestAClosedStoresCustomersGoOnButNobodyStarts$'
 control "closing: a store opens for its own reason alone" internal/panel/closing.go \
   'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?' \
@@ -8302,7 +8298,7 @@ control "closing: a store opens for its own reason alone" internal/panel/closing
   ./internal/panel '^TestAStoreOpensOnceNoReasonHoldsItClosed$'
 control "closing: only an app store is opened or closed" internal/panel/closing.go \
   'case st.Via != whopViaApp:' \
-  'case false:' \
+  'case st.Via == "none":' \
   ./internal/panel '^TestAStoreOpensOnceNoReasonHoldsItClosed$'
 control "closing: a reason has a proper name" internal/panel/closing.go \
   'if !reClosedBy.MatchString(by) || why == "" {' \
