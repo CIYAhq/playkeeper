@@ -90,7 +90,7 @@ func TestACustomerGetsAnAccountOfTheirOwn(t *testing.T) {
 // with Whop opens that one and never the owner's.
 func TestACustomerNamedLikeTheOwnerGetsAnAccountOfTheirOwn(t *testing.T) {
 	f, e, own := connectedWhop(t)
-	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`"}`, own.auth()); r.status != http.StatusOK {
+	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"`+whopTestAppSecret+`"}`, own.auth()); r.status != http.StatusOK {
 		t.Fatalf("setting up Sign in with Whop: %d %v", r.status, r.body)
 	}
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))

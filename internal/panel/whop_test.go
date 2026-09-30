@@ -70,9 +70,11 @@ type fakeWhop struct {
 	// requests counts what the dashboard asked.
 	requests int
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
-	// the refresh tokens ended.
-	grants        map[string]oauthGrant
-	revokedTokens []string
+	// the refresh tokens ended. noTokenExchange is an app without the
+	// oauth:token_exchange permission on Whop.
+	grants          map[string]oauthGrant
+	revokedTokens   []string
+	noTokenExchange bool
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
@@ -117,8 +119,27 @@ func (f *fakeWhop) serveOAuth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": why})
 	}
+	refuseApp := func(why string) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client", "error_description": why})
+	}
 	switch r.Method + " " + r.URL.Path {
 	case "POST /oauth/token":
+		// Whop checks the app before the code, and wants the app's secret.
+		switch {
+		case body["client_id"] != whopTestApp:
+			refuseApp("Unknown client")
+			return
+		case body["client_secret"] == "":
+			refuseApp("client_secret is required")
+			return
+		case body["client_secret"] != whopTestAppSecret:
+			refuseApp("client_secret is invalid")
+			return
+		case f.noTokenExchange:
+			refuseApp("client_secret lacks oauth:token_exchange permission")
+			return
+		}
 		g, ok := f.grants[body["code"]]
 		delete(f.grants, body["code"])
 		switch {

@@ -1983,6 +1983,8 @@ describe('Sell on Whop', () => {
     answer({ '/api/whop': { ...open, signIn: { redirectUri: redirect } } })
     const text = await render(<SellOnWhopSection />, owner)
     expect(text).toContain(`Redirect URL: ${redirect}`)
+    expect(text).toContain('add the oauth:token_exchange permission on the app’s own Permissions tab (not on an API key), then paste the app’s ID and client secret here.')
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="App’s client secret"]')?.type).toBe('password')
     expect(button('Turn on').disabled).toBe(true)
     await typeInto('input[aria-label="Whop app ID"]', ' app_pipcloud ')
     vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn: { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: redirect } })
