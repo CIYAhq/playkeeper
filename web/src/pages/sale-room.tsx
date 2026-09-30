@@ -13,11 +13,14 @@ import { cn } from '@/lib/utils'
 /** How often the card reads the room again while it's open. */
 const refreshMs = 30_000
 
+type PlanRoom = SaleRoom['plans'][number]
+
 /**
  * Settings › Machines › Room for customers, the owner's: how many more of
- * each plan the store sells fit at once, which is each plan's stock on
- * Whop, and what each machine can still set aside for customers. Without
- * plans on sale there's nothing to show.
+ * each plan fit, which is each plan's stock on Whop, and what each machine
+ * can still set aside for customers. With more than one store selling,
+ * each plan is under its store, since stores share the room. Without plans
+ * on sale there's nothing to show.
  */
 export function SaleRoomCard() {
   const ws = useWorkspace()
@@ -28,22 +31,34 @@ export function SaleRoomCard() {
     const m = ws.machines.find((x) => x.id === id)
     return (m?.kind === 'local' ? ws.machineName : machineLabel(m)) || id
   }
+  const stores = r ? byStore(r.plans) : []
+  const planRow = (p: PlanRoom) => (
+    <li key={p.id} className="flex items-baseline justify-between gap-3 border-t border-border py-2 text-[13px] first:border-t-0">
+      <span className="min-w-0">
+        <span className="font-semibold">{p.name}</span> <span className="text-xs text-muted-foreground">{p.free ? t('room.planFree', { memory: formatMB(p.memoryMB) }) : formatMB(p.memoryMB)}</span>
+      </span>
+      <span className={cn('shrink-0 font-medium', p.left === 0 && 'text-warning-strong')}>{p.left > 0 ? t('room.left', { count: p.left }) : t('room.soldOut')}</span>
+    </li>
+  )
   return (
     <Card aria-labelledby="room-title">
       <CardTitle id="room-title">{t('room.title')}</CardTitle>
       {r ? (
         <div className="animate-fade">
-          <p className="mt-1 text-[13px] text-muted-foreground">{t('room.lead')}</p>
-          <ul className="mt-3 flex flex-col">
-            {r.plans.map((p) => (
-              <li key={p.id} className="flex items-baseline justify-between gap-3 border-t border-border py-2 text-[13px] first:border-t-0">
-                <span className="min-w-0">
-                  <span className="font-semibold">{p.name}</span> <span className="text-xs text-muted-foreground">{p.free ? t('room.planFree', { memory: formatMB(p.memoryMB) }) : formatMB(p.memoryMB)}</span>
-                </span>
-                <span className={cn('shrink-0 font-medium', p.left === 0 && 'text-warning-strong')}>{p.left > 0 ? t('room.left', { count: p.left }) : t('room.soldOut')}</span>
-              </li>
-            ))}
-          </ul>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            {t('room.lead')}
+            {stores.length > 1 && ` ${t('room.leadStores')}`}
+          </p>
+          {stores.length > 1 ? (
+            stores.map((s) => (
+              <div key={s.id} data-store={s.id}>
+                <h3 className="mt-3 text-xs font-semibold text-muted-foreground">{s.name}</h3>
+                <ul className="mt-1 flex flex-col">{s.plans.map(planRow)}</ul>
+              </div>
+            ))
+          ) : (
+            <ul className="mt-3 flex flex-col">{r.plans.map(planRow)}</ul>
+          )}
           <h3 className="mt-3 text-xs font-semibold text-muted-foreground">{t('room.machines')}</h3>
           <ul className="mt-1 flex flex-col">
             {r.machines.map((m) => (
@@ -65,4 +80,15 @@ export function SaleRoomCard() {
       )}
     </Card>
   )
+}
+
+/** The plans' stores, in the order their first plans come, each with its plans. */
+function byStore(plans: PlanRoom[]): { id: string; name: string; plans: PlanRoom[] }[] {
+  const out: { id: string; name: string; plans: PlanRoom[] }[] = []
+  for (const p of plans) {
+    const s = out.find((x) => x.id === p.store)
+    if (s) s.plans.push(p)
+    else out.push({ id: p.store, name: p.storeName || p.store, plans: [p] })
+  }
+  return out
 }

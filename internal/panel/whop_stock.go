@@ -25,13 +25,14 @@ type saleStock interface {
 	SetAvailability(ctx context.Context, left map[string]int) error
 }
 
-// SalePlan is a plan a store sells: Store is the store's id. Free is one
-// that charges nothing, such as the hidden creator plan; the fleet gives
-// room to paid plans first.
+// SalePlan is a plan a store sells: Store is the store's id, and StoreName
+// its name. Free is one that charges nothing, such as the hidden creator
+// plan; the fleet gives room to paid plans first.
 type SalePlan struct {
 	CustomerPlan
-	Store string
-	Free  bool
+	Store     string
+	StoreName string
+	Free      bool
 }
 
 // maxWhopStock bounds a plan's stock, far above what machines can take.
@@ -46,7 +47,7 @@ type whopStock struct{ s *Server }
 // own machines, and a store that's suspended, left or closed sells
 // nothing, so their plans take none of this one's room.
 func (ws whopStock) SalePlans(ctx context.Context) ([]SalePlan, error) {
-	rows, err := ws.s.db.QueryContext(ctx, `SELECT p.store_id, p.plan_id, p.title, p.allowance_servers, p.allowance_memory_mb, p.disk_gb, p.free FROM whop_plans p
+	rows, err := ws.s.db.QueryContext(ctx, `SELECT p.store_id, st.title, p.plan_id, p.title, p.allowance_servers, p.allowance_memory_mb, p.disk_gb, p.free FROM whop_plans p
 		JOIN whop_stores st ON st.store_id = p.store_id
 		WHERE p.allowance_from != '' AND p.visibility != 'archived' AND st.taken_over_by = '' AND st.suspended_at = 0 AND st.left_at = 0
 		AND NOT EXISTS (SELECT 1 FROM whop_store_closures c WHERE c.store_id = st.store_id) ORDER BY p.store_id, p.position`)
@@ -58,10 +59,11 @@ func (ws whopStock) SalePlans(ctx context.Context) ([]SalePlan, error) {
 	for rows.Next() {
 		var p SalePlan
 		var title string
-		if err := rows.Scan(&p.Store, &p.ID, &title, &p.Servers, &p.MemoryMB, &p.DiskGB, &p.Free); err != nil {
+		if err := rows.Scan(&p.Store, &p.StoreName, &p.ID, &title, &p.Servers, &p.MemoryMB, &p.DiskGB, &p.Free); err != nil {
 			return nil, err
 		}
 		p.Name = cmpOr(title, p.ID)
+		p.StoreName = cmpOr(p.StoreName, p.Store)
 		out = append(out, p)
 	}
 	return out, rows.Err()

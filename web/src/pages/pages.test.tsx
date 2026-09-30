@@ -2340,11 +2340,12 @@ describe('Hetzner stock', () => {
 describe('Room for customers', () => {
   const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } })
   const home: MachineView = { id: 'h2345abcde', projectId: machine.projectId, name: 'home-server', kind: 'remote' }
+  const pip = { store: 'biz_pip', storeName: 'Pip Hosting' }
   const room: SaleRoom = {
     plans: [
-      { id: 'plan_starter', name: 'Starter', memoryMB: 4096, free: false, left: 3 },
-      { id: 'plan_big', name: 'Big', memoryMB: 8192, free: false, left: 0 },
-      { id: 'plan_creator', name: 'Creator', memoryMB: 4096, free: true, left: 1 },
+      { id: 'plan_starter', name: 'Starter', ...pip, memoryMB: 4096, free: false, left: 3 },
+      { id: 'plan_big', name: 'Big', ...pip, memoryMB: 8192, free: false, left: 0 },
+      { id: 'plan_creator', name: 'Creator', ...pip, memoryMB: 4096, free: true, left: 1 },
     ],
     machines: [
       { id: machine.id, freeMB: 20480, takes: true },
@@ -2366,6 +2367,19 @@ describe('Room for customers', () => {
     await render(<SaleRoomCard />, { ...owner, machines: [machine, home] })
     const rows = [...document.querySelectorAll('li')].map((li) => li.textContent)
     expect(rows).toEqual(['Starter 4 GB3 more', 'Big 8 GBSold out', 'Creator 4 GB · free1 more', 'my-vps20 GB free for customers', 'home-serverJoined machines take customers once you confirm them.'])
+    expect(document.body.textContent).not.toContain('Pip Hosting')
+  })
+
+  it('puts each plan under its store when stores share the machines, and says how they share', async () => {
+    const other = { store: 'biz_other', storeName: 'Other Hosting' }
+    answer({ '/api/machines/room': { ...room, plans: [...room.plans, { id: 'plan_other', name: 'Other', ...other, memoryMB: 4096, free: false, left: 4 }] } })
+    const text = await render(<SaleRoomCard />, { ...owner, machines: [machine, home] })
+    const stores = [...document.querySelectorAll('[data-store]')].map((group) => [group.querySelector('h3')?.textContent, [...group.querySelectorAll('li')].map((li) => li.textContent)])
+    expect(stores).toEqual([
+      ['Pip Hosting', ['Starter 4 GB3 more', 'Big 8 GBSold out', 'Creator 4 GB · free1 more']],
+      ['Other Hosting', ['Other 4 GB4 more']],
+    ])
+    expect(text).toContain('Each store gets an even share of the room, and each plan is offered once while there’s room for it.')
   })
 })
 
