@@ -155,7 +155,7 @@ function CustomerRow({ customer: c }: { customer: SellerCustomer }) {
 }
 
 /** An amount in its currency's smallest unit, such as cents, as money. */
-function money(amount: number, currency: string): string {
+export function money(amount: number, currency: string): string {
   const f = new Intl.NumberFormat(formatLocale(), { style: 'currency', currency: currency.toUpperCase() })
   return f.format(amount / 10 ** (f.resolvedOptions().maximumFractionDigits ?? 2))
 }

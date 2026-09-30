@@ -3,7 +3,9 @@ package panel
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -84,22 +86,28 @@ func fromSellerPage(r *http.Request) bool {
 	return r.Header.Get("X-Requested-With") == "playkeeper" && (site == "" || site == "same-origin")
 }
 
-// whopSeller answers the calls a seller's page makes: opening the store,
-// POST {store}/open, and reading the seller's view of it, GET {store} (see
-// sellerview.go).
+// whopSeller answers the calls a seller's page makes, by what follows the
+// store's address and their method: reading the seller's view of it, GET
+// {store} (see sellerview.go); opening it, POST {store}/open; reading and
+// setting its prices, GET and POST {store}/prices; and Open the store,
+// POST {store}/sell (see sellerprices.go).
 func (s *Server) whopSeller() http.Handler {
+	calls := map[string]map[string]func(http.ResponseWriter, *http.Request, string){
+		"":       {http.MethodGet: s.hWhopSellerView},
+		"open":   {http.MethodPost: s.hWhopSellerOpen},
+		"prices": {http.MethodGet: s.hWhopSellerPrices, http.MethodPost: s.hWhopSellerSetPrice},
+		"sell":   {http.MethodPost: s.hWhopSellerSell},
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		store, action, sub := strings.Cut(strings.TrimPrefix(r.URL.Path, whopSellerPrefix), "/")
-		if !strings.HasPrefix(store, "biz_") || !reWhopID.MatchString(store) || sub && action != "open" {
+		methods, known := calls[action]
+		if !strings.HasPrefix(store, "biz_") || !reWhopID.MatchString(store) || !known || sub && action == "" {
 			http.NotFound(w, r)
 			return
 		}
-		method, answer := http.MethodGet, s.hWhopSellerView
-		if sub {
-			method, answer = http.MethodPost, s.hWhopSellerOpen
-		}
-		if r.Method != method {
-			w.Header().Set("Allow", method)
+		answer := methods[r.Method]
+		if answer == nil {
+			w.Header().Set("Allow", strings.Join(slices.Sorted(maps.Keys(methods)), ", "))
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}

@@ -82,7 +82,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 			biz = b
 		case strings.HasPrefix(route, "PATCH /variants/") && fb.plan(id) != nil:
 			biz = b
-		case strings.HasPrefix(route, "GET /products/") && fb.products[id] != nil:
+		case (strings.HasPrefix(route, "GET /products/") || strings.HasPrefix(route, "PATCH /products/")) && fb.products[id] != nil:
 			biz = b
 		case len(parts) > 3 && parts[1] == "affiliates" && parts[2] == "aff_"+b && fb.partner != "":
 			biz = b
@@ -144,11 +144,33 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		page(data)
 	case strings.HasPrefix(route, "GET /memberships/"):
 		json.NewEncoder(w).Encode(b.memberships[id])
+	case strings.HasPrefix(route, "PATCH /products/") && f.marksDown:
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the access_pass:update scope."}}`)
+	case strings.HasPrefix(route, "PATCH /products/"):
+		meta := whop.Metadata{}
+		m, _ := body["metadata"].(map[string]any)
+		for k, v := range m {
+			meta[k] = fmt.Sprint(v)
+		}
+		b.products[id] = meta
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": "Minecraft server", "metadata": meta})
+	case strings.HasPrefix(route, "PATCH /variants/") && (body["renewal_price"] != nil && f.priceDown || body["visibility"] != nil && f.showDown):
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the plan:update scope."}}`)
 	case strings.HasPrefix(route, "PATCH /variants/"):
-		n, _ := body["stock"].(float64)
 		p := b.plan(id)
-		p["stock"], p["unlimited_stock"] = int(n), false
-		f.stockSets = append(f.stockSets, fmt.Sprintf("%s=%d", id, int(n)))
+		if n, ok := body["stock"].(float64); ok {
+			p["stock"], p["unlimited_stock"] = int(n), false
+			f.stockSets = append(f.stockSets, fmt.Sprintf("%s=%d", id, int(n)))
+		}
+		if price, ok := body["renewal_price"]; ok {
+			p["initial_price"], p["renewal_price"] = body["initial_price"], price
+			f.priceSets = append(f.priceSets, fmt.Sprintf("%s=%v", id, price))
+		}
+		if vis, ok := body["visibility"]; ok {
+			p["visibility"] = vis
+		}
 		json.NewEncoder(w).Encode(p)
 	case route == "POST /affiliates":
 		b.partner, _ = body["user_identifier"].(string)
