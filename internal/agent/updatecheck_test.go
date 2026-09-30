@@ -209,6 +209,7 @@ func TestOneCheckHoweverManyTabsAreOpen(t *testing.T) {
 	}
 
 	let := rel.hold()
+	t.Cleanup(let)
 	infos := make(chan api.UpdateInfo, 20)
 	for range 20 {
 		wg.Go(func() { infos <- e.checkNow() })
