@@ -24,11 +24,15 @@ import (
 // download their world when they cancel. Whop tells the dashboard about
 // memberships through a webhook at whopWebhookPath, and the dashboard reads
 // them all every whopPollEvery too, since a webhook that keeps failing is
-// switched off and what it missed isn't sent again. Only what Whop's API
-// says counts: a delivery only says what to read again.
+// switched off and what it missed isn't sent again. Without the webhook,
+// reading is how a purchase is heard of, every whopPollUnhooked. Only what
+// Whop's API says counts: a delivery only says what to read again.
 const (
 	whopWebhookPath = "/api/public/whop/webhook"
 	whopPollEvery   = 10 * time.Minute
+	// whopPollUnhooked is a little under the reconciler's minute, so each
+	// of its looks reads, however long the one before took to get there.
+	whopPollUnhooked = 50 * time.Second
 	// maxWhopDelivery bounds a webhook delivery; a membership event is a
 	// few kilobytes.
 	maxWhopDelivery = 256 << 10
@@ -196,12 +200,16 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	// Without the machine's address the webhook stays where it is.
+	every := whopPollUnhooked
 	if dash, err := s.dashboardURL(ctx); err == nil {
 		if err := s.ensureWhopWebhook(ctx, c, &a, dash); err != nil {
 			s.log.Warn("could not keep Whop's webhook pointing at this dashboard", "err", err)
 		}
+		if whopHooked(a, dash) {
+			every = whopPollEvery
+		}
 	}
-	if err := s.refreshWhopMemberships(ctx, c, a); err != nil {
+	if err := s.refreshWhopMemberships(ctx, c, a, every); err != nil {
 		s.log.Warn("could not read memberships from Whop", "err", err)
 	}
 	s.refreshWhopPlans(ctx, c, a)
@@ -276,11 +284,16 @@ func (s *Server) ensureWhopWebhook(ctx context.Context, c *whop.Client, a *whopA
 	return err
 }
 
+// whopHooked says whether Whop's webhook points at the dashboard at dash.
+func whopHooked(a whopAccount, dash string) bool {
+	return a.WebhookID != "" && dash != "" && a.WebhookURL == dash+whopWebhookPath
+}
+
 // refreshWhopMemberships reads every membership from Whop once every
-// whopPollEvery, and in between only those a webhook told of.
-func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, a whopAccount) error {
+// every, and in between only those a webhook told of.
+func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, a whopAccount, every time.Duration) error {
 	now := s.now()
-	if now.Sub(a.PolledAt) >= whopPollEvery {
+	if now.Sub(a.PolledAt) >= every {
 		all, err := c.Memberships(ctx, a.ID)
 		if err != nil {
 			return err

@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.11
+
+- **Selling on Whop without its webhook:** when Whop won't add or keep the webhook, the dashboard now reads the store's memberships every minute instead of every 10, so a buyer is started and messaged within about a minute. With the webhook it still reads them every 10 minutes, as a backstop.
+
 ## 0.4.10
 
 - **Customers get their "your server is ready" message on Whop:** messages now go out as the store's owner, since Whop doesn't accept them from a store key. They go out in the store's support chat, and any still waiting go out as soon as the dashboard updates. A message that can't go out shows on its customer in **Settings › Sell on Whop**, with Whop's reason, and the store shows **Needs a look**.

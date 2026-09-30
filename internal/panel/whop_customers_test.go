@@ -664,6 +664,55 @@ func TestReadingMembershipsCatchesWhatNoWebhookSaid(t *testing.T) {
 	}
 }
 
+// Without a webhook pointing at the dashboard, reading every membership is
+// how a purchase is heard of, so it happens every minute rather than every
+// ten, and goes back to every ten once the webhook is added.
+func TestWithoutAWebhookEveryMembershipIsReadEveryMinute(t *testing.T) {
+	f, e, own := connectedWhop(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	for id := range f.webhooks {
+		delete(f.webhooks, id)
+	}
+	f.hooksDown = true
+	f.users["user_sam"], f.users["user_bo"] = "samcrafts", "bobuilds"
+	f.mu.Unlock()
+	e.srv.db.Exec(`UPDATE whop_account SET webhook_id = '', webhook_url = '', webhook_secret = ''`)
+	e.reconcile()
+	if v := e.whopView(t, own); v.Webhook {
+		t.Fatal("the view has a webhook Whop refused")
+	}
+	f.buy("mem_sam1", "user_sam", "plan_starter", "active")
+	e.clock.add(whopPollUnhooked - time.Second)
+	e.reconcile()
+	if len(core.got()) != 0 {
+		t.Fatalf("read before a minute passed: %q", core.got())
+	}
+	e.clock.add(time.Second)
+	e.reconcile()
+	if got := core.got(); len(got) != 1 || got[0] != "start plan_starter (Starter) 1/4096/0 for whop/user_sam samcrafts" {
+		t.Fatalf("a purchase without a webhook, a minute on: %q", got)
+	}
+	f.mu.Lock()
+	f.hooksDown = false
+	f.mu.Unlock()
+	e.reconcile()
+	if v := e.whopView(t, own); !v.Webhook {
+		t.Fatal("the webhook wasn't added once Whop took it")
+	}
+	f.buy("mem_bo1", "user_bo", "plan_starter", "active")
+	e.clock.add(whopPollUnhooked)
+	e.reconcile()
+	if len(core.got()) != 1 {
+		t.Fatalf("read every minute with a webhook: %q", core.got())
+	}
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	if len(core.got()) != 2 {
+		t.Fatalf("the ten-minute read with a webhook: %q", core.got())
+	}
+}
+
 // A purchase no webhook told of, as while Whop refused the webhook, is read
 // at once after an update, a new key or reading the store again, rather than
 // at the next ten-minute read, and reading again starts nobody twice.
