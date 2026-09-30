@@ -429,9 +429,12 @@ func TestAMoveGoesOnlyWhereTheCustomerFits(t *testing.T) {
 			t.Errorf("moving alex %s: %d %v", c.name, r.status, r.body)
 		}
 	}
-	unconfirmed := f.e.addRemote(t, "u2345abcde", "attic")
-	if r := f.e.do(t, "POST", "/api/customers/"+uid+"/move", `{"machineId":"`+unconfirmed.ID+`"}`, f.own.auth()); r.status != http.StatusConflict {
-		t.Errorf("moving alex to a machine that doesn't take customers: %d %v", r.status, r.body)
+	attic := newRemoteAgent()
+	attic.reply("GET /v1/machine", liveMachine(30000, true))
+	attic.reply("GET /v1/servers", `[]`)
+	unconfirmed, _ := f.e.joinMachine(t, f.own.cookie, f.own.csrf, attic)
+	if r := f.e.do(t, "POST", "/api/customers/"+uid+"/move", `{"machineId":"`+unconfirmed+`"}`, f.own.auth()); r.body["error"] != "Joined machines take customers once you confirm them." {
+		t.Errorf("moving alex to a machine with room that doesn't take customers: %d %v", r.status, r.body)
 	}
 	f.e.reply("GET", "/v1/machine", liveMachine(30000, false))
 	f.e.reply("POST", "/v1/network-guard", `{"on":true,"host":false}`)
