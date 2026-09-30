@@ -679,6 +679,25 @@ DROP TABLE whop_account;
 ALTER TABLE whop_app ADD COLUMN webhook_secret TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_app ADD COLUMN hooked_at      INTEGER NOT NULL DEFAULT 0;
 `,
+	// Suspensions (see suspension.go): when each customer's account was
+	// suspended and why, and whether the owner suspended it on its own, with
+	// its store, or both; and when each store was suspended, and why. An
+	// account suspended before is the owner's own suspension.
+	`
+ALTER TABLE customers   ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers   ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
+ALTER TABLE customers   ADD COLUMN suspended_self  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers   ADD COLUMN suspended_store INTEGER NOT NULL DEFAULT 0;
+UPDATE customers SET suspended_self = 1 WHERE state = 'suspended';
+ALTER TABLE whop_stores ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_stores ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
+`,
+	// A store that left (see leaving.go): when the Whop side found it gone,
+	// and why.
+	`
+ALTER TABLE whop_stores ADD COLUMN left_at  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_stores ADD COLUMN left_why TEXT    NOT NULL DEFAULT '';
+`,
 	// The redirect URI each sign-in with Whop left with, which trading its
 	// code names again: the dashboard's address, or its address at the
 	// panel's port while Whop lists only that one (see signInRedirect).

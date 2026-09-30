@@ -2185,6 +2185,44 @@ export interface TeamMember {
   /** Set for a customer: the billing provider their account came from ("whop"), and their name there. */
   customer?: string
   handle?: string
+  /** Set for a customer: where their account stands, and the store they bought from, with its name there. */
+  customerState?: CustomerState
+  store?: string
+  storeName?: string
+  /** Whether the owner suspended a customer's account on its own, with its store, or both, and why. */
+  suspendedSelf?: boolean
+  suspendedStore?: boolean
+  suspendReason?: string
+  /** Whether the signed-in account may suspend this customer, or lift its own suspension of them. */
+  canSuspend?: boolean
+}
+
+/** Where a customer's account stands: active, paused because its plan ended, or suspended by the owner. */
+export type CustomerState = 'active' | 'paused' | 'suspended'
+
+/** A customer's account once the owner suspended it or lifted that. */
+export interface CustomerSuspension {
+  state: CustomerState
+  suspendedSelf: boolean
+  suspendedStore: boolean
+}
+
+/** A business that sells from this dashboard through the Playkeeper Cloud app, with how many customers have an account from it. */
+export interface SuspendableStore {
+  id: string
+  title: string
+  route?: string
+  customers: number
+  problem?: string
+  suspendedAt?: string
+  suspendReason?: string
+  /** Set once the business uninstalled the app or removed Playkeeper's share: when, and why. */
+  leftAt?: string
+  leftWhy?: string
+}
+
+export interface StoresResponse {
+  stores: SuspendableStore[]
 }
 
 export interface TeamInvite extends Invite {

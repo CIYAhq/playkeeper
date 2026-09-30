@@ -252,6 +252,16 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	if st.TakenOverBy != "" {
 		return
 	}
+	// A store that left ends its customers' plans from what the dashboard
+	// kept, whether or not Whop still answers for it, so once its own
+	// suspension is lifted, its customers' is too, into their ended plans.
+	left := !st.LeftAt.IsZero()
+	if left {
+		s.endLeftStorePlans(ctx, st)
+		if st.SuspendedAt.IsZero() {
+			s.liftWithStore(ctx, st)
+		}
+	}
 	c, err := s.whopClientFor(ctx, st)
 	if err != nil {
 		s.whopStoreNeedsALook(st.ID, err.Error())
@@ -264,6 +274,18 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 			s.whopStoreNeedsALook(st.ID, problem)
 			return
 		}
+	}
+	// A suspended store, or one that left, sells nothing, and its pass does
+	// little else: each of its plans, a new one included, gets a stock of 0
+	// on Whop, and a store that left tells its customers their plans ended.
+	if left || !st.SuspendedAt.IsZero() {
+		s.refreshWhopPlans(ctx, c, st)
+		s.stopWhopSales(ctx, st.ID)
+		s.pushWhopStock(ctx, c, st.ID)
+		if left {
+			s.sendWhopMessages(ctx, c, st)
+		}
+		return
 	}
 	// Without the machine's address the webhook stays where it is. An app
 	// store's memberships are read every minute until the app's webhook
@@ -287,8 +309,9 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	if st.Via == whopViaApp {
 		every = s.whopAppEvery(ctx, st)
 	}
-	if err := s.refreshWhopMemberships(ctx, c, st, every); err != nil {
-		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", err)
+	read := s.refreshWhopMemberships(ctx, c, st, every)
+	if read != nil {
+		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", read)
 	}
 	s.refreshWhopPlans(ctx, c, st)
 	if s.whopTakenOver(st.ID) || !s.stillSellsFor(ctx, c, st) {
@@ -296,6 +319,9 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	}
 	s.pushWhopStock(ctx, c, st.ID)
 	s.syncWhopCustomers(ctx, c, st.ID)
+	if read == nil {
+		s.liftWithStore(ctx, st)
+	}
 	s.remindCancelled(ctx, st)
 	s.sendWhopMessages(ctx, c, st)
 }

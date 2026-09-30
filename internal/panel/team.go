@@ -38,10 +38,23 @@ type teamMember struct {
 	DiskUsedBytes *int64            `json:"diskUsedBytes,omitempty"`
 	// Customer is the billing provider a customer's account came from, and
 	// Handle their name there (see customers.go).
-	Customer  string    `json:"customer,omitempty"`
-	Handle    string    `json:"handle,omitempty"`
-	TwoFactor bool      `json:"twoFactor"`
-	AddedAt   time.Time `json:"addedAt"`
+	Customer string `json:"customer,omitempty"`
+	Handle   string `json:"handle,omitempty"`
+	// CustomerState is where a customer's account stands, Store the store
+	// they bought from, and StoreName its name there. SuspendedSelf and
+	// SuspendedStore say whether the owner suspended the account on its own,
+	// with its store, or both, and SuspendReason why. CanSuspend says
+	// whether the signed-in account may suspend it, or lift the owner's own
+	// suspension of it (see suspension.go).
+	CustomerState  CustomerState `json:"customerState,omitempty"`
+	Store          string        `json:"store,omitempty"`
+	StoreName      string        `json:"storeName,omitempty"`
+	SuspendedSelf  bool          `json:"suspendedSelf,omitempty"`
+	SuspendedStore bool          `json:"suspendedStore,omitempty"`
+	SuspendReason  string        `json:"suspendReason,omitempty"`
+	CanSuspend     bool          `json:"canSuspend,omitempty"`
+	TwoFactor      bool          `json:"twoFactor"`
+	AddedAt        time.Time     `json:"addedAt"`
 	// CanEdit says whether the signed-in account may change this member's
 	// role and servers, or remove them.
 	CanEdit bool `json:"canEdit"`
@@ -114,7 +127,10 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 			row.DiskUsedBytes = s.diskUsed(t.UserID)
 		}
 		if t.Customer != "" {
-			_ = s.db.QueryRow(`SELECT provider, handle FROM customers WHERE user_id = ?`, t.UserID).Scan(&row.Customer, &row.Handle)
+			_ = s.db.QueryRow(`SELECT c.provider, c.handle, c.state, c.store, COALESCE(w.title, ''), c.suspended_self, c.suspended_store, c.suspend_reason
+				FROM customers c LEFT JOIN whop_stores w ON c.provider = ? AND w.store_id = c.store WHERE c.user_id = ?`, whopProvider, t.UserID).
+				Scan(&row.Customer, &row.Handle, &row.CustomerState, &row.Store, &row.StoreName, &row.SuspendedSelf, &row.SuspendedStore, &row.SuspendReason)
+			row.CanSuspend = permit(a, actSuspendCustomers, "") == nil
 		}
 		out.Members = append(out.Members, row)
 	}
