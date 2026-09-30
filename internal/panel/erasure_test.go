@@ -237,7 +237,8 @@ func TestOnlyTheOwnerDeletesACustomerWhosePlanEnded(t *testing.T) {
 
 // A customer is deleted the owner's number of days after their servers
 // were deleted, 30 until the owner sets another, and not a day before. The
-// owner alone sets it, from 1 to 3650 days.
+// owner alone sets it, from the 30 days their final backups are kept to
+// 3650.
 func TestACustomerIsDeletedSomeDaysAfterTheirServers(t *testing.T) {
 	p := newPausable(t)
 	e, ctx := p.e, context.Background()
@@ -250,20 +251,26 @@ func TestACustomerIsDeletedSomeDaysAfterTheirServers(t *testing.T) {
 	}
 	owner := func() member { return signIn(t, e.env, p.own.id) }
 	var v retentionView
-	if st := e.get(t, "/api/customers/retention", owner().cookie, &v); st != http.StatusOK || v.Days != 30 || v.Default != 30 || v.Max != 3650 {
+	if st := e.get(t, "/api/customers/retention", owner().cookie, &v); st != http.StatusOK || v.Days != 30 || v.Default != 30 || v.Min != 30 || v.Max != 3650 {
 		t.Fatalf("the setting: %d %+v", st, v)
+	}
+	if _, err := e.srv.db.Exec(`INSERT INTO panel_meta(key, value) VALUES(?, '7')`, metaCustomerRetention); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.get(t, "/api/customers/retention", owner().cookie, &v); st != http.StatusOK || v.Days != 30 {
+		t.Fatalf("the setting with 7 days stored: %d %+v", st, v)
 	}
 	e.clock.add(29 * 24 * time.Hour)
 	e.srv.eraseDueCustomers(ctx)
 	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); !ok {
 		t.Fatal("alex was deleted a day early")
 	}
-	for body, status := range map[string]int{`{"days":0}`: http.StatusBadRequest, `{"days":3651}`: http.StatusBadRequest, `{"days":60}`: http.StatusOK} {
+	for body, status := range map[string]int{`{"days":29}`: http.StatusBadRequest, `{"days":3651}`: http.StatusBadRequest, `{"days":60}`: http.StatusOK} {
 		if r := e.do(t, "PUT", "/api/customers/retention", body, owner().auth()); r.status != status {
 			t.Errorf("setting %s: %d %v", body, r.status, r.body)
 		}
 	}
-	if r := e.do(t, "PUT", "/api/customers/retention", `{"days":1}`, addMember(t, e.env, "morgan", "admin", "*").auth()); r.status != http.StatusForbidden {
+	if r := e.do(t, "PUT", "/api/customers/retention", `{"days":45}`, addMember(t, e.env, "morgan", "admin", "*").auth()); r.status != http.StatusForbidden {
 		t.Fatalf("an admin setting it: %d %v", r.status, r.body)
 	}
 	e.clock.add(2 * 24 * time.Hour)

@@ -30,9 +30,12 @@ const (
 	actDeleteCustomers action = "customers.delete"
 	// metaCustomerRetention is the panel_meta key holding those days.
 	metaCustomerRetention = "customer_retention_days"
-	// defaultCustomerRetention is the days until the owner sets others, and
-	// maxCustomerRetention the most they may.
+	// defaultCustomerRetention is the days until the owner sets others. They
+	// may set from minCustomerRetention, as long as a deleted server's final
+	// backup is kept, since its customer is told they can download it until
+	// then, to maxCustomerRetention.
 	defaultCustomerRetention = 30
+	minCustomerRetention     = finalBackupDays
 	maxCustomerRetention     = 3650
 )
 
@@ -115,22 +118,24 @@ func (s *Server) customerRetention(ctx context.Context) int {
 		return defaultCustomerRetention
 	}
 	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 || n > maxCustomerRetention {
+	if err != nil || n < minCustomerRetention || n > maxCustomerRetention {
 		return defaultCustomerRetention
 	}
 	return n
 }
 
 // retentionView is the owner's setting: the days after a customer's
-// servers were deleted before the customer is, their default and the most.
+// servers were deleted before the customer is, their default, the fewest
+// and the most.
 type retentionView struct {
 	Days    int `json:"days"`
 	Default int `json:"default"`
+	Min     int `json:"min"`
 	Max     int `json:"max"`
 }
 
 func (s *Server) retentionOf(ctx context.Context) retentionView {
-	return retentionView{Days: s.customerRetention(ctx), Default: defaultCustomerRetention, Max: maxCustomerRetention}
+	return retentionView{Days: s.customerRetention(ctx), Default: defaultCustomerRetention, Min: minCustomerRetention, Max: maxCustomerRetention}
 }
 
 // hCustomerRetention answers the owner's setting.
@@ -144,8 +149,8 @@ func (s *Server) hSetCustomerRetention(w http.ResponseWriter, r *http.Request, s
 	var req struct {
 		Days int `json:"days"`
 	}
-	if err := decodeJSON(r, &req); err != nil || req.Days < 1 || req.Days > maxCustomerRetention {
-		msg := fmt.Sprintf("Choose from 1 to %d days.", maxCustomerRetention)
+	if err := decodeJSON(r, &req); err != nil || req.Days < minCustomerRetention || req.Days > maxCustomerRetention {
+		msg := fmt.Sprintf("Choose from %d to %d days.", minCustomerRetention, maxCustomerRetention)
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: msg, Code: api.CodeInvalid, Field: "days"})
 		return
 	}
