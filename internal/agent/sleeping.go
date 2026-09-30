@@ -57,6 +57,26 @@ func (s *server) sleepSettings() sleep.Settings {
 	return set
 }
 
+// useSleep makes set the setting the server's sleep runs by, once saved.
+func (s *server) useSleep(set sleep.Settings) {
+	s.auto.mu.Lock()
+	s.auto.sleepSet = &set
+	if s.auto.tracker != nil {
+		s.auto.tracker.SetSettings(set)
+	}
+	s.auto.decision = sleep.Decision{}
+	s.auto.mu.Unlock()
+}
+
+// reloadSleep has the server's sleep run by the setting saved for it now,
+// as a move in writes it straight to the database.
+func (s *server) reloadSleep() {
+	s.auto.mu.Lock()
+	s.auto.sleepSet = nil
+	s.auto.mu.Unlock()
+	s.useSleep(s.sleepSettings())
+}
+
 // standIn is the server's stand-in, made on first use.
 func (s *server) standIn() (*sleep.Manager, error) {
 	s.auto.mu.Lock()
@@ -607,13 +627,7 @@ func (s *server) saveSleep(set sleep.Settings, actor string) (*api.Operation, er
 	if _, err := s.db.Exec(`UPDATE servers SET sleep = ? WHERE id = ?`, string(b), s.id); err != nil {
 		return nil, err
 	}
-	s.auto.mu.Lock()
-	s.auto.sleepSet = &set
-	if s.auto.tracker != nil {
-		s.auto.tracker.SetSettings(set)
-	}
-	s.auto.decision = sleep.Decision{}
-	s.auto.mu.Unlock()
+	s.useSleep(set)
 	if !wake {
 		return nil, nil
 	}

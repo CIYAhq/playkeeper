@@ -292,6 +292,9 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 			every = 0
 		}
 	}
+	if st.Via == whopViaApp {
+		every = s.whopAppEvery(ctx, st)
+	}
 	if err := s.refreshWhopMemberships(ctx, c, st, every); err != nil {
 		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", err)
 	}

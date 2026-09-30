@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -24,18 +25,21 @@ import (
 )
 
 // Moving customers (step 8 of the fleet plan). The owner moves a customer to
-// another machine that takes customers and has room for their plan, which
-// is set aside there at once: their new servers go there from then on, and
-// their servers follow, one at a time. Each one stops, its machine backs it
-// up, and the backup goes to the other machine as an upload for a new
-// server. That machine makes the server from it with the same id (the
-// agent's move-in), starting it if it ran and its customer isn't paused or
-// suspended, and it counts against the customer's disk limit there before
-// its requests go there. The upload itself doesn't, so a customer near
-// their limit moves as they are. The machine it left then deletes it,
-// keeping its final backup movedBackupDays. It keeps its id, so its
-// members, invites, slug, address and links stay as they are: the customer
-// sees it stopped for a few minutes, and never a machine.
+// another machine that takes customers, has room for their plan, which is
+// set aside there at once, and has room on its disk for their servers'
+// folders: their new servers go there from then on, and their servers
+// follow, one at a time. Every server is checked before any stops, so one
+// whose folder a move can't carry refuses the move, saying why. Each one
+// stops, and its machine streams its whole folder (the agent's move-out) to
+// the other machine as an upload for a new server. That machine makes the
+// server from it with the same id (the agent's move-in), starting it if it
+// ran and its customer isn't paused or suspended, gets what the agent kept
+// about it (its move state), and counts it against the customer's disk
+// limit there before its requests go there. The upload itself doesn't, so a
+// customer near their limit moves as they are. The machine it left then
+// deletes it, keeping its whole folder movedBackupDays. It keeps its id, so
+// its members, invites, slug, address and links stay as they are: the
+// customer sees it stopped for a few minutes, and never a machine.
 //
 // A server being moved has a server_moves row, and no request reaches it
 // (see machineForServer). The copy the machine it goes to makes isn't the
@@ -49,11 +53,11 @@ import (
 // (see runMoves), or leaves it where it was when it can't.
 
 const (
-	// movedBackupDays is how long the machine a server left keeps its final
-	// backup.
+	// movedBackupDays is how long the machine a server left keeps its whole
+	// folder as its final backup.
 	movedBackupDays = 7
 	// moveStepWait is how long one step of a server's move may take: its
-	// stop, its backup, its copy or its move-in.
+	// stop, its copy or its move-in.
 	moveStepWait = time.Hour
 	// moveRetry is how often machines that were away are asked again to
 	// delete the copies moves left on them.
@@ -332,6 +336,10 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 	case !placed:
 		return "", errMoveWaiting
 	}
+	sizes, err := s.moveSizes(ctx, userID, name)
+	if err != nil {
+		return "", err
+	}
 	rooms, err := s.fleetRooms(ctx, userID)
 	if err != nil {
 		return "", err
@@ -342,10 +350,24 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 	}
 	var target machineRoom
 	if to == "" {
-		others := slices.DeleteFunc(slices.Clone(rooms), func(r machineRoom) bool { return r.ID == home })
+		// A machine a server of theirs a move can't carry would have to go
+		// to is passed over; with none left, that's why they can't move.
+		var refused *invites.Error
+		others := slices.DeleteFunc(slices.Clone(rooms), func(r machineRoom) bool {
+			if r.ID == home {
+				return true
+			}
+			if why := carryRefusal(sizes, r.ID); why != nil {
+				refused = cmp.Or(refused, why)
+				return true
+			}
+			return !diskFits(r, diskNeed(sizes, r.ID))
+		})
 		for {
 			var ok bool
-			if target, ok = chooseMachine(others, planMB); !ok {
+			if target, ok = chooseMachine(others, planMB); !ok && refused != nil {
+				return "", refused
+			} else if !ok {
 				return "", errMoveNowhere
 			}
 			err := guardOn(ctx, target, actor)
@@ -370,6 +392,12 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 		case target.FreeMB < planMB:
 			return "", &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
 				Msg: fmt.Sprintf("That machine can set aside %s, and their plan needs %s.", gbText(max(target.FreeMB, 0)), gbText(planMB))}
+		}
+		if refused := carryRefusal(sizes, target.ID); refused != nil {
+			return "", refused
+		}
+		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {
+			return "", diskRefusal(target, name, need)
 		}
 		if guardOn(ctx, target, actor) != nil {
 			return "", errMoveUnguarded
@@ -398,6 +426,192 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 	s.audit(actor, "customer.move", name, "started", fmt.Sprintf("to %s, with %s set aside there", machineLabel(target.machine), gbText(planMB)))
 	s.moves.start(s.movesCtx, userID, s.moveCustomer)
 	return target.ID, nil
+}
+
+// moveDiskReserve is what a machine keeps free on its disk as it unpacks
+// an upload (the agent's minFreeAfterBackup), which a move leaves it too.
+const moveDiskReserve = 512 << 20
+
+// serverSize is what one of a customer's servers takes where it moves
+// (api.MoveCheck), the machine it's on, and the machines a move left a copy
+// of it on that isn't deleted yet; or, for one a move can't carry or its
+// machine couldn't check, why (refused).
+type serverSize struct {
+	api.MoveCheck
+	machineID string
+	copiesOn  []string
+	refused   *invites.Error
+}
+
+// moveSizes has each of customer name's servers checked by its machine
+// (the agent's move-check) and returns what each takes where it goes, or
+// why a move can't carry it. A server on a removed machine stays there, out
+// of reach.
+func (s *Server) moveSizes(ctx context.Context, userID int64, name string) (map[string]serverSize, error) {
+	ids, err := s.creatorServers(userID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]serverSize{}
+	for _, id := range ids {
+		at, err := s.recordedMachine(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		m, err := s.machineByID(at)
+		if errors.Is(err, errNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var check api.MoveCheck
+		err = askAgent(ctx, m, http.MethodGet, "/v1/servers/"+id+"/move-check", nil, &check)
+		if refused := moveCheckRefusal(m, name, err); refused != nil {
+			s.log.Warn("a server wasn't checked for its move", "machine", m.ID, "server", id, "err", err)
+			out[id] = serverSize{machineID: at, refused: refused}
+			continue
+		}
+		copies, err := s.copiesLeftOf(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out[id] = serverSize{MoveCheck: check, machineID: at, copiesOn: copies}
+	}
+	return out, nil
+}
+
+// copiesLeftOf lists the machines a move left a copy of server id on that
+// isn't deleted yet.
+func (s *Server) copiesLeftOf(ctx context.Context, id string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT machine_id FROM left_copies WHERE server_id = ? AND left_at = 0`, id)
+	if err != nil {
+		return nil, errDB
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, errDB
+		}
+		out = append(out, m)
+	}
+	if rows.Err() != nil {
+		return nil, errDB
+	}
+	return out, nil
+}
+
+// carryRefusal is why a move of the servers sizes names to machine id can't
+// go, naming the first server that would go there and that a move can't
+// carry or its machine couldn't check, or nil. One already there stays.
+func carryRefusal(sizes map[string]serverSize, id string) *invites.Error {
+	for _, sid := range slices.Sorted(maps.Keys(sizes)) {
+		if sz := sizes[sid]; sz.refused != nil && sz.machineID != id {
+			return sz.refused
+		}
+	}
+	return nil
+}
+
+// moveCheckRefusal refuses to move customer name for a server machine m
+// couldn't check for the move, err saying why: m's own words for a folder
+// a move can't carry, and that it doesn't answer otherwise. It's nil once m
+// checked the server.
+func moveCheckRefusal(m machine, name string, err error) *invites.Error {
+	var ae *agentclient.Error
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &ae) && ae.Status == http.StatusConflict:
+		return &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict, Msg: ae.Body.Error, Hint: ae.Body.Hint}
+	}
+	return uncheckedRefusal(m, name)
+}
+
+// uncheckedRefusal refuses to move customer name while machine m doesn't
+// answer for their servers there.
+func uncheckedRefusal(m machine, name string) *invites.Error {
+	return &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
+		Msg: fmt.Sprintf("%s doesn't answer, so %s's servers there can't be checked for the move.", machineSubject(m), name), Hint: "Try again once it's back."}
+}
+
+// diskNeed is what moving the servers sizes names to machine id takes on
+// its disk: each of those not there already unpacked, and the largest's
+// upload beside them meanwhile. One a move left a copy of there counts
+// nothing unpacked, as that copy goes first (copyServer) and frees about as
+// much; the check as its turn comes (checkRoomFor) sees what it truly freed.
+func diskNeed(sizes map[string]serverSize, id string) int64 {
+	var need, upload int64
+	for _, sz := range sizes {
+		if sz.machineID == id {
+			continue
+		}
+		upload = max(upload, sz.ArchiveBytes)
+		if !slices.Contains(sz.copiesOn, id) {
+			need += sz.DiskBytes
+		}
+	}
+	return need + upload
+}
+
+// diskFits reports whether r's disk has room for need and what it keeps
+// free. A machine that doesn't say what its disk has free takes none.
+func diskFits(r machineRoom, need int64) bool {
+	return need == 0 || r.DiskFree != nil && *r.DiskFree >= need+moveDiskReserve
+}
+
+// diskRefusal refuses to move customer name to r, whose disk hasn't room
+// for need.
+func diskRefusal(r machineRoom, name string, need int64) *invites.Error {
+	msg := fmt.Sprintf("%s doesn't say how much room its disk has, so %s's servers can't go there.", machineSubject(r.machine), name)
+	if r.DiskFree != nil {
+		msg = fmt.Sprintf("%s has %s free on its disk, and %s's servers need %s there.", machineSubject(r.machine), bytesText(*r.DiskFree), name, bytesText(need+moveDiskReserve))
+	}
+	return &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict, Msg: msg, Hint: "Pick a machine with more room, or make room on its disk."}
+}
+
+// checkRoomFor has server id checked again as its turn comes, before it
+// stops on from: its folder is one a move carries, and to's disk has room
+// for it now, as that disk may have filled since the move started.
+func checkRoomFor(ctx context.Context, from, to machine, id string) error {
+	var check api.MoveCheck
+	if err := askAgent(ctx, from, http.MethodGet, "/v1/servers/"+id+"/move-check", nil, &check); err != nil {
+		var ae *agentclient.Error
+		if errors.As(err, &ae) && ae.Status == http.StatusConflict {
+			return errors.New(strings.TrimSuffix(ae.Body.Error, "."))
+		}
+		return fmt.Errorf("%s couldn't check it for the move: %w", machineLabel(from), err)
+	}
+	var live api.Machine
+	if err := askAgent(ctx, to, http.MethodGet, "/v1/machine", nil, &live); err != nil {
+		return fmt.Errorf("%s didn't say how much room its disk has: %w", machineLabel(to), err)
+	}
+	need := check.DiskBytes + check.ArchiveBytes + moveDiskReserve
+	if live.DiskFreeBytes == nil || *live.DiskFreeBytes < need {
+		free := int64(0)
+		if live.DiskFreeBytes != nil {
+			free = *live.DiskFreeBytes
+		}
+		return fmt.Errorf("there's no room for it on %s's disk: it needs %s, and %s is free", machineLabel(to), bytesText(need), bytesText(free))
+	}
+	return nil
+}
+
+// bytesText is n bytes in GB, as gbText writes them.
+func bytesText(n int64) string {
+	return gbText(int((max(n, 0) + 1<<20 - 1) >> 20))
+}
+
+// machineSubject is machineLabel starting a sentence: a machine's name as
+// it is, and "The dashboard's machine".
+func machineSubject(m machine) string {
+	label := machineLabel(m)
+	if rest, ok := strings.CutPrefix(label, "the "); ok {
+		return "The " + rest
+	}
+	return label
 }
 
 // guardOn has r's machine keep servers away from itself, as a machine that
@@ -672,6 +886,9 @@ func (s *Server) copyServer(ctx context.Context, mv serverMove, from, to machine
 			return fmt.Errorf("the copy of it left on %s couldn't be deleted: %w", machineLabel(to), err)
 		}
 	}
+	if err := checkRoomFor(ctx, from, to, id); err != nil {
+		return err
+	}
 	if err := stopOn(ctx, from, id); err != nil {
 		return fmt.Errorf("it didn't stop: %w", err)
 	}
@@ -904,6 +1121,16 @@ func (s *Server) forgetRestart(id string) {
 	}
 }
 
+// runProxy forwards a start, stop or restart of a server, which then isn't
+// started again for a failed move: whoever started or stopped it since
+// decides whether it runs.
+func (s *Server) runProxy(pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, sess *session) {
+		id := r.PathValue("id")
+		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { s.forgetRestart(id) })(w, r, sess)
+	}
+}
+
 // retryRestarts starts again the servers failed moves left stopped though
 // they ran, on machineID, or on every machine for "": each where it is,
 // unless it moved or went since, a move of it is under way, or its
@@ -1082,12 +1309,12 @@ func stopOn(ctx context.Context, m machine, id string) error {
 	return err
 }
 
-// deleteOn deletes server id, called name, on m, keeping its final backup
-// for userID days when days isn't 0.
+// deleteOn deletes server id, called name, on m, keeping its whole folder
+// for userID days when days isn't 0, as the copy a move left.
 func deleteOn(ctx context.Context, m machine, id, name string, days int, userID int64) error {
 	req := api.DeleteServerRequest{Confirm: name, Actor: placementActor, ForgetKey: true}
 	if days > 0 {
-		req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)
+		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true
 	}
 	_, err := agentOp(ctx, m, "/v1/servers/"+id+"/delete", req)
 	return err
