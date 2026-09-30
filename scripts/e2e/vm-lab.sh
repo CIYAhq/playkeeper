@@ -93,20 +93,20 @@ lab_centos_url() {
   echo "$compose/$name"
 }
 
-# lab_os_sums OS — where OS's cloud image's checksum is published, for
-# lab_image_named: nothing for a SHA256SUMS or SHA512SUMS next to the image.
+# lab_os_sums OS URL — where the checksum of OS's cloud image at URL, as
+# lab_os_url gave it, is published, for lab_image_named: nothing for a
+# SHA256SUMS or SHA512SUMS next to the image. It takes the URL because asking
+# lab_os_url again can land on the other host for CentOS Stream.
 lab_os_sums() {
-  local url
   case $1 in
-    almalinux-*) echo "$(dirname "$(lab_os_url "$1")")/CHECKSUM" ;;
+    almalinux-*) echo "$(dirname "$2")/CHECKSUM" ;;
     centos-stream-*)
-      url=$(lab_os_url "$1") || return 1
-      case $url in
-        https://composes.stream.centos.org/*) echo "$url.SHA256SUM" ;;
-        *) echo "$(dirname "$url")/CHECKSUM" ;;
+      case $2 in
+        https://composes.stream.centos.org/*) echo "$2.SHA256SUM" ;;
+        *) echo "$(dirname "$2")/CHECKSUM" ;;
       esac
       ;;
-    rocky-*) echo "$(lab_os_url "$1").CHECKSUM" ;;
+    rocky-*) echo "$2.CHECKSUM" ;;
     # Oracle lists it only on https://yum.oracle.com/oracle-linux-templates.html.
     oraclelinux-9) echo sha256:b12103391327abee8090686759c0d62dac9a7af2bf0f45fdf6b0d085a0fbb52b ;;
   esac

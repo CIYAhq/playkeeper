@@ -188,7 +188,8 @@ world_sums() {
 
 step "boot a fresh $os guest from its official cloud image"
 lab_key
-lab_image_named "$os" "$(lab_os_url "$os")" "$(lab_os_sums "$os")"
+image_url=$(lab_os_url "$os")
+lab_image_named "$os" "$image_url" "$(lab_os_sums "$os" "$image_url")"
 lab_network
 LAB_BASE_IMAGE="$LAB_DIR/$os.img" lab_boot os 20 3072
 g 'set +e
