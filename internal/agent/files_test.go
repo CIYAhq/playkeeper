@@ -583,10 +583,19 @@ func TestFileChangesHoldOffOperations(t *testing.T) {
 // holds off operations until it is done.
 func TestALongDeleteCarriesOnAfterItsAnswer(t *testing.T) {
 	e, _ := idleFilesServer(t)
+	held, resume := holdChange(t, "plugins/Essentials")
+	// The answer is due once the delete has deleted EssentialsX.jar and
+	// waits at plugins/Essentials, however long a busy machine takes.
 	orig := deleteAnswerAfter
-	deleteAnswerAfter = 50 * time.Millisecond
+	deleteAnswerAfter = func() <-chan time.Time {
+		due := make(chan time.Time)
+		go func() {
+			<-held
+			close(due)
+		}()
+		return due
+	}
 	t.Cleanup(func() { deleteAnswerAfter = orig })
-	_, resume := holdChange(t, "plugins/Essentials")
 	code, out := e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"plugins/EssentialsX.jar", "plugins/Essentials"}})
 	if code != 202 || out["continuing"] != true || out["deleted"] != float64(1) {
 		t.Fatalf("a long delete: %d %v", code, out)
@@ -601,6 +610,8 @@ func TestALongDeleteCarriesOnAfterItsAnswer(t *testing.T) {
 		t.Fatal("the delete wasn't audited once done")
 	}
 	e.waitIdle()
+	// With the real wait, a quick delete is done before its answer is due.
+	deleteAnswerAfter = orig
 	if code, out := e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"server.properties"}}); code != 200 || out["continuing"] != nil || out["deleted"] != float64(1) {
 		t.Fatalf("a quick delete: %d %v", code, out)
 	}
