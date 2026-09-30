@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -115,9 +116,22 @@ func newAnswerer(z Zone) *Answerer {
 	return a
 }
 
+// ask asks a q and reads the reply. Answers take microseconds, so one that
+// hasn't come in 5 seconds fails the test rather than hanging it until go
+// test's timeout, as a lookup that loops would.
 func ask(t *testing.T, a *Answerer, q []byte) answer {
 	t.Helper()
-	return parseReply(t, a.Answer(q, MaxUDP))
+	const wait = 5 * time.Second
+	reply := make(chan []byte, 1)
+	go func() { reply <- a.Answer(q, MaxUDP) }()
+	select {
+	case b := <-reply:
+		return parseReply(t, b)
+	case <-time.After(wait):
+		name, _ := readName(t, q, headerLen)
+		t.Fatalf("no answer to a query for %s in %v", name, wait)
+		return answer{}
+	}
 }
 
 // The zone's records are answered with authority, names in any case, the
