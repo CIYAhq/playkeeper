@@ -8312,6 +8312,10 @@ control "share user: kept by the id Whop gives" internal/panel/whop_share.go \
   'share_username = excluded.share_username`, user.ID, user.Username)' \
   'share_username = excluded.share_username`, name, user.Username)' \
   ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
+control "share user: a lone @ isn't a username" internal/panel/whop_share.go \
+  'if raw != "" && !reWhopUserName.MatchString(raw) {' \
+  'if name != "" && !reWhopUserName.MatchString(name) {' \
+  ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
 control "share user: stays while a store pays them" internal/panel/whop_share.go \
   'SELECT user_id FROM whop_partners WHERE user_id != ? LIMIT 1' \
   'SELECT user_id FROM whop_partners WHERE user_id != ? AND 0 LIMIT 1' \

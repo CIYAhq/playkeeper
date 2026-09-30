@@ -2069,6 +2069,8 @@ describe('Sell on Whop', () => {
     const text = await render(<SellOnWhopSection />, owner)
     expect(text).toContain('Nobody receives Playkeeper’s share of their sales yet, so they can’t open their stores.')
     expect(button('Set').disabled).toBe(true)
+    await typeInto('input[aria-label="Whop username that receives Playkeeper’s share"]', ' @ ')
+    expect(button('Set').disabled).toBe(true)
     await typeInto('input[aria-label="Whop username that receives Playkeeper’s share"]', ' @siyabuilt ')
     vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { keyEnding: 'cdef', stores: 0, webhook: true, shareUser: 'siyabuilt' } })
     await act(async () => button('Set').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))

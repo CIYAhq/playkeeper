@@ -55,8 +55,9 @@ func percentOf(bp int64) string {
 // by id. It can't change while a store pays its share to someone else,
 // since that store's share would then be paid twice.
 func (s *Server) setWhopShareUser(w http.ResponseWriter, r *http.Request, sess *session, name string) {
-	name = strings.TrimPrefix(strings.TrimSpace(name), "@")
-	if name != "" && !reWhopUserName.MatchString(name) {
+	raw := strings.TrimSpace(name)
+	name = strings.TrimPrefix(raw, "@")
+	if raw != "" && !reWhopUserName.MatchString(raw) {
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "That isn't a Whop username.", "Write the username of the Whop account that receives Playkeeper's share.")
 		return
 	}

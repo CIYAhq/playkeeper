@@ -69,6 +69,7 @@ func TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare(t *testing.T) {
 	for body, status := range map[string]int{
 		`{"shareUser":"nobody_here"}`:                              http.StatusBadRequest,
 		`{"shareUser":"a b"}`:                                      http.StatusBadRequest,
+		`{"shareUser":" @ "}`:                                      http.StatusBadRequest,
 		`{"shareUser":"siyabuilt","key":"` + whopTestAppKey + `"}`: http.StatusBadRequest,
 	} {
 		if r := e.do(t, "PUT", "/api/whop/app", body, own.auth()); r.status != status {

@@ -511,7 +511,7 @@ function AppStores({ store, app, onChange }: { store: WhopStore; app: string; on
         <InputGroup className="max-sm:h-11 sm:min-w-[180px] sm:flex-1">
           <InputGroupInput value={shareUser} onChange={(e) => setShareUser(e.target.value)} placeholder={t('whop.app.sharePlaceholder')} aria-label={t('whop.app.shareLabel')} autoComplete="off" spellCheck={false} />
         </InputGroup>
-        <Button type="submit" variant="outline" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={shareUser.trim() ? undefined : t('reason.writeShareUser')}>
+        <Button type="submit" variant="outline" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={shareUser.trim().replace(/^@/, '') ? undefined : t('reason.writeShareUser')}>
           {t('whop.app.shareSave')}
         </Button>
       </form>
