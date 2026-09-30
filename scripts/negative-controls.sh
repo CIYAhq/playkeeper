@@ -8313,6 +8313,95 @@ webcontrol "ready server: Home says a waiting customer's server is being set up"
   'const waiting = false' \
   src/pages/pages.test.tsx 'being set up while it waits for room'
 
+# Playkeeper's share of the app stores' sales (the hosted blueprint's 2.2,
+# internal/panel/whop_share.go): 8.50 dollars for each 4 GB, rounded up,
+# from the least a plan charges, on its product's neediest plan. A share
+# the seller removed, lowered or changed is a problem only Open the store
+# sets right, and only one the dashboard set follows the price. A customer
+# starts only once their latest paid payment carried the share, in its own
+# line, in dollars, and wasn't refunded. Who receives it is kept by the id
+# Whop gives, and stays while a store pays them.
+control "share: rounded up for each 4 GB" internal/panel/whop_share.go \
+  'return (int64(memoryMB)*whopSharePer4GB + 4095) / 4096' \
+  'return int64(memoryMB) * whopSharePer4GB / 4096' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "share: at least the 1% Whop takes" internal/whop/revshare.go \
+  'max((d*10000+p-1)/p, 100)' \
+  '(d*10000+p-1)/p' \
+  ./internal/whop '^TestSharePercentPaysAtLeastTheFee$'
+control "share: from the least a plan charges" internal/panel/whop_share.go \
+  'if price > 0 && (least == 0 || price < least) {' \
+  'if price > 0 && (least == 0 || price > least) {' \
+  ./internal/panel '^TestAProductsShareCoversEachOfItsPlans$'
+control "share: a product's covers its neediest plan" internal/panel/whop_share.go \
+  'w.BasisPoints = max(w.BasisPoints, int64(math.Round(pct*100)))' \
+  'w.BasisPoints = int64(math.Round(pct*100))' \
+  ./internal/panel '^TestAProductsShareCoversEachOfItsPlans$'
+control "share: a removed share is a problem until Open the store" internal/panel/whop_share.go \
+  'case !there && ours && !force:' \
+  'case false:' \
+  ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: a lowered share is a problem" internal/panel/whop_share.go \
+  'case bp < w.BasisPoints:' \
+  'case false:' \
+  ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: only a share the dashboard set follows the price" internal/panel/whop_share.go \
+  'case full && untouched, force && (!full || bp < w.BasisPoints):' \
+  'case true:' \
+  ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: Open the store leaves a share the seller raised" internal/panel/whop_share.go \
+  'force && (!full || bp < w.BasisPoints)' \
+  'force' \
+  ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: only a percentage of the full price" internal/panel/whop_share.go \
+  'case !full:' \
+  'case false:' \
+  ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: setting it again takes it as a percentage of the full price" internal/whop/revshare.go \
+  'map[string]any{"commission_type": "percentage", "commission_value": percent, "revenue_basis": "pre_fees"}' \
+  'map[string]any{"commission_value": percent}' \
+  ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share paid: only Playkeeper's share line counts" internal/panel/whop_share.go \
+  'if l.Origin != whopShareOrigin || l.Settled.Currency != "usd" {' \
+  'if l.Settled.Currency != "usd" {' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "share paid: only in US dollars" internal/panel/whop_share.go \
+  'if l.Origin != whopShareOrigin || l.Settled.Currency != "usd" {' \
+  'if l.Origin != whopShareOrigin {' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "share paid: at least the plan's share" internal/panel/whop_share.go \
+  'max(n, -n) >= want' \
+  'max(n, -n) > 0' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "share paid: a refunded payment doesn't count" internal/panel/whop_share.go \
+  'if whopRefundedInFull(pay) {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "share paid: the membership's latest payment" internal/panel/whop_share.go \
+  'pay := pays[0]' \
+  'pay := pays[len(pays)-1]' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "share paid: Whop is asked for the newest payments" internal/whop/payments.go \
+  '"order": {"paid_at"}, "direction": {"desc"}, ' \
+  '' \
+  ./internal/whop '^TestPaidPaymentsAreAMembershipsNewestFirst$'
+control "share paid: the newest payment comes first whatever order Whop answers in" internal/whop/payments.go \
+  'return b.paidAt().Compare(a.paidAt())' \
+  'return 0' \
+  ./internal/whop '^TestPaidPaymentsAreAMembershipsNewestFirst$'
+control "share user: kept by the id Whop gives" internal/panel/whop_share.go \
+  'share_username = excluded.share_username`, user.ID, user.Username)' \
+  'share_username = excluded.share_username`, name, user.Username)' \
+  ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
+control "share user: a lone @ isn't a username" internal/panel/whop_share.go \
+  'if raw != "" && !reWhopUserName.MatchString(raw) {' \
+  'if name != "" && !reWhopUserName.MatchString(name) {' \
+  ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
+control "share user: stays while a store pays them" internal/panel/whop_share.go \
+  'SELECT user_id FROM whop_partners WHERE user_id != ? LIMIT 1' \
+  'SELECT user_id FROM whop_partners WHERE user_id != ? AND 0 LIMIT 1' \
+  ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
+
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.
 control "pausing: a paused customer only looks, downloads and looks after their account" internal/panel/workspace.go \

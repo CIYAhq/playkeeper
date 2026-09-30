@@ -46,6 +46,14 @@ type fakeBusiness struct {
 	memberships map[string]map[string]any
 	revoked     bool
 	declined    []string
+	// partner is the user Playkeeper's share goes to, once the app made
+	// them the business's partner (aff_<business>), and shares their
+	// revenue shares. payments are the business's payments, newest first,
+	// and fees each one's fee lines.
+	partner  string
+	shares   []map[string]any
+	payments []map[string]any
+	fees     map[string][]map[string]any
 }
 
 // fakeChat is an installed business's support chat with one customer.
@@ -90,6 +98,9 @@ type fakeWhop struct {
 	stockSets []string
 	stockDown bool
 	listDown  bool
+	// shareWrites are the revenue shares the app added or set, as
+	// "add <product> <percent>" or "set <share> <percent>".
+	shareWrites []string
 	// refuseFilter refuses listing memberships by plan, as a Whop that
 	// doesn't know the filter might.
 	refuseFilter bool

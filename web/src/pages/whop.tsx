@@ -437,16 +437,19 @@ function AppStores({ store, app, onChange }: { store: WhopStore; app: string; on
   const phone = useIsPhone()
   const [key, setKey] = useState('')
   const [secret, setSecret] = useState('')
+  const [shareUser, setShareUser] = useState('')
   const [busy, setBusy] = useState(false)
   const state = store.app ?? noApp
 
-  async function send(body: { key?: string; webhookSecret?: string }, done: string) {
+  async function send(body: { key?: string; webhookSecret?: string; shareUser?: string }, done: (s: WhopStore) => string) {
     setBusy(true)
     try {
-      onChange(await put<WhopStore>('/api/whop/app', body))
-      toastManager.add({ title: done, type: 'success' })
+      const next = await put<WhopStore>('/api/whop/app', body)
+      onChange(next)
+      toastManager.add({ title: done(next), type: 'success' })
       setKey('')
       setSecret('')
+      setShareUser('')
     } catch (err) {
       toastManager.add({ title: errorText(err), type: 'error' })
     } finally {
@@ -459,7 +462,12 @@ function AppStores({ store, app, onChange }: { store: WhopStore; app: string; on
     const body: { key?: string; webhookSecret?: string } = {}
     if (key.trim()) body.key = key.trim()
     if (secret.trim()) body.webhookSecret = secret.trim()
-    void send(body, t('whop.app.saved'))
+    void send(body, () => t('whop.app.saved'))
+  }
+
+  function saveShare(e: FormEvent) {
+    e.preventDefault()
+    void send({ shareUser: shareUser.trim() }, (s) => t('whop.app.shareSaved', { user: s.app?.shareUser ?? shareUser.trim() }))
   }
 
   return (
@@ -472,6 +480,7 @@ function AppStores({ store, app, onChange }: { store: WhopStore; app: string; on
         <li>{state.keyEnding ? t('whop.app.key', { ending: state.keyEnding }) : t('whop.app.noKey')}</li>
         <li>{state.stores > 0 ? t('whop.app.stores', { count: state.stores }) : t('whop.app.noStores')}</li>
         <li>{state.webhook ? t('whop.app.webhook') : t('whop.app.noWebhook')}</li>
+        <li>{state.shareUser ? t('whop.app.share', { user: state.shareUser }) : t('whop.app.noShare')}</li>
       </ul>
       {!state.webhook &&
         (state.webhookUrl ? (
@@ -494,10 +503,18 @@ function AppStores({ store, app, onChange }: { store: WhopStore; app: string; on
         </Button>
       </form>
       {(state.keyEnding || state.webhook) && (
-        <Button variant="ghost" size="sm" className="mt-2" onClick={() => void send({ key: '', webhookSecret: '' }, t('whop.app.removed'))} loading={busy}>
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => void send({ key: '', webhookSecret: '' }, () => t('whop.app.removed'))} loading={busy}>
           {t('whop.app.remove')}
         </Button>
       )}
+      <form onSubmit={saveShare} className="mt-3 flex gap-2 max-sm:flex-col">
+        <InputGroup className="max-sm:h-11 sm:min-w-[180px] sm:flex-1">
+          <InputGroupInput value={shareUser} onChange={(e) => setShareUser(e.target.value)} placeholder={t('whop.app.sharePlaceholder')} aria-label={t('whop.app.shareLabel')} autoComplete="off" spellCheck={false} />
+        </InputGroup>
+        <Button type="submit" variant="outline" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={shareUser.trim().replace(/^@/, '') ? undefined : t('reason.writeShareUser')}>
+          {t('whop.app.shareSave')}
+        </Button>
+      </form>
     </section>
   )
 }
