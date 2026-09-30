@@ -8091,6 +8091,55 @@ control "share user: stays while a store pays them" internal/panel/whop_share.go
   'SELECT user_id FROM whop_partners WHERE user_id != ? AND 0 LIMIT 1' \
   ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
 
+# Where the store's pass meets Playkeeper's share (the hosted blueprint's
+# 2.2, internal/panel/whop_share_hooks.go): a bad share closes an open
+# store, at once for the rest of its pass, until it's right, when it opens
+# for that reason alone, and after three days the store leaves; a store not
+# open yet has no share checked; a week without the grant and the store
+# leaves, a grant back starting the week again and one Whop couldn't check
+# counting neither way; and a customer starts, or their plan grows, only on
+# payments that carried the share.
+control "share hooks: a bad share closes the store" internal/panel/whop_share_hooks.go \
+  'if err := s.closeWhopStore(ctx, st.ID, whopShareClosed, problem); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: the rest of the pass sees the store closed" internal/panel/whop_share_hooks.go \
+  'st.ClosedWhy = fresh.ClosedWhy' \
+  '_ = fresh' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: a share set right opens the store for that reason alone" internal/panel/whop_share_hooks.go \
+  's.openWhopStore(ctx, st.ID, whopShareClosed)' \
+  's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: three days of a bad share and the store leaves" internal/panel/whop_share_hooks.go \
+  's.now().Sub(since) >= whopShareGrace' \
+  's.now().Sub(since) >= 1000*whopShareGrace' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: a store not open yet has no share checked" internal/panel/whop_share_hooks.go \
+  'if err != nil || notOpen {' \
+  'if err != nil {' \
+  ./internal/panel '^TestAStoreNotOpenYetHasNoShareChecked$'
+control "grant watch: a week without the grant and the store leaves" internal/panel/whop_share_hooks.go \
+  's.now().Sub(since) < whopGrantGrace' \
+  's.now().Sub(since) < 1000*whopGrantGrace' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "grant watch: a grant back starts the week again" internal/panel/whop_share_hooks.go \
+  'case problem == "":' \
+  'case false:' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "grant watch: a grant Whop couldn't check counts neither way" internal/panel/whop_share_hooks.go \
+  'case problem == "":' \
+  'default:' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "payment check: before a customer starts" internal/panel/whop_customers.go \
+  'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
+  'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.
 control "pausing: a paused customer only looks, downloads and looks after their account" internal/panel/workspace.go \
