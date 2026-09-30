@@ -9678,6 +9678,22 @@ webcontrol "removing a machine: only the owner removes one customers are on, on 
   "const ownerOnly = !!m.customers && !can(ws.me, 'machines.customers')" \
   'const ownerOnly = false' \
   src/pages/pages.test.tsx 'leaves removing a machine customers are on to the owner'
+webcontrol "moving customers: a server being moved offers nothing to do to it" web/src/lib/phase.ts \
+  "const reachable = st.exists && !st.moving && st.phase !== 'docker_unavailable'" \
+  "const reachable = st.exists && st.phase !== 'docker_unavailable'" \
+  src/lib/lib.test.ts 'offers nothing to do to it'
+webcontrol "moving customers: a server's status pill says it's being moved" web/src/components/app/bits.tsx \
+  "return { tone, label: statusLabel(st), labelClass: 'text-info-foreground' }" \
+  "return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }" \
+  src/lib/lib.test.ts 'offers nothing to do to it'
+webcontrol "moving customers: the sidebar says a server is being moved" web/src/components/app/shell.tsx \
+  '<span className="text-xs text-info-foreground">{statusLabel(s)}</span>' \
+  '<span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>' \
+  src/pages/pages.test.tsx 'says a server being moved is being moved'
+webcontrol "moving customers: a server's card on Home says it's being moved" web/src/pages/home.tsx \
+  '{statusLabel(s)}' \
+  '{s.phase}' \
+  src/pages/pages.test.tsx 'says on its card that a server being moved is being moved'
 control "moving customers: a customer whose servers are apart gives none more memory" internal/panel/creators.go \
   '(!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID)' \
   '(!ok || memoryMB > cur) && false' \

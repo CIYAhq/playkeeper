@@ -3,6 +3,7 @@ import { templateQuery } from '@/api/templates'
 import type { Address, Catalog, CatalogEntry, Me, ProjectRole, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MachineView, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { budgetAdvice, createRequest, freeName, heapMB, styleMemory, versionCards, versionLine } from '@/components/app/create'
 import { activityText } from '@/components/app/activity'
+import { serverState } from '@/components/app/bits'
 import { lineRuns } from '@/components/app/line-chart'
 import { axisLabel } from '@/components/app/players-chart'
 import { packRequest } from '@/pages/new-server'
@@ -520,10 +521,12 @@ describe('crash helper', () => {
     expect(statusLabel(server({ phase: 'stopped' }))).toBe('Stopped')
   })
 
-  it('calls a server being moved one being moved, whatever it last said', () => {
-    for (const phase of ['stopped', 'online', 'crashed'] as const) {
+  it('calls a server being moved one being moved, whatever it last said, and offers nothing to do to it', () => {
+    for (const phase of ['stopped', 'online', 'crashed', 'asleep'] as const) {
       expect(statusLabel(server({ phase, moving: true, crash: crash({ start: true }) }))).toBe('Being moved')
       expect(statusTone(server({ phase, moving: true }))).toBe('busy')
+      expect(serverState(server({ phase, moving: true }), false).label, phase).toBe('Being moved')
+      expect(controls(server({ phase, moving: true })), phase).toMatchObject({ canStart: false, canStop: false, canRestart: false })
     }
   })
 

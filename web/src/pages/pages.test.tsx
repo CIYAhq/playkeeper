@@ -368,6 +368,11 @@ describe('Home', () => {
     expect(text).not.toContain('Create your first server')
   })
 
+  it('says on its card that a server being moved is being moved', async () => {
+    const text = await render(<HomePage />, workspace({ servers: [server({ phase: 'online', moving: true })] }))
+    expect(text).toContain('Being moved')
+  })
+
   it('shows a sleeping server, the memory it gave back, and wakes it', async () => {
     const asleep = server({ phase: 'asleep', desired: 'sleeping', sleep: { enabled: true, idleMinutes: 15, listening: true } })
     const sleeping = { ...machine, live: machine.live && { ...machine.live, sleepingMemoryMB: 4096 } }
@@ -2278,6 +2283,13 @@ describe('Sidebar', () => {
     expect(row?.textContent).toContain('Stopped')
     expect(text).not.toContain('Creating')
     expect(row?.querySelector('[data-slot="spinner"], .animate-spin')).toBeNull()
+  })
+
+  it('says a server being moved is being moved, whatever it last said', async () => {
+    await render(<AppShell route={{ name: 'home' }}><p>page</p></AppShell>, workspace({ servers: [server({ name: 'Moving one', phase: 'online', moving: true })] }))
+    const row = [...document.querySelectorAll('aside a')].find((a) => a.textContent?.includes('Moving one'))
+    expect(row?.textContent).toContain('Being moved')
+    expect(row?.textContent).not.toContain('Online')
   })
 })
 
