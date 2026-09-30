@@ -14,10 +14,12 @@ import (
 // folder (hMoveOut) and what the dashboard gives its move-in, by table, and
 // the columns of each: its sleep and public page settings, its own address
 // and its pack page's link, its map's add-ons and link, its schedules, its
-// copies somewhere else with their secrets and keys, and what its template
-// has yet to install. The dashboard reads them where the server was and
-// writes them where it goes before its requests go there. The servers row
-// is the server's own; each other table's rows have its id as server_id.
+// copies somewhere else with their secrets and keys, what its template has
+// yet to install, and the add-ons Playkeeper installed, whose files are in
+// its folder. Its AI keys stay out, as they never leave the machine. The
+// dashboard reads them where the server was and writes them where it goes
+// before its requests go there. The servers row is the server's own; each
+// other table's rows have its id as server_id.
 var moveState = []struct {
 	table string
 	cols  []string
@@ -28,6 +30,8 @@ var moveState = []struct {
 	{"offsite", []string{"enabled", "config", "secret", "password", "private_key", "ssh_public", "keys", "key_saved_at", "key_saved_folder", "updated_at", "copies_made"}},
 	{"offsite_copies", []string{"backup_id", "kind", "backup_created_at", "file_name", "size_bytes", "minecraft_version", "level_name", "copy", "copied_at", "removed_by"}},
 	{"template_installs", []string{"planned", "remaining", "created_at", "packs", "skipped"}},
+	{"addons", []string{"source", "project_id", "slug", "name", "summary", "icon_url", "version_id", "version_number", "channel", "published",
+		"file_name", "hash_algo", "hash", "size_bytes", "dependency_of", "requires", "installed_at"}},
 }
 
 // hMoveStateGet gives the server's rows a move carries (api.MoveState).

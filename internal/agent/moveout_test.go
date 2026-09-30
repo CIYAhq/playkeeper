@@ -14,9 +14,10 @@ import (
 
 // A server moved to another machine keeps what the agent where it was kept
 // about it: its sleep and public page settings, its pack page's and map's
-// links, its schedules, and its copies somewhere else with their secrets
-// and keys, so those copies still open. An own address that doesn't fit the
-// machine it goes to is left out, and said so.
+// links, its schedules, its copies somewhere else with their secrets and
+// keys, so those copies still open, and the add-ons Playkeeper installed.
+// An own address that doesn't fit the machine it goes to is left out, and
+// said so.
 func TestAServerMovedInKeepsItsSettings(t *testing.T) {
 	from := newAgentEnv(t)
 	from.addIdleServer()
@@ -30,6 +31,7 @@ func TestAServerMovedInKeepsItsSettings(t *testing.T) {
 		`INSERT INTO maps(server_id, addons, installed_at, public, share_token) VALUES(?, '[]', 1, 1, 'maptoken')`,
 		`INSERT INTO offsite(server_id, enabled, config, secret, keys, updated_at) VALUES(?, 1, '{"kind":"s3"}', 'the-secret', 'the-keys', 1)`,
 		`INSERT INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, copy, copied_at) VALUES(?, 'b1', 'automatic', 1, 'f.tar.gz', 10, 'copy-1', 2)`,
+		`INSERT INTO addons(server_id, source, project_id, name, version_id, file_name, hash_algo, hash, installed_at) VALUES(?, 'playkeeper', 'ai-build-battle', 'AI Build Battle', 'v1', 'ai-build-battle.jar', 'sha256', 'abc', 3)`,
 	} {
 		if _, err := from.a.db.Exec(q, id); err != nil {
 			t.Fatal(err)
@@ -62,6 +64,9 @@ func TestAServerMovedInKeepsItsSettings(t *testing.T) {
 	var copies int
 	if err := to.a.db.QueryRow(`SELECT COUNT(*) FROM offsite_copies WHERE server_id = ? AND backup_id = 'b1' AND copy = 'copy-1'`, to.sid).Scan(&copies); err != nil || copies != 1 {
 		t.Errorf("the server moved in's copies somewhere else: %d, %v", copies, err)
+	}
+	if has, err := to.srv().hasAIBuildBattle(); err != nil || !has {
+		t.Errorf("the server moved in lost Playkeeper's record of the add-ons it installed: %v %v", has, err)
 	}
 }
 
