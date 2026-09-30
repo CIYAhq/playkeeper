@@ -1139,7 +1139,7 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
-		cause := s.recordCrash(fin, c.State)
+		cause := s.recordCrash(fin, c.State, desired == api.DesiredRunning)
 		s.mu.Lock()
 		run := s.runs
 		s.mu.Unlock()
@@ -1199,7 +1199,9 @@ func (s *server) markExitHandled(id string, fin time.Time) {
 
 // recordCrash counts a crash and returns its cause in one sentence, without
 // what Playkeeper does about it, which the crash alert says in its own words.
-func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
+// wanted says the server was meant to be running: only then does a full
+// crash window mean Playkeeper stopped restarting it.
+func (s *server) recordCrash(fin time.Time, st docker.ContainerState, wanted bool) string {
 	s.mu.Lock()
 	var recent []time.Time
 	for _, t := range s.crashes {
@@ -1223,11 +1225,12 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 		s.lastErrorHint = "Check the Console for the last lines before the crash."
 	}
 	cause := s.lastError
-	if n >= maxCrashes {
+	switch {
+	case n < maxCrashes:
+		s.nextAutoRestart = s.now().Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
+	case wanted:
 		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it after %d crashes in %d minutes.", n, int(crashWindow.Minutes()))
 		s.lastErrorHint += " Fix the cause, then press Start."
-	} else {
-		s.nextAutoRestart = s.now().Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
 	}
 	detail := s.lastError
 	kind := "exit"
