@@ -2233,6 +2233,9 @@ export interface TeamMember {
   suspendReason?: string
   /** Whether the signed-in account may suspend this customer, or lift its own suspension of them. */
   canSuspend?: boolean
+  /** Whether the signed-in account may delete this customer's account and records, and whether that was asked for and is under way. */
+  canDelete?: boolean
+  deleting?: boolean
 }
 
 /** Where a customer's account stands: active, paused because its plan ended, or suspended by the owner. */

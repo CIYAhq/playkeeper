@@ -2051,7 +2051,6 @@ describe('Sell on Whop', () => {
     await act(async () => [...document.querySelectorAll('[role="dialog"] form')].at(-1)?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     expect(client.del).toHaveBeenCalledWith('/api/whop/stores/biz_gone/suspension')
   })
-
   it('saves the app’s key and webhook secret, so businesses that install the app sell here', async () => {
     const redirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
     const webhookUrl = 'https://my-vps.playkeeper.me:8443/api/public/whop/app-webhook'
@@ -3286,6 +3285,63 @@ describe('Team', () => {
     expect(page()).toContain('Lift samcrafts’s suspension?')
     await act(async () => button('Lift suspension').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     expect(client.del).toHaveBeenCalledWith('/api/customers/7/suspension')
+  })
+
+  const deletable = { owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, canEdit: false, allowance: { servers: 1, memoryMB: 4096 }, customer: 'whop', store: 'biz_other', storeName: 'Other Hosting', canSuspend: true, canDelete: true } as const
+  const deletingTeam = (members: TeamMember[]): TeamResponse => ({
+    projectId: 'p2345abcde',
+    project: 'My servers',
+    members: [{ id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false }, ...members],
+    invites: [],
+    grantableRoles: ['admin', 'moderator', 'viewer'],
+    servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+  })
+
+  it('lets the owner delete a customer whose plan ended once their name is typed, and says who is being deleted', async () => {
+    answer({
+      '/api/team': deletingTeam([
+        { ...deletable, id: 6, username: 'alexplays', handle: 'alexplays', addedAt: hoursAgo(1), customerState: 'active' },
+        { ...deletable, id: 8, username: 'kimbuilds', handle: 'kimbuilds', addedAt: hoursAgo(3), customerState: 'paused' },
+        { ...deletable, id: 9, username: 'patmines', handle: 'patmines', addedAt: hoursAgo(4), customerState: 'paused', deleting: true },
+      ]),
+    })
+    vi.mocked(client.api).mockResolvedValue({ deleting: true })
+    const text = await render(<TeamSection />)
+    expect(text).toContain('bought from Other Hosting · being deleted')
+    const item = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === label)
+    await click(button('More for alexplays'))
+    await act(async () => item('Delete account…')?.click())
+    await act(async () => {})
+    expect(page()).toContain('Delete alexplays’s account?')
+    expect(page()).toContain('They still have a plan at their store. Cancel it on Whop first, then delete them.')
+    await typeInto('[role="dialog"] input', 'alexplays')
+    expect(button('Delete alexplays').disabled).toBe(true)
+    await click('Cancel')
+    await click(button('More for kimbuilds'))
+    await act(async () => item('Delete account…')?.click())
+    await act(async () => {})
+    expect(page()).toContain('Delete kimbuilds’s account?')
+    expect(page()).toContain('Their account and personal records at Other Hosting are deleted: sign-ins, messages, memberships, and their servers with every backup. They’re signed out at once.')
+    expect(button('Delete kimbuilds').disabled).toBe(true)
+    await typeInto('[role="dialog"] input', ' kimbuilds ')
+    expect(button('Delete kimbuilds').disabled).toBe(false)
+    await act(async () => button('Delete kimbuilds').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    // internal/panel's TestOnlyTheOwnerDeletesACustomerWhosePlanEnded sends this body.
+    expect(client.api).toHaveBeenCalledWith('DELETE', '/api/customers/8', { confirm: 'kimbuilds' })
+    await click(button('More for patmines'))
+    expect(item('Suspend')).toBeDefined()
+    expect(item('Delete account…')).toBeUndefined()
+  })
+
+  it('leads from a customer to deleting them on phones', async () => {
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    answer({ '/api/team': deletingTeam([{ ...deletable, id: 8, username: 'kimbuilds', handle: 'kimbuilds', addedAt: hoursAgo(3), customerState: 'paused' }]) })
+    await render(<TeamSection />)
+    await click([...document.querySelectorAll<HTMLElement>('button')].find((b) => b.textContent?.includes('kimbuilds')) ?? 'kimbuilds')
+    expect(page()).toContain('Suspend kimbuilds?')
+    await click('Delete account…')
+    expect(page()).toContain('Delete kimbuilds’s account?')
+    phone.mockRestore()
   })
 
   it('makes a creator invite with the dialog’s defaults, in the body the panel takes', async () => {
