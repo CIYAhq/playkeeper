@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
-	"net/http/httptest"
+	"os"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -686,11 +688,14 @@ func TestTokenNeverLeaksIntoErrorsOrLogs(t *testing.T) {
 		t.Errorf("Discord's explanation is shown with the token redacted: %+v", h.deliveries)
 	}
 
-	closed := httptest.NewServer(http.NotFoundHandler())
-	addr := closed.Listener.Addr().String()
-	closed.Close()
+	// Discord refuses the connection. A server's port dialed after closing it
+	// won't do: another program can take the port in between and answer.
+	refused := &http.Transport{DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
+		raddr, _ := net.ResolveTCPAddr(network, addr)
+		return nil, &net.OpError{Op: "dial", Net: network, Addr: raddr, Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	}}
 	errs := []error{
-		SendTest(context.Background(), &http.Client{Transport: toFake{t: t, addr: addr}}, w, survival),
+		SendTest(context.Background(), &http.Client{Transport: toFake{t: t, addr: "127.0.0.1:443", base: refused}}, w, survival),
 		SendTest(context.Background(), &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("proxy refused %s", r.URL)
 		})}, w, survival),

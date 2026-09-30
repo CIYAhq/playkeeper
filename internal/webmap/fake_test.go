@@ -2,6 +2,7 @@ package webmap
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -164,16 +166,13 @@ func (f *fakeSquaremap) paths() []string {
 	return out
 }
 
-// closedAddr is an address nothing listens on.
-func closedAddr(t *testing.T) string {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := l.Addr().String()
-	l.Close()
-	return addr
+// refusing is a client whose every connection is refused, as when nothing
+// listens on squaremap's port. A listener's port dialed after closing it
+// won't do: another program can take the port in between and answer.
+func refusing() *http.Client {
+	return &http.Client{Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) {
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	}}}
 }
 
 func readTestdata(t *testing.T, name string) []byte {
