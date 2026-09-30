@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-30",
-  "release": "0.4.9",
+  "release": "0.4.10",
   "build": "129",
-  "doneSeconds": 6.492,
+  "doneSeconds": 6.384,
   "addons": [
     {
       "name": "AI Build Battle",

@@ -3,9 +3,9 @@
     "id": "ai-build-battle",
     "name": "AI Build Battle",
     "art": "play-creative.svg",
-    "opensFrom": "0.4.9",
+    "opensFrom": "0.4.10",
     "checked": "2026-09-30",
-    "release": "0.4.9",
+    "release": "0.4.10",
     "file": {
       "playkeeperTemplate": 1,
       "name": "AI Build Battle",
