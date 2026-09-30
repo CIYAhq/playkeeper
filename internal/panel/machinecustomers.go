@@ -112,6 +112,7 @@ func (s *Server) setTakesCustomers(ctx context.Context, id, actor string, on boo
 		return errNotFound
 	}
 	s.audit(actor, "machine.customers", cmp.Or(m.Name, m.ID), result, detail)
+	s.kickSaleRoom()
 	kind := "machine.customers_off"
 	if on {
 		kind = "machine.customers_on"

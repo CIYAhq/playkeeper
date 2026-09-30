@@ -456,6 +456,7 @@ func (s *Server) hWhopPlan(w http.ResponseWriter, r *http.Request, sess *session
 		detail = allowanceText(al)
 	}
 	s.audit(sess.User.Username, "whop.plan", id, "succeeded", fmt.Sprintf("%s: %s", cmpOr(title, id), detail))
+	s.kickSaleRoom()
 	if c, err := s.whopClient(a.Key); err == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
 		defer cancel()

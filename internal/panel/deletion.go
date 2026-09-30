@@ -201,6 +201,7 @@ func (s *Server) finishLapsed(ctx context.Context, userID int64, home string, de
 		return err
 	}
 	s.kickDiskLimits()
+	s.kickSaleRoom()
 	until := now.Add(finalBackupDays * 24 * time.Hour)
 	s.audit(placementActor, "customer.delete", info.username, "succeeded",
 		fmt.Sprintf("%d server(s) deleted %d days after their plan ended, each one's final backup kept until %s", deleted, graceDays, until.UTC().Format(time.DateOnly)))

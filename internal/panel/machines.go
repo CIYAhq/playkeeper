@@ -242,6 +242,7 @@ func (s *Server) hMachineRemove(w http.ResponseWriter, r *http.Request, sess *se
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not remove the machine.", "")
 		return
 	}
+	s.kickSaleRoom()
 	w.WriteHeader(http.StatusNoContent)
 }
 

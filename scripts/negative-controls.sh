@@ -8875,6 +8875,91 @@ webcontrol "hidden machines: New server names no machine to a customer" web/src/
   '{machineName && (' \
   src/pages/new-server.test.tsx 'never naming it'
 
+# Room for sale: each plan's stock on Whop is how many more of it the
+# machines can take at once (internal/panel/saleroom.go).
+control "room for sale: paid plans get room before free ones" internal/panel/saleroom.go \
+  'cmp.Or(compareBool(a.Free, b.Free), cmp.Compare(a.MemoryMB, b.MemoryMB), cmp.Compare(a.ID, b.ID))' \
+  'cmp.Or(cmp.Compare(a.MemoryMB, b.MemoryMB), cmp.Compare(a.ID, b.ID))' \
+  ./internal/panel '^TestRoomGoesToEachPlanInTurnPaidFirstAndSmallestFirst$'
+control "room for sale: the smallest plans get room first" internal/panel/saleroom.go \
+  'cmp.Compare(a.MemoryMB, b.MemoryMB), cmp.Compare(a.ID, b.ID))' \
+  'cmp.Compare(b.MemoryMB, a.MemoryMB), cmp.Compare(a.ID, b.ID))' \
+  ./internal/panel '^TestRoomGoesToEachPlanInTurnPaidFirstAndSmallestFirst$'
+control "room for sale: customers waiting for room get theirs first" internal/panel/saleroom.go \
+  'for _, mb := range waiting {' \
+  'for _, mb := range waiting[:0] {' \
+  ./internal/panel '^(TestRoomGoesToEachPlanInTurnPaidFirstAndSmallestFirst|TestEachPlansStockFollowsTheMachinesRoom)$'
+control "room for sale: the customers waiting are counted" internal/panel/saleroom.go \
+  'waiting, err := s.waitingMemory(ctx)' \
+  'waiting, err := []int(nil), error(nil)' \
+  ./internal/panel '^TestEachPlansStockFollowsTheMachinesRoom$'
+control "room for sale: the billing side hears the numbers" internal/panel/saleroom.go \
+  'if err := s.sales.SetAvailability(ctx, room.left); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestEachPlansStockFollowsTheMachinesRoom$'
+control "room for sale: placing a customer changes the room" internal/panel/placement.go \
+  's.kickDiskLimits()
+		s.kickSaleRoom()' \
+  's.kickDiskLimits()' \
+  ./internal/panel '^TestEachPlansStockFollowsTheMachinesRoom$'
+control "room for sale: a customer set waiting changes the room" internal/panel/placement.go \
+  's.kickSaleRoom()
+			if !waiting {' \
+  'if !waiting {' \
+  ./internal/panel '^TestEachPlansStockFollowsTheMachinesRoom$'
+control "room for sale: a customer's plan changing changes the room" internal/panel/customers.go \
+  's.kickDiskLimits()
+		s.kickSaleRoom()' \
+  's.kickDiskLimits()' \
+  ./internal/panel '^TestEachPlansStockFollowsTheMachinesRoom$'
+control "room for sale: a server made changes the room" internal/panel/server.go \
+  's.claimCreated(m, raw)
+	s.kickSaleRoom()' \
+  's.claimCreated(m, raw)' \
+  ./internal/panel '^TestTheRoomIsWorkedOutAgainWhenItChanges$'
+control "room for sale: a server resized changes the room" internal/panel/creators.go \
+  's.forwardThen("POST", "/v1/servers/{id}/settings", s.roomChanged)' \
+  's.forwardThen("POST", "/v1/servers/{id}/settings", nil)' \
+  ./internal/panel '^TestTheRoomIsWorkedOutAgainWhenItChanges$'
+control "room for sale: a server deleted changes the room" internal/panel/creators.go \
+  's.forwardThen("POST", "/v1/servers/{id}/delete", s.roomChanged)' \
+  's.forwardThen("POST", "/v1/servers/{id}/delete", nil)' \
+  ./internal/panel '^TestTheRoomIsWorkedOutAgainWhenItChanges$'
+control "room for sale: a plan's allowance changing changes the room" internal/panel/whop.go \
+  'fmt.Sprintf("%s: %s", cmpOr(title, id), detail))
+	s.kickSaleRoom()' \
+  'fmt.Sprintf("%s: %s", cmpOr(title, id), detail))' \
+  ./internal/panel '^TestTheRoomIsWorkedOutAgainWhenItChanges$'
+control "room for sale: a creator removed changes the room" internal/panel/team.go \
+  '"team.remove", t.Name, "succeeded", "")
+	s.kickDiskLimits()
+	s.kickSaleRoom()' \
+  '"team.remove", t.Name, "succeeded", "")
+	s.kickDiskLimits()' \
+  ./internal/panel '^TestTheRoomIsWorkedOutAgainWhenItChanges$'
+control "room for sale: confirming or stopping a machine changes the room" internal/panel/machinecustomers.go \
+  'cmp.Or(m.Name, m.ID), result, detail)
+	s.kickSaleRoom()' \
+  'cmp.Or(m.Name, m.ID), result, detail)' \
+  ./internal/panel '^TestAJoinedMachinesCustomersChangeTheRoom$'
+control "room for sale: removing a machine changes the room" internal/panel/machines.go \
+  's.kickSaleRoom()
+	w.WriteHeader(http.StatusNoContent)' \
+  'w.WriteHeader(http.StatusNoContent)' \
+  ./internal/panel '^TestAJoinedMachinesCustomersChangeTheRoom$'
+control "room for sale: the room for customers is the owner's" internal/panel/server.go \
+  '{"GET", "/api/machines/room", needSession, actTakeCustomers, s.hSaleRoom},' \
+  '{"GET", "/api/machines/room", needSession, actView, s.hSaleRoom},' \
+  ./internal/panel '^TestOnlyTheOwnerSeesTheRoomForCustomers$'
+webcontrol "room for sale: the card is the owner's alone" web/src/pages/machines.tsx \
+  "{can(ws.me, 'machines.customers') && <SaleRoomCard />}" \
+  '<SaleRoomCard />' \
+  src/pages/pages.test.tsx 'for the owner alone, and only while plans are on sale'
+webcontrol "room for sale: no card without plans on sale" web/src/pages/sale-room.tsx \
+  'if (r && r.plans.length === 0) return null' \
+  'if (false) return null' \
+  src/pages/pages.test.tsx 'for the owner alone, and only while plans are on sale'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

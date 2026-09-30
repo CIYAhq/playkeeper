@@ -149,10 +149,12 @@ type Server struct {
 	// hetzner.go).
 	hetznerMu sync.Mutex
 	// placeMu serialises placing customers, so two never get the same room
-	// (see placement.go), and roomKick has the customers waiting for room
-	// placed now (see machinecustomers.go).
-	placeMu  sync.Mutex
-	roomKick chan struct{}
+	// (see placement.go), roomKick has the customers waiting for room
+	// placed now (see machinecustomers.go), and saleRoomKick has the plans'
+	// room worked out again (see saleroom.go).
+	placeMu      sync.Mutex
+	roomKick     chan struct{}
+	saleRoomKick chan struct{}
 	// zoneAddrs are the addresses without a port of joined machines'
 	// servers, and joinedZone lists those servers for the dashboard's zone
 	// (see fleetdns.go); tests stand in for it.
@@ -220,20 +222,21 @@ func New(opts Options) (*Server, error) {
 	}
 	s := &Server{
 		cfg: opts.Config, opts: opts, db: db, log: opts.Logger, now: opts.Now, agent: opts.Agent, static: opts.Static,
-		loginIP:     newLimiter(10, 15*time.Minute, opts.Now),
-		control:     newLimiter(30, time.Minute, opts.Now),
-		previews:    newLimiter(120, time.Minute, opts.Now),
-		uploads:     newLimiter(1200, time.Minute, opts.Now),
-		locks:       newLockout(opts.Now),
-		loginUser:   newLimiter(30, time.Hour, opts.Now),
-		heads:       newHeadFetcher(src, mc),
-		mojang:      mc,
-		joinGuard:   invites.NewGuard(invites.GuardLimits{}, opts.Now),
-		auditMaxAge: 365 * 24 * time.Hour,
-		maxAudit:    100_000,
-		whopKick:    make(chan struct{}, 1),
-		diskKick:    make(chan struct{}, 1),
-		roomKick:    make(chan struct{}, 1),
+		loginIP:      newLimiter(10, 15*time.Minute, opts.Now),
+		control:      newLimiter(30, time.Minute, opts.Now),
+		previews:     newLimiter(120, time.Minute, opts.Now),
+		uploads:      newLimiter(1200, time.Minute, opts.Now),
+		locks:        newLockout(opts.Now),
+		loginUser:    newLimiter(30, time.Hour, opts.Now),
+		heads:        newHeadFetcher(src, mc),
+		mojang:       mc,
+		joinGuard:    invites.NewGuard(invites.GuardLimits{}, opts.Now),
+		auditMaxAge:  365 * 24 * time.Hour,
+		maxAudit:     100_000,
+		whopKick:     make(chan struct{}, 1),
+		diskKick:     make(chan struct{}, 1),
+		roomKick:     make(chan struct{}, 1),
+		saleRoomKick: make(chan struct{}, 1),
 	}
 	s.hosting = customerCore{s: s}
 	s.notifier = billingNotifier{s: s}
@@ -402,6 +405,7 @@ func (s *Server) Routes() []Route {
 		am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),
 		{"POST", "/api/machines/{mid}/network-guard", needSessionCSRF, actManageMachine, s.hNetworkGuard},
 		{"PUT", "/api/machines/{mid}/customers", needSessionCSRF, actTakeCustomers, s.hMachineCustomers},
+		{"GET", "/api/machines/room", needSession, actTakeCustomers, s.hSaleRoom},
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateOwnServers, s.hRestoreUploadNew},
@@ -1350,8 +1354,11 @@ func (s *Server) dashboardAddress(next func(http.ResponseWriter, *http.Request, 
 }
 
 // claimCreatedBy records the server a machine route just created on a
-// joined machine.
-func (s *Server) claimCreatedBy(m machine, _ *session, raw json.RawMessage) { s.claimCreated(m, raw) }
+// joined machine, whose memory the plans' room no longer has.
+func (s *Server) claimCreatedBy(m machine, _ *session, raw json.RawMessage) {
+	s.claimCreated(m, raw)
+	s.kickSaleRoom()
+}
 
 // recordUpdate puts a dashboard-started update in a joined machine's events.
 func (s *Server) recordUpdate(m machine, sess *session, _ json.RawMessage) {
@@ -1747,6 +1754,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runDNSAnswers(ctx)
 	go s.runCustomers(ctx)
 	go s.runRoom(ctx)
+	go s.runSaleRoom(ctx)
 	go s.runLapsedCustomers(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)

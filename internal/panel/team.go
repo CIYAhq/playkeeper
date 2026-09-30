@@ -501,6 +501,7 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 	s.deleteUserSessions(t.UserID)
 	s.audit(sess.User.Username, "team.remove", t.Name, "succeeded", "")
 	s.kickDiskLimits()
+	s.kickSaleRoom()
 	w.WriteHeader(http.StatusNoContent)
 }
 
