@@ -448,8 +448,10 @@ func TestAKickHurriesItsOwnStoresPass(t *testing.T) {
 
 // A business that took the Playkeeper Cloud app's grant back is still
 // answered by Whop, with empty lists: its store's pass changes nothing,
-// not even for a membership it would read again, and says why, until the
-// grant is back. The other stores go on.
+// not even for a membership it would read again, and says why, while the
+// other stores go on. Once the grant is back, however soon, the pass reads
+// the store and every membership again, so a purchase made meanwhile
+// counts at once and the problem goes.
 func TestAStoreWhoseGrantIsGoneChangesNothing(t *testing.T) {
 	f, e, _ := twoStores(t)
 	core := useFakeCore(e)
@@ -459,57 +461,71 @@ func TestAStoreWhoseGrantIsGoneChangesNothing(t *testing.T) {
 	if got := core.got(); len(got) != 1 {
 		t.Fatalf("the core's calls: %q", got)
 	}
-	f.mu.Lock()
-	f.installed["biz_other"].revoked = true
-	f.mu.Unlock()
+	grant := func(revoked, down bool) {
+		f.mu.Lock()
+		f.installed["biz_other"].revoked, f.permissionsDown = revoked, down
+		f.mu.Unlock()
+	}
+	tell := func(text string) {
+		t.Helper()
+		if err := e.srv.notifier.Notify(ctx, Customer{Provider: whopProvider, Store: "biz_other", Subject: "user_alex", Handle: "alexplays"}, CustomerMessage{Kind: "ready", Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var problem string
+	var memberships, plans int
+	readOther := func() {
+		e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = 'biz_other'`).Scan(&problem)
+		e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_memberships WHERE store_id = 'biz_other'`).Scan(&memberships)
+		e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_plans WHERE store_id = 'biz_other'`).Scan(&plans)
+	}
+
+	// The grant goes straight after Other was read.
+	grant(true, false)
 	if err := e.srv.keepMembership("biz_other", whop.Membership{ID: "mem_alex2", UserID: "user_alex", PlanID: "plan_other", Status: "active"}, true); err != nil {
 		t.Fatal(err)
 	}
-	f.buy("mem_sam1", "user_sam", "plan_starter", "active")
+	f.buyAt("biz_other", "mem_jo2", "user_jo", "plan_other", "active")
 	f.mu.Lock()
-	f.users["user_sam"] = "samcrafts"
+	f.users["user_sam"], f.users["user_jo"] = "samcrafts", "joplays"
 	f.mu.Unlock()
-	e.clock.add(2 * whopPollEvery)
+	e.deliver(t, "msg_1", whop.EventMembershipActivated, f.buy("mem_sam1", "user_sam", "plan_starter", "active"))
+	tell("hi")
 	e.reconcile()
 	e.reconcile()
-	var problem string
-	var memberships, plans int
-	e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = 'biz_other'`).Scan(&problem)
-	e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_memberships WHERE store_id = 'biz_other'`).Scan(&memberships)
-	e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_plans WHERE store_id = 'biz_other'`).Scan(&plans)
+	readOther()
 	if got := core.got(); len(got) != 2 || !strings.Contains(got[1], "whop/biz_pip/user_sam") {
 		t.Fatalf("the core's calls with Other's grant gone: %q", got)
 	}
 	if memberships != 1 || plans != 1 || !strings.Contains(problem, "grant on this store lacks plan:basic:read, member:basic:read") {
 		t.Fatalf("Other with its grant gone: %d memberships, %d plans, problem %q", memberships, plans, problem)
 	}
-	if err := e.srv.notifier.Notify(ctx, Customer{Provider: whopProvider, Store: "biz_other", Subject: "user_alex", Handle: "alexplays"}, CustomerMessage{Kind: "ready", Text: "hi"}); err != nil {
-		t.Fatal(err)
-	}
-	e.reconcile()
 	if sent := f.sentIn("biz_other", "user_alex"); len(sent) != 0 {
 		t.Fatalf("messages went out with the grant gone: %q", sent)
 	}
 
-	// A grant that can't be checked is no better.
-	f.mu.Lock()
-	f.installed["biz_other"].revoked, f.permissionsDown = false, true
-	f.mu.Unlock()
-	e.clock.add(2 * whopPollEvery)
+	// It's back long before Other's next read of the store was due.
+	grant(false, false)
 	e.reconcile()
-	e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = 'biz_other'`).Scan(&problem)
-	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 2 || len(sent) != 0 || !strings.Contains(problem, "couldn't check") {
+	readOther()
+	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 3 || !strings.Contains(got[2], "whop/biz_other/user_jo") || memberships != 2 || problem != "" || len(sent) != 1 {
+		t.Fatalf("once the grant was back: calls %q, %d memberships, problem %q, messages %q", got, memberships, problem, sent)
+	}
+
+	// A grant that can't be checked is no better.
+	grant(false, true)
+	tell("hi again")
+	e.reconcile()
+	readOther()
+	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 3 || len(sent) != 1 || !strings.Contains(problem, "couldn't check") {
 		t.Fatalf("with the grant unchecked: calls %q, problem %q, messages %q", got, problem, sent)
 	}
 
-	f.mu.Lock()
-	f.permissionsDown = false
-	f.mu.Unlock()
-	e.clock.add(2 * whopPollEvery)
+	grant(false, false)
 	e.reconcile()
-	e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = 'biz_other'`).Scan(&problem)
-	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 2 || problem != "" || len(sent) != 1 {
-		t.Fatalf("once the grant was back: calls %q, problem %q, messages %q", got, problem, sent)
+	readOther()
+	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 3 || problem != "" || len(sent) != 2 {
+		t.Fatalf("once the grant could be checked: calls %q, problem %q, messages %q", got, problem, sent)
 	}
 }
 

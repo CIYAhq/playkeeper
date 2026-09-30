@@ -298,10 +298,12 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 }
 
 // whopStoreNeedsALook records why the store's pass changed nothing, as its
-// problem, for its page to say it needs a look.
+// problem, for its page to say it needs a look, and has the next pass that
+// gets further read the store and every membership again: what happened
+// meanwhile counts, and the problem goes once the store is back.
 func (s *Server) whopStoreNeedsALook(storeID, problem string) {
 	s.log.Warn("a store's pass changed nothing", "store", storeID, "problem", problem)
-	if _, err := s.db.Exec(`UPDATE whop_stores SET problem = ? WHERE store_id = ?`, problem, storeID); err != nil {
+	if _, err := s.db.Exec(`UPDATE whop_stores SET problem = ?, synced_at = 0, polled_at = 0 WHERE store_id = ?`, problem, storeID); err != nil {
 		s.log.Error("could not record a store's problem", "store", storeID, "err", err)
 	}
 }
