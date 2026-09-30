@@ -367,6 +367,9 @@ type Agent struct {
 	// passes checks on to while the panel holds it.
 	pagePorts pagePorts
 	http01    *certs.HTTP01Responder
+	// dash is Serve the dashboard on the standard HTTPS port (443), which
+	// the page's hand-over opens port 443 for too (dashboardport.go).
+	dash dash443
 
 	usage usageState
 }
@@ -601,6 +604,10 @@ func New(opts Options) (*Agent, error) {
 	if err := a.loadGuard(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("read the network guard's switch: %w", err)
+	}
+	if err := a.loadDashboard443(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read the dashboard's port switch: %w", err)
 	}
 	if err := a.loadDiskLimits(); err != nil {
 		db.Close()
@@ -1103,6 +1110,10 @@ func (a *Agent) routeTable() []Route {
 		{"POST", pagePortsPath, a.hPublicPagePorts},
 		{"POST", "/v1/public-page/ports/retry", a.hPublicPagePortsRetry},
 		{"GET", "/v1/acme-challenge/{token}", a.hACMEChallenge},
+		// 0.4.11: the dashboard on the standard HTTPS port, which the page's
+		// hand-over opens port 443 for too.
+		{"PUT", dashboard443Path, a.hDashboard443},
+		{"POST", dashboard443ReachedPath, a.hDashboard443Reached},
 		// Wave 6: worlds people upload, for a new server or to replace one's world.
 		{"POST", "/v1/servers/{id}/world-imports", srv((*server).hWorldImportNew)},
 		{"POST", "/v1/world-imports", a.hWorldImportNewServer},

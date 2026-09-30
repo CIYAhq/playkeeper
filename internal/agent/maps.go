@@ -6,12 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -359,16 +357,14 @@ func (s *server) mapLink(rec *mapRecord) string {
 }
 
 // panelLink is the dashboard's link to a public path under the machine's
-// name, or "" while the name doesn't work (see namedHost).
+// name, without a port while the dashboard answers on port 443 there, or ""
+// while the name doesn't work (see dashboardBase).
 func (a *Agent) panelLink(p string) string {
-	host := a.namedHost()
-	if host == "" || !reDomain.MatchString(host) {
+	base := a.dashboardBase()
+	if base == "" {
 		return ""
 	}
-	if a.cfg.PanelPort != 443 {
-		host = net.JoinHostPort(host, strconv.Itoa(a.cfg.PanelPort))
-	}
-	return "https://" + host + p
+	return base + p
 }
 
 func (s *server) mapInfo(ctx context.Context) (api.MapInfo, error) {

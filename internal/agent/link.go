@@ -26,9 +26,12 @@ var streamed = map[string]bool{
 
 // socketOnly are the routes only the agent's own socket can answer: the
 // public page's ports travel as listening sockets passed over it, which a
-// machine link can't carry, and a joined machine runs no panel to serve them.
+// machine link can't carry, and a joined machine runs no panel to serve
+// them, nor a dashboard to put on port 443.
 var socketOnly = map[string]bool{
-	"POST " + pagePortsPath: true,
+	"POST " + pagePortsPath:           true,
+	"PUT " + dashboard443Path:         true,
+	"POST " + dashboard443ReachedPath: true,
 }
 
 // LinkRoutes is the route table as data, for machine links: a dashboard may

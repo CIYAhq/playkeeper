@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,9 +17,11 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/webservers"
 )
 
-// Ports 443 and 80 for the public page. The panel runs without
+// Ports 443 and 80 for the public page, and from 0.4.11 for the dashboard
+// on the standard HTTPS port (dashboardport.go). The panel runs without
 // CAP_NET_BIND_SERVICE, so the agent, which has it for Let's Encrypt's
 // checks, opens the ports and passes the listening sockets to the panel
 // over its own socket (SCM_RIGHTS); from then on only the panel serves
@@ -46,10 +47,6 @@ const pageSettle = 3 * time.Minute
 // maxPageContainers bounds the stopped containers whose settings are read.
 const maxPageContainers = 200
 
-// webServers are the services of web servers that listen on ports 80 and
-// 443 unless told otherwise.
-var webServers = []string{"nginx", "apache2", "httpd", "caddy", "lighttpd", "haproxy", "traefik", "openresty", "varnish", "h2o"}
-
 // pagePorts remembers the ports found busy, and serializes handing ports
 // over.
 type pagePorts struct {
@@ -67,9 +64,14 @@ func (a *Agent) takePagePorts(ctx context.Context, want api.PagePortsRequest) (a
 	addrs := [2]string{a.opts.PageHTTPSAddr, a.opts.PageHTTPAddr}
 	asked := [2]bool{want.HTTPS, want.HTTP}
 	out := [2]api.PagePort{{Port: addrPort(addrs[0]), State: api.PortOff}, {Port: addrPort(addrs[1]), State: api.PortOff}}
-	result := func() api.PublicPagePorts { return api.PublicPagePorts{HTTPS: out[0], HTTP: out[1]} }
-	if !a.publicPageState().On || !want.HTTPS && !want.HTTP {
-		return result(), nil
+	result := func() api.PublicPagePorts {
+		if asked[0] {
+			a.noteDashboard443(out[0])
+		}
+		return api.PublicPagePorts{HTTPS: out[0], HTTP: out[1]}
+	}
+	if st := a.publicPageState(); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {
+		return api.PublicPagePorts{HTTPS: out[0], HTTP: out[1]}, nil
 	}
 	if a.opts.Uptime() < pageSettle {
 		for i := range out {
@@ -186,7 +188,7 @@ func (a *Agent) portClaims(ctx context.Context, ports ...int) map[int]string {
 			}
 		}
 	}
-	for _, unit := range webServers {
+	for _, unit := range webservers.Units {
 		if a.enabledService(unit) {
 			for _, p := range ports {
 				claim(p, unit)
@@ -210,8 +212,7 @@ func containerLabel(names []string) string {
 // enabledService reports whether systemd starts the service unit with the
 // machine: a link to it in a .wants folder.
 func (a *Agent) enabledService(unit string) bool {
-	found, _ := filepath.Glob(filepath.Join(a.opts.SystemdDir, "*.wants", unit+".service"))
-	return len(found) > 0
+	return webservers.Enabled(a.opts.SystemdDir, unit)
 }
 
 // addrPort is the port of a listen address like ":443".
