@@ -1958,6 +1958,29 @@ type CurseForgeKeyRequest struct {
 	Actor string `json:"actor"`
 }
 
+// AIKeys is what a server's owner has of their own AI keys, which the AI
+// Build Battle plugin builds with: whether each provider's is set, never
+// the key or any part of it.
+type AIKeys struct {
+	Keys map[string]AIKey `json:"keys"`
+	// Pending is set while a saved key waits for a restart: the running
+	// container was made before the server had its secrets folder.
+	Pending bool `json:"pending"`
+	// Available is set while the server has the AI Build Battle plugin.
+	Available bool `json:"available"`
+}
+
+// AIKey is one provider's key on a server.
+type AIKey struct {
+	Set bool `json:"set"`
+}
+
+// AIKeyRequest saves a provider's key, in place of the one it had.
+type AIKeyRequest struct {
+	Key   string `json:"key"`
+	Actor string `json:"actor"`
+}
+
 // SoftwarePin is the exact software of a server type other than Paper. It
 // mirrors software.Pin field for field; only its own type's build is set.
 type SoftwarePin struct {

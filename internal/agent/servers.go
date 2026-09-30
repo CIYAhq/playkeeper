@@ -709,6 +709,10 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string, ke
 		return err
 	}
 	moved = true
+	// The owner's AI keys go first, whatever else can't be removed.
+	if err := removeSecretsDir(filepath.Join(trash, secretsFolder)); err != nil {
+		s.log.Warn("could not remove a deleted server's AI keys", "path", filepath.Join(trash, secretsFolder), "err", err)
+	}
 	deleted := 0
 	for _, b := range backups {
 		if kept != nil && b.ID == kept.ID {
