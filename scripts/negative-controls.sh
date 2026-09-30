@@ -4894,6 +4894,14 @@ control "looking for copies in a missing folder doesn't say to create it" intern
   'if op == opList {' \
   'if false && op == opList {' \
   ./internal/offsite '^TestSFTPList$'
+control "a connection to the storage service that stalls says so" internal/offsite/errors.go \
+  '	case errors.Is(err, errStalled):' \
+  '	case false:' \
+  ./internal/offsite '^TestUploadStalled$'
+control "a storage service with no answer in time says so" internal/offsite/errors.go \
+  '	case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout():' \
+  '	case false && (errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout()):' \
+  ./internal/offsite '^TestTransportErrors$'
 control "a copy says the rules removed its backup only when they did" internal/agent/offsite.go \
   'case removedBy == retentionActor:' \
   'case false:' \
