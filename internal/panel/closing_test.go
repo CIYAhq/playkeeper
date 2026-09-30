@@ -134,7 +134,9 @@ func TestAClosedStoresCustomersGoOnButNobodyStarts(t *testing.T) {
 	e.reconcile()
 	got = core.got()
 	started := func(user string) bool {
-		return slices.ContainsFunc(got[2:], func(c string) bool { return strings.HasPrefix(c, "start ") && strings.Contains(c, "whop/biz_other/"+user) })
+		return slices.ContainsFunc(got[2:], func(c string) bool {
+			return strings.HasPrefix(c, "start ") && strings.Contains(c, "whop/biz_other/"+user)
+		})
 	}
 	if len(got) != 4 || !started("user_alex") || !started("user_kim") {
 		t.Fatalf("the core's calls once Other is open: %q", got)

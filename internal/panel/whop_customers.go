@@ -651,10 +651,9 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopSt
 	// in its room before the call returns (see pushWhopStock).
 	at := s.now()
 	switch {
+	case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":
+		// A closed store starts nobody: they start once it opens.
 	case has && (wc.Applied == "" || wc.Paused):
-		if st.ClosedWhy != "" {
-			return nil
-		}
 		if cust.Handle == "" {
 			u, err := c.User(ctx, wc.WhopUserID)
 			if err != nil {
