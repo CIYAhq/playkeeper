@@ -86,7 +86,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 	// Fields the panel adds to what the agent sends, and rttMs, which
 	// machinelink.Status's MarshalJSON adds.
 	addedByPanel := map[string]bool{
-		"ServerStatus.machineId": true, "ServerStatus.lastKnownAt": true, "ServerStatus.disputed": true, "ServerStatus.unsaved": true, "ServerStatus.zoneAddress": true,
+		"ServerStatus.machineId": true, "ServerStatus.lastKnownAt": true, "ServerStatus.disputed": true, "ServerStatus.unsaved": true, "ServerStatus.zoneAddress": true, "ServerStatus.moving": true,
 		"AuditEntry.source": true, "AuditEntry.machineId": true, "AuditEntry.actorKind": true, "AuditEntry.actorName": true,
 		"Activity.actorKind": true, "Activity.actorName": true, "MachineLink.rttMs": true,
 	}
@@ -134,7 +134,7 @@ func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	codes := map[string]bool{}
 	sent := []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer,
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
-		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed, CodeWhopKeyRefused, CodeWhopPermissions, CodeWhopOtherSeller, CodeHetznerTokenRefused,
+		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed, CodeWhopKeyRefused, CodeWhopPermissions, CodeWhopOtherSeller, CodeWhopToken, CodeWhopNotTeam, CodeWhopNotApproved, CodeHetznerTokenRefused,
 		diskusage.CodeDiskSpace, diskusage.CodeRestoresUnknown, retention.CodeEstimateOff,
 		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout, CodeWorldInUse, CodeFileChanged, CodePortInUse}
 	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName,

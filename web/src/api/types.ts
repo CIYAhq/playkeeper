@@ -183,6 +183,8 @@ export interface ServerStatus {
   lastKnownAt?: string
   /** Two joined machines list this server, so the dashboard sends its requests to neither. */
   disputed?: boolean
+  /** The owner is moving the server's customer to another machine: no request reaches it until it's there. */
+  moving?: boolean
   /** A joined machine lists this server, but the dashboard couldn't save that yet, so its requests are refused with "try again" until it can. */
   unsaved?: boolean
   /** A joined machine's server's address without a port, under the dashboard's own domain, once public DNS finds the dashboard's zone. */
@@ -462,6 +464,32 @@ export interface MachineView {
 export interface TakesCustomers {
   since: string
   by: string
+}
+
+/** A customer whose servers go on a machine, or who still has servers there, as the owner sees them on its page. */
+export interface MachineCustomer {
+  id: number
+  name: string
+  handle?: string
+  state: 'active' | 'paused' | 'suspended'
+  planId?: string
+  memoryMB: number
+  servers: number
+  /** The machine their servers go on, or empty while they wait for room. */
+  machineId: string
+  /** How many of their servers are on the machine listing them. */
+  here: number
+  move?: CustomerMove
+}
+
+/** The owner moving a customer to the machine, under way or stopped. */
+export interface CustomerMove {
+  startedAt: string
+  startedBy: string
+  /** How many of their servers aren't on the machine yet. */
+  left: number
+  /** Why the move stopped; unset while it's under way. */
+  error?: string
 }
 
 /** An address another machine can dial to reach this dashboard. */
@@ -1919,6 +1947,8 @@ export interface Access {
   awaitingConfirmation?: boolean
   /** A customer whose server is being set up, waiting for room on a machine. */
   waitingForRoom?: boolean
+  /** A customer waiting for room again, having lost the machine they had. */
+  waitingAgain?: boolean
   /** A creator's machine: the one their servers go on. */
   home?: string
   /** A customer whose plan ended: when their servers are deleted unless they renew. */
@@ -2031,6 +2061,12 @@ export interface WhopSignIn {
   using?: string
 }
 
+/** A seller's store as their page inside Whop opens it: new when this open registered it, and what it's waiting on, if anything. */
+export interface WhopSellerOpen {
+  store: { id: string; title: string; route?: string; problem?: string }
+  new: boolean
+}
+
 /**
  * The app the businesses that sell from this dashboard installed: the end of
  * its API key, which acts on each of them, how many sell here, whether the
@@ -2073,9 +2109,9 @@ export interface WhopPlan {
   allowanceFrom?: 'store' | 'owner'
 }
 
-/** Settings › Machines › Room for customers, the owner's: how many more of each plan the store sells fit at once, and what each machine can still set aside for customers, or why it takes none. */
+/** Settings › Machines › Room for customers, the owner's: how many more of each plan fit, which is its stock, with the store selling it, and what each machine can still set aside for customers, or why it takes none. Stores selling on the same machines each get an even share of the room. */
 export interface SaleRoom {
-  plans: { id: string; name: string; memoryMB: number; free: boolean; left: number }[]
+  plans: { id: string; name: string; store: string; storeName: string; memoryMB: number; free: boolean; left: number }[]
   machines: { id: string; freeMB: number; takes: boolean; why?: string }[]
 }
 
@@ -2227,6 +2263,52 @@ export interface SuspendableStore {
 
 export interface StoresResponse {
   stores: SuspendableStore[]
+}
+
+/** A seller's view of their store on Playkeeper Cloud, for their page inside their Whop dashboard. */
+export interface SellerView {
+  store: SellerStore
+  plans: SellerPlan[]
+  customers: SellerCustomer[]
+  earnings: SellerMonth[]
+}
+
+/** How a seller's store stands, with words for a store that's closed, needs a look or left. */
+export interface SellerStore {
+  id: string
+  title: string
+  route?: string
+  state: 'selling' | 'closed' | 'needsLook' | 'suspended' | 'left'
+  why?: string
+}
+
+/** One of the store's plans that grants servers, with how many customers have it now. */
+export interface SellerPlan {
+  id: string
+  title: string
+  price: string
+  servers: number
+  memoryMB: number
+  stock: number
+  unlimitedStock: boolean
+  customers: number
+}
+
+/** One of the store's customers, as their seller sees them. */
+export interface SellerCustomer {
+  handle: string
+  plan?: string
+  since?: string
+  status: 'active' | 'starting' | 'paused' | 'suspended' | 'ended'
+}
+
+/** What a store earned in one month (UTC) in one currency, each amount in the currency's smallest unit. */
+export interface SellerMonth {
+  month: string
+  currency: string
+  sales: number
+  share: number
+  kept: number
 }
 
 export interface TeamInvite extends Invite {

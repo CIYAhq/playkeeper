@@ -164,9 +164,10 @@ func TestAProductsShareCoversEachOfItsPlans(t *testing.T) {
 		plan("bare", "prod_a", 0, 9, ""),
 		plan("orphan", "", 0, 9, "4"),
 		plan("big", "prod_b", 20, 24, "8"),
+		plan("dear", "prod_c", 0, 2000, "4"),
 	})
-	if len(problems) != 0 || len(wants) != 2 || wants[0] != (whopShareWant{Product: "prod_a", Title: "prod_a", BasisPoints: 8500}) ||
-		wants[1] != (whopShareWant{Product: "prod_b", Title: "prod_b", BasisPoints: 8500}) {
+	if len(problems) != 0 || len(wants) != 3 || wants[0] != (whopShareWant{Product: "prod_a", Title: "prod_a", BasisPoints: 8500}) ||
+		wants[1] != (whopShareWant{Product: "prod_b", Title: "prod_b", BasisPoints: 8500}) || wants[2] != (whopShareWant{Product: "prod_c", Title: "prod_c", BasisPoints: 100}) {
 		t.Fatalf("wants %+v, problems %v", wants, problems)
 	}
 	if _, problems := whopShareWants([]whop.Plan{plan("free", "prod_c", 0, 0, "4")}); len(problems) != 1 || !strings.Contains(problems[0], "free charges") {

@@ -272,6 +272,48 @@ func TestMessagesGoOutAsTheOwnerWithATokenThatMaySendThemAlone(t *testing.T) {
 // An app's key can't read an installed business's account, which Whop
 // keeps behind company:balance:read, so the owner comes from one of its
 // products, read by id since the list leaves the owner out.
+// An app's key reads an installed business's name from one of its products,
+// and its store's address from one of its memberships, since a product names
+// the business by id; without a membership there's no address yet.
+func TestBusinessReadsItsNameFromAProductAndItsAddressFromAMembership(t *testing.T) {
+	var firsts []string
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /accounts/biz_seller": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the company:balance:read scope."}}`)
+		},
+		"GET /products": func(w http.ResponseWriter, r *http.Request) {
+			var data []map[string]any
+			if r.URL.Query().Get("account_id") != "biz_empty" {
+				data = append(data, map[string]any{"id": "prod_4gb", "title": "Minecraft server"})
+			}
+			answer(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})(w, r)
+		},
+		"GET /products/prod_4gb": answer(map[string]any{"id": "prod_4gb", "account": map[string]any{"id": "biz_seller", "title": "Joe's Hosting", "route": "biz_seller"}}),
+		"GET /memberships": func(w http.ResponseWriter, r *http.Request) {
+			firsts = append(firsts, r.URL.Query().Get("first"))
+			var data []map[string]any
+			if r.URL.Query().Get("account_id") == "biz_seller" {
+				data = append(data, map[string]any{"id": "mem_1", "account": map[string]any{"id": "biz_seller", "title": "Joe's Hosting", "route": "joes-hosting"}})
+			}
+			answer(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})(w, r)
+		},
+	})
+	ctx := context.Background()
+	if a, err := c.Business(ctx, "biz_seller"); err != nil || a != (Account{ID: "biz_seller", Title: "Joe's Hosting", Route: "joes-hosting"}) {
+		t.Fatalf("Business = %+v, %v", a, err)
+	}
+	if a, err := c.Business(ctx, "biz_new"); err != nil || a != (Account{ID: "biz_new", Title: "Joe's Hosting"}) {
+		t.Fatalf("a business with no membership yet: %+v, %v", a, err)
+	}
+	if _, err := c.Business(ctx, "biz_empty"); err == nil {
+		t.Fatal("a business with no product")
+	}
+	if !slices.Equal(firsts, []string{"1", "1"}) {
+		t.Fatalf("memberships read with first=%v, not one", firsts)
+	}
+}
+
 func TestOwnerOfReadsTheOwnerOnOneOfTheAccountsProducts(t *testing.T) {
 	balance := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -410,6 +452,7 @@ func TestSharePercentPaysAtLeastTheFee(t *testing.T) {
 		dollars, price, want float64
 	}{
 		{8.5, 12, 70.84}, {8.5, 15, 56.67}, {8.5, 20, 42.5}, {8.5, 10, 85}, {8.5, 8.5, 100}, {17, 24, 70.84}, {8.5, 12.99, 65.44},
+		{8.5, 850, 1}, {8.5, 900, 1}, {8.5, 2000, 1},
 	} {
 		got, err := SharePercent(c.dollars, c.price)
 		if err != nil || got != c.want {

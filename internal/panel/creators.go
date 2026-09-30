@@ -195,8 +195,8 @@ func (s *Server) homeRefusal(ctx context.Context, a access, m machine) error {
 	if s.customerMoving(ctx, a.UserID) {
 		return errCustomerMoving
 	}
-	if s.customerWaiting(ctx, a) {
-		return errWaitingForRoom
+	if err := s.waitingRefusal(ctx, a); err != nil {
+		return err
 	}
 	home, ok, err := s.homeMachine(ctx, a.UserID)
 	switch {
