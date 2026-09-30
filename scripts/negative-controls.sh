@@ -7731,12 +7731,12 @@ control "customers per store: the Whop side starts each customer at its store" i
   'cust := Customer{Provider: whopProvider, Store: store[:0], Subject: wc.WhopUserID, Handle: wc.Handle}' \
   ./internal/panel '^TestAConfirmedMembershipStartsTheCustomerAndTheCoresMessageReachesThem$'
 control "customers per store: a message goes only to its customer's store's chat" internal/panel/whop_customers.go \
-  'if store == "" || store != selling {' \
-  'if store == "" {' \
+  'SELECT store_id, ?, ?, ?, ? FROM whop_stores WHERE store_id = ?`' \
+  "SELECT store_id, ?, ?, ?, ? FROM whop_stores WHERE via = 'key' AND ? != ''\`" \
   ./internal/panel '^TestTheNotifierTakesOnlyWhopCustomersAndSendsTheirMessagesInOrder$'
 control "customers per store: nothing is taken for a customer of no store" internal/panel/whop_customers.go \
-  'if store == "" || store != selling {' \
-  'if store != selling {' \
+  'return errNotThisStore' \
+  'return nil' \
   ./internal/panel '^TestTheStoreConnectedNextTakesOnTheCustomersFromBeforeStores$'
 control "customers per store: a waiting customer's message names their store" internal/panel/readyserver.go \
   'Scan(&cust.Provider, &cust.Store, &cust.Subject, &cust.Handle, &state, &planID, &al.Servers, &al.MemoryMB, &al.DiskGB)' \
@@ -7759,13 +7759,180 @@ control "customers per store: with accounts at two stores and none named, neithe
   'case false:' \
   ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
 control "customers per store: an account on its way is on its way at its own store" internal/panel/whop_signin.go \
-  '|| store != "" && store != selling {' \
-  ' {' \
+  "WHERE (? = '' OR m.store_id = ?) AND m.whop_user_id = ?" \
+  "WHERE (? = '' OR ? != '') AND m.whop_user_id = ?" \
   ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
 webcontrol "customers per store: the sign-in page signs in for its link's store" web/src/pages/login.tsx \
   'render={<a href={whopSignInFor(whopStore)} />}' \
   'render={<a href={whopSignInFor()} />}' \
   src/pages/login.test.tsx 'signs in for the store a customer'
+
+# Stores (the hosted blueprint's 1.1): one dashboard sells for many Whop
+# businesses (internal/panel/whop_stores.go), and each store's plans,
+# memberships, customers, messages and stock are its own.
+control "stores: a membership stays with its store" internal/panel/whop_customers.go \
+  'WHERE whop_memberships.store_id = excluded.store_id' \
+  'WHERE whop_memberships.store_id = excluded.store_id OR 1' \
+  ./internal/panel '^TestAMembershipStaysWithItsStore$'
+control "stores: the key store's webhook keeps no other business's event" internal/panel/whop_customers.go \
+  'if ev.AccountID == "" || ev.AccountID == account {' \
+  'if true {' \
+  ./internal/panel '^TestAMembershipStaysWithItsStore$'
+control "stores: a plan stays with its store" internal/panel/whop.go \
+  'free = excluded.free WHERE whop_plans.store_id = excluded.store_id' \
+  'free = excluded.free WHERE 1' \
+  ./internal/panel '^TestReadingOneStoreLeavesAnothersPlans$'
+control "stores: reading a store leaves another's plans" internal/panel/whop.go \
+  'DELETE FROM whop_plans WHERE store_id = ? AND plan_id NOT IN' \
+  "DELETE FROM whop_plans WHERE ? != '' AND plan_id NOT IN" \
+  ./internal/panel '^TestReadingOneStoreLeavesAnothersPlans$'
+control "stores: a store's customers have its own memberships" internal/panel/whop_customers.go \
+  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? ORDER BY' \
+  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? OR 1 ORDER BY' \
+  ./internal/panel '^TestEachStoreStartsItsOwnCustomers$'
+control "stores: a store's customers are its own" internal/panel/whop_customers.go \
+  'problem, updated_at FROM whop_customers WHERE store_id = ?`' \
+  'problem, updated_at FROM whop_customers WHERE store_id = ? OR 1`' \
+  ./internal/panel '^TestEachStoreStartsItsOwnCustomers$'
+control "stores: Settings › Sell on Whop shows the key store's plans alone" internal/panel/whop.go \
+  "FROM whop_plans WHERE store_id = ? AND visibility != 'archived' ORDER BY position" \
+  "FROM whop_plans WHERE (store_id = ? OR 1) AND visibility != 'archived' ORDER BY position" \
+  ./internal/panel '^TestEachStoreStartsItsOwnCustomers$'
+control "stores: a store's pass sends its own messages alone" internal/panel/whop_customers.go \
+  'WHERE w.store_id = ? AND w.sent_at = 0' \
+  'WHERE (w.store_id = ? OR 1) AND w.sent_at = 0' \
+  ./internal/panel '^TestAStoresMessagesGoOutInItsOwnChats$'
+control "stores: a message goes out as its own store's owner" internal/panel/whop_stores.go \
+  'if st.Via == whopViaApp {' \
+  'if false {' \
+  ./internal/panel '^TestAStoresMessagesGoOutInItsOwnChats$'
+control "stores: a cancellation is reminded at its own store" internal/panel/whop_customers.go \
+  'WHERE o.store_id = m.store_id AND o.whop_user_id = m.whop_user_id' \
+  'WHERE o.whop_user_id = m.whop_user_id' \
+  ./internal/panel '^TestACancellationAtOneStoreIsRemindedThere$'
+control "stores: each plan's stock is kept for its store" internal/panel/whop_stock.go \
+  'SELECT store_id, plan_id, ?, ? FROM whop_plans WHERE plan_id = ?' \
+  "SELECT '', plan_id, ?, ? FROM whop_plans WHERE plan_id = ?" \
+  ./internal/panel '^TestEachStoresStockIsItsOwn$'
+control "stores: a store's stock counts its own customers' purchases" internal/panel/whop_stock.go \
+  "FROM whop_customers WHERE store_id = ? AND paused = 0 AND applied != ''" \
+  "FROM whop_customers WHERE (store_id = ? OR 1) AND paused = 0 AND applied != ''" \
+  ./internal/panel '^TestEachStoresStockIsItsOwn$'
+control "stores: a taken-over store's plans take no room" internal/panel/whop_stock.go \
+  "AND st.taken_over_by = '' ORDER BY" \
+  'ORDER BY' \
+  ./internal/panel '^TestATakenOverStoresPlansTakeNoRoom$'
+control "stores: disconnecting forgets the key store's plans alone" internal/panel/whop.go \
+  'DELETE FROM whop_plans WHERE store_id = ?`' \
+  'DELETE FROM whop_plans WHERE store_id = ? OR 1`' \
+  ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
+control "stores: disconnecting forgets the key store's memberships alone" internal/panel/whop.go \
+  'DELETE FROM whop_memberships WHERE store_id = ?`' \
+  'DELETE FROM whop_memberships WHERE store_id = ? OR 1`' \
+  ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
+control "stores: disconnecting forgets the key store's customers alone" internal/panel/whop.go \
+  'DELETE FROM whop_customers WHERE store_id = ?`' \
+  'DELETE FROM whop_customers WHERE store_id = ? OR 1`' \
+  ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
+control "stores: disconnecting forgets the key store's messages alone" internal/panel/whop.go \
+  'DELETE FROM whop_messages WHERE store_id = ?`' \
+  'DELETE FROM whop_messages WHERE store_id = ? OR 1`' \
+  ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
+control "stores: disconnecting forgets the key store's stock alone" internal/panel/whop.go \
+  'DELETE FROM whop_stock WHERE store_id = ?`' \
+  'DELETE FROM whop_stock WHERE store_id = ? OR 1`' \
+  ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
+control "stores: disconnecting forgets the key store alone" internal/panel/whop.go \
+  'DELETE FROM whop_stores WHERE store_id = ?`' \
+  'DELETE FROM whop_stores WHERE store_id = ? OR 1`' \
+  ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
+control "stores: Sign in with Whop stays while a store sells" internal/panel/whop.go \
+  "UPDATE whop_app SET client_id = '', client_secret = '' WHERE NOT EXISTS (SELECT 1 FROM whop_stores)" \
+  "UPDATE whop_app SET client_id = '', client_secret = '' WHERE 1" \
+  ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
+control "stores: a business selling through the app takes no key" internal/panel/whop.go \
+  'case ok && app.Via != whopViaKey:' \
+  'case ok && app.Via != whopViaKey && false:' \
+  ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
+control "stores: one key store at most" internal/panel/auth.go \
+  "CREATE UNIQUE INDEX whop_stores_one_key ON whop_stores(via) WHERE via = 'key';" \
+  "CREATE INDEX whop_stores_one_key ON whop_stores(via) WHERE via = 'key';" \
+  ./internal/panel '^TestTheMigrationMakesTheStoreTheKeyStore$'
+control "stores: the migration gives the store it sold for its records" internal/panel/auth.go \
+  "UPDATE whop_memberships SET store_id = COALESCE((SELECT account_id FROM whop_account), '');" \
+  '' \
+  ./internal/panel '^TestTheMigrationMakesTheStoreTheKeyStore$'
+control "stores: a kick hurries its own store's pass alone" internal/panel/whop_customers.go \
+  'if only == nil || only[st.ID] {' \
+  'if true {' \
+  ./internal/panel '^TestAKickHurriesItsOwnStoresPass$'
+control "stores: the key store's delivery kicks the key store alone" internal/panel/whop_customers.go \
+  's.kickWhopStore(account)' \
+  's.kickWhop()' \
+  ./internal/panel '^TestAKickHurriesItsOwnStoresPass$'
+control "stores: an app store whose grant is gone changes nothing" internal/panel/whop_customers.go \
+  'if problem := whopGrantProblem(ctx, c, st); problem != "" {' \
+  'if problem := whopGrantProblem(ctx, c, st); false && problem != "" {' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a read the app's grant lacks is why a store changes nothing" internal/panel/whop_stores.go \
+  'if slices.Contains(whopStoreReads, a) {' \
+  'if false && slices.Contains(whopStoreReads, a) {' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a grant that can't be checked changes nothing" internal/panel/whop_stores.go \
+  "return \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
+  'return ""' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a store that needed a look is read again once it can be" internal/panel/whop_customers.go \
+  'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
+  'SET problem = ?, polled_at = 0 WHERE' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a store that needed a look reads every membership again once it can" internal/panel/whop_customers.go \
+  'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
+  'SET problem = ?, synced_at = 0 WHERE' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: an app store waits for the app's key" internal/panel/whop_stores.go \
+  'if key == "" {' \
+  'if false {' \
+  ./internal/panel '^TestAnAppStoreWaitsForTheAppsKey$'
+
+# The Playkeeper Cloud app (the hosted blueprint's 1.4,
+# internal/panel/whop_app.go): its webhook keeps each event for the app
+# store of the business it names and no other, an app store is read at once
+# when the webhook comes and every ten minutes with it, its owner comes from
+# one of its products, and the app's key never shows. (1.1's "an app store
+# whose grant is gone changes nothing" guards unapproved businesses.)
+control "app webhook: an event is kept only for an app store" internal/panel/whop_app.go \
+  'if !ok || st.Via != whopViaApp {' \
+  'if !ok {' \
+  ./internal/panel '^TestTheAppsWebhookKeepsEachEventForItsAppStore$'
+control "app webhook: an event is kept for the business it names" internal/panel/whop_app.go \
+  's.whopStoreByID(r.Context(), ev.AccountID)' \
+  's.whopStoreByID(r.Context(), "biz_other")' \
+  ./internal/panel '^TestTheAppsWebhookKeepsEachEventForItsAppStore$'
+control "app webhook: a delivery hurries its own store's pass alone" internal/panel/whop_app.go \
+  's.kickWhopStore(st.ID)' \
+  's.kickWhop()' \
+  ./internal/panel '^TestTheAppsWebhookKeepsEachEventForItsAppStore$'
+control "app webhook: an app store is read at once when it comes" internal/panel/whop_app.go \
+  'case st.PolledAt.Before(app.HookedAt):' \
+  'case false:' \
+  ./internal/panel '^TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes$'
+control "app webhook: with it, an app store is read every ten minutes" internal/panel/whop_app.go \
+  'return whopPollEvery' \
+  'return whopPollUnhooked' \
+  ./internal/panel '^TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes$'
+control "app key: Settings shows its ending alone" internal/panel/whop_app.go \
+  'KeyEnding: whop.Ending(app.Key)' \
+  'KeyEnding: app.Key' \
+  ./internal/panel '^TestOnlyTheOwnerSetsTheAppsKeyAndOnlyItsEndingShows$'
+control "app key: the audit log keeps its ending alone" internal/panel/whop_app.go \
+  'return what + ", ending " + whop.Ending(secret)' \
+  'return what + ", ending " + secret' \
+  ./internal/panel '^TestOnlyTheOwnerSetsTheAppsKeyAndOnlyItsEndingShows$'
+control "app stores: the owner comes from one of the business's products" internal/whop/members.go \
+  '"/products/"+url.PathEscape(ps[0].ID)' \
+  '"/accounts/"+url.PathEscape(accountID)' \
+  ./internal/panel '^TestAStoresMessagesGoOutInItsOwnChats$'
 
 # Playkeeper Cloud's ready server (internal/panel/readyserver.go): a
 # customer is told once that their server is ready, or being set up.
@@ -7955,12 +8122,12 @@ control "kept backups: a kept backup's label is checked" internal/agent/keptback
   'case false:' \
   ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
 control "kept backups: the final backup is a new one" internal/agent/keptbackups.go \
-  'if b, err = s.finalArchive(actor); err == nil {' \
-  'if err = errors.New("skipped"); err == nil {' \
+  '	b, err = s.finalArchive(actor, whole)' \
+  '	err = errors.New("skipped")' \
   ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
 control "kept backups: a new final backup needs the room for it" internal/agent/keptbackups.go \
-  'err == nil && free < allowlistedSize(s.dataDir())+minFreeAfterBackup {' \
-  'err == nil && free < 0 {' \
+  'err == nil && free < need+minFreeAfterBackup {' \
+  'err == nil && free < need*0 {' \
   ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
 control "kept backups: without room, the newest backup is kept" internal/agent/keptbackups.go \
   'for _, old := range list {' \
@@ -9575,6 +9742,105 @@ control "moving in: an own address that doesn't fit the machine is left out" int
   'if fit, err := s.validOwnAddress(name); err != nil || fit != name {' \
   'if false {' \
   ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server's sleep runs by the setting it had, not one read before it arrived" internal/agent/movestate.go \
+  '	s.reloadSleep()' \
+  '	// s.reloadSleep()' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving out: a folder a move can't carry is refused before its first byte" internal/agent/moveout.go \
+  '	if _, err := backup.MeasureWhole(s.dataDir(), archiveLimits()); err != nil {' \
+  '	if _, err := backup.MeasureWhole(s.dataDir(), archiveLimits()); err != nil && false {' \
+  ./internal/agent '^TestAFolderAMoveCantCarryIsRefusedBeforeItStreams$'
+control "moving out: the check before a move holds the folder to what a move carries" internal/agent/moveout.go \
+  '	size, err := backup.MeasureWhole(s.dataDir(), archiveLimits())' \
+  '	size, err := backup.MeasureWhole(s.dataDir(), backup.Limits{})' \
+  ./internal/agent '^TestAFolderAMoveCantCarryIsRefusedBeforeItStreams$'
+control "whole folders: measured as they arrive, every file a move carries" internal/backup/staging.go \
+  '	rels, err := wholeFiles(dataDir)' \
+  '	rels, err := archivedFiles(dataDir)' \
+  ./internal/backup '^TestAWholeFolderIsMeasuredAsItArrives$'
+control "moving customers: a server a move can't carry refuses the move, saying why" internal/panel/moves.go \
+  '	case errors.As(err, &ae) && ae.Status == http.StatusConflict:' \
+  '	case false && errors.As(err, &ae) && ae.Status == http.StatusConflict:' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a machine that doesn't answer for a server's check refuses the move" internal/panel/moves.go \
+  '	return uncheckedRefusal(m, name)' \
+  '	return nil' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a server already where they go doesn't keep the rest from following" internal/panel/moves.go \
+  '		if sz := sizes[sid]; sz.refused != nil && sz.machineID != id {' \
+  '		if sz := sizes[sid]; sz.refused != nil {' \
+  ./internal/panel '^TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing$'
+control "moving customers: a server that has to go and can't refuses a move to the machine named" internal/panel/moves.go \
+  '		if refused := carryRefusal(sizes, target.ID); refused != nil {
+			return "", refused
+		}
+		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  '		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  ./internal/panel '^TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing$'
+control "moving customers: the dashboard's pick passes over a machine a server that can't go would have to go to" internal/panel/moves.go \
+  '			if why := carryRefusal(sizes, r.ID); why != nil {' \
+  '			if why := carryRefusal(sizes, r.ID); why != nil && false {' \
+  ./internal/panel '^(TestTheMachineAServerThatCantGoIsOnStillTakesTheRest|TestAMoveChecksEveryServerBeforeAnyStops)$'
+control "moving customers: with no machine left for the dashboard's pick, a server that can't go says why" internal/panel/moves.go \
+  '			if target, ok = chooseMachine(others, planMB); !ok && refused != nil {' \
+  '			if target, ok = chooseMachine(others, planMB); !ok && refused != nil && false {' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a move goes only to a machine with room on its disk" internal/panel/moves.go \
+  '		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  '		if need := diskNeed(sizes, target.ID); false && !diskFits(target, need) {' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: the fullest machine without room on its disk is passed over" internal/panel/moves.go \
+  '			return !diskFits(r, diskNeed(sizes, r.ID))' \
+  '			return false' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a machine's disk keeps what it keeps free beside a move" internal/panel/moves.go \
+  '	return need == 0 || r.DiskFree != nil && *r.DiskFree >= need+moveDiskReserve' \
+  '	return need == 0 || r.DiskFree != nil && *r.DiskFree >= need' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a move's disk room counts the largest server's upload" internal/panel/moves.go \
+  '	return need + upload' \
+  '	return need' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a server that no longer fits by its turn isn't stopped" internal/panel/moves.go \
+  '	if err := checkRoomFor(ctx, from, to, id); err != nil {' \
+  '	if err := checkRoomFor(ctx, from, to, id); err != nil && false {' \
+  ./internal/panel '^TestAServerThatNoLongerFitsIsntStopped$'
+control "kept backups: the copy a move left keeps its whole folder" internal/agent/keptbackups.go \
+  '		create, need = backup.CreateWhole, size.ArchiveBytes()' \
+  '		create, need = backup.Create, size.ArchiveBytes()' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: the copy a move left goes even when nothing of it can be kept" internal/agent/servers.go \
+  '		case err != nil && keep.whole:' \
+  '		case err != nil && keep.whole && false:' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: the copy a move left keeps its whole folder or none of its backups" internal/agent/keptbackups.go \
+  '	case whole:' \
+  '	case whole && false:' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: a whole folder is kept only with the days to keep it" internal/agent/keptbackups.go \
+  '	case req.KeepFinalBackupDays == 0 && req.KeptFor == "" && !req.KeepWhole:' \
+  '	case req.KeepFinalBackupDays == 0 && req.KeptFor == "":' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "moving customers: whoever starts or stops a server since its failed move decides whether it runs" internal/panel/moves.go \
+  '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { s.forgetRestart(id) })(w, r, sess)' \
+  '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { _ = id })(w, r, sess)' \
+  ./internal/panel '^TestAServerStoppedSinceItsFailedMoveStaysStopped$'
+control "whole folders: a folder whose manifest a move can't carry is refused when measured" internal/backup/staging.go \
+  '	if _, err := marshalManifest(m, lim); err != nil {' \
+  '	if _, err := marshalManifest(m, lim); err != nil && false {' \
+  ./internal/backup '^TestAWholeFolderIsMeasuredAsItArrives$'
+control "moving customers: an AI agent's start or stop since a failed move decides whether the server runs" internal/panel/mcp.go \
+  '	if server != nil && runTools[tool] {' \
+  '	if server != nil && runTools[tool] && false {' \
+  ./internal/panel '^TestAServerStoppedSinceItsFailedMoveStaysStopped$'
+control "moving customers: a copy a failed move left on the machine counts as the room it frees" internal/panel/moves.go \
+  '		if !slices.Contains(sz.copiesOn, id) {' \
+  '		if true {' \
+  ./internal/panel '^TestACopyAMoveLeftCountsAsTheRoomItFrees$'
+control "moving customers: the copy a move left is deleted keeping its whole folder" internal/panel/moves.go \
+  '		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true' \
+  '		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), false' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving in: a server keeps Playkeeper's record of the add-ons it installed" internal/agent/movestate.go \
   '	{"addons", []string{' \
   '	// {"addons", []string{' \
@@ -9789,8 +10055,8 @@ control "moving customers: a customer whose servers are apart gives none more me
   '(!ok || memoryMB > cur) && false' \
   ./internal/panel '^TestServersApartAreBroughtTogether$'
 control "moving customers: the backups a move keeps aren't a deleted server's" internal/panel/moves.go \
-  'req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)' \
-  'req.KeepFinalBackupDays, req.KeptFor = days, keptFor(userID)' \
+  'req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true' \
+  'req.KeptFor, req.KeepWhole = days, keptFor(userID), true' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: a moved server is listed as it last was until its machine lists it" internal/panel/moves.go \
   'seen_at = excluded.seen_at, disputed_by = '"''" \

@@ -135,9 +135,13 @@ type Server struct {
 	// "METHOD pattern", once Routes has built it: every one must take it.
 	hostStamped sync.Map
 	// whopMu serialises changes to Sell on Whop (see whop.go), and whopKick
-	// has its reconciler look now (see whop_customers.go).
-	whopMu   sync.Mutex
-	whopKick chan struct{}
+	// has its reconciler look now (see whop_customers.go): at the stores in
+	// whopKicked, or at every store when whopKickAll is set.
+	whopMu      sync.Mutex
+	whopKick    chan struct{}
+	whopKickMu  sync.Mutex
+	whopKicked  map[string]bool
+	whopKickAll bool
 	// hosting is the hosting core billing providers call, and notifier what
 	// the core calls to tell customers something (see hosting.go). sales is
 	// what the fleet tells how many more of each plan fit (see whop_stock.go).
@@ -430,9 +434,9 @@ func (s *Server) Routes() []Route {
 		view("/api/machines/{mid}/operations/{op}", s.hOperation),
 		view("/api/servers", s.hServers),
 		view("/api/servers/{id}", s.hServer),
-		smAs(actRunServers, "POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
-		smAs(actRunServers, "POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
-		smAs(actRunServers, "POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
+		{"POST", "/api/servers/{id}/start", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/start")},
+		{"POST", "/api/servers/{id}/stop", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/stop")},
+		{"POST", "/api/servers/{id}/restart", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/restart")},
 		{"POST", "/api/servers/{id}/settings", needSessionCSRF, actManageServers, s.hServerSettings},
 		sm("POST", "/api/servers/{id}/version", "/v1/servers/{id}/version"),
 		{"POST", "/api/servers/{id}/delete", needSessionCSRF, actCreateOwnServers, s.hDeleteServer},
@@ -587,6 +591,7 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/whop", needSessionCSRF, actSellOnWhop, s.hWhopDisconnect},
 		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
 		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
+		{"PUT", "/api/whop/app", needSessionCSRF, actSellOnWhop, s.hWhopAppSet},
 		// Hetzner stock (hetzner.go): the owner's alone.
 		{"GET", "/api/hetzner", needSession, actWatchStock, s.hHetzner},
 		{"PUT", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerSet},
