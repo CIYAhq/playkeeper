@@ -7940,7 +7940,7 @@ control "app stores: the owner comes from one of the business's products" intern
 # every request.
 control "user tokens: only Whop's signature" internal/whop/usertoken.go \
   'if ecdsa.Verify(k, sum[:], r, s) {' \
-  'if true {' \
+  'if ecdsa.Verify(k, sum[:], r, s) || true {' \
   ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
 control "user tokens: only for this app" internal/whop/usertoken.go \
   'aud != app || app == "" || ' \
