@@ -65,24 +65,9 @@ func Download(ctx context.Context, c *http.Client, hosts Hosts, userAgent, rawUR
 	if err != nil {
 		return "", err
 	}
-	sums := append([]Sum{{want.Algo, want.Hash}}, want.Also...)
-	hs := make([]hash.Hash, len(sums))
-	for i, s := range sums {
-		h, err := NewHash(s.Algo)
-		if err != nil {
-			return "", err
-		}
-		if len(s.Hash) != 2*h.Size() {
-			return "", fmt.Errorf("the publisher lists no usable %s hash for this file", s.Algo)
-		}
-		hs[i] = h
-	}
-	limit := want.Max
-	if want.Size > 0 {
-		if want.Size > want.Max {
-			return "", &TooLargeError{What: "the file", Limit: want.Max}
-		}
-		limit = want.Size
+	v, err := want.verifier()
+	if err != nil {
+		return "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -97,13 +82,62 @@ func Download(ctx context.Context, c *http.Client, hosts Hosts, userAgent, rawUR
 	if resp.StatusCode != http.StatusOK {
 		return "", &StatusError{Service: u.Hostname(), Status: resp.StatusCode, Path: u.EscapedPath()}
 	}
-	if resp.ContentLength > limit {
+	if resp.ContentLength > v.limit {
 		if want.Size > 0 && resp.ContentLength <= want.Max {
 			return "", &SizeError{Want: want.Size, Got: resp.ContentLength}
 		}
 		return "", &TooLargeError{What: "the file", Limit: want.Max}
 	}
+	return v.save(dir, resp.Body, func(err error) error { return netError(u.Hostname(), err) })
+}
 
+// Save writes r into a new file in dir and returns its path once its size
+// and hash match want, as Download checks a download: for a file Playkeeper
+// carries itself. On any error nothing is left in dir.
+func Save(r io.Reader, dir string, want Want) (string, error) {
+	v, err := want.verifier()
+	if err != nil {
+		return "", err
+	}
+	return v.save(dir, r, func(err error) error { return err })
+}
+
+// verifier checks a file against a Want as it's written.
+type verifier struct {
+	want Want
+	sums []Sum
+	hs   []hash.Hash
+	// limit is the most bytes read: the size the publisher lists, else Max.
+	limit int64
+}
+
+func (want Want) verifier() (*verifier, error) {
+	sums := append([]Sum{{want.Algo, want.Hash}}, want.Also...)
+	hs := make([]hash.Hash, len(sums))
+	for i, s := range sums {
+		h, err := NewHash(s.Algo)
+		if err != nil {
+			return nil, err
+		}
+		if len(s.Hash) != 2*h.Size() {
+			return nil, fmt.Errorf("the publisher lists no usable %s hash for this file", s.Algo)
+		}
+		hs[i] = h
+	}
+	limit := want.Max
+	if want.Size > 0 {
+		if want.Size > want.Max {
+			return nil, &TooLargeError{What: "the file", Limit: want.Max}
+		}
+		limit = want.Size
+	}
+	return &verifier{want: want, sums: sums, hs: hs, limit: limit}, nil
+}
+
+// save writes r into a new file in dir and returns its path once its size
+// and hashes match; readErr explains a failure reading r. On any error
+// nothing is left in dir.
+func (v *verifier) save(dir string, r io.Reader, readErr func(error) error) (path string, err error) {
 	f, err := os.CreateTemp(dir, ".download-*.part")
 	if err != nil {
 		return "", err
@@ -115,24 +149,24 @@ func Download(ctx context.Context, c *http.Client, hosts Hosts, userAgent, rawUR
 		}
 	}()
 	ws := []io.Writer{f}
-	for _, h := range hs {
+	for _, h := range v.hs {
 		ws = append(ws, h)
 	}
-	if want.Progress != nil {
-		ws = append(ws, &progressWriter{fn: want.Progress})
+	if v.want.Progress != nil {
+		ws = append(ws, &progressWriter{fn: v.want.Progress})
 	}
-	n, err := io.Copy(io.MultiWriter(ws...), io.LimitReader(resp.Body, limit+1))
+	n, err := io.Copy(io.MultiWriter(ws...), io.LimitReader(r, v.limit+1))
 	if err != nil {
-		return "", netError(u.Hostname(), err)
+		return "", readErr(err)
 	}
 	switch {
-	case want.Size > 0 && n != want.Size:
-		return "", &SizeError{Want: want.Size, Got: n}
-	case n > want.Max:
-		return "", &TooLargeError{What: "the file", Limit: want.Max}
+	case v.want.Size > 0 && n != v.want.Size:
+		return "", &SizeError{Want: v.want.Size, Got: n}
+	case n > v.want.Max:
+		return "", &TooLargeError{What: "the file", Limit: v.want.Max}
 	}
-	for i, s := range sums {
-		if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {
+	for i, s := range v.sums {
+		if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {
 			return "", &HashError{Algo: s.Algo, Want: strings.ToLower(s.Hash), Got: got}
 		}
 	}

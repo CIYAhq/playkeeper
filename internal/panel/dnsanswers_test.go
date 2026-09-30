@@ -204,6 +204,34 @@ func TestTheDashboardAnswersDNSForItsOwnDomain(t *testing.T) {
 	}
 }
 
+// The dashboard's machine lists the copy a move is making of a server there,
+// and a copy a move left there until it's deleted, but neither is the
+// server: the zone doesn't name them, so players reach the servers where
+// they are.
+func TestTheZoneLeavesOutCopiesAMoveMakesOrLeaves(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	z := &zoneAgent{}
+	e.zoneLocally(z)
+	e.addressIs(t, betaAddress(
+		api.JoinAddress{ServerID: "movingzzz5", Name: "Moving", Port: 25570, Label: "moving", Automatic: true},
+		api.JoinAddress{ServerID: "leftzzzzz6", Name: "Left", Port: 25571, Label: "left", Automatic: true}))
+	local := e.localMachine(t)
+	if _, err := e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES('movingzzz5', 7, 'a2345abcde', ?)`, local); err != nil {
+		t.Fatal(err)
+	}
+	if err := leftCopy(t.Context(), e.srv.db, "leftzzzzz6", local, 7, movedBackupDays); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "PUT", "/api/dns-answers", `{"on":true}`, auth(cookie, csrf)); r.status != http.StatusOK {
+		t.Fatalf("turning the answers on: %d %v", r.status, r.body)
+	}
+	want := betaZone(serverRecords("alex", 25565), serverRecords("survival", 25567))
+	if p := z.seen(); len(p) != 1 || !zonesEqual(p[0].Zone, want) {
+		t.Fatalf("the machine was sent %+v, want %+v", p, want)
+	}
+}
+
 // Only an admin of every server sees and sets the machine's DNS answers: a
 // member, however many servers they see, gets neither.
 func TestOnlyAnAdminOfEveryServerSetsTheDNSAnswers(t *testing.T) {

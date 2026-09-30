@@ -371,6 +371,78 @@ test('/start: the start channel’s command, Send to my computer on phones, Whop
   await gpc.close()
 })
 
+test('/templates/ai-build-battle, where /ai sends people from the videos: its clip plays muted while it shows and not with reduced motion, Send to my computer shares the address with the link’s tags, and our events', async ({ browser, baseURL }) => {
+  const phone = { baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] }
+  const ctx = await browser.newContext(phone)
+  const { events, release } = await recordEvents(ctx)
+  release()
+  const shared = await fakeShareSheet(ctx)
+  /** The events sent since the last call are these, in order. */
+  const sent = async (...want: unknown[][]) => {
+    await expect.poll(() => [...events]).toEqual(want)
+    events.length = 0
+  }
+  const page = await ctx.newPage()
+  // nginx's 302 from /ai keeps the query string (TestShortAddresses, scripts/site-check.sh), so a reply's tags reach the page.
+  const reply = '/templates/ai-build-battle?utm_source=x&utm_medium=social'
+  const where = '/templates/ai-build-battle'
+  await page.goto(reply, { waitUntil: 'networkidle' })
+
+  // The clip, under the words on a phone, plays, muted, while it shows,
+  // pauses once it's gone and plays again when it's back.
+  const film = page.locator('video[data-film]')
+  const boxes = async () => {
+    const words = await page.locator('.aibb-text').boundingBox()
+    const clip = await film.boundingBox()
+    expect(words && clip, 'the words and the clip are on the page').toBeTruthy()
+    return { words: words!, clip: clip! }
+  }
+  const phoneBoxes = await boxes()
+  expect(phoneBoxes.clip.y, 'the clip is under the words').toBeGreaterThanOrEqual(phoneBoxes.words.y + phoneBoxes.words.height)
+  const playing = () => film.evaluate((v: HTMLVideoElement) => ({ playing: !v.paused, muted: v.muted }))
+  await expect.poll(playing, 'it plays, muted').toEqual({ playing: true, muted: true })
+  await page.locator('#questions').scrollIntoViewIfNeeded()
+  await expect.poll(playing, 'it pauses once it’s gone').toEqual({ playing: false, muted: true })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect.poll(playing, 'it plays again when it’s back').toEqual({ playing: true, muted: true })
+
+  // Send to my computer, beside Copy under the command: the phone's share
+  // sheet, with the page's address as it came, tags and all.
+  const share = page.locator('#install .install-share')
+  await expect(share).toHaveText('Send to my computer')
+  await share.click()
+  await sent(['install_shared', { spot: 'box', how: 'share', where }], ['flush'])
+  expect(shared).toEqual([{ title: await page.title(), url: baseURL + reply }])
+  await page.locator('#install .install-copy').click()
+  await sent(['install_copied', { spot: 'box', where }])
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('curl -fsSL https://playkeeper.io/install | sudo sh')
+  await page.locator('[data-closing]').getByRole('link', { name: 'Try the live demo' }).click()
+  await page.waitForURL(/\/demo\/$/)
+  await sent(['demo_opened', { spot: 'closing', where }], ['flush'])
+
+  // A desktop has the clip beside the words, and no Send to my computer.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(reply, { waitUntil: 'networkidle' })
+  await expect(page.locator('#install .install-copy')).toBeVisible()
+  await expect(share).toBeHidden()
+  const desktopBoxes = await boxes()
+  expect(desktopBoxes.clip.x, 'the clip is beside the words').toBeGreaterThanOrEqual(desktopBoxes.words.x + desktopBoxes.words.width)
+  await expect.poll(playing).toEqual({ playing: true, muted: true })
+  await ctx.close()
+
+  // With reduced motion, the clip waits for its controls, and isn't downloaded until then.
+  const still = await browser.newContext({ ...phone, reducedMotion: 'reduce' })
+  await recordEvents(still).then((r) => r.release())
+  const quiet = await still.newPage()
+  const films: string[] = []
+  quiet.on('request', (r) => { if (/\.mp4$/.test(new URL(r.url()).pathname)) films.push(r.url()) })
+  await quiet.goto(reply, { waitUntil: 'networkidle' })
+  await quiet.waitForTimeout(700)
+  expect(await quiet.locator('video[data-film]').evaluate((v: HTMLVideoElement) => v.paused), 'no clip plays by itself with reduced motion').toBe(true)
+  expect(films, 'nor is it downloaded').toEqual([])
+  await still.close()
+})
+
 test('the landing page shows the install command of the channel a visitor came from, for the codes it lists', async ({ browser, baseURL }) => {
   const ctx = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] })
   const { events, release } = await recordEvents(ctx)

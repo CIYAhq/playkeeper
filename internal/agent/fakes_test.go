@@ -49,6 +49,7 @@ type fakeDocker struct {
 	versionDown  bool          // version requests fail too, as when the daemon itself stops answering
 	selinux      bool          // the daemon runs containers under SELinux labels ("selinux-enabled")
 	beforeStop   func()        // when set, runs before a container stop takes effect
+	beforeBoot   func()        // when set, a server container's boot runs it first, so a test can hold the server starting
 	setupHangs   bool          // setup containers end their log streams but keep running
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
@@ -470,7 +471,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 			"Id": c.id, "Name": "/" + c.name, "Image": "sha256:img",
 			"State":           map[string]any{"Status": map[bool]string{true: "running", false: "exited"}[c.running], "Running": c.running, "ExitCode": c.exitCode, "OOMKilled": c.oom, "StartedAt": st, "FinishedAt": fin},
 			"Config":          map[string]any{"Image": c.cfg.Image, "Env": c.cfg.Env, "Labels": c.cfg.Labels},
-			"HostConfig":      map[string]any{"Memory": c.cfg.HostConfig.Memory, "NanoCpus": c.cfg.HostConfig.NanoCPUs},
+			"HostConfig":      map[string]any{"Memory": c.cfg.HostConfig.Memory, "NanoCpus": c.cfg.HostConfig.NanoCPUs, "Binds": c.cfg.HostConfig.Binds},
 			"NetworkSettings": map[string]any{"Networks": map[string]any{networkName: map[string]string{"IPAddress": "127.0.0.1"}}},
 		})
 	case r.Method == "POST" && action == "start":
@@ -558,8 +559,11 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 // prints its startup lines and "Done".
 func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	fd.mu.Lock()
-	delay := fd.bootDelay
+	delay, before := fd.bootDelay, fd.beforeBoot
 	fd.mu.Unlock()
+	if before != nil && !setup {
+		before()
+	}
 	time.Sleep(delay)
 	fd.mu.Lock()
 	defer fd.mu.Unlock()

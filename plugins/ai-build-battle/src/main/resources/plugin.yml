@@ -1,0 +1,20 @@
+name: AIBuildBattle
+version: '${version}'
+main: io.playkeeper.aibuild.AIBuildBattlePlugin
+api-version: '1.21'
+description: An AI model builds what you ask for, block by block, with your own OpenRouter key.
+author: Playkeeper
+website: https://playkeeper.io/templates/ai-build-battle
+commands:
+  aibuild:
+    description: Have an AI model build something in front of you.
+    usage: /aibuild <what to build>
+    permission: aibuild.use
+  aibattle:
+    description: Have two AI models build the same thing side by side.
+    usage: /aibattle <model A> <model B> <what to build>
+    permission: aibuild.use
+permissions:
+  aibuild.use:
+    description: Start, watch and stop AI builds and battles.
+    default: op

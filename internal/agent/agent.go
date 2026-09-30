@@ -979,6 +979,9 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/backups", srv((*server).hBackupCreate)},
 		{"POST", "/v1/servers/{id}/backups/{bid}/verify", srv((*server).hBackupVerify)},
 		{"GET", "/v1/servers/{id}/backups/{bid}/download", srv((*server).hBackupDownload)},
+		{"GET", "/v1/servers/{id}/move-out", srv((*server).hMoveOut)},
+		{"GET", "/v1/servers/{id}/move-state", srv((*server).hMoveStateGet)},
+		{"PUT", "/v1/servers/{id}/move-state", srv((*server).hMoveStatePut)},
 		{"DELETE", "/v1/servers/{id}/backups/{bid}", srv((*server).hBackupDelete)},
 		{"POST", "/v1/servers/{id}/backups/{bid}/restore", srv((*server).hRestoreFromBackup)},
 		{"POST", "/v1/servers/{id}/saving/resume", srv((*server).hSavingResume)},
@@ -1130,6 +1133,10 @@ func (a *Agent) routeTable() []Route {
 		{"DELETE", "/v1/servers/{id}/files/uploads/{up}", srv((*server).hFileUploadDelete)},
 		{"POST", "/v1/servers/{id}/files/uploads/{up}/files", srv((*server).hFileUploadFile)},
 		{"PUT", "/v1/servers/{id}/files/uploads/{up}/files/{n}", srv((*server).hFileUploadPut)},
+		// 0.4.9: the owner's own AI keys, for the AI Build Battle plugin.
+		{"GET", "/v1/servers/{id}/ai-keys", srv((*server).hAIKeys)},
+		{"PUT", "/v1/servers/{id}/ai-keys/{provider}", srv((*server).hAIKeySet)},
+		{"DELETE", "/v1/servers/{id}/ai-keys/{provider}", srv((*server).hAIKeyRemove)},
 	}, a.automationRoutes()...)
 }
 

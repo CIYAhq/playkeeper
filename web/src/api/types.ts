@@ -1200,7 +1200,8 @@ export interface RestoreUnsettled {
 
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.
 
-export type AddonSource = 'modrinth' | 'hangar'
+/** Where an add-on comes from; playkeeper is a plugin that ships inside Playkeeper, for its templates. */
+export type AddonSource = 'modrinth' | 'hangar' | 'playkeeper'
 
 export interface AddonTarget {
   kind: 'plugin' | 'mod'
@@ -2957,4 +2958,21 @@ export interface PublicBoard {
 export interface PublicPage {
   address: string
   servers: PublicServer[]
+}
+
+/** The AI services a server's owner can give it a key for (from 0.4.9). */
+export type AIProvider = 'openrouter'
+
+/** Whether one AI service's key is set: never the key or any part of it. */
+export interface AIKey {
+  set: boolean
+}
+
+/** A server's own AI keys, which the AI Build Battle plugin builds with (from 0.4.9). */
+export interface AIKeys {
+  keys: Record<AIProvider, AIKey>
+  /** A saved key waits for a restart: the running container was made before the server had its secrets folder. */
+  pending: boolean
+  /** The server has the AI Build Battle plugin. */
+  available: boolean
 }

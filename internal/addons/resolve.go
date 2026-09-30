@@ -179,6 +179,8 @@ func (l *Library) projectCard(ctx context.Context, t Target, src Source, ref str
 		}
 		card := hangarCard(p)
 		return &project{Source: Hangar, ID: strconv.FormatInt(p.ID, 10), Slug: p.Namespace.Slug, Name: p.Name, Summary: p.Description, IconURL: p.AvatarURL}, &card, nil
+	case Playkeeper:
+		return firstPartyProject(ref)
 	}
 	return nil, nil, fail(KindInvalid, kv("field", "source"), "Add-ons come from Modrinth or Hangar.", "")
 }
@@ -223,6 +225,14 @@ func (l *Library) candidates(ctx context.Context, t Target, mc string, p *projec
 		}
 		if err := l.followGeyser(ctx, out); err != nil {
 			return nil, err
+		}
+	case Playkeeper:
+		c, err := firstPartyCandidate(p, t)
+		if err != nil {
+			return nil, err
+		}
+		if c != nil {
+			out = append(out, *c)
 		}
 	}
 	slices.SortStableFunc(out, func(a, b candidate) int { return b.Published.Compare(a.Published) })

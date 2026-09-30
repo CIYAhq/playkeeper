@@ -103,7 +103,8 @@ type Settings struct {
 // Addon is a plugin or mod, by its source's ids.
 type Addon struct {
 	Source addons.Source `json:"source"`
-	// Project is the source's project id (Hangar's numeric id as text).
+	// Project is the source's project id (Hangar's numeric id as text, and
+	// the registry's id for Playkeeper's own plugins).
 	Project string `json:"project"`
 	Slug    string `json:"slug,omitempty"`
 	// Name is a label to show before anything is looked up. The source's
@@ -123,12 +124,14 @@ func (a Addon) Key() addons.Key { return addons.Key{Source: a.Source, ProjectID:
 
 // Pin is one published version of an add-on or modpack.
 type Pin struct {
-	// VersionID is the source's version id; a CurseForge pack's file id.
+	// VersionID is the source's version id; a CurseForge pack's file id,
+	// and the version number of one of Playkeeper's own plugins.
 	VersionID     string `json:"versionId"`
 	VersionNumber string `json:"versionNumber"`
 	Channel       string `json:"channel,omitempty"` // release, beta or alpha
 	// HashAlgo is sha512 for Modrinth, sha256 for Hangar and sha1 for
-	// CurseForge: the hash each publishes for its files.
+	// CurseForge: the hash each publishes for its files. Playkeeper's own
+	// plugins are pinned by the SHA-256 of the build the binary carries.
 	HashAlgo string `json:"hashAlgo"`
 	Hash     string `json:"hash"`
 }

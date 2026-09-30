@@ -68,13 +68,20 @@ func TestDirectoryPagesHaveTheirOwnPreviews(t *testing.T) {
 		seen[string(b)] = e.ID
 	}
 	categories := 0
+	own := ownPages(t)
 	for p, html := range built {
 		id, ok := strings.CutPrefix(p, "/templates/")
 		if !ok || strings.Contains(id, "/") || id == "page" {
 			continue
 		}
-		categories++
 		img, _ := ogOf(html)
+		if own[p] {
+			if strings.Contains(img, "/assets/og/categories/") {
+				t.Errorf("%s, a page of the site's own, has a category's preview, %s", p, img)
+			}
+			continue
+		}
+		categories++
 		if _, err := os.Stat("../../site/pages/templates/" + id + ".html"); err == nil {
 			if strings.Contains(img, "/assets/og/categories/") {
 				t.Errorf("%s, a guide, lost its own preview to %s", p, img)

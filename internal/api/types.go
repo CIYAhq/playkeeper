@@ -1050,6 +1050,28 @@ type MoveInRequest struct {
 	Actor          string    `json:"actor"`
 }
 
+// MoveState is what an agent keeps about a server beside its folder and its
+// settings, which a move carries to the machine it goes to: its own rows,
+// by table, each a column's value by name (see the agent's movestate.go).
+// It holds the secrets and keys of the server's copies somewhere else, so
+// only the dashboard reads it, and never shows it.
+type MoveState struct {
+	Rows map[string][]map[string]any `json:"rows"`
+}
+
+// MoveStateRequest gives a server moved here the MoveState it had.
+type MoveStateRequest struct {
+	State MoveState `json:"state"`
+	Actor string    `json:"actor"`
+}
+
+// MoveStateResult names what of a MoveState a server moved here couldn't
+// take: "ownAddress" when its own address doesn't fit this machine's
+// address.
+type MoveStateResult struct {
+	Left []string `json:"left,omitempty"`
+}
+
 type AuditEntry struct {
 	ID       int64     `json:"id"`
 	ServerID string    `json:"serverId,omitempty"`
@@ -1964,6 +1986,29 @@ type CurseForgeSource struct {
 
 // CurseForgeKeyRequest saves the owner's own CurseForge API key.
 type CurseForgeKeyRequest struct {
+	Key   string `json:"key"`
+	Actor string `json:"actor"`
+}
+
+// AIKeys is what a server's owner has of their own AI keys, which the AI
+// Build Battle plugin builds with: whether each provider's is set, never
+// the key or any part of it.
+type AIKeys struct {
+	Keys map[string]AIKey `json:"keys"`
+	// Pending is set while a saved key waits for a restart: the running
+	// container was made before the server had its secrets folder.
+	Pending bool `json:"pending"`
+	// Available is set while the server has the AI Build Battle plugin.
+	Available bool `json:"available"`
+}
+
+// AIKey is one provider's key on a server.
+type AIKey struct {
+	Set bool `json:"set"`
+}
+
+// AIKeyRequest saves a provider's key, in place of the one it had.
+type AIKeyRequest struct {
 	Key   string `json:"key"`
 	Actor string `json:"actor"`
 }

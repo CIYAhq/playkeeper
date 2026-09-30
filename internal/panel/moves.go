@@ -3,7 +3,9 @@ package panel
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -117,6 +119,21 @@ func (r *moveRuns) start(ctx context.Context, id int64, move func(context.Contex
 	}()
 }
 
+// after runs fn in the background, unless ctx has ended, and stop waits for
+// it too.
+func (r *moveRuns) after(ctx context.Context, fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ctx.Err() != nil {
+		return
+	}
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		fn()
+	}()
+}
+
 func (r *moveRuns) running(id int64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -176,13 +193,44 @@ func (s *Server) forgetLeft(ctx context.Context, q querier, machineID string, li
 }
 
 // customerMoving reports whether customer userID's servers are being moved,
-// or a move of theirs stopped before they all were. When that can't be
-// read, they are.
+// a move of theirs stopped before they all were, or any of them is on a
+// machine that isn't theirs and wasn't removed, as when a removed machine's
+// host joins again (serversApart). When that can't be read, they are.
 func (s *Server) customerMoving(ctx context.Context, userID int64) bool {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM customer_moves WHERE user_id = ?) + (SELECT COUNT(*) FROM server_moves WHERE user_id = ?)`,
 		userID, userID).Scan(&n)
-	return err != nil || n > 0
+	return err != nil || n > 0 || s.serversApart(ctx, userID)
+}
+
+// serversApart reports whether any server customer userID created is on a
+// machine other than theirs that wasn't removed: their allowance counts only
+// the servers on their machine, and their final backups can be kept on one
+// machine only. When that can't be read, one is.
+func (s *Server) serversApart(ctx context.Context, userID int64) bool {
+	home, _, err := s.homeMachine(ctx, userID)
+	if err != nil {
+		return true
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT sm.machine_id FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id
+		WHERE cs.user_id = ? AND sm.machine_id != ?`, userID, home)
+	if err != nil {
+		return true
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := s.machineByID(id); !errors.Is(err, errNotFound) {
+			return true
+		}
+	}
+	return false
 }
 
 // customerHeld reports whether customer userID is paused or suspended, so
@@ -323,6 +371,10 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 		}
 	}
 	now := millis(s.now())
+	// A server the customer is making meanwhile is among theirs before their
+	// move reads them, or refused once it's recorded (hCreateServer).
+	s.creators.Lock()
+	defer s.creators.Unlock()
 	err = s.immediate(ctx, func(c *sql.Conn) error {
 		if _, err := c.ExecContext(ctx, `INSERT INTO customer_moves(user_id, to_machine, started_at, started_by) VALUES(?,?,?,?)
 			ON CONFLICT(user_id) DO UPDATE SET to_machine = excluded.to_machine, started_at = excluded.started_at, started_by = excluded.started_by, error = ''`,
@@ -357,13 +409,23 @@ func guardOn(ctx context.Context, r machineRoom, actor string) error {
 }
 
 // moveCustomer moves customer userID's servers that aren't on their machine
-// there, one at a time, then forgets the move. One that fails stops it, and
-// the owner sees why. The dashboard stopping leaves it for its next start.
+// there, one at a time, then forgets the move once none is left elsewhere:
+// a server that got there meanwhile is moved too, and one still left stops
+// the move. One that fails stops it, and the owner sees why. The dashboard
+// stopping leaves it for its next start.
 func (s *Server) moveCustomer(ctx context.Context, userID int64) {
 	var name string
 	_ = s.db.QueryRow(`SELECT username FROM users WHERE id = ?`, userID).Scan(&name)
 	name = cmp.Or(name, strconv.FormatInt(userID, 10))
 	moved, err := s.moveServers(ctx, userID)
+	for pass := 1; err == nil && pass < 3 && s.serversApart(ctx, userID); pass++ {
+		var more int
+		more, err = s.moveServers(ctx, userID)
+		moved += more
+	}
+	if err == nil && s.serversApart(ctx, userID) {
+		err = errors.New("some of their servers are still on another machine")
+	}
 	if ctx.Err() != nil {
 		return
 	}
@@ -452,18 +514,20 @@ func (s *Server) moveServers(ctx context.Context, userID int64) (int, error) {
 }
 
 // serverMove is a server_moves row: server id being moved from one machine
-// to another, and whether it ran.
+// to another, whether it ran, sleeping too, and the operation making its
+// copy there, once it started.
 type serverMove struct {
 	serverID string
 	userID   int64
 	from, to string
 	ran      bool
+	madeBy   string
 }
 
 // serverMoveOf is server id's move, and whether it's being moved.
 func (s *Server) serverMoveOf(ctx context.Context, id string) (serverMove, bool, error) {
 	mv := serverMove{serverID: id}
-	err := s.db.QueryRowContext(ctx, `SELECT user_id, from_machine, to_machine, ran FROM server_moves WHERE server_id = ?`, id).Scan(&mv.userID, &mv.from, &mv.to, &mv.ran)
+	err := s.db.QueryRowContext(ctx, `SELECT user_id, from_machine, to_machine, ran, made_by FROM server_moves WHERE server_id = ?`, id).Scan(&mv.userID, &mv.from, &mv.to, &mv.ran, &mv.madeBy)
 	switch {
 	case isNoRows(err):
 		return mv, false, nil
@@ -496,6 +560,11 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 	found, err := serverOn(ctx, from, id, &st)
 	switch {
 	case err == nil && !found:
+		// Its machine no longer has it, so its record there goes, as that
+		// machine's next listing would drop it.
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM server_machines WHERE server_id = ? AND machine_id = ?`, id, from.ID); err != nil {
+			return false, errDB
+		}
 		if moving {
 			// Deleted meanwhile, so the copy this move made goes too.
 			s.dropMove(ctx, mv)
@@ -515,7 +584,10 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 		return false, err
 	}
 	if !moving {
-		mv = serverMove{serverID: id, userID: userID, from: from.ID, to: to.ID, ran: st.Desired == api.DesiredRunning && st.Phase != api.PhaseCrashed}
+		// A sleeping server starts where it goes, and falls asleep again as
+		// its sleep setting says; so does one a failed move left stopped.
+		ran := (st.Desired == api.DesiredRunning || st.Desired == api.DesiredSleeping) && st.Phase != api.PhaseCrashed || s.restartPending(ctx, id, from.ID)
+		mv = serverMove{serverID: id, userID: userID, from: from.ID, to: to.ID, ran: ran}
 		if _, err := s.db.ExecContext(ctx, `INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran) VALUES(?,?,?,?,?)`,
 			id, userID, from.ID, to.ID, mv.ran); err != nil {
 			return false, errDB
@@ -523,9 +595,12 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 	}
 	slug := s.shownSlug(ctx, id, from, st)
 	start := mv.ran && !s.customerHeld(ctx, userID)
-	err = s.copyServer(ctx, id, from, to, st, slug, start, moving)
+	err = s.copyServer(ctx, mv, from, to, st, slug, start, moving)
 	if err == nil {
 		s.copyBackupRules(ctx, id, from, to)
+		err = s.copyMoveState(ctx, id, from, to)
+	}
+	if err == nil {
 		if err = s.sendLimitsTo(ctx, to); err != nil {
 			err = fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
 		}
@@ -564,22 +639,24 @@ func (s *Server) shownSlug(ctx context.Context, id string, m machine, st api.Ser
 	return st.Slug
 }
 
-// copyServer has machine to make server id from a new backup of it on from,
+// copyServer has machine to make mv's server from its whole folder on from,
 // stopped there first, and start it when start says. A copy to has already
 // is an old one it didn't delete, and goes first, unless resume says this
-// move made it before a restart of the dashboard and it's complete.
-func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st api.ServerStatus, slug string, start, resume bool) error {
+// move made it before a restart of the dashboard: the operation making it
+// is the one mv names, and it's complete.
+func (s *Server) copyServer(ctx context.Context, mv serverMove, from, to machine, st api.ServerStatus, slug string, start, resume bool) error {
+	id := mv.serverID
 	var there api.ServerStatus
 	found, err := serverOn(ctx, to, id, &there)
 	if err != nil {
 		return fmt.Errorf("%s didn't say whether it has it: %w", machineLabel(to), err)
 	}
 	if found {
-		if op := there.Operation; resume && op != nil && op.Kind == "restore" && op.Status == api.OpRunning {
+		if op := there.Operation; resume && op != nil && op.ID == mv.madeBy && op.Status == api.OpRunning {
 			if _, err := waitMoveOp(ctx, to, op.ID); err == nil {
 				return nil
 			}
-		} else if op := there.LastOperation; resume && op != nil && op.Kind == "restore" && op.Status == api.OpSucceeded {
+		} else if op := there.LastOperation; resume && op != nil && op.ID == mv.madeBy && op.Status == api.OpSucceeded {
 			return nil
 		}
 		if err := deleteOn(ctx, to, id, there.Name, 0, 0); err != nil {
@@ -589,33 +666,47 @@ func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st
 	if err := stopOn(ctx, from, id); err != nil {
 		return fmt.Errorf("it didn't stop: %w", err)
 	}
-	backup, err := agentOp(ctx, from, "/v1/servers/"+id+"/backups", api.BackupRequest{Actor: placementActor})
+	rid, err := s.copyFolder(ctx, from, to, id)
 	if err != nil {
-		return fmt.Errorf("it couldn't be backed up: %w", err)
-	}
-	bid, _ := backup.Detail["backupId"].(string)
-	if !reFileWord.MatchString(bid) {
-		return errors.New("its backup has no id")
-	}
-	rid, err := s.copyBackup(ctx, from, to, id, bid)
-	if err != nil {
-		return fmt.Errorf("its backup couldn't be copied to %s: %w", machineLabel(to), err)
+		return fmt.Errorf("its folder couldn't be copied to %s: %w", machineLabel(to), err)
 	}
 	cfg := st.Config
 	in := api.MoveInRequest{ServerID: id, Name: st.Name, Slug: slug, MemoryMB: cfg.MemoryMB, PlayStyle: cfg.PlayStyle, Start: start,
 		CreatedAt: cfg.CreatedAt, EULAAcceptedAt: cfg.EULAAcceptedAt, EULAAcceptedBy: cfg.EULAAcceptedBy, Actor: placementActor}
-	if _, err := agentOp(ctx, to, "/v1/restore/"+rid+"/move-in", in); err != nil {
-		return fmt.Errorf("%s couldn't make it from its backup: %w", machineLabel(to), err)
+	if err := s.moveIn(ctx, mv, to, rid, in); err != nil {
+		discardUpload(ctx, to, rid)
+		return fmt.Errorf("%s couldn't make it from its folder: %w", machineLabel(to), err)
 	}
 	return nil
 }
 
-// copyBackup sends backup bid of server id from one machine to another, as
-// an upload for a new server, and returns the upload's id there. It names
-// no disk limit: the server it's a backup of counts against its customer's
-// already, and the one made from it does once it's made (see moveServer).
-func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid string) (string, error) {
-	down, err := from.agent.Raw(ctx, http.MethodGet, "/v1/servers/"+id+"/backups/"+bid+"/download", nil, nil,
+// moveIn has machine to make mv's server from upload rid as in asks, and
+// waits until it has. The operation making it is recorded first, so a
+// restart of the dashboard meanwhile carries on with that copy alone.
+func (s *Server) moveIn(ctx context.Context, mv serverMove, to machine, rid string, in api.MoveInRequest) error {
+	var op api.Operation
+	status, err := to.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/restore/"+rid+"/move-in", nil, in, &op)
+	switch {
+	case err != nil:
+		return err
+	case status != http.StatusAccepted || op.ID == "":
+		return fmt.Errorf("the agent answered %d to the move-in", status)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE server_moves SET made_by = ? WHERE server_id = ?`, op.ID, mv.serverID); err != nil {
+		return errDB
+	}
+	_, err = waitMoveOp(ctx, to, op.ID)
+	return err
+}
+
+// copyFolder sends server id's whole folder from one machine, where it's
+// stopped, to another as an upload for a new server (the agent's move-out),
+// and returns the upload's id there. It names no disk limit: the server
+// counts against its customer's already, and the one made from it does once
+// it's made (see moveServer). The folder's manifest names each file's
+// checksum, and what arrived has to be what the dashboard sent.
+func (s *Server) copyFolder(ctx context.Context, from, to machine, id string) (string, error) {
+	down, err := from.agent.Raw(ctx, http.MethodGet, "/v1/servers/"+id+"/move-out", nil, nil,
 		map[string]string{"X-Playkeeper-Actor": placementActor}, true)
 	if err != nil {
 		return "", err
@@ -627,7 +718,8 @@ func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid strin
 	if down.StatusCode != http.StatusOK {
 		return "", agentclient.ErrBadAnswer
 	}
-	up, err := to.agent.Raw(ctx, http.MethodPost, "/v1/restore/upload", nil, down.Body,
+	sent := sha256.New()
+	up, err := to.agent.Raw(ctx, http.MethodPost, "/v1/restore/upload", nil, io.TeeReader(down.Body, sent),
 		map[string]string{"X-Playkeeper-Actor": placementActor, "Content-Type": "application/gzip"}, true)
 	if err != nil {
 		return "", err
@@ -640,11 +732,36 @@ func (s *Server) copyBackup(ctx context.Context, from, to machine, id, bid strin
 	if up.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(up.Body, 1<<20)).Decode(&p) != nil || !reUploadID.MatchString(p.ID) {
 		return "", agentclient.ErrBadAnswer
 	}
-	if sum := down.Header.Get("X-Playkeeper-SHA256"); reSHA256.MatchString(sum) && sum != p.SHA256 {
-		_, _ = to.agent.Do(asActor(ctx, placementActor), http.MethodDelete, "/v1/restore/"+p.ID, url.Values{"actor": {placementActor}}, nil, nil)
+	if hex.EncodeToString(sent.Sum(nil)) != p.SHA256 {
+		discardUpload(ctx, to, p.ID)
 		return "", errors.New("it arrived changed")
 	}
 	return p.ID, nil
+}
+
+// copyMoveState gives server id, moved to machine to, what the agent on
+// from kept about it (api.MoveState): its schedules, its sleep and public
+// page settings, its map's and pack page's links, and its copies somewhere
+// else with their secrets and keys, without which they no longer open. An
+// own address that doesn't fit to's is left out, and the audit log says so.
+func (s *Server) copyMoveState(ctx context.Context, id string, from, to machine) error {
+	var state api.MoveState
+	if err := askAgent(ctx, from, http.MethodGet, "/v1/servers/"+id+"/move-state", nil, &state); err != nil {
+		return fmt.Errorf("%s didn't say what it keeps about it: %w", machineLabel(from), err)
+	}
+	var res api.MoveStateResult
+	if err := askAgent(ctx, to, http.MethodPut, "/v1/servers/"+id+"/move-state", api.MoveStateRequest{State: state, Actor: placementActor}, &res); err != nil {
+		return fmt.Errorf("%s didn't take what %s kept about it: %w", machineLabel(to), machineLabel(from), err)
+	}
+	if slices.Contains(res.Left, "ownAddress") {
+		s.audit(placementActor, "customer.move", id, "own address left out", fmt.Sprintf("its own address doesn't fit %s's address", machineLabel(to)))
+	}
+	return nil
+}
+
+// discardUpload deletes upload rid on m, which no move-in took.
+func discardUpload(ctx context.Context, m machine, rid string) {
+	_, _ = m.agent.Do(asActor(ctx, placementActor), http.MethodDelete, "/v1/restore/"+rid, url.Values{"actor": {placementActor}}, nil, nil)
 }
 
 // copyBackupRules gives server id, moved to machine to, the automatic
@@ -680,7 +797,8 @@ func (s *Server) copyBackupRules(ctx context.Context, id string, from, to machin
 // of it is complete, with the slug the dashboard showed for it, and ends its
 // move: the copy on the machine it left is a copy it left, its final backup
 // kept there movedBackupDays. Its links go with it. A listing of to's asked
-// for before now can't drop its record.
+// for before now can't drop its record, and its record keeps the server as
+// last listed, so it's still listed while to is away.
 func (s *Server) switchServer(ctx context.Context, mv serverMove, to machine, slug string) error {
 	kept := ""
 	if to.Kind == remoteKind {
@@ -689,7 +807,7 @@ func (s *Server) switchServer(ctx context.Context, mv serverMove, to machine, sl
 	now := millis(s.now())
 	err := s.immediate(ctx, func(c *sql.Conn) error {
 		if _, err := c.ExecContext(ctx, `INSERT INTO server_machines(server_id, machine_id, slug, seen_at) VALUES(?,?,?,?)
-			ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, slug = excluded.slug, seen_at = excluded.seen_at, status = '', disputed_by = ''`,
+			ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, slug = excluded.slug, seen_at = excluded.seen_at, disputed_by = ''`,
 			mv.serverID, to.ID, kept, now); err != nil {
 			return err
 		}
@@ -700,6 +818,9 @@ func (s *Server) switchServer(ctx context.Context, mv serverMove, to machine, sl
 			return err
 		}
 		if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays); err != nil {
+			return err
+		}
+		if _, err := c.ExecContext(ctx, `DELETE FROM move_restarts WHERE server_id = ?`, mv.serverID); err != nil {
 			return err
 		}
 		_, err := c.ExecContext(ctx, `DELETE FROM server_moves WHERE server_id = ?`, mv.serverID)
@@ -722,8 +843,9 @@ func leftCopy(ctx context.Context, q querier, id, machineID string, userID int64
 // abandonMove ends mv, a move that failed before its server's requests
 // went to the machine it was going to: they go where it is again, it
 // starts there again if it ran and its customer isn't paused or suspended,
-// and that machine deletes the copy it made. A customer paused while it
-// moved had it stopped already, and the hold on its machine may not be
+// and that machine deletes the copy it made. A start that fails is tried
+// again once that machine answers (retryRestarts). A customer paused while
+// it moved had it stopped already, and the hold on its machine may not be
 // there yet to refuse the start, so pausing waits for this: coming first,
 // it keeps the server stopped, and after, it stops it where it is.
 func (s *Server) abandonMove(ctx context.Context, mv serverMove, from machine) {
@@ -732,13 +854,90 @@ func (s *Server) abandonMove(ctx context.Context, mv serverMove, from machine) {
 	}
 	s.customersMu.Lock()
 	if mv.ran && !s.customerHeld(ctx, mv.userID) {
-		var op api.Operation
-		if _, err := from.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/servers/"+mv.serverID+"/start", nil, api.ActionRequest{Actor: placementActor}, &op); err != nil {
-			s.log.Warn("a server whose move failed didn't start again where it is", "server", mv.serverID, "err", err)
+		if err := startOn(ctx, from, mv.serverID); err != nil {
+			s.log.Warn("a server whose move failed didn't start again where it is yet", "server", mv.serverID, "err", err)
+			s.pendRestart(ctx, mv)
+		} else {
+			s.forgetRestart(mv.serverID)
 		}
 	}
 	s.customersMu.Unlock()
 	s.leaveMoveCopy(ctx, mv)
+}
+
+// startOn starts server id on m.
+func startOn(ctx context.Context, m machine, id string) error {
+	var op api.Operation
+	_, err := m.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/servers/"+id+"/start", nil, api.ActionRequest{Actor: placementActor}, &op)
+	return err
+}
+
+// pendRestart records that mv's server, which ran, is to start again where
+// it is (see retryRestarts).
+func (s *Server) pendRestart(ctx context.Context, mv serverMove) {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO move_restarts(server_id, machine_id, user_id) VALUES(?,?,?)
+		ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, user_id = excluded.user_id`, mv.serverID, mv.from, mv.userID); err != nil {
+		s.log.Error("could not record that a server is to start again", "server", mv.serverID, "err", err)
+	}
+}
+
+// restartPending reports whether server id is to start again on machineID,
+// where a failed move left it stopped.
+func (s *Server) restartPending(ctx context.Context, id, machineID string) bool {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM move_restarts WHERE server_id = ? AND machine_id = ?`, id, machineID).Scan(&n)
+	return err == nil && n > 0
+}
+
+func (s *Server) forgetRestart(id string) {
+	if _, err := s.db.Exec(`DELETE FROM move_restarts WHERE server_id = ?`, id); err != nil {
+		s.log.Error("could not forget that a server was to start again", "server", id, "err", err)
+	}
+}
+
+// retryRestarts starts again the servers failed moves left stopped though
+// they ran, on machineID, or on every machine for "": each where it is,
+// unless it moved or went since, a move of it is under way, or its
+// customer was paused or suspended.
+func (s *Server) retryRestarts(ctx context.Context, machineID string) {
+	rows, err := s.db.QueryContext(ctx, `SELECT server_id, machine_id, user_id FROM move_restarts WHERE ? = '' OR machine_id = ?`, machineID, machineID)
+	if err != nil {
+		s.log.Error("could not read the servers to start again", "err", err)
+		return
+	}
+	var list []serverMove
+	for rows.Next() {
+		var mv serverMove
+		if rows.Scan(&mv.serverID, &mv.from, &mv.userID) == nil {
+			list = append(list, mv)
+		}
+	}
+	rows.Close()
+	for _, mv := range list {
+		at, err := s.recordedMachine(ctx, mv.serverID)
+		if err != nil {
+			continue
+		}
+		if _, moving, err := s.serverMoveOf(ctx, mv.serverID); err != nil || moving {
+			continue
+		}
+		m, err := s.machineByID(mv.from)
+		switch {
+		case at != mv.from || errors.Is(err, errNotFound):
+			s.forgetRestart(mv.serverID)
+			continue
+		case err != nil:
+			continue
+		}
+		s.customersMu.Lock()
+		held := s.customerHeld(ctx, mv.userID)
+		if held {
+			s.forgetRestart(mv.serverID)
+		} else if err := startOn(ctx, m, mv.serverID); err == nil {
+			s.forgetRestart(mv.serverID)
+		}
+		s.customersMu.Unlock()
+	}
 }
 
 // dropMove ends mv, a move whose server is gone from the machine it was
@@ -879,11 +1078,16 @@ func stopOn(ctx context.Context, m machine, id string) error {
 func deleteOn(ctx context.Context, m machine, id, name string, days int, userID int64) error {
 	req := api.DeleteServerRequest{Confirm: name, Actor: placementActor, ForgetKey: true}
 	if days > 0 {
-		req.KeepFinalBackupDays, req.KeptFor = days, keptFor(userID)
+		req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)
 	}
 	_, err := agentOp(ctx, m, "/v1/servers/"+id+"/delete", req)
 	return err
 }
+
+// movedKeptFor labels the final backups of the copies an account's moved
+// servers left, apart from the final backups of its deleted servers
+// (keptFor), which its dashboard lists.
+func movedKeptFor(userID int64) string { return "moved-" + keptFor(userID) }
 
 // agentOp starts an operation on m, posting body to path as the dashboard,
 // and waits until it ends: an error unless it succeeded.
@@ -966,8 +1170,11 @@ func whyStopped(err error) string {
 
 // runMoves places again the customers whose machine was removed while the
 // dashboard was stopped or before it did that, carries on the moves a
-// restart stopped, then every moveRetry asks machines that were away to
-// delete the copies moves left on them, until ctx ends.
+// restart stopped whose machines answer, then every moveRetry carries on
+// those whose machines answer since, starts again the servers failed moves
+// left stopped and asks machines that were away to delete the copies moves
+// left on them, until ctx ends. A joined machine connecting does the first
+// two for it at once (see movesReconnected).
 func (s *Server) runMoves(ctx context.Context) {
 	s.rehomeStranded(ctx)
 	s.resumeMoves(ctx)
@@ -978,13 +1185,27 @@ func (s *Server) runMoves(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			s.resumeMoves(ctx)
+			s.retryRestarts(ctx, "")
 			s.leaveLeftovers(ctx)
 		}
 	}
 }
 
+// movesReconnected carries on what waited for machineID, a joined machine
+// that connected: the moves it's in, and the servers failed moves left
+// stopped on it.
+func (s *Server) movesReconnected(machineID string) {
+	s.moves.after(s.movesCtx, func() {
+		s.retryRestarts(s.movesCtx, machineID)
+		s.resumeMoves(s.movesCtx)
+	})
+}
+
 // resumeMoves carries on each customer's move that hadn't stopped, and each
-// server's move a restart left under way.
+// server's move a restart left under way, once the machines it needs
+// answer: a joined machine connects some time after the dashboard starts,
+// and a move asking it anything before then would fail.
 func (s *Server) resumeMoves(ctx context.Context) {
 	rows, err := s.db.QueryContext(ctx, `SELECT user_id FROM customer_moves WHERE error = '' UNION SELECT user_id FROM server_moves`)
 	if err != nil {
@@ -1000,8 +1221,38 @@ func (s *Server) resumeMoves(ctx context.Context) {
 	}
 	rows.Close()
 	for _, id := range ids {
-		s.moves.start(s.movesCtx, id, s.moveCustomer)
+		if s.moveMachinesUp(ctx, id) {
+			s.moves.start(s.movesCtx, id, s.moveCustomer)
+		}
 	}
+}
+
+// moveMachinesUp reports whether the joined machines customer userID's move
+// asks are connected: theirs, and each their servers are on or being moved
+// between. A removed machine asks nothing: a move leaves what's there (see
+// moveServers).
+func (s *Server) moveMachinesUp(ctx context.Context, userID int64) bool {
+	rows, err := s.db.QueryContext(ctx, `SELECT machine_id FROM customer_homes WHERE user_id = ?
+		UNION SELECT sm.machine_id FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id WHERE cs.user_id = ?
+		UNION SELECT from_machine FROM server_moves WHERE user_id = ?
+		UNION SELECT to_machine FROM server_moves WHERE user_id = ?`, userID, userID, userID, userID)
+	if err != nil {
+		return false
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		if m, err := s.machineByID(id); err == nil && m.Kind == remoteKind && (s.hub == nil || !s.hub.Connected(m.ID)) {
+			return false
+		}
+	}
+	return true
 }
 
 // leaveLeftovers asks machines to delete the copies moves left on them,
@@ -1034,17 +1285,21 @@ func (s *Server) leaveLeftovers(ctx context.Context) {
 	}
 }
 
-// machineCustomer is a customer whose servers go on a machine, as the owner
-// sees them on its page.
+// machineCustomer is a customer a machine has, as the owner sees them on its
+// page: its own, or one with servers there still (customersOnMachine).
 type machineCustomer struct {
-	ID       int64             `json:"id"`
-	Name     string            `json:"name"`
-	Handle   string            `json:"handle,omitempty"`
-	State    string            `json:"state"`
-	PlanID   string            `json:"planId,omitempty"`
-	MemoryMB int               `json:"memoryMB"`
-	Servers  int               `json:"servers"`
-	Move     *customerMoveView `json:"move,omitempty"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Handle   string `json:"handle,omitempty"`
+	State    string `json:"state"`
+	PlanID   string `json:"planId,omitempty"`
+	MemoryMB int    `json:"memoryMB"`
+	Servers  int    `json:"servers"`
+	// MachineID is their machine, "" while they wait for one, and Here how
+	// many of their servers are on the machine listing them.
+	MachineID string            `json:"machineId"`
+	Here      int               `json:"here"`
+	Move      *customerMoveView `json:"move,omitempty"`
 }
 
 // customerMoveView is a customer's move under way, or one that stopped.
@@ -1056,8 +1311,9 @@ type customerMoveView struct {
 	Error string `json:"error,omitempty"`
 }
 
-// hMachineCustomerList lists the customers whose servers go on a machine,
-// with their moves there.
+// hMachineCustomerList lists the customers a machine has: its own, with
+// their moves there, and those with servers there still, as a move that
+// stopped leaves them, so a machine isn't taken for empty while it has any.
 func (s *Server) hMachineCustomerList(w http.ResponseWriter, r *http.Request, _ *session) {
 	m, ok := s.machineFromPath(w, r)
 	if !ok {
@@ -1066,11 +1322,13 @@ func (s *Server) hMachineCustomerList(w http.ResponseWriter, r *http.Request, _ 
 	rows, err := s.db.QueryContext(r.Context(), `SELECT c.user_id, u.username, c.handle, c.state, c.plan_id,
 		COALESCE((SELECT MAX(allowance_memory_mb) FROM project_members WHERE user_id = c.user_id), 0),
 		(SELECT COUNT(*) FROM creator_servers WHERE user_id = c.user_id),
-		(SELECT COUNT(*) FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id WHERE cs.user_id = c.user_id AND sm.machine_id != h.machine_id),
+		COALESCE(h.machine_id, ''),
+		(SELECT COUNT(*) FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id WHERE cs.user_id = c.user_id AND sm.machine_id = ?),
+		(SELECT COUNT(*) FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id WHERE cs.user_id = c.user_id AND sm.machine_id != COALESCE(h.machine_id, '')),
 		mv.user_id IS NOT NULL, COALESCE(mv.started_at, 0), COALESCE(mv.started_by, ''), COALESCE(mv.error, '')
-		FROM customers c JOIN users u ON u.id = c.user_id JOIN customer_homes h ON h.user_id = c.user_id
+		FROM customers c JOIN users u ON u.id = c.user_id LEFT JOIN customer_homes h ON h.user_id = c.user_id
 		LEFT JOIN customer_moves mv ON mv.user_id = c.user_id
-		WHERE h.machine_id = ? ORDER BY u.username`, m.ID)
+		WHERE c.user_id IN (`+customersOnMachine+`) ORDER BY u.username`, m.ID, m.ID, m.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -1082,7 +1340,7 @@ func (s *Server) hMachineCustomerList(w http.ResponseWriter, r *http.Request, _ 
 		var moving bool
 		var mv customerMoveView
 		var started int64
-		if err := rows.Scan(&c.ID, &c.Name, &c.Handle, &c.State, &c.PlanID, &c.MemoryMB, &c.Servers, &mv.Left, &moving, &started, &mv.StartedBy, &mv.Error); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Handle, &c.State, &c.PlanID, &c.MemoryMB, &c.Servers, &c.MachineID, &c.Here, &mv.Left, &moving, &started, &mv.StartedBy, &mv.Error); err != nil {
 			writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 			return
 		}

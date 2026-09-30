@@ -144,10 +144,6 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 	if !ok {
 		return
 	}
-	if err := s.homeRefusal(r.Context(), a, m); err != nil {
-		writeRefusal(w, err)
-		return
-	}
 	mb, ok := memoryField(w, r)
 	if !ok {
 		return
@@ -158,6 +154,12 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 	}
 	s.creators.Lock()
 	defer s.creators.Unlock()
+	// Under the lock a move takes as it starts (startMove), so a move either
+	// finds this server among theirs, or refuses it.
+	if err := s.homeRefusal(r.Context(), a, m); err != nil {
+		writeRefusal(w, err)
+		return
+	}
 	use, err := s.allowanceUse(r.Context(), a, m, "")
 	if err != nil {
 		s.listFailure(w, err)
@@ -342,6 +344,12 @@ func (s *Server) creatorMemoryFits(w http.ResponseWriter, r *http.Request, a acc
 	use, err := s.allowanceUse(r.Context(), a, m, id)
 	if err != nil {
 		s.listFailure(w, err)
+		return false
+	}
+	// Their allowance counts one machine's servers, so while theirs are on
+	// two none takes more memory.
+	if cur, ok := use.memory[id]; (!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID) {
+		writeRefusal(w, errCustomerMoving)
 		return false
 	}
 	if msg, hint := memoryRefusal(a.Allowance, use, id, memoryMB); msg != "" {

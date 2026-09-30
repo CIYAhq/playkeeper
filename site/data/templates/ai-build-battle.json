@@ -1,0 +1,19 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "AI Build Battle",
+  "description": "Paper in creative on a flat world, where /aibuild has an AI model build what you ask for in front of you, block by block, with your own OpenRouter key. The plugin from the AI build battle videos.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "peaceful",
+    "gameMode": "creative",
+    "levelType": "flat",
+    "maxPlayers": 10,
+    "motd": "AI Build Battle",
+    "playStyle": "creative",
+    "memoryMB": 3072
+  },
+  "addons": [
+    { "source": "playkeeper", "project": "ai-build-battle", "slug": "ai-build-battle", "name": "AI Build Battle", "pin": { "versionId": "0.2.0", "versionNumber": "0.2.0", "channel": "release", "hashAlgo": "sha256", "hash": "c6a92af1e165992768acbb8d77b190455999091965fb2692569407014b853531" } }
+  ]
+}

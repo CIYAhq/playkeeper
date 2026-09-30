@@ -259,6 +259,14 @@ func (rl *runningLink) ended(t *testing.T) error {
 // domain.
 func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) (string, *runningLink) {
 	t.Helper()
+	d, _, link := e.joinMachineAs(t, cookie, csrf, ra)
+	return d.MachineID, link
+}
+
+// joinMachineAs is joinMachine, returning what the machine joined with too,
+// so its link can drop and come back.
+func (e *env) joinMachineAs(t *testing.T, cookie, csrf string, ra *remoteAgent) (machinelink.Dashboard, *machinelink.Identity, *runningLink) {
+	t.Helper()
 	addr := e.sharePort(t)
 	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
 	code, _ := e.joinCode(t, cookie, csrf, `{"name":"home-server","dial":"name"}`)["code"].(string)
@@ -270,7 +278,7 @@ func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) (s
 	}
 	link := e.runLink(t, d, id, ra)
 	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
-	return d.MachineID, link
+	return d, id, link
 }
 
 // auditHas reports whether the panel's audit log has a row with these

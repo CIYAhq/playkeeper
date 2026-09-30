@@ -1,12 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PackageIcon } from 'lucide-react'
+import { useAIKeys, type AIKeysState } from '@/api/ai-keys'
 import { addonIconUrl, ApiError, get, post } from '@/api/client'
 import { usePackShare } from '@/api/packs'
 import type { AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Operation, ServerStatus, ShareNeed } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { footerFor, isAddonOp, keyFrom, keyOf, mergeRows, sameKey, voiceChatProject, type AddonKind, type AddonRow } from '@/lib/addons'
+import { hasAIKey, isAIBuildBattle } from '@/lib/ai-keys'
 import { externalLink } from '@/lib/links'
 import { shareText } from '@/lib/packs'
 import { navigate } from '@/lib/router'
@@ -78,6 +81,13 @@ interface AddonsState {
   goToFile: (file: string, name: string) => void
   /** On mod servers, what friends need of a mod added by hand, from its Modrinth data. */
   friends: (r: AddonRow) => FriendsLabel | undefined
+  /** AI Build Battle's keys, asked for while it's installed and the account may change the server's files. */
+  aiKeys: AIKeysState
+  /** Whether the row is AI Build Battle, installed without a key. */
+  needsKey: (r: AddonRow) => boolean
+  /** The key's dialog, from the row's Add key. */
+  keyOpen: boolean
+  openKey: (open: boolean) => void
 }
 
 export interface FriendsLabel {
@@ -130,6 +140,8 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
     return m
   }, [share])
   const [highlight, setHighlight] = useState<string>()
+  const aiKeys = useAIKeys(id, can(ws.me, 'files.edit') && rows.some((r) => isAIBuildBattle(r.addon)), server.phase)
+  const [keyOpen, setKeyOpen] = useState(false)
 
   const refreshList = list.refresh
   const refreshChecks = checks.refresh
@@ -369,6 +381,10 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
     openSource,
     goToFile,
     friends: (r) => (r.addon ? friendsLabels.get(keyOf(r.addon)) : undefined),
+    aiKeys,
+    needsKey: (r) => r.state === 'managed' && isAIBuildBattle(r.addon) && !!aiKeys.keys?.available && !hasAIKey(aiKeys.keys),
+    keyOpen,
+    openKey: setKeyOpen,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

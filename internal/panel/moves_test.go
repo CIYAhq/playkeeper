@@ -23,13 +23,15 @@ import (
 // server alex there, running, and the dashboard's own machine with room for
 // their plan, each machine's agent ready to do its part of a move.
 type moveFleet struct {
-	e     *env
-	own   member
-	alex  member
-	rid   string
-	ra    *remoteAgent
-	local string
-	// archive is alex's backup on home-server, and sum its SHA-256.
+	e      *env
+	own    member
+	alex   member
+	rid    string
+	ra     *remoteAgent
+	joined joinedForCustomers
+	local  string
+	// archive is alex's server's whole folder as home-server streams it
+	// out, and sum its SHA-256.
 	archive []byte
 	sum     string
 
@@ -41,9 +43,10 @@ type moveFleet struct {
 }
 
 const (
-	movedServer   = "cafebabe23"
-	movedBackupID = "20260930-020000-abc123"
-	movedStatus   = `{"id":"cafebabe23","name":"alex","slug":"alex","phase":"online","desired":"running","gamePort":25566,
+	// movedState is what home-server's agent keeps about alex's server.
+	movedState  = `{"rows":{"servers":[{"public_page":0,"packs_token":"packtoken"}],"schedules":[{"id":"sched12345","name":"nightly"}],"offsite":[{"secret":"the-secret","keys":"the-keys"}]}}`
+	movedServer = "cafebabe23"
+	movedStatus = `{"id":"cafebabe23","name":"alex","slug":"alex","phase":"online","desired":"running","gamePort":25566,
 		"config":{"memoryMB":2048,"playStyle":"friends","createdAt":"2026-09-20T10:00:00Z","eulaAcceptedAt":"2026-09-20T10:00:00Z","eulaAcceptedBy":"alex"}}`
 	movedUpload = "0123456789abcdef"
 )
@@ -52,7 +55,8 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	t.Helper()
 	e := newEnvConfig(t, withDomain, nil)
 	own := owner(t, e)
-	rid, ra, _, _ := joinForCustomers(t, e, own)
+	joined := joinForCustomersAs(t, e, own)
+	rid, ra := joined.d.MachineID, joined.ra
 	e.srv.notifier = &recordingNotifier{}
 	if r := e.do(t, "PUT", "/api/machines/"+rid+"/customers", `{"on":true}`, own.auth()); r.status != http.StatusOK {
 		t.Fatalf("the owner confirms home-server: %d %v", r.status, r.body)
@@ -68,20 +72,19 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	if r := e.do(t, "POST", "/api/machines/"+rid+"/servers", `{"name":"alex","acceptEula":true,"memoryMB":2048}`, alex.auth()); r.status != http.StatusOK {
 		t.Fatalf("alex creates a server: %d %v", r.status, r.body)
 	}
-	f := &moveFleet{e: e, own: own, alex: signIn(t, e, info.UserID), rid: rid, ra: ra, local: e.localMachine(t), archive: []byte("alex's world, as a backup archive")}
+	f := &moveFleet{e: e, own: own, alex: signIn(t, e, info.UserID), rid: rid, ra: ra, joined: joined, local: e.localMachine(t), archive: []byte("alex's server's folder, as an archive")}
 	s := sha256.Sum256(f.archive)
 	f.sum = hex.EncodeToString(s[:])
 
 	ra.reply("GET /v1/servers", "["+movedStatus+"]")
 	ra.reply("GET /v1/servers/"+movedServer, movedStatus)
 	startsOp(ra, "POST /v1/servers/"+movedServer+"/stop", "op-stop", "succeeded", "")
-	startsOp(ra, "POST /v1/servers/"+movedServer+"/backups", "op-backup", "succeeded", `,"detail":{"backupId":"`+movedBackupID+`"}`)
 	startsOp(ra, "POST /v1/servers/"+movedServer+"/delete", "op-delete", "succeeded", "")
-	ra.handle("GET /v1/servers/"+movedServer+"/backups/"+movedBackupID+"/download", func(w http.ResponseWriter, _ *http.Request) {
+	ra.handle("GET /v1/servers/"+movedServer+"/move-out", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/gzip")
-		w.Header().Set("X-Playkeeper-SHA256", f.sum)
 		w.Write(f.archive)
 	})
+	ra.reply("GET /v1/servers/"+movedServer+"/move-state", movedState)
 	ra.reply("GET /v1/servers/"+movedServer+"/backup-rules", `{"automatic":{"enabled":true,"everyHours":24,"onlyIfPlayed":true},"rules":{"onHost":{"daily":5}},"custom":true}`)
 
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
@@ -186,6 +189,37 @@ func (f *moveFleet) rows(t *testing.T, query string, args ...any) int {
 	return n
 }
 
+// disconnect drops home-server's link and waits until the dashboard knows.
+func (f *moveFleet) disconnect(t *testing.T) {
+	t.Helper()
+	f.joined.link.stop()
+	eventually(t, "home-server is away", func() bool { return !f.e.srv.hub.Connected(f.rid) })
+}
+
+// reconnect has home-server's link come back, as the machine's does after
+// the dashboard restarts, and waits until it's connected.
+func (f *moveFleet) reconnect(t *testing.T) {
+	t.Helper()
+	f.joined.link = f.e.runLink(t, f.joined.d, f.joined.identity, f.ra)
+	eventually(t, "home-server is connected again", func() bool { return f.e.srv.hub.Connected(f.rid) })
+}
+
+// restarted records a move of alex's to the dashboard's machine that a
+// restart of the dashboard stopped, with alex's server still on
+// home-server, and made, the operation that made its copy there.
+func (f *moveFleet) restarted(t *testing.T, made string) {
+	t.Helper()
+	for _, q := range []string{
+		fmt.Sprintf(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by) VALUES(%d, '%s', 0, 'admin')`, f.alex.id, f.local),
+		fmt.Sprintf(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran, made_by) VALUES('%s', %d, '%s', '%s', 1, '%s')`, movedServer, f.alex.id, f.rid, f.local, made),
+		fmt.Sprintf(`UPDATE customer_homes SET machine_id = '%s' WHERE user_id = %d`, f.local, f.alex.id),
+	} {
+		if _, err := f.e.srv.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // pause pauses alex, whose servers are deleted at until unless they renew.
 func (f *moveFleet) pause(t *testing.T, until time.Time) {
 	t.Helper()
@@ -217,13 +251,13 @@ func (f *moveFleet) deleted(t *testing.T) (at int64, keptOn string) {
 }
 
 // The owner moves a customer to another machine: their plan's memory is set
-// aside there at once, and their server follows. It stops, is backed up,
-// and the backup goes to the other machine as an upload, which makes it
-// with the same id, name and slug, the EULA acceptance it had, and
-// started, since it ran. It counts against their disk limit there before
-// its requests go there, and the upload doesn't, since the server it's a
-// backup of counts already. The machine it left then deletes it, keeping
-// its final backup a week. Each step goes in the audit log.
+// aside there at once, and their server follows. It stops, and its whole
+// folder goes to the other machine as an upload, which makes it with the
+// same id, name and slug, the EULA acceptance it had, and started, since it
+// ran. It counts against their disk limit there before its requests go
+// there, and the upload doesn't, since the server counts already. The
+// machine it left then deletes it, keeping its final backup a week. Each
+// step goes in the audit log.
 func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	f := newMoveFleet(t)
 	if _, err := f.e.srv.db.Exec(`INSERT INTO public_links(kind, token_hash, server_id, machine_id, created_at) VALUES('map', 'h', ?, ?, 0)`, movedServer, f.rid); err != nil {
@@ -278,6 +312,12 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	if movein, sent := slices.Index(hits, "POST /v1/restore/"+movedUpload+"/move-in"), slices.Index(hits, "PUT /v1/disk-limits"); movein < 0 || sent < movein {
 		t.Errorf("alex's disk limit went to the dashboard's machine before it made the server: %v", hits)
 	}
+	if kept, sent := slices.Index(hits, "PUT /v1/servers/"+movedServer+"/move-state"), slices.Index(hits, "PUT /v1/disk-limits"); kept < 0 || kept > sent {
+		t.Errorf("the server moved wasn't given what home-server kept about it before its requests went there: %v", hits)
+	}
+	if kept := f.e.agentBody("PUT /v1/servers/" + movedServer + "/move-state"); !strings.Contains(kept, `"keys":"the-keys"`) || !strings.Contains(kept, `"packs_token":"packtoken"`) || !strings.Contains(kept, `"sched12345"`) {
+		t.Errorf("the server moved was given %s", kept)
+	}
 	if n := f.rows(t, `SELECT COUNT(*) FROM public_links WHERE server_id = ? AND machine_id = ?`, movedServer, f.local); n != 1 {
 		t.Error("the server's public link stayed with the machine it left")
 	}
@@ -291,7 +331,7 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 		}
 	}
 	var del map[string]any
-	for _, key := range []string{"POST /v1/servers/" + movedServer + "/stop", "POST /v1/servers/" + movedServer + "/backups", "POST /v1/servers/" + movedServer + "/delete"} {
+	for _, key := range []string{"POST /v1/servers/" + movedServer + "/stop", "GET /v1/servers/" + movedServer + "/move-out", "POST /v1/servers/" + movedServer + "/delete"} {
 		if actor, ok := f.ra.saw(key); !ok || actor != placementActor {
 			t.Errorf("home-server wasn't asked to %s as the dashboard: %v %q", key, ok, actor)
 		}
@@ -300,7 +340,7 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 		t.Fatalf("the delete's body: %q", f.ra.body("POST /v1/servers/"+movedServer+"/delete"))
 	}
 	json.Unmarshal([]byte(f.ra.body("POST /v1/servers/"+movedServer+"/delete")), &del)
-	if del["confirm"] != "alex" || del["keepFinalBackupDays"] != float64(movedBackupDays) || del["keptFor"] != keptFor(f.alex.id) || del["forgetKey"] != true {
+	if del["confirm"] != "alex" || del["keepFinalBackupDays"] != float64(movedBackupDays) || del["keptFor"] != movedKeptFor(f.alex.id) || del["forgetKey"] != true {
 		t.Errorf("home-server deleted its copy with %v", del)
 	}
 	if rules := f.e.agentBody("POST /v1/servers/" + movedServer + "/backup-rules"); !strings.Contains(rules, `"everyHours":24`) || !strings.Contains(rules, `"daily":5`) {
@@ -338,6 +378,9 @@ func TestNothingReachesAServerWhileItMoves(t *testing.T) {
 		t.Fatalf("moving alex: %d %v", r.status, r.body)
 	}
 	eventually(t, "the dashboard's machine makes the server", f.made)
+	eventually(t, "the operation making the copy is recorded, for a restart to carry on with it", func() bool {
+		return f.rows(t, `SELECT COUNT(*) FROM server_moves WHERE server_id = ? AND made_by = 'op-movein'`, movedServer) == 1
+	})
 	f.e.reply("GET", "/v1/servers", "["+movedStatus+"]")
 
 	for _, who := range []member{f.alex, f.own} {
@@ -398,7 +441,7 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 		t.Fatalf("moving alex: %d %v", r.status, r.body)
 	}
 	why := f.moved(t)
-	if why != "alex: the dashboard's machine couldn't make it from its backup: The restored world did not start." {
+	if why != "alex: the dashboard's machine couldn't make it from its folder: The restored world did not start." {
 		t.Fatalf("why the move stopped: %q", why)
 	}
 	if at := f.recorded(t); at != f.rid {
@@ -409,6 +452,9 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 	}
 	if f.made() || !slices.Contains(f.e.agentHits(), "POST /v1/servers/"+movedServer+"/delete") {
 		t.Error("the copy the failed move made is still on the dashboard's machine")
+	}
+	if !slices.Contains(f.e.agentHits(), "DELETE /v1/restore/"+movedUpload) {
+		t.Error("the upload the failed move-in was made from stayed on the dashboard's machine")
 	}
 	if n := f.rows(t, `SELECT COUNT(*) FROM server_moves`); n != 0 {
 		t.Errorf("%d moves still under way", n)
@@ -447,10 +493,11 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 
 // Only the owner moves customers and sees whose servers go on a machine:
 // the move's what customers can never see, and it's the owner's machines'
-// room it uses.
+// room it uses. So only the owner removes a machine customers are on, which
+// places them again.
 func TestOnlyTheOwnerMovesCustomers(t *testing.T) {
 	f := newMoveFleet(t)
-	admin := addMember(t, f.e, "sam", "admin", "*")
+	admin := addAdmin(t, f.e, "sam", "*")
 	for _, who := range []member{admin, f.alex} {
 		if r := f.e.do(t, "POST", "/api/customers/"+strconv.FormatInt(f.alex.id, 10)+"/move", `{}`, who.auth()); r.status != http.StatusForbidden {
 			t.Errorf("account %d moves alex: %d %v", who.id, r.status, r.body)
@@ -458,6 +505,9 @@ func TestOnlyTheOwnerMovesCustomers(t *testing.T) {
 		if r, body := f.e.raw(t, "GET", "/api/machines/"+f.rid+"/customers", "", who.auth()); r.StatusCode != http.StatusForbidden {
 			t.Errorf("account %d lists home-server's customers: %d %s", who.id, r.StatusCode, body)
 		}
+	}
+	if r := f.e.do(t, "DELETE", "/api/machines/"+f.rid, "", admin.auth()); r.status != http.StatusForbidden || !strings.Contains(fmt.Sprint(r.body), "Only the owner removes") {
+		t.Errorf("an admin of every server removes home-server, which alex is on: %d %v", r.status, r.body)
 	}
 	if f.e.srv.moves.running(f.alex.id) || f.rows(t, `SELECT COUNT(*) FROM customer_moves`) != 0 {
 		t.Error("a refused move started")
@@ -609,10 +659,12 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 	}
 
 	// Once movingsrv2's requests go to beta, a listing of beta's asked for
-	// before then, without it, doesn't drop its record.
+	// before then, without it, doesn't drop its record, and until beta lists
+	// it, it's listed as alpha last listed it.
 	if _, err := s.db.Exec(`UPDATE server_moves SET to_machine = ? WHERE server_id = 'movingsrv2'`, beta.ID); err != nil {
 		t.Fatal(err)
 	}
+	s.claimServers(alpha, serverList("movingsrv2"))
 	asked := e.clock.now()
 	e.clock.add(time.Second)
 	if err := s.switchServer(context.Background(), serverMove{serverID: "movingsrv2", userID: 7, from: alpha.ID, to: beta.ID}, beta, "movingsrv2"); err != nil {
@@ -621,6 +673,10 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 	s.claimListing(beta, nil, asked)
 	if m, _ := recordOf("movingsrv2"); m != beta.ID {
 		t.Errorf("a listing of beta's asked for before the server moved there dropped its record: %q", m)
+	}
+	known, err := s.lastKnownServers(beta)
+	if err != nil || !slices.ContainsFunc(known, func(sv map[string]any) bool { return sv["id"] == "movingsrv2" }) {
+		t.Errorf("while beta is away, the server moved there isn't listed as it last was: %v %v", known, err)
 	}
 
 	// The same for the dashboard's machine: a server moved to it keeps its
@@ -696,10 +752,10 @@ func TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo(t *testing.T) {
 	}
 	hits := f.e.agentHits()
 	if old, upload := slices.Index(hits, "POST /v1/servers/"+movedServer+"/delete"), slices.Index(hits, "POST /v1/restore/upload"); old < 0 || old > upload {
-		t.Errorf("the old copy wasn't deleted before the new backup came: %v", hits)
+		t.Errorf("the old copy wasn't deleted before the server's folder came: %v", hits)
 	}
-	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/backups"); !ok {
-		t.Error("the old copy was taken for the server: no new backup was made")
+	if _, ok := f.ra.saw("GET /v1/servers/" + movedServer + "/move-out"); !ok {
+		t.Error("the old copy was taken for the server: its folder wasn't copied")
 	}
 	if n := f.rows(t, `SELECT COUNT(*) FROM left_copies WHERE machine_id = ?`, f.local); n != 0 {
 		t.Error("the copy's record stayed once the server's requests went to its machine")
@@ -743,10 +799,40 @@ func TestALeftCopyThatIsTheServerIsNeverDeleted(t *testing.T) {
 	}
 }
 
-// A backup that reaches the other machine changed isn't made into the
-// server: the move stops, the upload goes, and the server stays where it
-// was.
-func TestABackupThatArrivesChangedIsntMovedIn(t *testing.T) {
+// A server whose settings the machine it goes to won't take isn't moved:
+// the move stops, that machine deletes the copy it made, and the server
+// stays where it was, started again since it ran.
+func TestAMoveWhoseSettingsDontArriveIsUndone(t *testing.T) {
+	f := newMoveFleet(t)
+	f.e.answer("PUT /v1/servers/"+movedServer+"/move-state", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":"The schedules the server had can't be kept.","code":"invalid_request"}`)
+	})
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-undo","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-undo", `{"id":"op-undo","status":"succeeded"}`)
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.Contains(why, "didn't take what home-server kept about it") {
+		t.Fatalf("why the move stopped: %q", why)
+	}
+	if _, started := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); f.recorded(t) != f.rid || f.made() || !started {
+		t.Errorf("the server whose settings didn't arrive: requests go to %q, copy still made %v, started again %v", f.recorded(t), f.made(), started)
+	}
+}
+
+// A server's folder that reaches the other machine changed isn't made into
+// the server: the move stops, the upload goes, and the server stays where
+// it was.
+func TestAFolderThatArrivesChangedIsntMovedIn(t *testing.T) {
 	f := newMoveFleet(t)
 	f.e.answer("POST /v1/restore/upload", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -759,7 +845,7 @@ func TestABackupThatArrivesChangedIsntMovedIn(t *testing.T) {
 		t.Fatalf("why the move stopped: %q", why)
 	}
 	if f.made() || !slices.Contains(f.e.agentHits(), "DELETE /v1/restore/"+movedUpload) {
-		t.Error("a backup that arrived changed was moved in, or its upload stayed")
+		t.Error("a folder that arrived changed was moved in, or its upload stayed")
 	}
 	if at := f.recorded(t); at != f.rid {
 		t.Errorf("the server's requests go to %q", at)
@@ -775,15 +861,7 @@ func TestAMoveCarriesOnAfterARestart(t *testing.T) {
 	f.mu.Lock()
 	f.madeHere = true
 	f.mu.Unlock()
-	for _, q := range []string{
-		fmt.Sprintf(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by) VALUES(%d, '%s', 0, 'admin')`, f.alex.id, f.local),
-		fmt.Sprintf(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran) VALUES('%s', %d, '%s', '%s', 1)`, movedServer, f.alex.id, f.rid, f.local),
-		fmt.Sprintf(`UPDATE customer_homes SET machine_id = '%s' WHERE user_id = %d`, f.local, f.alex.id),
-	} {
-		if _, err := f.e.srv.db.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
+	f.restarted(t, "op-movein")
 	f.e.srv.resumeMoves(context.Background())
 	if why := f.moved(t); why != "" {
 		t.Fatalf("the move carried on stopped: %s", why)
@@ -791,8 +869,8 @@ func TestAMoveCarriesOnAfterARestart(t *testing.T) {
 	if at := f.recorded(t); at != f.local {
 		t.Errorf("once the move carried on the server's requests go to %q", at)
 	}
-	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/backups"); ok {
-		t.Error("the server was backed up again, though the other machine had made it")
+	if _, ok := f.ra.saw("GET /v1/servers/" + movedServer + "/move-out"); ok {
+		t.Error("the server's folder was copied again, though the other machine had made it")
 	}
 	if rules := f.e.agentBody("POST /v1/servers/" + movedServer + "/backup-rules"); !strings.Contains(rules, `"everyHours":24`) || !strings.Contains(rules, `"daily":5`) {
 		t.Errorf("the server whose move carried on got the backup rules %q", rules)
@@ -882,6 +960,264 @@ func TestAMoveThatCantGoOnLeavesItsServerWhereItWas(t *testing.T) {
 	}
 	if f.made() || f.rows(t, `SELECT COUNT(*) FROM server_moves`) != 0 {
 		t.Errorf("the copy of a server deleted meanwhile stayed: %v", f.made())
+	}
+}
+
+// A move a restart of the dashboard stopped waits for the joined machine
+// it's moving a server from, which connects some time after the dashboard
+// starts: nothing is undone meanwhile, and once it connects the move
+// carries on, the server starting where it goes since it ran.
+func TestAMoveFromAJoinedMachineWaitsForItAfterARestart(t *testing.T) {
+	f := newMoveFleet(t)
+	f.restarted(t, "")
+	f.disconnect(t)
+	f.e.srv.resumeMoves(context.Background())
+	if f.e.srv.moves.running(f.alex.id) || f.rows(t, `SELECT COUNT(*) FROM server_moves`) != 1 || f.rows(t, `SELECT COUNT(*) FROM customer_moves WHERE error = ''`) != 1 {
+		t.Fatal("the move carried on, or was undone, while home-server was away")
+	}
+	f.reconnect(t)
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped once home-server connected: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if at := f.recorded(t); at != f.local || in["start"] != true {
+		t.Errorf("once home-server connected the server's requests go to %q, started %v", at, in["start"])
+	}
+}
+
+// A sleeping server moves as one that runs: it starts where it goes, and
+// falls asleep again as its sleep setting says.
+func TestASleepingServerIsUpWhereItMoves(t *testing.T) {
+	f := newMoveFleet(t)
+	f.ra.reply("GET /v1/servers/"+movedServer, strings.Replace(movedStatus, `"phase":"online","desired":"running"`, `"phase":"asleep","desired":"sleeping"`, 1))
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if in["start"] != true {
+		t.Errorf("a sleeping server was made stopped where it moved: %v", in)
+	}
+}
+
+// A server that ran, whose move failed and which then didn't start again
+// where it was, starts once it can: when its machine answers. Moving it
+// again meanwhile starts it where it goes, since it ran.
+func TestAServerWhoseMoveFailedStartsAgainOnceItCan(t *testing.T) {
+	f := newMoveFleet(t)
+	ctx := context.Background()
+	f.e.reply("GET", "/v1/operations/op-movein", `{"id":"op-movein","status":"failed","error":"The restored world did not start."}`)
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-undo","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-undo", `{"id":"op-undo","status":"succeeded"}`)
+	f.ra.handle("POST /v1/servers/"+movedServer+"/start", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"alex is busy with a backup.","code":"busy"}`)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why == "" {
+		t.Fatal("the move whose move-in fails finished")
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM move_restarts WHERE server_id = ? AND machine_id = ?`, movedServer, f.rid); n != 1 {
+		t.Fatalf("a server that didn't start again after its move failed isn't to start again: %d", n)
+	}
+	f.ra.reply("GET /v1/servers/"+movedServer, strings.Replace(movedStatus, `"phase":"online","desired":"running"`, `"phase":"stopped","desired":"stopped"`, 1))
+	f.e.srv.retryRestarts(ctx, "")
+	if n := f.rows(t, `SELECT COUNT(*) FROM move_restarts`); n != 1 {
+		t.Fatal("a start refused again was taken for done")
+	}
+
+	f.e.reply("GET", "/v1/operations/op-movein", `{"id":"op-movein","status":"succeeded"}`)
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex again: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move tried again stopped: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if in["start"] != true || f.rows(t, `SELECT COUNT(*) FROM move_restarts`) != 0 {
+		t.Errorf("a server that ran, moved again after its move failed, was made started %v", in["start"])
+	}
+
+	f = newMoveFleet(t)
+	if _, err := f.e.srv.db.Exec(`INSERT INTO move_restarts(server_id, machine_id, user_id) VALUES(?, ?, ?)`, movedServer, f.rid, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	f.e.srv.retryRestarts(ctx, f.rid)
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); !ok || f.rows(t, `SELECT COUNT(*) FROM move_restarts`) != 0 {
+		t.Errorf("a server to start again didn't once its machine answered: started %v", ok)
+	}
+}
+
+// A move a restart stopped carries on only with the copy it made: one an
+// earlier move left on the machine it goes to, even complete, is deleted,
+// and the server's folder copied again.
+func TestAResumedMoveTakesOnlyTheCopyItMade(t *testing.T) {
+	f := newMoveFleet(t)
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-old","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-old", `{"id":"op-old","status":"succeeded"}`)
+	f.restarted(t, "")
+	f.e.srv.resumeMoves(context.Background())
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move carried on stopped: %s", why)
+	}
+	hits := f.e.agentHits()
+	if old, upload := slices.Index(hits, "POST /v1/servers/"+movedServer+"/delete"), slices.Index(hits, "POST /v1/restore/upload"); old < 0 || old > upload {
+		t.Errorf("an earlier move's copy was taken for this one's: %v", hits)
+	}
+	if _, ok := f.ra.saw("GET /v1/servers/" + movedServer + "/move-out"); !ok {
+		t.Error("the server's folder wasn't copied again")
+	}
+}
+
+// A server a customer makes as the owner moves them is among their servers
+// when the move reads them, or refused: a move never leaves one behind on
+// the machine they're leaving with no move of theirs recorded.
+func TestAServerMadeAsAMoveStartsIsntLeftBehind(t *testing.T) {
+	f := newMoveFleet(t)
+	if _, err := f.e.srv.db.Exec(`UPDATE project_members SET allowance_servers = 2 WHERE user_id = ?`, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	f.ra.handle("POST /v1/servers", func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(entered) })
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"op-create2","serverId":"newserv234","kind":"create","status":"running"}`)
+	})
+	f.ra.reply("GET /v1/servers/newserv234", strings.NewReplacer(`"id":"cafebabe23"`, `"id":"newserv234"`, `"name":"alex"`, `"name":"alex 2"`, `"slug":"alex"`, `"slug":"alex-2"`).Replace(movedStatus))
+	f.ra.handle("POST /v1/servers/newserv234/stop", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"alex 2 is busy with a backup.","code":"busy"}`)
+	})
+	created, moving := make(chan int, 1), make(chan int, 1)
+	go func() {
+		created <- f.e.doAside("POST", "/api/machines/"+f.rid+"/servers", `{"name":"alex 2","acceptEula":true,"memoryMB":2048}`, f.alex.auth())
+	}()
+	<-entered
+	go func() {
+		moving <- f.e.doAside("POST", "/api/customers/"+strconv.FormatInt(f.alex.id, 10)+"/move", `{"machineId":"`+f.local+`"}`, f.own.auth())
+	}()
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) && f.rows(t, `SELECT COUNT(*) FROM customer_moves`) == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM customer_moves`); n != 0 {
+		t.Error("alex's move started while a server of theirs was being made")
+	}
+	close(release)
+	if code := <-created; code != http.StatusOK {
+		t.Fatalf("alex makes a server: %d", code)
+	}
+	if code := <-moving; code != http.StatusAccepted {
+		t.Fatalf("moving alex: %d", code)
+	}
+	if why := f.moved(t); !strings.Contains(why, "alex 2") || f.rows(t, `SELECT COUNT(*) FROM customer_moves WHERE user_id = ?`, f.alex.id) != 1 {
+		t.Errorf("the move left alex's new server behind: %q", why)
+	}
+}
+
+// A server of the customer's that turns up on the machine they're leaving
+// while they move, as when a removed machine's host joins again with it, is
+// moved too, and the move isn't forgotten while one is left there.
+func TestAServerThatTurnsUpDuringAMoveIsMovedToo(t *testing.T) {
+	f := newMoveFleet(t)
+	var once sync.Once
+	f.ra.handle("GET /v1/servers/"+movedServer+"/move-out", func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() {
+			for _, q := range []string{
+				fmt.Sprintf(`INSERT INTO creator_servers(server_id, user_id, created_at) VALUES('lateserv23', %d, 0)`, f.alex.id),
+				fmt.Sprintf(`INSERT INTO server_machines(server_id, machine_id, slug, seen_at) VALUES('lateserv23', '%s', 'late', 0)`, f.rid),
+			} {
+				if _, err := f.e.srv.db.Exec(q); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Write(f.archive)
+	})
+	f.ra.reply("GET /v1/servers/lateserv23", strings.NewReplacer(`"id":"cafebabe23"`, `"id":"lateserv23"`, `"name":"alex"`, `"name":"late"`, `"slug":"alex"`, `"slug":"late"`).Replace(movedStatus))
+	f.ra.handle("POST /v1/servers/lateserv23/stop", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"late is busy with a backup.","code":"busy"}`)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.HasPrefix(why, "late:") || f.rows(t, `SELECT COUNT(*) FROM customer_moves WHERE user_id = ?`, f.alex.id) != 1 {
+		t.Errorf("the server that turned up during alex's move: %q", why)
+	}
+}
+
+// A server of a customer's on a machine that isn't theirs and wasn't
+// removed, with no move of theirs recorded, as when a removed machine's host
+// joins again with it, keeps them from making servers, and the owner can
+// move them to bring their servers together, their plan ended or not.
+func TestServersApartAreBroughtTogether(t *testing.T) {
+	f := newMoveFleet(t)
+	if _, err := f.e.srv.db.Exec(`UPDATE customer_homes SET machine_id = ? WHERE user_id = ?`, f.local, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.e.do(t, "POST", "/api/machines/"+f.local+"/servers", `{"name":"alex 2","acceptEula":true,"memoryMB":2048}`, f.alex.auth()); r.status != http.StatusConflict {
+		t.Errorf("alex makes a server with theirs apart: %d %v", r.status, r.body)
+	}
+	if r := f.e.do(t, "POST", "/api/servers/"+movedServer+"/settings", `{"memoryMB":4096}`, f.alex.auth()); r.status != http.StatusConflict {
+		t.Errorf("alex gives a server more memory with theirs apart: %d %v", r.status, r.body)
+	}
+	f.pause(t, f.e.clock.now().Add(-time.Hour))
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex, their plan ended, to bring their servers together: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" || f.recorded(t) != f.local {
+		t.Fatalf("bringing alex's servers together: %q, requests go to %q", why, f.recorded(t))
+	}
+}
+
+// A machine still has a customer whose move stopped with a server on it: it
+// counts them, and lists them with their machine and the servers left
+// there, so it isn't taken for empty and removed with those servers on it.
+func TestAMachineAMoveLeftServersOnCountsTheirCustomer(t *testing.T) {
+	f := newMoveFleet(t)
+	f.stopped(t, f.local, f.local)
+	var view struct {
+		Customers int `json:"customers"`
+	}
+	f.e.get(t, "/api/machines/"+f.rid, f.own.cookie, &view)
+	var list []machineCustomer
+	f.e.get(t, "/api/machines/"+f.rid+"/customers", f.own.cookie, &list)
+	if view.Customers != 1 || len(list) != 1 || list[0].Name != "alex" || list[0].MachineID != f.local || list[0].Here != 1 || list[0].Move == nil || list[0].Move.Left != 1 {
+		t.Errorf("home-server, which alex's stopped move left a server on, has %d customers: %+v", view.Customers, list)
 	}
 }
 
@@ -1071,13 +1407,7 @@ func TestAPausedCustomersServerMovesStopped(t *testing.T) {
 	f.mu.Lock()
 	f.madeHere = true
 	f.mu.Unlock()
-	f.stopped(t, f.local, f.local)
-	if _, err := f.e.srv.db.Exec(`UPDATE customer_moves SET error = '' WHERE user_id = ?`, f.alex.id); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran) VALUES(?, ?, ?, ?, 1)`, movedServer, f.alex.id, f.rid, f.local); err != nil {
-		t.Fatal(err)
-	}
+	f.restarted(t, "op-movein")
 	f.pause(t, f.e.clock.now().Add(time.Hour))
 	f.e.srv.resumeMoves(context.Background())
 	if why := f.moved(t); why != "" {

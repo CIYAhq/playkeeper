@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Negative controls: removes one safety guard at a time in a throwaway git
 # worktree and runs the tests that cover it. Every run must FAIL; a control
-# that still passes means the guard is untested. Nothing is committed.
+# that still passes means the guard is untested. A control whose guard is no
+# longer in its file doesn't stop the ones after it: every problem is listed
+# again at the end, and the run fails. Nothing is committed.
 # The worktree is made from HEAD, so commit changes before running it.
 # Usage: scripts/negative-controls.sh
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
-wt="$(mktemp -d)/playkeeper"
+tmp=$(mktemp -d)
+wt=$tmp/playkeeper
 git -C "$root" worktree add --detach -q "$wt" HEAD
-trap 'git -C "$root" worktree remove --force "$wt"' EXIT
+trap 'git -C "$root" worktree remove --force "$wt"; rm -rf "$tmp"' EXIT
 cd "$wt"
 # The web controls run vitest with the checkout's own dependencies, which
 # scripts/setup.sh installs.
@@ -20,15 +23,34 @@ fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
 bad=0
+problems=()
+# problem prints what went wrong with a control and keeps it for the end.
+problem() { # LINE
+  echo "$1"
+  problems+=("$1")
+  bad=1
+}
+# mutate removes a control's guard: it replaces the first FROM in FILE with
+# TO. When FILE is gone or has no FROM, the code moved under the control, so
+# it says so and fails with FILE unchanged, and the next control runs.
+mutate() { # NAME FILE FROM TO
+  if [ ! -f "$2" ]; then
+    problem "STALE    $1: $2 is gone"
+    return 1
+  fi
+  if ! FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die' "$2" 2>/dev/null; then
+    git checkout -q -- "$2"
+    problem "STALE    $1: its guard is no longer in $2"
+    return 1
+  fi
+}
 control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
   local name=$1 file=$2 pkg=$5 tests=$6 runs=${7:-1}
-  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  mutate "$name" "$file" "$3" "$4" || return 0
   if ! go vet "$pkg" >/dev/null 2>&1; then
-    echo "INVALID  $name: the mutated code does not build"
-    bad=1
+    problem "INVALID  $name: the mutated code does not build"
   elif go test -count="$runs" "$pkg" -run "$tests" >/tmp/negative-control.out 2>&1; then
-    echo "MISSED   $name: $tests still pass without the guard"
-    bad=1
+    problem "MISSED   $name: $tests still pass without the guard"
   else
     echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
   fi
@@ -46,20 +68,21 @@ webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
     ln -s "$root/web/node_modules" web/node_modules
   fi
   if [ ! -d web/node_modules ]; then
-    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
-    bad=1
+    problem "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
     return
   fi
-  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
-  if (cd web && npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
-    echo "MISSED   $name: ${tests:-$testfile} still passes without the guard"
-    bad=1
+  mutate "$name" "$file" "$3" "$4" || return 0
+  # Vitest leaves a copy of every module it loaded in a folder under TMPDIR,
+  # about 9 MB a run, so each run has a TMPDIR of its own, deleted after it.
+  mkdir -p "$tmp/vitest"
+  if (cd web && TMPDIR="$tmp/vitest" npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
+    problem "MISSED   $name: ${tests:-$testfile} still passes without the guard"
   elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
-    echo "INVALID  $name: no test ran to fail"
-    bad=1
+    problem "INVALID  $name: no test ran to fail"
   else
     echo "caught   $name: $(grep -m1 -E '^(AssertionError|Error): |^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
+  rm -rf "$tmp/vitest"
   git checkout -q -- "$file"
 }
 
@@ -292,8 +315,8 @@ webcontrol "New server's modpack search asks CurseForge once the machine offers 
   "const curseforge = useModpacks(undefined, q, sort, 'curseforge')" \
   web/src/pages/pages.test.tsx 'once the machine offers CurseForge'
 webcontrol "a search the add-on library finds nothing for says where modpacks are chosen" web/src/pages/server/plugins/browse.tsx \
-  "{text.trim() && can(ws.me, 'servers.create') && (" \
-  "{false && text.trim() && can(ws.me, 'servers.create') && (" \
+  "{text.trim() && canCreate(ws.me) && (" \
+  "{false && text.trim() && canCreate(ws.me) && (" \
   web/src/pages/server/plugins/plugins.test.tsx 'sends a search for a modpack'
 webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
   '      <LoadBoundary resetKey={JSON.stringify(route)}>
@@ -444,10 +467,10 @@ control "a restore from a backup waits for an unsettled one" internal/agent/hand
 		s.audit(actor, "restore.staged", b.ID,' \
   ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
 control "a restore from an upload waits for an unsettled one" internal/agent/handlers.go \
-  'if err := target.restoreRefusal("restore again"); err != nil {
-			a.auditFor(target.id' \
-  'if err := target.restoreRefusal("restore again"); false && err != nil {
-			a.auditFor(target.id' \
+  'err := target.restoreRefusal("restore again")
+		if err == nil && r.ContentLength > 0 {' \
+  'err := error(nil)
+		if err == nil && r.ContentLength > 0 {' \
   ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
 control "a restore from an off-site copy waits for an unsettled one" internal/agent/offsite.go \
   'if err := s.restoreRefusal("restore again"); err != nil {' \
@@ -653,8 +676,8 @@ control "a running server never needs a restart for the GC log" internal/agent/h
   'st.PendingRestart = c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion' \
   ./internal/agent '^TestGCLogFlagAppliesFromTheNextStart$'
 control "a stopped server gets the GC log at its next start" internal/agent/lifecycle.go \
-  'case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion):' \
-  'case err == nil && c.Config.Labels[labelSpec] != hash:' \
+  'case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion || c.HostConfig.NanoCPUs != spec.HostConfig.NanoCPUs):' \
+  'case err == nil && (c.Config.Labels[labelSpec] != hash || c.HostConfig.NanoCPUs != spec.HostConfig.NanoCPUs):' \
   ./internal/agent '^TestGCLogFlagAppliesFromTheNextStart$'
 control "a GC log line still being written is not read" internal/agent/running.go \
   "end := bytes.LastIndexByte(buf, '\n')" \
@@ -1327,8 +1350,8 @@ control "a tool asks whether its caller's account may take its action" internal/
   'if false && !access.mayTake(s.act) {' \
   ./internal/mcptools '^TestEveryToolChecksItsActionWithTheCallersAccount$'
 control "a token's tools ask permit about its account as it is now" internal/panel/mcp.go \
-  'May: func(act string) bool { return permit(account, action(act), "") == nil }}, nil' \
-  'May: func(act string) bool { return permit(account, action(act), "") == nil || true }}, nil' \
+  'func(act string) bool { return permit(account, action(act), "") == nil },' \
+  'func(act string) bool { return permit(account, action(act), "") == nil || true },' \
   ./internal/panel '^TestATokenFollowsItsAccountsRole$'
 control "a token stops once its account holds a lower role than when it was made" internal/panel/tokens.go \
   'if grantRank(accountGrant(a)) < grantRank(t.MadeAs) {' \
@@ -1734,12 +1757,12 @@ control "recent activity names the server's folder as the file browser does" int
   'folder := path.Dir(e.Detail)' \
   ./internal/agent '^TestFileChangesAreAuditedAndShownAsActivity$'
 control "file browser: only admins see a server's files" internal/panel/workspace.go \
-  'actViewFiles:      invites.RoleAdmin,' \
-  'actViewFiles:      invites.RoleViewer,' \
+  'actViewFiles:        invites.RoleAdmin,' \
+  'actViewFiles:        invites.RoleViewer,' \
   ./internal/panel '^TestTheFileBrowserIsForAdmins$'
 control "file browser: only admins change a server's files" internal/panel/workspace.go \
-  'actEditFiles:      invites.RoleAdmin,' \
-  'actEditFiles:      invites.RoleModerator,' \
+  'actEditFiles:        invites.RoleAdmin,' \
+  'actEditFiles:        invites.RoleModerator,' \
   ./internal/panel '^TestTheFileBrowserIsForAdmins$'
 control "file browser: a download can't render as a page of the panel" internal/panel/files.go \
   'h.Set("Content-Type", "application/octet-stream")' \
@@ -1891,9 +1914,37 @@ control "an add-on file larger than 512 MiB is refused" internal/addons/addons.g
   'DefaultMaxFileSize = 1 << 62' \
   ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
 control "an add-on's download must match the hash its library publishes" internal/addons/fetch/download.go \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/addons '^TestInstallRefusesBadDownloads$'
+control "Playkeeper's own plugins install only on the server types they run on" internal/addons/firstparty.go \
+  'if !fp.RunsOn(t.Type) {' \
+  'if false && !fp.RunsOn(t.Type) {' \
+  ./internal/addons '^TestPlaykeeperRefusesOtherServerTypes$'
+control "a template's plugin of Playkeeper's own must be one this Playkeeper carries" internal/templates/validate.go \
+  'if src == addons.Playkeeper && firstparty.Lookup(project) == nil {' \
+  'if false && src == addons.Playkeeper && firstparty.Lookup(project) == nil {' \
+  ./internal/templates '^TestValidateRefusesPlaykeeperPlugins$'
+control "a template lists a plugin of Playkeeper's own only for the server types it runs on" internal/templates/validate.go \
+  'return fp != nil && fp.RunsOn(target.Type)' \
+  'return fp != nil' \
+  ./internal/templates '^TestValidateRefusesPlaykeeperPlugins$'
+control "a template's add-on installs only when the file has its pinned hash" internal/templates/install.go \
+  'if p := a.Pin; p != nil && !a.Unpinned && (s.VersionID != p.VersionID || s.HashAlgo != p.HashAlgo || strings.ToLower(s.Hash) != p.Hash) {' \
+  'if p := a.Pin; p != nil && !a.Unpinned && (s.VersionID != p.VersionID || s.HashAlgo != p.HashAlgo) {' \
+  ./internal/templates '^TestInstallPlaykeeperPlugin$'
+control "the site asks no source for an icon of Playkeeper's own plugins" internal/site/icons.go \
+  'if !seen[p.key()] && p.Source != string(addons.Playkeeper) {' \
+  'if !seen[p.key()] && addons.Playkeeper != "" {' \
+  ./internal/site '^TestPlaykeepersOwnPluginsAreListedWithoutARegistry$'
+control "a template page's Docker command asks Modrinth for none of Playkeeper's own plugins" internal/site/library.go \
+  'if a.Source == addons.Playkeeper {' \
+  'if false && a.Source == addons.Playkeeper {' \
+  ./internal/site '^TestPlaykeepersOwnPluginsAreListedWithoutARegistry$'
+control "a library page's plugin facts come from a check of the template's own source" internal/site/library.go \
+  'p.Name != a.Name || p.Source != string(a.Source) || p.Slug != a.Slug' \
+  'p.Name != a.Name || p.Slug != a.Slug' \
+  ./internal/site '^TestLibraryFactsTheTemplateCantBackStopTheBuild$'
 control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
   'err = nil' \
@@ -2280,8 +2331,8 @@ control "the settings check looks again while the pack's mod hasn't used its fil
 	}' \
   ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/modpacks '^TestDownloadsMustMatchThePacksHashes$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'if err := setProperties(d, props); err != nil {
@@ -2814,15 +2865,13 @@ control "the pre-stop check sizes server.properties without following a link or 
   ./internal/backup '^TestArchivedSizeDoesNotFollowALinkOrWaitOnAPipe$'
 shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
   local name=$1 file=$2 test=$5 shell=sh
+  mutate "$name" "$file" "$3" "$4" || return 0
   # A bash script is parsed by bash, a POSIX one by sh.
   case $(head -n1 "$file") in *bash*) shell=bash ;; esac
-  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
   if ! "$shell" -n "$file" 2>/dev/null; then
-    echo "INVALID  $name: the mutated script does not parse"
-    bad=1
+    problem "INVALID  $name: the mutated script does not parse"
   elif bash "$test" >/tmp/negative-control.out 2>&1; then
-    echo "MISSED   $name: $test still passes without the guard"
-    bad=1
+    problem "MISSED   $name: $test still passes without the guard"
   else
     echo "caught   $name: $(grep -m1 '^FAIL: ' /tmp/negative-control.out | cut -c1-200)"
   fi
@@ -2913,6 +2962,11 @@ shcontrol "the shards' check fails when no shard ran a test" scripts/go-test-sha
 shcontrol "the shards' check fails when shards listed other tests" scripts/go-test-shard.sh \
   'if ! cmp -s "$dir/all-1.txt" "$dir/all-$k.txt"; then' \
   'if false; then' \
+  scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "a shard runs the tests a panic kept from starting" scripts/go-test-shard.sh \
+  'todo=$(grep -vxF -e "$started" <<<"$todo" || true)' \
+  'todo=' \
   scripts/go-test-shard_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
@@ -3555,8 +3609,8 @@ control "certificate issuance: a finalize request that runs out of time and was 
 			return nil, nil, newProblem(err, CodeIssuanceTimeout, nil)' \
   ./internal/certs '^TestIssueKeepsTheOrder$/^a_slow_finalize_request_that_is_never_carried_out:_the_next_attempt_finalizes_the_same_order$'
 control "certificates: Forget deletes the kept order with the certificate" internal/certs/files.go \
-  'for _, file := range []string{n + ".pem", n + orderSuffix} {' \
-  'for _, file := range []string{n + ".pem"} {' \
+  'for _, file := range []string{fileStem(n) + ".pem", fileStem(n) + orderSuffix} {' \
+  'for _, file := range []string{fileStem(n) + ".pem"} {' \
   ./internal/certs '^TestForget$'
 control "a name the machine stops using loses its kept certificate order" internal/agent/certificates.go \
   'if err := certs.Forget(a.cfg.CertsDir(), name); err != nil {' \
@@ -3640,8 +3694,8 @@ control "free address change: the old name is given up once the service no longe
   'if true {' \
   ./internal/agent '^TestFreeNameIsKeptWhileTheServiceHoldsIt$'
 control "own domain: setting one keeps the released free name claimable" internal/agent/address.go \
-  'Since: a.now().UTC(), IP: st.IP, Released: st.Released}' \
-  'Since: a.now().UTC(), IP: st.IP}' \
+  'Since: a.now().UTC(), IP: st.IP, Released: st.Released, ServerAddresses: st.ServerAddresses}' \
+  'Since: a.now().UTC(), IP: st.IP, ServerAddresses: st.ServerAddresses}' \
   ./internal/agent '^TestFreeAddressChangeAndRelease$'
 control "own domain: removing it keeps the released free name claimable" internal/agent/address.go \
   'if err := a.setAddress(addressState{IP: st.IP, Released: st.Released}); err != nil {' \
@@ -3866,8 +3920,8 @@ control "the single-server view shows only the account's servers" internal/panel
   'if id, _ := sv["id"].(string); id != "" || sess.Access.covers(id) {' \
   ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
 control "restore uploads check the server" internal/panel/team.go \
-  'if err := permit(sess.Access, act, p.ServerID); err != nil {' \
-  'if err := permit(sess.Access, act, p.ServerID); false && err != nil {' \
+  'if err := s.permitOn(sess.Access, act, p.ServerID); err != nil {' \
+  'if err := s.permitOn(sess.Access, act, p.ServerID); false && err != nil {' \
   ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
 control "only owners are added to the workspace at start" internal/panel/workspace.go \
   "'*', ? FROM users WHERE role = ?\`" \
@@ -4094,8 +4148,8 @@ control "a start that never came up is not a crash loop" internal/agent/lifecycl
   's.alert(discord.Crashed("Playkeeper could not start it: "+err.Error(), false))' \
   ./internal/agent '^TestDiscordStartFailuresAreNotCrashLoops$'
 control "a crash of a server meant to be off is not a give-up" internal/agent/lifecycle.go \
-  'GaveUp: wanted && !restarting' \
-  'GaveUp: !restarting' \
+  'GaveUp: wanted && counted' \
+  'GaveUp: counted || !restarting' \
   ./internal/agent '^TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp$'
 control "Discord counts a server's slots before its first sample" internal/agent/discord.go \
   'if st.MaxPlayers == 0 && sc != nil {' \
@@ -4235,8 +4289,8 @@ webcontrol "the memory step counts for the type and mods the new server runs" we
   '<MemoryReadout memoryMB={c.memoryMB} sizing={catalog?.sizing}' \
   web/src/pages/pages.test.tsx 'memory for its type and mods'
 webcontrol "Settings › Memory counts friends for the server's type" web/src/pages/server/settings.tsx \
-  '{memoryAdviceLine(advice, machineName, catalog?.sizing, s.type)}' \
-  '{memoryAdviceLine(advice, machineName, catalog?.sizing)}' \
+  '{memoryAdviceLine(advice, machineName, catalog?.sizing, s.type, planMaxMB)}' \
+  '{memoryAdviceLine(advice, machineName, catalog?.sizing, undefined, planMaxMB)}' \
   web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
 webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
   'const recovered = s.recoveredCrash' \
@@ -4352,12 +4406,12 @@ control "the shared map's link waits for a certificate that hasn't expired" inte
   'if row == nil || row.status.Certificate == nil {' \
   ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
 control "an upload for a new server needs rights over every server" internal/panel/server.go \
-  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),' \
-  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),' \
+  '{"POST", "/api/machines/{mid}/world-imports", needSessionCSRF, actCreateOwnServers, s.hWorldImportOpen},' \
+  '{"POST", "/api/machines/{mid}/world-imports", needSessionCSRF, actManageServers, s.hWorldImportOpen},' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "making a server from an upload needs rights over every server" internal/panel/server.go \
-  'needSessionCSRF, actCreateServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))' \
-  'needSessionCSRF, actManageServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))' \
+  'needSessionCSRF, actCreateOwnServers, s.importGuard(actCreateServers, s.hWorldImportCreate)' \
+  'needSessionCSRF, actManageServers, s.importGuard(actCreateServers, s.hWorldImportCreate)' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "turning the map on counts what the Mods tab installed as there" internal/agent/maps.go \
   's.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
@@ -5553,16 +5607,16 @@ webcontrol "the Packs page holds resource packs back on a joined machine's serve
   'resource: joined && false ?' \
   src/pages/server/world.test.tsx 'holds resource pack uploads back'
 webcontrol "New server never swaps a machine that's away for the dashboard's" web/src/pages/new-server.tsx \
-  'const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine' \
-  'const target = ws.machines.filter((m) => !isAway(m)).find((m) => m.id === machine) ?? ws.machine' \
+  'const target = asked ? ws.machines.find((m) => m.id === asked) : ws.machine' \
+  'const target = ws.machines.filter((m) => !isAway(m)).find((m) => m.id === asked) ?? ws.machine' \
   src/pages/new-server.test.tsx 'New server on a joined machine'
 webcontrol "New server holds Create back while its machine is away" web/src/pages/new-server.tsx \
   'if (away) return away' \
   'if (false) return away' \
   src/pages/new-server.test.tsx 'New server on a joined machine'
 webcontrol "New server keeps its machine once the flow starts" web/src/pages/new-server.tsx \
-  'const choices = started ?' \
-  'const choices = started && false ?' \
+  'const choices = started || !chooser ?' \
+  'const choices = !chooser ?' \
   src/pages/new-server.test.tsx 'keeps the machine once the flow starts'
 control "the audit log takes at most 200 rows from each machine" internal/panel/server.go \
   'if len(out) == maxMachineAudit {' \
@@ -6338,8 +6392,8 @@ webcontrol "the page says it's checking on a task Chunky can't be asked about" w
   ":" \
   web/src/pages/server/world.test.tsx 'says it is checking'
 control "choosing the map's area takes an admin" internal/panel/server.go \
-  'sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),' \
-  'smAs(actView, "POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),' \
+  '{"POST", "/api/servers/{id}/map/area", needSessionCSRF, actManageServers, s.hMapAreaSet},' \
+  '{"POST", "/api/servers/{id}/map/area", needSessionCSRF, actView, s.hMapAreaSet},' \
   ./internal/panel '^TestOnlyAdminsChooseTheMapArea$'
 control "a world border that isn't a square is refused" internal/pregen/controller.go \
   '	case sized && size.Kind == EventRadiiSet, reshaped && shape.Shape != string(Square):' \
@@ -6863,8 +6917,8 @@ control "an own address is never the machine's name" internal/agent/ownaddress.g
   'if false && name == st.Host {' \
   ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
 control "two servers never share an own address" internal/agent/ownaddress.go \
-  'case js.own == name:' \
-  'case false && js.own == name:' \
+  'if js.id != s.id && js.own == name {' \
+  'if false && js.id != s.id && js.own == name {' \
   ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
 control "own addresses get a few certificates a day" internal/agent/ownaddress.go \
   'if a.ownCertsToday(st) >= ownCertsPerDay {' \
@@ -6951,8 +7005,8 @@ control "own domain: names under playkeeper.io stay refused" internal/agent/addr
   'rest, ok := strings.CutSuffix(domain, "."+names.BaseOf(domain))' \
   ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
 control "own addresses: records that don't work yet are looked at every minute" internal/agent/address.go \
-  'if check.Ready && !slices.ContainsFunc(check.Records, func(rc api.RecordCheck) bool { return rc.Own && !rc.OK }) {' \
-  'if check.Ready {' \
+  'if check.Ready && !slices.ContainsFunc(check.Records, func(rc api.RecordCheck) bool { return rc.Own && !rc.OK }) && (check.PortFree || !answering) {' \
+  'if check.Ready && (check.PortFree || !answering) {' \
   ./internal/agent '^TestAnOwnAddressIsLookedAtEveryMinuteUntilItsRecordsWork$'
 
 # Creator invites (the managed beta): the owner's alone, for an Admin with
@@ -6978,12 +7032,14 @@ control "creator invites: the rest of the team doesn't see them" internal/panel/
   'return true' \
   ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
 control "creator invites: the member keeps the allowance" internal/panel/join.go \
-  'grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, now)' \
-  'grant.Servers.String(), 0, 0, now)' \
+  'grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, grant.Allowance.DiskGB, now)' \
+  'grant.Servers.String(), 0, 0, grant.Allowance.DiskGB, now)' \
   ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
 control "creators: their role and servers aren't changed on the Team page" internal/panel/team.go \
-  'if !t.Allowance.IsZero() {' \
-  'if false {' \
+  "if !t.Allowance.IsZero() {
+		writeErr(w, http.StatusConflict, api.CodeConflict, \"A creator's servers are the ones they create.\"" \
+  "if false {
+		writeErr(w, http.StatusConflict, api.CodeConflict, \"A creator's servers are the ones they create.\"" \
   ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
 
 # Creators' servers: created inside the allowance, one change at a time,
@@ -7010,7 +7066,7 @@ control "creators: they delete only the servers they created" internal/panel/cre
   'if false && !slices.Contains(owned, r.PathValue("id")) {' \
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 control "creators: a new server joins their servers" internal/panel/creators.go \
-  'if !sc.All && !slices.Contains(sc.Servers, op.ServerID) {' \
+  'if !sc.All && !slices.Contains(sc.Servers, id) {' \
   'if false {' \
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 control "creators: memory changes in settings stay inside the allowance" internal/panel/creators.go \
@@ -7138,8 +7194,8 @@ control "server addresses: the day's count holds once the certificates are forgo
   'return kept' \
   ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
 control "server addresses: certificates asked before the log count too" internal/agent/ownaddress.go \
-  'name != st.Host && fromMillis(last).After(since)' \
-  'false && name != st.Host && fromMillis(last).After(since)' \
+  'name != st.Host && !strings.HasPrefix(name, "*.") && fromMillis(last).After(since)' \
+  'false && name != st.Host && !strings.HasPrefix(name, "*.") && fromMillis(last).After(since)' \
   ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
 control "server addresses: a deleted server's certificate goes while the switch is off too" internal/agent/ownaddress.go \
   'return automaticName(s.address(), servers, js)' \
@@ -7333,8 +7389,8 @@ control "disk limits: a limit is more than nothing" internal/agent/disklimits.go
   'case l.LimitBytes < 0 || l.LimitBytes > maxDiskLimitBytes:' \
   ./internal/agent '^TestDiskLimitsLastAndSayWhatTheirServersTake$'
 control "disk limits: what an operation holds counts" internal/agent/disklimits.go \
-  'used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers) + a.limits.held[l.ID]' \
-  'used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers)' \
+  'used := usedBy(rep, l.Servers) + a.onTheWay(l) + a.limits.held[l.ID]' \
+  'used := usedBy(rep, l.Servers) + a.onTheWay(l)' \
   ./internal/agent '^TestWhatAnOperationHoldsCountsAgainstTheLimit$'
 control "disk limits: pre-generation under way counts" internal/agent/disklimits.go \
   ' + a.limits.held[l.ID] + a.pregenOnTheWay(l.Servers)' \
@@ -7414,9 +7470,9 @@ control "disk limits: a world's size is its files, not what its manifest claims"
   'n += f.Size' \
   'n = m.TotalBytes + 0*f.Size' \
   ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
-control "disk limits: a refused restore leaves no stage" internal/agent/handlers.go \
-  'os.RemoveAll(a.stageDir(p.ID))' \
-  '_ = p.ID' \
+control "disk limits: a refused restore leaves no stage" internal/agent/backups.go \
+  'return fail(&apiError{Status: http.StatusInsufficientStorage, Code: api.CodeDiskLimit,' \
+  'return nil, (&apiError{Status: http.StatusInsufficientStorage, Code: api.CodeDiskLimit,' \
   ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
 control "disk limits: applying a restore holds the world it unpacks to" internal/agent/handlers.go \
   'target.holdDiskLimit(r.Context(), target.id, unpackedBytes(st.manifest))' \
@@ -7514,8 +7570,8 @@ control "dashboard disk limits: the account an invite makes keeps its disk" inte
   'grant.Allowance.Servers, grant.Allowance.MemoryMB, 0*grant.Allowance.DiskGB, now)' \
   ./internal/panel '^TestACreatorInvitesDiskGoesWithIt$'
 control "dashboard disk limits: an account's access reads its disk" internal/panel/workspace.go \
-  '&a.Allowance.Servers, &a.Allowance.MemoryMB, &a.Allowance.DiskGB)' \
-  '&a.Allowance.Servers, &a.Allowance.MemoryMB, new(int))' \
+  '&a.Allowance.Servers, &a.Allowance.MemoryMB, &a.Allowance.DiskGB, &customer)' \
+  '&a.Allowance.Servers, &a.Allowance.MemoryMB, new(int), &customer)' \
   ./internal/panel '^TestACreatorInvitesDiskGoesWithIt$'
 control "dashboard disk limits: the default disk is 7.5 GB per GB of memory" internal/invites/allowance.go \
   'return int64(al.MemoryMB) * 15 << 19' \
@@ -7703,7 +7759,7 @@ control "pausing: renewing brings a paused customer back" internal/panel/custome
   'if false {' \
   ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
 control "pausing: the dashboard says until when" internal/panel/server.go \
-  'PausedUntil: s.pausedUntil(a), ' \
+  ' PausedUntil: s.pausedUntil(a),' \
   '' \
   ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
 webcontrol "pausing: Home tells a paused customer their plan ended" web/src/pages/home.tsx \
@@ -7711,8 +7767,8 @@ webcontrol "pausing: Home tells a paused customer their plan ended" web/src/page
   '' \
   src/pages/pages.test.tsx 'tells a paused customer their plan has ended'
 webcontrol "pausing: an empty Home tells a paused customer their plan ended" web/src/pages/home.tsx \
-  'const paused = !!ws.me.access.pausedUntil' \
-  'const paused = false' \
+  'const paused = deleted || !!ws.me.access.pausedUntil' \
+  'const paused = deleted' \
   src/pages/pages.test.tsx 'with no servers that their plan has ended'
 control "pausing: a paused customer makes no new token" internal/panel/tokens.go \
   'if sess.Access.Customer == CustomerPaused {' \
@@ -8433,8 +8489,10 @@ control "dns: only queries are answered" internal/dnszone/dnszone.go \
   'if opcode := q[2] >> 3 & 0x0f; false && opcode != 0 {' \
   ./internal/dnszone '^TestMalformedQueries$'
 control "dns: a missing name is said to be missing" internal/dnszone/dnszone.go \
-  'if !a.nodes[qs.name] {' \
-  'if false {' \
+  'if !there {
+			rcode = rcodeNXDomain' \
+  'if false {
+			rcode = rcodeNXDomain' \
   ./internal/dnszone '^TestMissingNamesAndTypes$'
 control "dns: a zone isn't a top-level domain" internal/dnszone/dnszone.go \
   'if !strings.Contains(z.Name, ".") {' \
@@ -8819,8 +8877,8 @@ control "confirming: servers stay away while it takes customers" internal/panel/
   'case false:' \
   ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
 control "confirming: servers stay away while it has customers" internal/panel/machinecustomers.go \
-  'case homes > 0:' \
-  'case false:' \
+  'case n > 0:' \
+  'case n > 0 && false:' \
   ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
 control "confirming: the guard's refusal is kept" internal/panel/creators.go \
   'if msg != "" {' \
@@ -9356,9 +9414,9 @@ control "moving customers: a moved server counts against its customer's disk lim
   'if err = s.sendLimitsTo(ctx, to); err != nil {' \
   'if err = error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
-control "moving customers: the backup doesn't count against the customer's disk limit beside their server" internal/panel/moves.go \
-  '"/v1/restore/upload", nil, down.Body,' \
-  '"/v1/restore/upload", url.Values{"diskLimit": {"account-1"}}, down.Body,' \
+control "moving customers: the server's folder doesn't count against the customer's disk limit beside their server" internal/panel/moves.go \
+  '"/v1/restore/upload", nil, io.TeeReader(down.Body, sent),' \
+  '"/v1/restore/upload", url.Values{"diskLimit": {"account-1"}}, io.TeeReader(down.Body, sent),' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: a paused customer's server is made stopped where it moves" internal/panel/moves.go \
   'start := mv.ran && !s.customerHeld(ctx, userID)' \
@@ -9376,14 +9434,137 @@ control "moving customers: a server moved after a restart gets the backup rules 
   's.copyBackupRules(ctx, id, from, to)' \
   '_ = from' \
   ./internal/panel '^TestAMoveCarriesOnAfterARestart$'
-control "moving customers: a backup that arrives changed isn't moved in" internal/panel/moves.go \
-  'reSHA256.MatchString(sum) && sum != p.SHA256' \
-  'reSHA256.MatchString(sum) && false' \
-  ./internal/panel '^TestABackupThatArrivesChangedIsntMovedIn$'
+control "moving customers: a folder that arrives changed isn't moved in" internal/panel/moves.go \
+  'if hex.EncodeToString(sent.Sum(nil)) != p.SHA256 {' \
+  'if hex.EncodeToString(sent.Sum(nil)) == "" {' \
+  ./internal/panel '^TestAFolderThatArrivesChangedIsntMovedIn$'
+control "moving customers: a move takes the server's whole folder" internal/panel/moves.go \
+  '"/v1/servers/"+id+"/move-out"' \
+  '"/v1/servers/"+id+"/backups"' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: an upload no move-in took goes" internal/panel/moves.go \
+  '		discardUpload(ctx, to, rid)
+		return fmt.Errorf("%s couldn'"'"'t make it from its folder: %w", machineLabel(to), err)' \
+  '		return fmt.Errorf("%s couldn'"'"'t make it from its folder: %w", machineLabel(to), err)' \
+  ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "moving customers: a move waits for a server the customer is making" internal/panel/moves.go \
+  '	s.creators.Lock()
+	defer s.creators.Unlock()
+	err = s.immediate(' \
+  '	err = s.immediate(' \
+  ./internal/panel '^TestAServerMadeAsAMoveStartsIsntLeftBehind$'
+control "moving customers: a server that turns up during a move is moved too" internal/panel/moves.go \
+  'for pass := 1; err == nil && pass < 3 && s.serversApart(ctx, userID); pass++ {' \
+  'for pass := 1; err == nil && pass < 1; pass++ {' \
+  ./internal/panel '^TestAServerThatTurnsUpDuringAMoveIsMovedToo$'
+control "moving customers: servers apart keep their customer moving" internal/panel/moves.go \
+  'return err != nil || n > 0 || s.serversApart(ctx, userID)' \
+  'return err != nil || n > 0' \
+  ./internal/panel '^TestServersApartAreBroughtTogether$'
+control "moving customers: a server its machine no longer has loses its record there" internal/panel/moves.go \
+  'DELETE FROM server_machines WHERE server_id = ? AND machine_id = ?' \
+  'DELETE FROM server_machines WHERE server_id = ? AND machine_id = ? AND 0' \
+  ./internal/panel '^TestAMoveThatCantGoOnLeavesItsServerWhereItWas$'
+control "moving customers: a machine a move left servers on still has their customer" internal/panel/machinecustomers.go \
+  'JOIN customers c ON c.user_id = cs.user_id WHERE sm.machine_id = ?' \
+  'JOIN customers c ON c.user_id = cs.user_id WHERE sm.machine_id = ? AND 0' \
+  ./internal/panel '^TestAMachineAMoveLeftServersOnCountsTheirCustomer$'
+control "moving customers: a moved server keeps what its agent kept about it" internal/panel/moves.go \
+  'err = s.copyMoveState(ctx, id, from, to)' \
+  'err = nil' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: a server whose settings don't arrive isn't moved" internal/panel/moves.go \
+  'return fmt.Errorf("%s didn'"'"'t take what %s kept about it: %w", machineLabel(to), machineLabel(from), err)' \
+  'return nil' \
+  ./internal/panel '^TestAMoveWhoseSettingsDontArriveIsUndone$'
+control "moving in: a server keeps its copies' keys, so they still open" internal/agent/movestate.go \
+  '"ssh_public", "keys", "key_saved_at",' \
+  '"ssh_public", "key_saved_at",' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server off the public page stays off it" internal/agent/movestate.go \
+  '{"servers", []string{"sleep", "public_page", ' \
+  '{"servers", []string{"sleep", ' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: an own address that doesn't fit the machine is left out" internal/agent/movestate.go \
+  'if fit, err := s.validOwnAddress(name); err != nil || fit != name {' \
+  'if false {' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server keeps Playkeeper's record of the add-ons it installed" internal/agent/movestate.go \
+  '	{"addons", []string{' \
+  '	// {"addons", []string{' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server is off the public page until its settings arrive" internal/agent/movein.go \
+  'name: name, actor: actor, record: offThePage},' \
+  'name: name, actor: actor},' \
+  ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
+control "moving out: a move takes the whole folder, not a backup's" internal/agent/moveout.go \
+  'backup.CreateWhole(out,' \
+  'backup.Create(out,' \
+  ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
+control "moving out: only a stopped server's folder goes" internal/agent/moveout.go \
+  '} else if running {' \
+  '} else if running && false {' \
+  ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
+control "moving out: a restore refuses a server's whole folder" internal/agent/handlers.go \
+  'if st.manifest.Whole {' \
+  'if st.manifest.Whole && false {' \
+  ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
+control "whole archives: a move leaves the RCON password's files behind" internal/backup/archive.go \
+  'return name == "eula.txt" || strings.HasPrefix(name, ".rcon-cli") || strings.HasSuffix(name, ".jar")' \
+  'return name == "eula.txt" || strings.HasSuffix(name, ".jar")' \
+  ./internal/backup '^TestAWholeArchiveCarriesTheWholeServerFolder$'
+control "whole archives: a move leaves what's downloaded again behind" internal/backup/archive.go \
+  'case e.IsDir() && (skipDirNames[e.Name()] || top && wholeSkippedDirs[e.Name()]):' \
+  'case e.IsDir() && skipDirNames[e.Name()]:' \
+  ./internal/backup '^TestAWholeArchiveCarriesTheWholeServerFolder$'
+control "whole archives: one needs no world" internal/backup/archive.go \
+  'if !m.Whole && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
+  'if !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
+  ./internal/backup '^TestAWholeArchiveCarriesTheWholeServerFolder$'
+control "whole archives: only one says so needs no world" internal/backup/archive.go \
+  'if !m.Whole && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
+  'if false && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {' \
+  ./internal/backup '^TestMaliciousArchivesAreRefused$'
 control "moving customers: an old copy on the machine a server goes to isn't taken for it" internal/panel/moves.go \
-  'resume && op != nil && op.Kind == "restore" && op.Status == api.OpSucceeded' \
-  'op != nil && op.Kind == "restore" && op.Status == api.OpSucceeded' \
+  'resume && op != nil && op.ID == mv.madeBy && op.Status == api.OpSucceeded' \
+  'op != nil && op.Status == api.OpSucceeded' \
   ./internal/panel '^TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo$'
+control "moving customers: the zone names no copy a move makes or leaves on the dashboard's machine" internal/panel/dnsanswers.go \
+  'return copyHidden(copies, j.ServerID, now) })' \
+  'return copyHidden(copies, j.ServerID, now) && false })' \
+  ./internal/panel '^TestTheZoneLeavesOutCopiesAMoveMakesOrLeaves$'
+control "moving customers: a move a restart stopped carries on only with the copy it made" internal/panel/moves.go \
+  'resume && op != nil && op.ID == mv.madeBy && op.Status == api.OpSucceeded' \
+  'resume && op != nil && op.Status == api.OpSucceeded' \
+  ./internal/panel '^TestAResumedMoveTakesOnlyTheCopyItMade$'
+control "moving customers: the operation making a copy is recorded before it's waited for" internal/panel/moves.go \
+  'UPDATE server_moves SET made_by = ? WHERE server_id = ?' \
+  'UPDATE server_moves SET made_by = '"''"' WHERE made_by = ? AND server_id = ?' \
+  ./internal/panel '^TestNothingReachesAServerWhileItMoves$'
+control "moving customers: a move a restart stopped waits for the joined machines it needs" internal/panel/moves.go \
+  'if s.moveMachinesUp(ctx, id) {' \
+  'if true {' \
+  ./internal/panel '^TestAMoveFromAJoinedMachineWaitsForItAfterARestart$'
+control "moving customers: a joined machine connecting carries on the moves that waited for it" internal/panel/machines.go \
+  's.movesReconnected(e.MachineID)' \
+  '_ = e.MachineID' \
+  ./internal/panel '^TestAMoveFromAJoinedMachineWaitsForItAfterARestart$'
+control "moving customers: a sleeping server is up where it moves" internal/panel/moves.go \
+  '(st.Desired == api.DesiredRunning || st.Desired == api.DesiredSleeping) && st.Phase != api.PhaseCrashed' \
+  'st.Desired == api.DesiredRunning && st.Phase != api.PhaseCrashed' \
+  ./internal/panel '^TestASleepingServerIsUpWhereItMoves$'
+control "moving customers: a server a failed move couldn't start again is to start again" internal/panel/moves.go \
+  's.pendRestart(ctx, mv)' \
+  '_ = mv' \
+  ./internal/panel '^TestAServerWhoseMoveFailedStartsAgainOnceItCan$'
+control "moving customers: a server to start again starts where it moves" internal/panel/moves.go \
+  ' || s.restartPending(ctx, id, from.ID)' \
+  '' \
+  ./internal/panel '^TestAServerWhoseMoveFailedStartsAgainOnceItCan$'
+control "moving customers: a server to start again is started once its machine answers" internal/panel/moves.go \
+  '} else if err := startOn(ctx, m, mv.serverID); err == nil {' \
+  '} else if startOn(ctx, m, mv.serverID) != nil || true {' \
+  ./internal/panel '^TestAServerWhoseMoveFailedStartsAgainOnceItCan$'
 control "moving customers: the server's requests go where it moved" internal/panel/moves.go \
   'mv.serverID, to.ID, kept, now); err != nil {' \
   'mv.serverID, mv.from, kept, now); err != nil {' \
@@ -9486,9 +9667,77 @@ webcontrol "moving customers: a move that stopped is tried again to the same mac
   'await post(`/api/customers/${c.id}/move`, { machineId: m.id })' \
   'await post(`/api/customers/${c.id}/move`, {})' \
   src/pages/pages.test.tsx 'tries one that stopped again'
+control "moving customers: a customer whose servers are apart gives none more memory" internal/panel/creators.go \
+  '(!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID)' \
+  '(!ok || memoryMB > cur) && false' \
+  ./internal/panel '^TestServersApartAreBroughtTogether$'
+control "moving customers: the backups a move keeps aren't a deleted server's" internal/panel/moves.go \
+  'req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)' \
+  'req.KeepFinalBackupDays, req.KeptFor = days, keptFor(userID)' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: a moved server is listed as it last was until its machine lists it" internal/panel/moves.go \
+  'seen_at = excluded.seen_at, disputed_by = '"''" \
+  'seen_at = excluded.seen_at, status = '"''"', disputed_by = '"''" \
+  ./internal/panel '^TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer$'
+control "removing a machine: only the owner removes one customers are on" internal/panel/machines.go \
+  '} else if n > 0 && !sess.Access.owner() {' \
+  '} else if n > 0 && false {' \
+  ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
+
+# AI keys (0.4.9): only admins see, save and remove them; a key must look
+# like its provider's; its file and folder are the game user's alone, beside
+# data/; only a server with the folder mounts it, read-only, so no other
+# server's container changes; the plugin's server gets the folder before it
+# starts; a running container without the mount says it waits for a restart.
+control "seeing whether a server has an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"GET", "/api/servers/{id}/ai-keys", needSession, actViewFiles,' \
+  '{"GET", "/api/servers/{id}/ai-keys", needSession, actView,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "saving an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"PUT", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actEditFiles,' \
+  '{"PUT", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actRunServers,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "removing an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"DELETE", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actEditFiles,' \
+  '{"DELETE", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actRunServers,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "an AI key that isn't its provider's is refused" internal/agent/aikeys.go \
+  'case !strings.HasPrefix(key, p.prefix):' \
+  'case false:' \
+  ./internal/agent '^TestAnAIKeyIsCheckedWithoutBeingQuoted$'
+control "an AI key with spaces or other characters is refused" internal/agent/aikeys.go \
+  "case strings.ContainsFunc(key, func(r rune) bool { return r < '!' || r > '~' }):" \
+  'case false:' \
+  ./internal/agent '^TestAnAIKeyIsCheckedWithoutBeingQuoted$'
+control "an AI key's file is the game user's alone to read" internal/agent/aikeys.go \
+  'err = f.Chmod(0o400)' \
+  'err = f.Chmod(0o644)' \
+  ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
+control "the secrets folder is the game user's alone" internal/agent/aikeys.go \
+  'return s.setSecretsMode(0o500)' \
+  'return s.setSecretsMode(0o755)' \
+  ./internal/agent '^TestAServerWithThePluginMountsItsSecretsFolderFromItsStart$'
+control "only a server with its secrets folder mounts it" internal/agent/lifecycle.go \
+  'if !setupOnly && s.hasSecretsDir() {' \
+  'if !setupOnly {' \
+  ./internal/agent '^TestOnlyAServerWithASecretsFolderMountsIt$'
+control "the secrets folder is mounted read-only" internal/agent/lifecycle.go \
+  'keys := s.secretsDir() + ":" + secretsMount + ":ro"' \
+  'keys := s.secretsDir() + ":" + secretsMount' \
+  ./internal/agent '^TestOnlyAServerWithASecretsFolderMountsIt$'
+control "a server with the AI Build Battle plugin gets its secrets folder before it starts" internal/agent/lifecycle.go \
+  'if err := s.prepareSecrets(); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAServerWithThePluginMountsItsSecretsFolderFromItsStart$'
+control "a key saved while the container lacks the mount waits for a restart" internal/agent/aikeys.go \
+  'out.Pending = set && s.secretsPending(ctx)' \
+  'out.Pending = false' \
+  ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
 
 if [ "$bad" != 0 ]; then
-  echo "some guards are not covered by a failing test"
+  echo
+  echo "problems: ${#problems[@]} (a STALE control's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run)"
+  printf '%s\n' "${problems[@]}"
   exit 1
 fi
 echo "every guard's test failed without it"

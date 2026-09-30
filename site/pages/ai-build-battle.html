@@ -1,0 +1,87 @@
+{{/*
+path: /templates/ai-build-battle
+title: The AI build battle, on your own Minecraft server
+description: The AI build battle template for Playkeeper: type /aibuild and an AI model builds it on your Minecraft server, block by block, with your own OpenRouter key.
+label: AI build battle
+h1: The AI build battle, on your own server
+kind: Template
+section: templates
+crumb: Templates
+og: ai-build-battle
+ogalt: The two finished nightmares from the AI build battle video, side by side, with the words The AI build battle, on your own server
+share: true
+film: true
+short: /ai
+styles: css/ai-build-battle.css
+*/}}
+
+{{/* For people who saw the AI build battle videos, most on a phone, from a
+     reply on X through /ai: the clip, three steps with Send to my computer
+     beside the install command, and what the template does with their key.
+     The template opens only from Playkeeper 0.4.9, so the page doesn't open
+     it yet. Give the page a hosted setting (a path on the site or an https
+     address) and "Or get it hosted" shows under the install command. */}}
+{{define "main"}}{{$poster := img "film/ai-build-battle-poster.webp"}}
+<section class="band-chalk aibb-hero" aria-labelledby="page-title">
+  <div class="container aibb-row">
+    <div class="aibb-text">
+      {{template "crumbs" .}}
+      <p class="eyebrow aibb-eyebrow hero-rise">From the AI build battle videos</p>
+      <h1 id="page-title" class="aibb-h1 hero-rise">{{.Page.H1}}</h1>
+      <p class="hero-sub aibb-sub hero-after">Type <code>/aibuild</code> and an AI model builds it in front of you, block by block. Same build tools, rules and limits as the videos.</p>
+    </div>
+    <figure class="aibb-film hero-after">
+      <video data-film muted loop playsinline controls preload="none" width="{{$poster.Width}}" height="{{$poster.Height}}" poster="{{$poster.URL}}" aria-label="GPT-6.1 Sol's nightmare going up block by block beside Claude Sonnet 5.5's finished one, on a Minecraft server.">
+        <source src="{{asset "film/ai-build-battle.mp4"}}" type="video/mp4">
+      </video>
+      <figcaption>GPT-6.1 Sol and Claude Sonnet 5.5 on “Build your worst nightmare”, sped up 72 times.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="band band-white aibb-how" aria-labelledby="steps-title">
+  <div class="container aibb-how-row">
+    <div class="aibb-how-steps">
+      <h2 id="steps-title" class="section-title reveal">Three steps to your first build.</h2>
+      <ol class="steps aibb-steps">
+        <li class="step reveal"><span class="step-n" aria-hidden="true">1</span><div>
+          <h3 class="step-title">Put Playkeeper on your VPS</h3>
+          <p>Paste this into your VPS over SSH. It checks the machine and asks before it changes anything.</p>
+          {{template "install" (dict "ID" true "Share" .Page.Share "Class" "aibb-install")}}
+          <p class="aibb-after">Don't have a VPS yet? <a class="link-arrow" href="/sizing">Which one to rent{{template "icon" "arrow-right"}}</a></p>
+          {{with .Page.Hosted}}<p class="aibb-after">Or <a class="link-arrow" href="{{.}}">get it hosted{{template "icon" "arrow-right"}}</a></p>{{end}}
+        </div></li>
+        <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div>
+          <h3 class="step-title">Pick the template</h3>
+          <p>In your dashboard: New server → A template → AI Build Battle. Then paste your OpenRouter key on the server's Overview.</p>
+        </div></li>
+        <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div>
+          <h3 class="step-title">Type <code>/aibuild</code> in Minecraft</h3>
+          <p>Say what to build, and watch it go up.</p>
+          <p class="aibb-chat"><code>/aibuild a castle on a cliff</code></p>
+        </div></li>
+      </ol>
+      <p class="fine aibb-needs reveal">Needs Playkeeper 0.4.9 or newer.</p>
+    </div>
+    <div class="aibb-facts reveal">
+      <h2 id="facts-title" class="aibb-facts-title">Good to know</h2>
+      <dl>
+        <div><dt>Your own OpenRouter key</dt><dd>It's never shown in chat, the console or the logs.</dd></div>
+        <div><dt>A spend cap per build and per day</dt><dd>You see it before every build.</dd></div>
+        <div><dt>One block at a time</dt><dd>Blocks go down one by one, so everyone on the server can watch.</dd></div>
+        <div><dt>For operators by default</dt><dd>Other players can't start a build unless you let them.</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<div class="band band-chalk">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Aside" (printf "Anything else? %s." .Settings.Community.Ask) "AsideLink" (list .Settings.Community.URL "Ask a question") "Items" (list
+      (qa "What does a build cost?" "It depends on the model and what you ask for. In the battle of 29 September, a whole build of “Build your worst nightmare” cost $0.15 with GPT-6.1 Sol, $0.30 with Claude Sonnet 5.5 and $0.75 with Claude Opus 5.5. You pay OpenRouter, with your own key.")
+      (qa "Which models can build?" "Any model on OpenRouter that can call tools, like Claude, GPT and Gemini.")
+      (qa "Where do I get an OpenRouter key?" "At openrouter.ai/keys, once your OpenRouter account has some credit. Playkeeper keeps the key on your server and never shows it again.")
+    ))}}
+  </div>
+</div>
+{{end}}

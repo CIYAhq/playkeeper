@@ -53,10 +53,11 @@ var (
 	// keeps a record of each in memory until it ends, about 260 bytes, and
 	// the agent has a few hundred megabytes for everything it does.
 	maxZipped = 100_000
-	// deleteAnswerAfter is how long a delete runs before its answer says
-	// it carries on: a folder of millions of small files, such as a map's
-	// tiles, takes minutes, longer than the panel waits for an answer.
-	deleteAnswerAfter = 30 * time.Second
+	// deleteAnswerAfter fires when a delete still going answers that it
+	// carries on: 30 seconds in, as a folder of millions of small files,
+	// such as a map's tiles, takes minutes, longer than the panel waits for
+	// an answer. A test picks its own moment.
+	deleteAnswerAfter = func() <-chan time.Time { return time.After(30 * time.Second) }
 	// beforeChange runs before each path a change touches, for a test to
 	// hold the change there.
 	beforeChange = func(p string) {}
@@ -653,9 +654,9 @@ func (s *server) hFileMove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]int{"moved": len(moved)})
 }
 
-// hFileDelete deletes files and folders. A delete still going after
-// deleteAnswerAfter carries on after the answer, which says so, and holds
-// off operations until it is done.
+// hFileDelete deletes files and folders. A delete still going when
+// deleteAnswerAfter fires carries on after the answer, which says so, and
+// holds off operations until it is done.
 func (s *server) hFileDelete(w http.ResponseWriter, r *http.Request) {
 	var req api.FileDeleteRequest
 	if err := decode(r, &req); err != nil {
@@ -703,7 +704,7 @@ func (s *server) hFileDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, api.FileDeleteResult{Deleted: len(paths)})
-	case <-time.After(deleteAnswerAfter):
+	case <-deleteAnswerAfter():
 		writeJSON(w, http.StatusAccepted, api.FileDeleteResult{Deleted: int(progress.Load()), Continuing: true})
 	}
 }

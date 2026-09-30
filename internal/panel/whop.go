@@ -277,11 +277,12 @@ func (s *Server) hWhopConnect(w http.ResponseWriter, r *http.Request, sess *sess
 		return
 	}
 	// Until the store carries this dashboard's marks, the other dashboard
-	// sells and this one doesn't (see readWhopStore).
+	// sells and this one doesn't (see readWhopStore). A new key has every
+	// membership read at once, so purchases the dashboard missed are caught.
 	now := s.now().UnixMilli()
 	if _, err := s.db.Exec(`INSERT INTO whop_account(id, account_id, title, route, api_key, connected_by, connected_at, taken_over_by) VALUES(1,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET title = excluded.title, route = excluded.route, api_key = excluded.api_key, problem = '',
-		taken_over_by = excluded.taken_over_by, taken_over_at = 0`,
+		taken_over_by = excluded.taken_over_by, taken_over_at = 0, polled_at = 0`,
 		acc.ID, acc.Title, acc.Route, key, sess.User.Username, now, other); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -373,6 +374,12 @@ func (s *Server) hWhopSync(w http.ResponseWriter, r *http.Request, sess *session
 	c, err := s.whopClient(a.Key)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Playkeeper's Whop settings are wrong: "+err.Error(), "")
+		return
+	}
+	// Reading the store again reads every membership again too, at the
+	// reconciler's next pass.
+	if _, err := s.db.Exec(`UPDATE whop_account SET polled_at = 0 WHERE id = 1`); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)

@@ -870,6 +870,23 @@ const routes: [string, RegExp, Handler][] = [
       return typeof on === 'boolean' ? op(state, on ? 'crossplay_on' : 'crossplay_off', r.params[0]) : invalid('Say whether crossplay should be on.')
     },
   ],
+  // 0.4.9: the server's own OpenRouter key for AI Build Battle, checked as the agent checks it. Answers say only whether one is set.
+  [
+    'PUT',
+    /^\/api\/servers\/(\w+)\/ai-keys\/openrouter$/,
+    ({ body }) => {
+      const raw = (body as { key?: unknown } | null)?.key
+      const key = typeof raw === 'string' ? raw.trim() : ''
+      const refused = (error: string, reason: string): Reply => ({ status: 400, body: { error, code: 'invalid_request', field: 'key', reason }, expected: true })
+      if (key === '') return refused('Paste your OpenRouter key.', 'ai_key_missing')
+      if (!key.startsWith('sk-or-')) return refused("That isn't an OpenRouter key: those start with sk-or-.", 'ai_key_prefix')
+      if (/[^!-~]/.test(key)) return refused('Keys have no spaces or characters like that. Copy it again from openrouter.ai/keys.', 'ai_key_characters')
+      if (key.length < 20) return refused('That key is too short. Copy all of it from openrouter.ai/keys.', 'ai_key_short')
+      if (key.length > 256) return refused('That key is too long. Copy only the key from openrouter.ai/keys.', 'ai_key_long')
+      return { status: 200, body: { keys: { openrouter: { set: true } }, pending: false, available: true } }
+    },
+  ],
+  ['DELETE', /^\/api\/servers\/(\w+)\/ai-keys\/openrouter$/, () => ({ status: 200, body: { keys: { openrouter: { set: false } }, pending: false, available: true } })],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
   ['POST', /^\/api\/servers\/(\w+)\/map\/enable$/, (r, state) => op(state, 'map_enable', r.params[0])],
   ['POST', /^\/api\/servers\/(\w+)\/map\/disable$/, (r, state) => (typeof (r.body as { deleteMap?: unknown } | null)?.deleteMap === 'boolean' ? op(state, 'map_disable', r.params[0]) : invalid('Say whether to keep the drawn map.'))],

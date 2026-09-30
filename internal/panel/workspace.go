@@ -617,7 +617,12 @@ type machineView struct {
 const machineTimeout = 8 * time.Second
 
 func (s *Server) machineView(ctx context.Context, m machine, link *machinelink.Status) machineView {
-	v := machineView{machine: m, Link: link, Customers: s.customersOn(m.ID)}
+	v := machineView{machine: m, Link: link}
+	if n, err := s.customersOn(ctx, m.ID); err != nil {
+		s.log.Error("count a machine's customers", "machine", m.ID, "err", err)
+	} else {
+		v.Customers = n
+	}
 	if m.Kind == remoteKind {
 		v.Dials, v.JoinedFrom, v.AddedBy = m.dials, m.joinedFrom, m.addedBy
 		v.JoinedAt = &m.joinedAt
