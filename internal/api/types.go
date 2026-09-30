@@ -543,9 +543,9 @@ type DeleteServerRequest struct {
 	KeepFinalBackupDays int    `json:"keepFinalBackupDays,omitempty"`
 	KeptFor             string `json:"keptFor,omitempty"`
 	// KeepWhole keeps the server's whole folder as its final backup, as a
-	// move carries it, rather than a backup's files: for the copy a move
-	// left, whose folder went where the server moved, and which is deleted
-	// without a final backup when none can be kept.
+	// move carries it, rather than a backup's files, and none of its
+	// backups when that can't be made: for the copy a move left, whose
+	// folder went where the server moved.
 	KeepWhole bool `json:"keepWhole,omitempty"`
 }
 

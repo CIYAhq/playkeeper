@@ -44,13 +44,18 @@ func checkKeep(req api.DeleteServerRequest) (keepFinal, error) {
 }
 
 // finalBackup is the backup of the stopped server to keep once it's
-// deleted: a new one, of its whole folder when whole is set, or its newest
-// that reads back whole when the machine hasn't the room for a new one or
-// it doesn't read back. fresh says it's new, so it's the deletion's to drop
+// deleted: a new one, or its newest that reads back whole when the machine
+// hasn't the room for a new one or it doesn't read back. With whole it's a
+// new one of its whole folder or none, since its backups lack what a move
+// carried beyond them. fresh says it's new, so it's the deletion's to drop
 // if the server stays after all.
 func (s *server) finalBackup(actor string, whole bool) (b *api.Backup, fresh bool, err error) {
-	if b, err = s.finalArchive(actor, whole); err == nil {
+	b, err = s.finalArchive(actor, whole)
+	switch {
+	case err == nil:
 		return b, true, nil
+	case whole:
+		return nil, false, err
 	}
 	s.log.Warn("could not make a deleted server's final backup; keeping its newest instead", "err", err)
 	list, lerr := s.listBackups("")

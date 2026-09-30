@@ -199,8 +199,9 @@ func (e *agentEnv) deleteWhole(days int, keptFor string) *api.Operation {
 // The copy a move left keeps its whole folder as its final backup, as the
 // move carried it, so what a backup leaves out is kept too, and a copy with
 // no world, as a server that never started, is deleted keeping one. A copy
-// nothing can be kept of is deleted all the same, since its folder went
-// where it moved, and the audit says so.
+// whose whole folder can't be kept is deleted all the same, keeping none of
+// its backups either, since its folder went where it moved, and the audit
+// says so.
 func TestACopyAMoveLeftKeepsItsWholeFolder(t *testing.T) {
 	e := newAgentEnv(t)
 	e.createWith(map[string]any{"name": "Survival", "playStyle": "friends"})
@@ -247,6 +248,9 @@ func TestACopyAMoveLeftKeepsItsWholeFolder(t *testing.T) {
 
 	e.createWith(map[string]any{"name": "Skyblock"})
 	sid := e.sid
+	if op := e.backupNow(nil); op.Status != api.OpSucceeded {
+		t.Fatalf("a backup of Skyblock: %+v", op)
+	}
 	e.diskFree.Store(1 << 20)
 	if op := e.deleteWhole(7, "moved-account-7"); op.Status != api.OpSucceeded {
 		t.Fatalf("deleting the copy a move left, without the room to keep it: %+v", op)
@@ -255,7 +259,7 @@ func TestACopyAMoveLeftKeepsItsWholeFolder(t *testing.T) {
 		t.Fatal("the copy nothing could be kept of is still there")
 	}
 	if kept := e.kept("moved-account-7"); len(kept) != 2 {
-		t.Fatalf("kept once the copy nothing could be kept of went: %+v", kept)
+		t.Fatalf("kept once the copy whose whole folder couldn't be kept went, rather than none: %+v", kept)
 	}
 	if !e.auditHas("server.deleted", "succeeded", "no final backup kept") {
 		t.Error("the audit doesn't say the copy went without a final backup")
