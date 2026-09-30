@@ -6699,6 +6699,10 @@ control "turning the dashboard's port off while a look asks the agent stays off"
   'p.dashboard, p.reached, p.gen = false, false, p.gen+1' \
   'p.dashboard, p.reached, p.gen = false, false, p.gen+0' \
   ./internal/panel '^TestALookDoesntUndoWhatChangedWhileItAsked$'
+control "the check's answer gets through to a page at the panel's port" internal/panel/dashboard443.go \
+  'h.Set("Cross-Origin-Resource-Policy", "cross-origin")' \
+  'h.Set("Cross-Origin-Resource-Policy", "same-origin")' \
+  ./internal/panel '^TestTheDashboardsPagesMayCheckPort443$'
 control "the dashboard's pages may connect only to a DNS name on port 443" internal/panel/dashboard443.go \
   'if !reDomainName.MatchString(host) {' \
   'if host == "" {' \
@@ -6754,6 +6758,10 @@ control "the installer allows port 443 in ufw" internal/install/install.go \
 webcontrol "the browser's check of port 443 sends no cookies" web/src/pages/machine-settings/dashboard-port.tsx \
   "credentials: 'omit'" \
   "credentials: 'include'" \
+  src/pages/machine-settings/dashboard-port.test.tsx 'checks from this browser that port 443 answers'
+webcontrol "the card says this browser is inside only once the panel didn't count its visit" web/src/pages/machine-settings/dashboard-port.tsx \
+  '        window.setTimeout(() => {' \
+  "        setReach('ok'); window.setTimeout(() => {" \
   src/pages/machine-settings/dashboard-port.test.tsx 'checks from this browser that port 443 answers'
 webcontrol "turning the dashboard's port off asks first once links without a port went out" web/src/pages/machine-settings/dashboard-port.tsx \
   'if (!next && v?.reached) setConfirmOff(true)' \

@@ -110,12 +110,26 @@ describe('the dashboard on the standard HTTPS port', () => {
     const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 200 })))
     vi.stubGlobal('fetch', fetch)
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    await show([view({}), view({ reached: true, port: 443 })])
+    await show(view({}))
     expect(fetch).toHaveBeenCalledWith(`${url}/api/public/reach`, expect.objectContaining({ mode: 'no-cors', credentials: 'omit', cache: 'no-store' }))
+    // Arrived, it waits for the panel to count the visit.
+    expect(text()).toContain(`Checking that browsers reach ${url}…`)
+    expect(text()).not.toContain('inside the machine’s network')
+    vi.mocked(client.get).mockResolvedValue(view({ reached: true, port: 443 }) as never)
     await act(async () => vi.advanceTimersByTime(2000))
     vi.useRealTimers()
     await act(async () => {})
     expect(text()).toContain(`Answers at ${url}. ${old} keeps working and sends browsers there.`)
+  })
+
+  it('says this browser is inside the machine’s network once the panel didn’t count its visit', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(null, { status: 200 }))))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    await show(view({}))
+    await act(async () => vi.advanceTimersByTime(2000))
+    vi.useRealTimers()
+    await act(async () => {})
+    expect(text()).toContain('This browser reaches it from inside the machine’s network. Open it once from outside, like on a phone using mobile data.')
   })
 
   it('asks for a visit when this browser can’t reach port 443', async () => {

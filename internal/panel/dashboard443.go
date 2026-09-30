@@ -56,9 +56,9 @@ var reachGIF = []byte("GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\x00\x00\x0
 
 // hReach answers the check the dashboard's page makes from a browser that
 // opened it at the panel's port: a request that reaches port 443 is what
-// shows a browser can (see noteReached), and the pixel only tells the page
-// it arrived. The page asks from another origin, so the answer may be read
-// there; it holds nothing.
+// shows a browser can (see noteReached). The page asks from another origin
+// without CORS, so all it learns is that an answer arrived: the resource
+// policy lets that opaque answer through, and it holds nothing.
 func (s *Server) hReach(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != reachPath || r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.NotFound(w, r)

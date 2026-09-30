@@ -52,9 +52,13 @@ function useReachCheck(v: DashboardPortView | undefined, refresh: () => Promise<
     fetch(`${url}/api/public/reach`, { mode: 'no-cors', cache: 'no-store', credentials: 'omit', signal: abort.signal }).then(
       () => {
         if (cancelled) return
-        setReach('ok')
-        // The panel tells the agent of the visit a moment after it arrives.
-        window.setTimeout(() => void refresh(), 1500)
+        // The panel tells the agent of the visit a moment after it arrives:
+        // until the dashboard says whether it counted, this is still a check.
+        window.setTimeout(() => {
+          void refresh().then(() => {
+            if (!cancelled) setReach('ok')
+          })
+        }, 1500)
       },
       () => {
         if (!cancelled) setReach('failed')
