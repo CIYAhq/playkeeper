@@ -187,6 +187,9 @@ func (f *moveFleet) rows(t *testing.T, query string, args ...any) int {
 // week. Each step goes in the audit log.
 func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	f := newMoveFleet(t)
+	if _, err := f.e.srv.db.Exec(`INSERT INTO public_links(kind, token_hash, server_id, machine_id, created_at) VALUES('map', 'h', ?, ?, 0)`, movedServer, f.rid); err != nil {
+		t.Fatal(err)
+	}
 	if r := f.move(t, f.local); r.status != http.StatusAccepted || r.body["machineId"] != f.local {
 		t.Fatalf("moving alex: %d %v", r.status, r.body)
 	}
@@ -215,6 +218,13 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	f.e.agent.mu.Unlock()
 	if query != accountLimit(f.alex.id) {
 		t.Errorf("the backup came against the disk limit %q", query)
+	}
+	hits := f.e.agentHits()
+	if limits, upload := slices.Index(hits, "PUT /v1/disk-limits"), slices.Index(hits, "POST /v1/restore/upload"); limits < 0 || limits > upload {
+		t.Errorf("the dashboard's machine didn't have alex's disk limit before the backup: %v", hits)
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM public_links WHERE server_id = ? AND machine_id = ?`, movedServer, f.local); n != 1 {
+		t.Error("the server's public link stayed with the machine it left")
 	}
 	f.mu.Lock()
 	in := f.moveIn
@@ -423,6 +433,21 @@ func TestAMoveGoesOnlyWhereTheCustomerFits(t *testing.T) {
 	if r := f.e.do(t, "POST", "/api/customers/"+uid+"/move", `{"machineId":"`+unconfirmed.ID+`"}`, f.own.auth()); r.status != http.StatusConflict {
 		t.Errorf("moving alex to a machine that doesn't take customers: %d %v", r.status, r.body)
 	}
+	f.e.reply("GET", "/v1/machine", liveMachine(30000, false))
+	f.e.reply("POST", "/v1/network-guard", `{"on":true,"host":false}`)
+	if r := f.e.do(t, "POST", "/api/customers/"+uid+"/move", `{"machineId":"`+f.local+`"}`, f.own.auth()); r.body["error"] != errMoveUnguarded.Msg {
+		t.Errorf("moving alex to a machine that won't keep servers away: %d %v", r.status, r.body)
+	}
+	f.e.reply("POST", "/v1/network-guard", `{"on":true,"host":true}`)
+	if _, err := f.e.srv.db.Exec(`UPDATE customer_homes SET machine_id = '' WHERE user_id = ?`, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.e.do(t, "POST", "/api/customers/"+uid+"/move", `{}`, f.own.auth()); r.body["error"] != errMoveWaiting.Msg {
+		t.Errorf("moving alex while they wait for room: %d %v", r.status, r.body)
+	}
+	if _, err := f.e.srv.db.Exec(`UPDATE customer_homes SET machine_id = ? WHERE user_id = ?`, f.rid, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.e.srv.db.Exec(`UPDATE customers SET state = ?, delete_after = ? WHERE user_id = ?`, string(CustomerPaused), f.e.clock.now().Add(-time.Hour).UnixMilli(), f.alex.id); err != nil {
 		t.Fatal(err)
 	}
@@ -507,6 +532,9 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 	if got := s.claimListing(alpha, serverList("leftsrv234"), went.Add(-time.Second)); len(got) != 0 {
 		t.Errorf("a listing asked for before the copy went shows it: %v", got)
 	}
+	if _, disputed := recordOf("leftsrv234"); disputed != "" {
+		t.Error("a listing asked for before the copy went disputes the server")
+	}
 	e.clock.add(time.Minute)
 	if got := s.claimListing(alpha, serverList("leftsrv234"), e.clock.now()); len(got) != 0 {
 		t.Errorf("a machine that still lists a server it left shows it: %v", got)
@@ -520,6 +548,120 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 		return n
 	}(); n != 0 {
 		t.Errorf("%d copies still recorded once alpha listed after its copy went", n)
+	}
+
+	// Once movingsrv2's requests go to beta, a listing of beta's asked for
+	// before then, without it, doesn't drop its record.
+	if _, err := s.db.Exec(`UPDATE server_moves SET to_machine = ? WHERE server_id = 'movingsrv2'`, beta.ID); err != nil {
+		t.Fatal(err)
+	}
+	asked := e.clock.now()
+	e.clock.add(time.Second)
+	if err := s.switchServer(context.Background(), serverMove{serverID: "movingsrv2", userID: 7, from: alpha.ID, to: beta.ID}, beta, "movingsrv2"); err != nil {
+		t.Fatal(err)
+	}
+	s.claimListing(beta, nil, asked)
+	if m, _ := recordOf("movingsrv2"); m != beta.ID {
+		t.Errorf("a listing of beta's asked for before the server moved there dropped its record: %q", m)
+	}
+}
+
+// A copy of the server still on the machine it's going to, which an
+// earlier move left there, is an old one: the move deletes it and makes
+// the server there from a new backup, and the copy's record goes once the
+// server's requests go there, so that machine's listings show it.
+func TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo(t *testing.T) {
+	f := newMoveFleet(t)
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	if err := leftCopy(context.Background(), f.e.srv.db, movedServer, f.local, f.alex.id, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-old","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-old", `{"id":"op-old","status":"succeeded"}`)
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+	hits := f.e.agentHits()
+	if old, upload := slices.Index(hits, "POST /v1/servers/"+movedServer+"/delete"), slices.Index(hits, "POST /v1/restore/upload"); old < 0 || old > upload {
+		t.Errorf("the old copy wasn't deleted before the new backup came: %v", hits)
+	}
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/backups"); !ok {
+		t.Error("the old copy was taken for the server: no new backup was made")
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM left_copies WHERE machine_id = ?`, f.local); n != 0 {
+		t.Error("the copy's record stayed once the server's requests went to its machine")
+	}
+	local, err := f.e.srv.machineByID(f.local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.e.srv.claimLocal(local, serverList(movedServer), f.e.clock.now()); len(got) != 1 {
+		t.Errorf("the dashboard's machine doesn't show the server moved to it: %v", got)
+	}
+}
+
+// A copy recorded as left on the machine that runs the server, or on the
+// machine it's moving to, is the server or its copy being made: nothing
+// deletes it, and its record as a copy left goes.
+func TestALeftCopyThatIsTheServerIsNeverDeleted(t *testing.T) {
+	f := newMoveFleet(t)
+	ctx := context.Background()
+	if err := leftCopy(ctx, f.e.srv.db, movedServer, f.rid, f.alex.id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES(?, ?, ?, ?)`, movedServer, f.alex.id, f.rid, f.local); err != nil {
+		t.Fatal(err)
+	}
+	if err := leftCopy(ctx, f.e.srv.db, movedServer, f.local, f.alex.id, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	f.e.srv.leaveLeftovers(ctx)
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/delete"); ok {
+		t.Error("the machine that runs the server deleted it as a copy left there")
+	}
+	if slices.Contains(f.e.agentHits(), "POST /v1/servers/"+movedServer+"/delete") {
+		t.Error("the machine the server is moving to deleted the copy it's making")
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM left_copies`); n != 0 {
+		t.Errorf("%d records of copies left stayed", n)
+	}
+}
+
+// A backup that reaches the other machine changed isn't made into the
+// server: the move stops, the upload goes, and the server stays where it
+// was.
+func TestABackupThatArrivesChangedIsntMovedIn(t *testing.T) {
+	f := newMoveFleet(t)
+	f.e.answer("POST /v1/restore/upload", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"`+movedUpload+`","sha256":"`+strings.Repeat("0", 64)+`","compatible":true}`)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.Contains(why, "it arrived changed") {
+		t.Fatalf("why the move stopped: %q", why)
+	}
+	if f.made() || !slices.Contains(f.e.agentHits(), "DELETE /v1/restore/"+movedUpload) {
+		t.Error("a backup that arrived changed was moved in, or its upload stayed")
+	}
+	if at := f.recorded(t); at != f.rid {
+		t.Errorf("the server's requests go to %q", at)
 	}
 }
 
