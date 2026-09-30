@@ -321,23 +321,23 @@ func TestAnAIKeyIsCheckedWithoutBeingQuoted(t *testing.T) {
 	dir := filepath.Join(e.cfg.DataDir, "servers", e.sid, secretsFolder)
 	const mark = "Zq9Vw3"
 	long := "sk-or-v1-" + mark + strings.Repeat("x", maxAIKey)
-	keyErrors := []struct{ key, msg string }{
-		{"", "Paste your OpenRouter key."},
-		{" \t\n", "Paste your OpenRouter key."},
-		{"sk-proj-" + mark + "abcdefghijklmnopqrstuvwxyz", "That isn't an OpenRouter key: those start with sk-or-."},
-		{"SK-OR-V1-" + mark + "abcdefghijklmnopqrstuvwxyz", "That isn't an OpenRouter key: those start with sk-or-."},
-		{"sk-or-v1-" + mark + " abcdefghijklmnop", "Keys have no spaces or characters like that. Copy it again from openrouter.ai/keys."},
-		{"sk-or-v1-" + mark + "é-abcdefghijklmnop", "Keys have no spaces or characters like that. Copy it again from openrouter.ai/keys."},
-		{"sk-or-v1-" + mark + "\x7f-abcdefghijklmnop", "Keys have no spaces or characters like that. Copy it again from openrouter.ai/keys."},
-		{"sk-or-" + mark + "1234567", "That key is too short. Copy all of it from openrouter.ai/keys."},
-		{long[:maxAIKey+1], "That key is too long. Copy only the key from openrouter.ai/keys."},
+	keyErrors := []struct{ key, msg, reason string }{
+		{"", "Paste your OpenRouter key.", "ai_key_missing"},
+		{" \t\n", "Paste your OpenRouter key.", "ai_key_missing"},
+		{"sk-proj-" + mark + "abcdefghijklmnopqrstuvwxyz", "That isn't an OpenRouter key: those start with sk-or-.", "ai_key_prefix"},
+		{"SK-OR-V1-" + mark + "abcdefghijklmnopqrstuvwxyz", "That isn't an OpenRouter key: those start with sk-or-.", "ai_key_prefix"},
+		{"sk-or-v1-" + mark + " abcdefghijklmnop", "Keys have no spaces or characters like that. Copy it again from openrouter.ai/keys.", "ai_key_characters"},
+		{"sk-or-v1-" + mark + "é-abcdefghijklmnop", "Keys have no spaces or characters like that. Copy it again from openrouter.ai/keys.", "ai_key_characters"},
+		{"sk-or-v1-" + mark + "\x7f-abcdefghijklmnop", "Keys have no spaces or characters like that. Copy it again from openrouter.ai/keys.", "ai_key_characters"},
+		{"sk-or-" + mark + "1234567", "That key is too short. Copy all of it from openrouter.ai/keys.", "ai_key_short"},
+		{long[:maxAIKey+1], "That key is too long. Copy only the key from openrouter.ai/keys.", "ai_key_long"},
 	}
 	for _, c := range keyErrors {
 		code, body := e.aiKeyRequest("PUT", e.sp("/ai-keys/openrouter"), aiKeyBody(c.key))
 		var out api.Error
 		json.Unmarshal([]byte(body), &out)
-		if code != 400 || out.Code != api.CodeInvalid || out.Field != "key" || out.Error != c.msg {
-			t.Errorf("key %q: %d %+v, want %q", c.key, code, out, c.msg)
+		if code != 400 || out.Code != api.CodeInvalid || out.Field != "key" || out.Error != c.msg || out.Reason != c.reason {
+			t.Errorf("key %q: %d %+v, want %q (%s)", c.key, code, out, c.msg, c.reason)
 		}
 		if strings.Contains(body, mark) {
 			t.Errorf("key %q: the answer quotes it: %s", c.key, body)

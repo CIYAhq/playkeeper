@@ -241,22 +241,22 @@ func (s *server) aiKeys(ctx context.Context) (api.AIKeys, error) {
 // or why it can't. None of the reasons quotes it.
 func validAIKey(p aiProvider, key string) (string, error) {
 	key = strings.TrimSpace(key)
-	msg := ""
+	msg, reason := "", ""
 	switch {
 	case key == "":
-		msg = "Paste your " + p.name + " key."
+		msg, reason = "Paste your "+p.name+" key.", "ai_key_missing"
 	case !strings.HasPrefix(key, p.prefix):
-		msg = "That isn't an " + p.name + " key: those start with " + p.prefix + "."
+		msg, reason = "That isn't an "+p.name+" key: those start with "+p.prefix+".", "ai_key_prefix"
 	case strings.ContainsFunc(key, func(r rune) bool { return r < '!' || r > '~' }):
-		msg = "Keys have no spaces or characters like that. Copy it again from " + p.site + "."
+		msg, reason = "Keys have no spaces or characters like that. Copy it again from "+p.site+".", "ai_key_characters"
 	case len(key) < minAIKey:
-		msg = "That key is too short. Copy all of it from " + p.site + "."
+		msg, reason = "That key is too short. Copy all of it from "+p.site+".", "ai_key_short"
 	case len(key) > maxAIKey:
-		msg = "That key is too long. Copy only the key from " + p.site + "."
+		msg, reason = "That key is too long. Copy only the key from "+p.site+".", "ai_key_long"
 	default:
 		return key, nil
 	}
-	return "", &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: msg, Field: "key"}
+	return "", &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: msg, Field: "key", Reason: reason}
 }
 
 func (s *server) hAIKeys(w http.ResponseWriter, r *http.Request) {
