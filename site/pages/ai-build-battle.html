@@ -53,7 +53,7 @@ styles: css/ai-build-battle.css
         </div></li>
         <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div>
           <h3 class="step-title">Pick the template</h3>
-          <p>In your dashboard: New server → A template → AI Build Battle. Then paste your OpenRouter key.</p>
+          <p>In your dashboard: New server → A template → AI Build Battle. Then paste your OpenRouter key on the server's Overview.</p>
         </div></li>
         <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div>
           <h3 class="step-title">Type <code>/aibuild</code> in Minecraft</h3>
@@ -80,6 +80,7 @@ styles: css/ai-build-battle.css
     {{template "faq" (dict "ID" "questions" "Aside" (printf "Anything else? %s." .Settings.Community.Ask) "AsideLink" (list .Settings.Community.URL "Ask a question") "Items" (list
       (qa "What does a build cost?" "It depends on the model and what you ask for. In the battle of 29 September, a whole build of “Build your worst nightmare” cost $0.15 with GPT-6.1 Sol, $0.30 with Claude Sonnet 5.5 and $0.75 with Claude Opus 5.5. You pay OpenRouter, with your own key.")
       (qa "Which models can build?" "Any model on OpenRouter that can call tools, like Claude, GPT and Gemini.")
+      (qa "Where do I get an OpenRouter key?" "At openrouter.ai/keys, once your OpenRouter account has some credit. Playkeeper keeps the key on your server and never shows it again.")
     ))}}
   </div>
 </div>
