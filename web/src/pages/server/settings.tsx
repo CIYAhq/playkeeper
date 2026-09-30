@@ -128,7 +128,8 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
   const { catalog } = useCatalog(machine?.id, { server: s.id, fresh: true })
   const memoryPoll = usePoll(() => get<MemoryAdvice>(serverApi(s.id, `/memory?tz=${encodeURIComponent(localTimeZone())}`)), 300_000, s.id)
   const advice = memoryPoll.data
-  const offers = memoryOffers(base.memoryMB, advice, catalog)
+  const planMaxMB = machineName ? undefined : catalog?.maxMemoryMB
+  const offers = memoryOffers(base.memoryMB, advice, catalog, planMaxMB)
   const linked: Partial<Draft> = {}
   if (asked.viewDistance !== undefined) linked.viewDistance = asked.viewDistance
   const askedMB = asked.memoryMB
@@ -179,7 +180,7 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
   const progress = advice && memoryProgress(advice)
   const memoryHint = advice ? (
     <>
-      {memoryAdviceLine(advice, machineName, catalog?.sizing, s.type)}
+      {memoryAdviceLine(advice, machineName, catalog?.sizing, s.type, planMaxMB)}
       {advice.verdict !== 'not_enough_data' && advice.days.length > 0 && <MemoryDays advice={advice} />}
       {progress && (
         <div className="mt-2 flex items-center gap-3">

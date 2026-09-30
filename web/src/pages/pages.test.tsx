@@ -97,7 +97,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   del: vi.fn(() => Promise.resolve(undefined)),
 }))
 
-const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'machines.view']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',
@@ -250,7 +250,7 @@ async function wait(ms: number) {
   await act(async () => new Promise((resolve) => setTimeout(resolve, ms)))
 }
 
-const moderatorCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make']
+const moderatorCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'machines.view']
 
 /** An account that joined the team with an invite link. */
 function member(role: ProjectRole, can: Action[], over: Partial<Me['access']> = {}): Me {

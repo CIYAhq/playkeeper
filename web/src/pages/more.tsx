@@ -131,7 +131,7 @@ export function MorePage() {
         <li>
           <Row icon={<HouseIcon />} title={t('nav.allServers')} hint={(ws.servers ?? []).map((s) => s.name).join(', ') || t('nav.noServers')} to={{ name: 'home' }} />
         </li>
-        {ws.machines.map((m) => {
+        {(can(ws.me, 'machines.view') ? ws.machines : []).map((m) => {
           const status = machineState(m, ws).label
           return (
             <li key={m.id}>

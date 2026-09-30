@@ -241,7 +241,8 @@ function MachineRow({ machine: m, route }: { machine: MachineView; route: Route 
 function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   const ws = useWorkspace()
   const tab: ServerTab = route.name === 'server' ? route.tab : route.name === 'player' ? 'players' : 'overview'
-  const shared = ws.machines.length > 1
+  const sees = can(ws.me, 'machines.view')
+  const shared = sees && ws.machines.length > 1
   const machineRows = useListPresence(shared ? ws.machines : undefined, machineKey)
   const serversOn = new Map(byMachine(ws.servers ?? [], ws.machines).map((g) => [g.machine.id, g.servers]))
   const serverItem = (s: ServerStatus) => {
@@ -288,7 +289,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
           ))
         ) : (
           <div className="flex flex-col gap-0.5">
-            {ws.machine && <MachineRow machine={ws.machine} route={route} />}
+            {ws.machine && sees && <MachineRow machine={ws.machine} route={route} />}
             {(ws.servers ?? []).map(serverItem)}
           </div>
         )}

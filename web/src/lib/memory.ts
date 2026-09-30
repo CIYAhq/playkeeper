@@ -49,8 +49,12 @@ export function memoryProgress(a: MemoryAdvice): { day: number; of: number } | u
   return { day: Math.min(num(a.params, 'span_days') ?? days, week), of: week }
 }
 
-/** The line under Settings › Memory's budget: what the last 14 days say about it. */
-export function memoryAdviceLine(a: MemoryAdvice, machine: string, sizing?: MemorySizing, type?: string): string {
+/**
+ * The line under Settings › Memory's budget: what the last 14 days say about
+ * it. An empty machine is a creator's or customer's, whose plan allows at
+ * most planMaxMB for the server.
+ */
+export function memoryAdviceLine(a: MemoryAdvice, machine: string, sizing?: MemorySizing, type?: string, planMaxMB?: number): string {
   const p = a.params
   const count = num(p, 'days') ?? 0
   const peakMB = num(p, 'peak_mb')
@@ -70,7 +74,8 @@ export function memoryAdviceLine(a: MemoryAdvice, machine: string, sizing?: Memo
     }
     case 'raise': {
       const to = num(p, 'to_mb')
-      return to ? t('settings.memoryRaise', { count, to: formatMB(to) }) : t('settings.memoryRaiseNoRoom', { count, machine })
+      if (to && (planMaxMB === undefined || to <= planMaxMB)) return t('settings.memoryRaise', { count, to: formatMB(to) })
+      return machine ? t('settings.memoryRaiseNoRoom', { count, machine }) : t('settings.memoryRaiseNoRoomPlan', { count })
     }
     case 'not_enough_data': {
       const until = { memory, count: playersFor(a.budgetMB, sizing, type) }
@@ -131,7 +136,7 @@ const recommendedText: Record<MemoryFit, MessageKey> = {
  * has room for it, then how it would fit, or who it suits until then.
  */
 export function memoryOptionHint(o: MemoryOption, advice: MemoryAdvice | undefined, machine: string, sizing?: MemorySizing, type?: string): string {
-  if (!o.fits) return t('settings.memoryNoRoom', { machine })
+  if (!o.fits) return machine ? t('settings.memoryNoRoom', { machine }) : t('settings.memoryNoRoomPlan')
   if (advice?.recommendedMB === o.memoryMB) return o.fit ? t(recommendedText[o.fit]) : t('settings.memoryRecommended')
   if (o.fit) return t(fitText[o.fit])
   return t('settings.memoryFriends', { count: playersFor(o.memoryMB, sizing, type) })
@@ -139,11 +144,12 @@ export function memoryOptionHint(o: MemoryOption, advice: MemoryAdvice | undefin
 
 /**
  * The budgets Settings › Memory offers: the advice's, else the catalog's,
- * and always the server's own, smallest first.
+ * and always the server's own, smallest first. A creator's or customer's
+ * plan allows at most planMaxMB for the server.
  */
-export function memoryOffers(currentMB: number, advice: MemoryAdvice | undefined, catalog: { memoryOptionsMB: number[]; maxMemoryMB: number } | undefined): MemoryOption[] {
+export function memoryOffers(currentMB: number, advice: MemoryAdvice | undefined, catalog: { memoryOptionsMB: number[]; maxMemoryMB: number } | undefined, planMaxMB?: number): MemoryOption[] {
   const out: MemoryOption[] = advice?.options.length
-    ? [...advice.options]
+    ? advice.options.map((o) => (planMaxMB === undefined || o.memoryMB <= planMaxMB || o.memoryMB === currentMB ? o : { ...o, fits: false }))
     : catalog
       ? catalog.memoryOptionsMB.map((mb) => ({ memoryMB: mb, heapMB: 0, fits: mb <= catalog.maxMemoryMB || mb === currentMB }))
       : []

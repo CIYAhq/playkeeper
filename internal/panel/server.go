@@ -371,21 +371,21 @@ func (s *Server) Routes() []Route {
 		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
 		view("/api/projects", s.hProjects),
 		view("/api/machines", s.hMachines),
-		view("/api/machines/link", s.hMachineLink),
+		{"GET", "/api/machines/link", needSession, actViewMachines, s.hMachineLink},
 		{"POST", "/api/join-codes", needSessionCSRF, actManageMachine, s.hJoinCodeCreate},
 		{"DELETE", "/api/join-codes/{cid}", needSessionCSRF, actManageMachine, s.hJoinCodeCancel},
-		view("/api/machines/{mid}", s.hMachine),
+		{"GET", "/api/machines/{mid}", needSession, actViewMachines, s.hMachine},
 		{"DELETE", "/api/machines/{mid}", needSessionCSRF, actManageMachine, s.hMachineRemove},
-		view("/api/machines/{mid}/events", s.hMachineEvents),
-		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
+		{"GET", "/api/machines/{mid}/events", needSession, actViewMachines, s.hMachineEvents},
+		{"GET", "/api/machines/{mid}/preflight", needSession, actViewMachines, s.machineProxy("GET", "/v1/preflight")},
 		view("/api/machines/{mid}/catalog", s.hCatalog),
-		view("/api/machines/{mid}/activity", s.hMachineActivity),
+		{"GET", "/api/machines/{mid}/activity", needSession, actViewMachines, s.hMachineActivity},
 		view("/api/activity", s.hActivity),
-		mg("/api/machines/{mid}/update", "/v1/update"),
+		{"GET", "/api/machines/{mid}/update", needSession, actViewMachines, s.machineProxy("GET", "/v1/update")},
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
 		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},
 		// Usage stats: the switch sets them on every machine of the dashboard.
-		view("/api/usage-stats", s.hUsageStats),
+		{"GET", "/api/usage-stats", needSession, actViewMachines, s.hUsageStats},
 		{"PUT", "/api/usage-stats", needSessionCSRF, actManageMachine, s.hUsageStatsSet},
 		// Port-free addresses: the dashboard's machine answers DNS for its
 		// own domain.
@@ -410,7 +410,7 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/machines/{mid}/restore/{rid}", needSessionCSRF, actRestore, s.restoreProxy("DELETE", "/v1/restore/{rid}", nil)},
 		view("/api/machines/{mid}/operations/{op}", s.hOperation),
 		view("/api/servers", s.hServers),
-		sg("/api/servers/{id}", "/v1/servers/{id}"),
+		view("/api/servers/{id}", s.hServer),
 		smAs(actRunServers, "POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
 		smAs(actRunServers, "POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
 		smAs(actRunServers, "POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
@@ -449,7 +449,7 @@ func (s *Server) Routes() []Route {
 		smAs(actRestore, "POST", "/api/servers/{id}/backups/{bid}/restore", "/v1/servers/{id}/backups/{bid}/restore"),
 		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actRestore, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
 		view("/api/players/{name}/head", s.hHead),
-		view("/api/server", s.hLegacyStatus),
+		{"GET", "/api/server", needSession, actViewMachines, s.hLegacyStatus},
 		// Follow-ups after 0.3.0.
 		sg("/api/servers/{id}/world-copies", "/v1/servers/{id}/world-copies"),
 		sm("DELETE", "/api/servers/{id}/world-copies/{name}", "/v1/servers/{id}/world-copies/{name}"),
@@ -538,7 +538,7 @@ func (s *Server) Routes() []Route {
 		mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),
 		mm("POST", "/api/machines/{mid}/offsite/recover/restore", "/v1/offsite/recover/restore", actRecoverBackups),
 		// The Disk space page lists every server's use of the disk.
-		{"GET", "/api/machines/{mid}/disk", needSession, actView, everyServer(s.machineProxy("GET", "/v1/disk"))},
+		{"GET", "/api/machines/{mid}/disk", needSession, actViewMachines, everyServer(s.machineProxy("GET", "/v1/disk"))},
 		mm("POST", "/api/machines/{mid}/disk/clean", "/v1/disk/clean", actManageMachine),
 	}
 	// Wave 5: invite links and join requests, player profiles, the team
@@ -713,6 +713,19 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				writeRefusal(w, err)
 				return
 			}
+			if acct.hidesMachines() {
+				// A customer waiting for room has no machine yet, and is
+				// told so whichever one the path names.
+				if mid := r.PathValue("mid"); mid != "" && !s.machineShown(r.Context(), acct, mid) {
+					if s.customerWaiting(r.Context(), acct) {
+						writeRefusal(w, errWaitingForRoom)
+					} else {
+						writeErr(w, http.StatusNotFound, api.CodeNotFound, "Machine not found.", "")
+					}
+					return
+				}
+				w = &blindWriter{ResponseWriter: w}
+			}
 			rt.handler(w, r, &sess)
 		default:
 			writeErr(w, http.StatusForbidden, api.CodeForbidden, "Forbidden.", "")
@@ -878,7 +891,13 @@ func (s *Server) hSetupStatus(w http.ResponseWriter, r *http.Request, _ *session
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: n == 0, Machine: s.localMachineName(), Version: version.Version, WhopSignIn: n > 0 && s.whopSignInOn()})
+	st := api.SetupStatus{NeedsSetup: n == 0, Version: version.Version, WhopSignIn: n > 0 && s.whopSignInOn()}
+	// Customers sign in where Sign in with Whop is, and never see a
+	// machine's name.
+	if !st.WhopSignIn {
+		st.Machine = s.localMachineName()
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 type credentials struct {
@@ -1245,6 +1264,9 @@ func agentPath(pattern string, r *http.Request) string {
 
 func (s *Server) agentFailure(w http.ResponseWriter, err error) {
 	status, body := failureOf(err)
+	if blind(w) {
+		body = blindFailure(err, body)
+	}
 	writeJSON(w, status, body)
 }
 

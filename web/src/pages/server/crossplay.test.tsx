@@ -18,7 +18,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   post: vi.fn(() => Promise.resolve({})),
 }))
 
-const everything: Action[] = ['view', 'servers.run', 'players.manage', 'servers.manage']
+const everything: Action[] = ['view', 'servers.run', 'players.manage', 'servers.manage', 'machines.view']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',

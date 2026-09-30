@@ -91,7 +91,7 @@ export const settingsSections: { route: Route & { name: SettingsSectionName }; l
   { route: { name: 'discord' }, label: 'global.nav.discord', act: 'machine.manage' },
   { route: { name: 'whop' }, label: 'global.nav.whop', act: 'whop.manage' },
   { route: { name: 'ai-agents' }, label: 'global.nav.aiAgents', act: 'account.manage' },
-  { route: { name: 'machines' }, label: 'global.nav.machines', act: 'view' },
+  { route: { name: 'machines' }, label: 'global.nav.machines', act: 'machines.view' },
 ]
 
 /** Where Settings opens: the first section the account can use, else the general page. */

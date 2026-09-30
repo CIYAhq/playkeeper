@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { ApiError, get, post } from './client'
 import type { MachineView, Me, ServerStatus, SignInNotice } from './types'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { bedrockOf, isStale, joinOf, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
 import { mergePrefs, undoPrefs } from '@/lib/optimistic'
 import { usePoll } from '@/lib/usePoll'
@@ -10,7 +11,7 @@ export interface Workspace {
   me: Me
   servers: ServerStatus[] | undefined
   serversError: ApiError | undefined
-  /** The machine this dashboard runs on. */
+  /** The machine this dashboard runs on; for a creator or customer, the one their servers go on. */
   machine: MachineView | undefined
   /** Every machine, the dashboard's own first. */
   machines: MachineView[]
@@ -54,6 +55,11 @@ export function useWorkspace(): Workspace {
 export const WorkspaceContext = Ctx
 
 const lastKey = 'playkeeper.lastServer'
+
+/** A machine as a creator or customer sees it: with no name. */
+function nameless(m: MachineView): MachineView {
+  return { ...m, name: '', live: m.live && { ...m.live, hostname: '' }, link: m.link && { ...m.link, name: '' } }
+}
 
 /**
  * One notice at a time: wrong codes someone else entered come first. The
@@ -134,8 +140,16 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
     })
   }, [])
 
-  const machine = machines.data?.find((m) => m.kind === 'local') ?? machines.data?.[0]
-  const live = machine?.live
+  // The dashboard names no machine to a creator or customer; none shows
+  // even if a name came.
+  const seesMachines = can(me, 'machines.view')
+  const machineData = useMemo(() => (seesMachines ? machines.data : machines.data?.map(nameless)), [machines.data, seesMachines])
+  // A creator's or customer's machine is the one their servers go on; the
+  // dashboard's own machine still says which Playkeeper it runs.
+  const own = machineData?.find((m) => m.kind === 'local')
+  const home = me.access.home ? machineData?.find((m) => m.id === me.access.home) : undefined
+  const machine = home ?? own ?? machineData?.[0]
+  const live = (own ?? machine)?.live
   // While Playkeeper installs an update the agent and panel restart; the
   // failed polls in between are expected, not an outage.
   const installing = useRef<{ version: string; since?: string } | undefined>(undefined)
@@ -149,8 +163,8 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
   const stale = !servers.data && (agentDown || !!updating) && !!known.current
   const serverList = servers.data ?? (stale ? known.current?.list : undefined)
   const knownMachines = useRef<MachineView[]>([])
-  if (machines.data) knownMachines.current = machines.data
-  const machineList = useMemo(() => machines.data ?? (stale ? knownMachines.current.map((m) => ({ ...m, live: undefined })) : []), [machines.data, stale])
+  if (machineData) knownMachines.current = machineData
+  const machineList = useMemo(() => machineData ?? (stale ? knownMachines.current.map((m) => ({ ...m, live: undefined })) : []), [machineData, stale])
   const shownMachine = machine ?? machineList.find((m) => m.kind === 'local')
 
   // After an update the page still runs the previous version's code; load
@@ -216,14 +230,15 @@ export function useServerMachine(s: ServerStatus) {
   const machine = machineOf(s, ws.machines)
   const reach = reachOf(s, ws)
   const stale = isStale(s, ws.stale) || reach.state !== 'live'
+  const sees = can(ws.me, 'machines.view')
   return {
     machine,
     reach,
     stale,
-    offline: reach.state === 'away' ? t('machines.away.pill', { name: machineLabel(reach.machine) }) : stale ? t('reason.noAgent') : undefined,
-    shared: ws.machines.length > 1,
+    offline: reach.state === 'away' ? (sees ? t('machines.away.pill', { name: machineLabel(reach.machine) }) : t('machines.away.pillHidden')) : stale ? t('reason.noAgent') : undefined,
+    shared: sees && ws.machines.length > 1,
     name: machineLabel(machine) || ws.machineName,
-    route: machine ? machineRoute(machine) : undefined,
+    route: machine && sees ? machineRoute(machine) : undefined,
     join: joinOf(s, machine),
     bedrock: bedrockOf(s, machine),
   }

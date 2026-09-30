@@ -307,13 +307,15 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
       <div className="flex h-8 items-center gap-2 text-[13px]">
         <nav aria-label={t('nav.breadcrumb')} className="flex min-w-0 items-center gap-1.5">
           {place.route && (
-            <a {...linkProps(place.route)} className="text-muted-foreground hover:text-foreground">
-              {place.name}
-            </a>
+            <>
+              <a {...linkProps(place.route)} className="text-muted-foreground hover:text-foreground">
+                {place.name}
+              </a>
+              <span className="text-muted-foreground/60" aria-hidden="true">
+                /
+              </span>
+            </>
           )}
-          <span className="text-muted-foreground/60" aria-hidden="true">
-            /
-          </span>
           <Menu>
             <MenuTrigger className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 font-semibold outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring" aria-label={t('nav.switchServerFrom', { server: s.name })}>
               {s.name}
@@ -438,7 +440,7 @@ function PhoneStatus({ server }: { server: ServerStatus }) {
 /** The phone's server switcher: every server, then New server and All servers. */
 export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: boolean; onOpenChange: (open: boolean) => void; current?: ServerStatus; tab: ServerTab }) {
   const ws = useWorkspace()
-  const live = ws.machine?.live
+  const live = can(ws.me, 'machines.view') ? ws.machine?.live : undefined
   const go = (to: Parameters<typeof navigate>[0]) => {
     onOpenChange(false)
     navigate(to)

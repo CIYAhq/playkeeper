@@ -13,7 +13,8 @@ export function isMemoryCrash(c: Crash): boolean {
 
 /**
  * What happened, in one line. Kinds without a line of their own, or without
- * the params it needs, fall back to the agent's English explanation.
+ * the params it needs, fall back to the agent's English explanation. An
+ * empty machine is for a creator or customer, who never sees the machine.
  */
 export function crashSummary(c: Crash, server: string, machine: string, lookups: AddonLookups = {}): string {
   const p = c.params
@@ -35,6 +36,7 @@ export function crashSummary(c: Crash, server: string, machine: string, lookups:
       const reason = str(p, 'reason')
       const port = num(p, 'port')
       if (reason === 'in_use') return t('crash.portInside', { server })
+      if (!machine) return c.explanation
       if (reason === 'address') return t('crash.portAddress', { machine })
       return !reason && port ? t('crash.portTaken', { machine, port }) : c.explanation
     }
@@ -84,6 +86,7 @@ export function crashSummary(c: Crash, server: string, machine: string, lookups:
       return t('crash.locked')
     case 'disk_full': {
       const free = num(p, 'free_mb')
+      if (!machine) return c.explanation
       return c.certain || free === undefined ? t('crash.disk', { machine, server }) : t('crash.diskLow', { machine, free: formatMB(free) })
     }
     case 'eula':
@@ -313,7 +316,7 @@ function fixText(c: Crash, f: DiagnosisAction, server: string, machine: string, 
       const to = num(p, 'to_mb')
       if (!to) return { title: f.title, reason: later }
       const free = formatMB(c.roomMB)
-      const hint = c.roomMB > 0 ? (phone ? t('crash.fix.memoryFree', { machine, free }) : t('crash.fix.memoryFits', { free })) : undefined
+      const hint = c.roomMB > 0 ? (phone && machine ? t('crash.fix.memoryFree', { machine, free }) : t('crash.fix.memoryFits', { free })) : undefined
       return { title: t('crash.fix.memory', { server, memory: formatMB(to) }), hint, plan: { kind: 'settings', body: { memoryMB: to } }, button: t('crash.do.save', { server }) }
     }
     case 'lower_view_distance': {

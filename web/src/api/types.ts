@@ -1841,6 +1841,7 @@ export type Action =
   | 'whop.manage'
   | 'machines.stock'
   | 'machines.customers'
+  | 'machines.view'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 

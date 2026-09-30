@@ -81,7 +81,7 @@ function VoiceChatBody({ ask, phone }: { ask: VoiceAsk; phone: boolean }) {
             <span className="text-lg font-bold tracking-[-0.01em]">{t('voice.port', { port })}</span>
             <span className="text-[13px] text-muted-foreground">{t('voice.onePort')}</span>
           </p>
-          <p className="mt-1 text-[15px] leading-5 text-muted-foreground">{t('voice.firewallPhone', { port })}</p>
+          <p className="mt-1 text-[15px] leading-5 text-muted-foreground">{ws.machineName ? t('voice.firewallPhone', { port }) : t('voice.firewallHidden')}</p>
         </>
       ) : (
         <div className="flex gap-5">
@@ -91,11 +91,13 @@ function VoiceChatBody({ ask, phone }: { ask: VoiceAsk; phone: boolean }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold">{t('voice.ownPort')}</p>
-            <p className="mt-0.5 text-xs leading-[18px] text-muted-foreground">{t('voice.firewall', { machine: ws.machineName, port })}</p>
-            <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-success-strong hover:underline">
-              {t('onboarding.check.firewallLink')}
-              <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-            </a>
+            <p className="mt-0.5 text-xs leading-[18px] text-muted-foreground">{ws.machineName ? t('voice.firewall', { machine: ws.machineName, port }) : t('voice.firewallHidden')}</p>
+            {ws.machineName && (
+              <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-success-strong hover:underline">
+                {t('onboarding.check.firewallLink')}
+                <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+              </a>
+            )}
           </div>
         </div>
       )}

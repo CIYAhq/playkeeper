@@ -136,8 +136,17 @@ function GeneralSettings() {
   }, [])
   return (
     <SettingsSection current="settings">
-      <PlaykeeperCard />
-      <UsageStatsCard />
+      {can(ws.me, 'machines.view') ? (
+        <>
+          <PlaykeeperCard />
+          <UsageStatsCard />
+        </>
+      ) : (
+        <Card as="section" aria-labelledby="pk-title">
+          <CardTitle id="pk-title">{t('global.playkeeper')}</CardTitle>
+          <CardHint>{t('machine.version', { version: ws.me.version })}</CardHint>
+        </Card>
+      )}
       {can(ws.me, 'audit.view') && <AuditCard phone={phone} />}
       <Card as="section" aria-labelledby="about-title">
         <CardTitle id="about-title">{t('global.about')}</CardTitle>

@@ -42,8 +42,8 @@ func (g *guardSwitch) requests() []string {
 
 // joinForCustomers joins a machine with 30 GB free and servers not kept
 // away from it to a dashboard whose own machine is full, and returns its
-// id, its agent and its guard.
-func joinForCustomers(t *testing.T, e *env, own member) (string, *remoteAgent, *guardSwitch) {
+// id, its agent, its guard and its link.
+func joinForCustomers(t *testing.T, e *env, own member) (string, *remoteAgent, *guardSwitch, *runningLink) {
 	t.Helper()
 	e.reply("GET", "/v1/machine", liveMachine(0, true))
 	e.reply("GET", "/v1/servers", `[]`)
@@ -58,8 +58,8 @@ func joinForCustomers(t *testing.T, e *env, own member) (string, *remoteAgent, *
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, liveMachine(30000, host))
 	})
-	id, _ := e.joinMachine(t, own.cookie, own.csrf, ra)
-	return id, ra, g
+	id, link := e.joinMachine(t, own.cookie, own.csrf, ra)
+	return id, ra, g, link
 }
 
 // lastMachineEvent is the kind and actor of the machine's newest event.
@@ -78,7 +78,7 @@ func lastMachineEvent(t *testing.T, e *env, id string) (kind, actor string) {
 func TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	own := owner(t, e)
-	rid, _, guard := joinForCustomers(t, e, own)
+	rid, _, guard, _ := joinForCustomers(t, e, own)
 	n := &recordingNotifier{}
 	e.srv.notifier = n
 	core := customerCore{s: e.srv}
@@ -173,7 +173,7 @@ func TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt(t *testing.T) {
 func TestConfirmingKeepsServersAwayFromTheMachineFirst(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	own := owner(t, e)
-	rid, _, guard := joinForCustomers(t, e, own)
+	rid, _, guard, _ := joinForCustomers(t, e, own)
 	path := "/api/machines/" + rid + "/customers"
 	unconfirmed := func(what string) {
 		t.Helper()
@@ -245,7 +245,7 @@ func TestAMachineThatsAwayIsntConfirmed(t *testing.T) {
 func TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	own := owner(t, e)
-	rid, ra, _ := joinForCustomers(t, e, own)
+	rid, ra, _, _ := joinForCustomers(t, e, own)
 	ra.reply("GET /v1/catalog", `{"memoryOptionsMB":[2048,4096,8192],"recommendedMemoryMB":8192,"maxMemoryMB":24576,"memoryFreeMB":24576,"servers":[]}`)
 	ra.reply("POST /v1/servers", `{"id":"0123456789abcdef","serverId":"cafebabe23","kind":"create","status":"running"}`)
 	ra.reply("POST /v1/world-imports", `{"id":"0123456789abcdef","files":[]}`)
@@ -276,8 +276,17 @@ func TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn(t *testing.T) {
 		t.Fatalf("the owner's dashboard names a machine their servers go on: %v", ownMe.Access)
 	}
 
-	local := e.localMachine(t)
+	attic := e.addRemote(t, "a2345abcde", "attic")
 	create := `{"name":"alex","acceptEula":true,"memoryMB":4096}`
+	if r := e.do(t, "POST", "/api/machines/"+attic.ID+"/servers", create, alex.auth()); r.status != http.StatusNotFound {
+		t.Fatalf("alex creates a server on a machine they don't see: %d %v", r.status, r.body)
+	}
+	// The owner's server on the dashboard's machine is alex's to use too, so
+	// alex may reach that machine, which isn't theirs to create on.
+	if _, err := e.srv.db.Exec(`UPDATE project_members SET servers = ? WHERE user_id = ?`, sampleServer, info.UserID); err != nil {
+		t.Fatal(err)
+	}
+	local := e.localMachine(t)
 	if r := e.do(t, "POST", "/api/machines/"+local+"/servers", create, alex.auth()); r.status != http.StatusForbidden || !strings.Contains(r.body["error"].(string), "isn't the machine your servers go on") {
 		t.Fatalf("alex creates a server on the dashboard's machine: %d %v", r.status, r.body)
 	}
@@ -326,7 +335,7 @@ func TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn(t *testing.T) {
 func TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	own := owner(t, e)
-	rid, _, guard := joinForCustomers(t, e, own)
+	rid, _, guard, _ := joinForCustomers(t, e, own)
 	e.srv.notifier = &recordingNotifier{}
 	guardPath := "/api/machines/" + rid + "/network-guard"
 	if r := e.do(t, "PUT", "/api/machines/"+rid+"/customers", `{"on":true}`, own.auth()); r.status != http.StatusOK {

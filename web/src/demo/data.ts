@@ -818,7 +818,7 @@ export function serverOf(s: DemoState, r: Request): ServerStatus {
 const limit = (r: Request, fallback: number) => Number(r.query.get('limit') ?? fallback) || fallback
 
 /** Everything an owner may do, as the panel's permit lists it for them. */
-const ownerCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'files.view', 'files.edit']
+const ownerCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'files.view', 'files.edit', 'machines.view']
 
 export function me(now: number): Me {
   return {

@@ -143,10 +143,11 @@ interface Checked {
 }
 
 /** Why the machine given can't take a new server now, if it can't: it isn't connected to the dashboard, or it's away. */
-function unavailable(machine: string | undefined, target: MachineView | undefined, machines: MachineView[]): string | undefined {
+function unavailable(machine: string | undefined, target: MachineView | undefined, machines: MachineView[], sees: boolean): string | undefined {
   if (!machine || machines.length === 0) return undefined
-  if (!target) return t('new.machineGone')
-  return isAway(target) ? t('machines.away.pill', { name: machineLabel(target) }) : undefined
+  if (!target) return sees ? t('new.machineGone') : t('machines.away.pillHidden')
+  if (!isAway(target)) return undefined
+  return sees ? t('machines.away.pill', { name: machineLabel(target) }) : t('machines.away.pillHidden')
 }
 
 /**
@@ -165,7 +166,9 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const froms = importer ? startFroms : startFroms.filter((f) => f.value !== 'world')
   const asked = chooser ? machine : ws.me.access.home
   const target = asked ? ws.machines.find((m) => m.id === asked) : ws.machine
-  const away = unavailable(asked, target, ws.machines)
+  // A creator or customer sees their plan, never the machine.
+  const sees = can(ws.me, 'machines.view')
+  const away = unavailable(asked, target, ws.machines, sees)
   const machineName = target?.kind === 'remote' || (asked && !target) ? machineLabel(target) : ws.machineName
   const [c, setC] = useState<CreateChoices>()
   const [step, setStep] = useState(0)
@@ -282,7 +285,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
       case 2:
         return undefined
       case 3:
-        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: machineName }) : planPending ? t('reason.checkingPack') : undefined
+        return noMemory || c.memoryMB <= 0 ? (sees ? t('home.newServerFull', { machine: machineName }) : t('new.noMemoryTitle')) : planPending ? t('reason.checkingPack') : undefined
       default:
         return (packed || templated ? nameBlocked(c) : createBlocked(c, version)) ?? (planPending ? t('reason.checkingPack') : undefined)
     }
@@ -654,17 +657,17 @@ export function NewServerPage({ machine }: { machine?: string }) {
             </div>
             {noMemory ? (
               <Notice tone="warning" title={t('new.noMemoryTitle')}>
-                {t('new.noMemory', { machine: machineName })}
+                {sees ? t('new.noMemory', { machine: machineName }) : t('new.noMemoryPlan')}
               </Notice>
             ) : (
               <>
                 {short && largest !== undefined && (
-                  <Notice tone="warning" title={t('new.packShortTitle', { machine: machineName })}>
+                  <Notice tone="warning" title={sees ? t('new.packShortTitle', { machine: machineName }) : t('settings.memoryNoRoomPlan')}>
                     {t('new.packShort', { pack: short.name, need: formatMB(packMB), max: formatMB(largest) })}
                   </Notice>
                 )}
                 <Card className="p-4">
-                  <h3 className="text-sm font-semibold">{t('new.machineHas', { machine: machineName, total: formatMB(catalog.hostMemoryMB) })}</h3>
+                  <h3 className="text-sm font-semibold">{sees ? t('new.machineHas', { machine: machineName, total: formatMB(catalog.hostMemoryMB) }) : t('new.planHas', { total: formatMB(catalog.hostMemoryMB) })}</h3>
                   <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{others[0] ? t('new.shareHintStopped', { server: others[0].name }) : t('new.shareHint')}</p>
                   <MemoryBar catalog={catalog} memoryMB={c.memoryMB} />
                 </Card>
@@ -685,7 +688,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
                   </div>
                   {largest !== undefined && (
                     <p className="mt-4 text-xs text-muted-foreground">
-                      {catalog.servers.length > 0 ? t('new.maxNote', { memory: formatMB(largest), servers: formatList(catalog.servers.map((x) => x.name)) }) : t('new.maxNoteAlone', { memory: formatMB(largest), machine: machineName })}
+                      {catalog.servers.length > 0 ? t('new.maxNote', { memory: formatMB(largest), servers: formatList(catalog.servers.map((x) => x.name)) }) : sees ? t('new.maxNoteAlone', { memory: formatMB(largest), machine: machineName }) : t('new.maxNotePlan', { memory: formatMB(largest) })}
                     </p>
                   )}
                 </Card>
@@ -725,7 +728,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
             {voicePort !== undefined && (
               <div className="animate-fade rounded-2xl border border-border p-3.5 max-sm:bg-white">
                 <p className="text-[13px] font-semibold max-sm:text-[15px]">{t('voice.ownPort')}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground max-sm:text-[13px]">{t('voice.firewall', { machine: machineName, port: voicePort })}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground max-sm:text-[13px]">{sees ? t('voice.firewall', { machine: machineName, port: voicePort }) : t('voice.firewallHidden')}</p>
               </div>
             )}
             {createError && (
@@ -749,7 +752,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
   // The machine is picked before the flow starts, and stays the same after.
   const started = step > 0 || upload.state.phase !== 'idle'
   const choices = started || !chooser ? [] : ws.machines.filter((m) => m.id === target?.id || !isAway(m))
-  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} machine={machineName} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} world={worldSummary} note={note} />
+  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} machine={sees ? machineName : ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} world={worldSummary} note={note} />
   const worldKeys = world ? worldStepKeys[step] : undefined
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
   const continueLabel =
@@ -833,7 +836,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
       <PageHeader
         breadcrumb={
           <span className="flex items-center gap-1.5">
-            {machineName && (
+            {sees && machineName && (
               <>
                 {machineName}
                 <span className="text-muted-foreground/60" aria-hidden="true">
@@ -845,7 +848,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
           </span>
         }
         title={t('new.title')}
-        subtitle={machineName ? t('new.lead', { machine: machineName }) : undefined}
+        subtitle={sees && machineName ? t('new.lead', { machine: machineName }) : undefined}
         actions={
           <>
             {choices.length > 1 && target && (
@@ -990,7 +993,7 @@ function Summary({ choices: c, step, port, version, machine, from, pack, plan, w
         <Pip pose="wave" size={56} />
         <div>
           <div className="text-[15px] font-semibold">{t('new.summary')}</div>
-          <div className="text-xs text-muted-foreground">{t('new.onMachine', { machine })}</div>
+          {machine && <div className="text-xs text-muted-foreground">{t('new.onMachine', { machine })}</div>}
         </div>
       </div>
       <dl className="mt-4 flex flex-col gap-3 border-t border-border pt-4 text-xs">

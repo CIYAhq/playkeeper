@@ -581,7 +581,7 @@ func (s *Server) hCatalog(w http.ResponseWriter, r *http.Request, sess *session)
 		}
 	}
 	c["servers"], _ = json.Marshal(mine)
-	if sess.Access.creator() {
+	if sess.Access.hidesMachines() {
 		if err := s.capCatalog(r.Context(), sess.Access, m, r.URL.Query().Get("server"), c); err != nil {
 			s.listFailure(w, err)
 			return

@@ -14,7 +14,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   put: vi.fn(() => Promise.resolve({})),
 }))
 
-const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'machines.view']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',
@@ -140,7 +140,7 @@ describe('Usage stats', () => {
   }
 
   it('shows the state but no switch to those who can’t manage the machine', async () => {
-    const viewer: Me = { ...me, user: { username: 'pia', role: 'member' }, access: { ...me.access, role: 'viewer', can: ['view', 'account.manage'] } }
+    const viewer: Me = { ...me, user: { username: 'pia', role: 'member' }, access: { ...me.access, role: 'viewer', can: ['view', 'account.manage', 'machines.view'] } }
     await renderSettings(usage({}), viewer)
     expect(card().textContent).toContain('On · sent a minute after Playkeeper starts, then twice a day')
     expect(toggle()).toBeNull()

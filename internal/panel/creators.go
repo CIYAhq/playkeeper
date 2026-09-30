@@ -361,9 +361,10 @@ func (s *Server) creatorRestoreFits(w http.ResponseWriter, r *http.Request, a ac
 	return s.creatorMemoryFits(w, r, a, p.ServerID, mb)
 }
 
-// capCatalog trims a machine's catalog for a creator: memory choices only
-// up to what their allowance has left for the server named server (or a new
-// one), and what they use and may use.
+// capCatalog trims a machine's catalog for a creator or customer: memory
+// choices only up to what their allowance has left for the server named
+// server (or a new one), and what they use and may use. The memory it says
+// the machine has is their plan's, since they don't see the machines.
 func (s *Server) capCatalog(ctx context.Context, a access, m machine, server string, c map[string]json.RawMessage) error {
 	use, err := s.allowanceUse(ctx, a, m, server)
 	if err != nil {
@@ -398,6 +399,8 @@ func (s *Server) capCatalog(ctx context.Context, a access, m machine, server str
 	c["recommendedMemoryMB"], _ = json.Marshal(rec)
 	c["maxMemoryMB"], _ = json.Marshal(min(most, left))
 	c["memoryFreeMB"], _ = json.Marshal(min(free, left))
+	c["hostMemoryMB"], _ = json.Marshal(a.Allowance.MemoryMB)
+	c["systemReserveMB"], _ = json.Marshal(0)
 	used := use.memoryMB + use.memory[server]
 	c["allowance"], _ = json.Marshal(map[string]int{"servers": a.Allowance.Servers, "memoryMB": a.Allowance.MemoryMB,
 		"serversUsed": use.servers, "memoryUsedMB": used})
@@ -489,9 +492,10 @@ func (s *Server) hMapAreaSet(w http.ResponseWriter, r *http.Request, sess *sessi
 }
 
 // hPregen is where pre-generating a server's map stands, offering a creator
-// only the sizes they may start.
+// or customer only the sizes they may start, with their plan's disk free
+// (see planDisk).
 func (s *Server) hPregen(w http.ResponseWriter, r *http.Request, sess *session) {
-	if !sess.Access.creator() {
+	if !sess.Access.hidesMachines() {
 		s.serverProxy("GET", "/v1/servers/{id}/pregen")(w, r, sess)
 		return
 	}
@@ -518,6 +522,11 @@ func (s *Server) hPregen(w http.ResponseWriter, r *http.Request, sess *session) 
 		}
 	}
 	v["presets"], _ = json.Marshal(kept)
+	var machineFree int64
+	if json.Unmarshal(v["diskFreeBytes"], &machineFree) == nil && v["diskFreeBytes"] != nil {
+		free, _ := s.planDisk(sess.Access, machineFree)
+		v["diskFreeBytes"], _ = json.Marshal(free)
+	}
 	writeJSON(w, status, v)
 }
 

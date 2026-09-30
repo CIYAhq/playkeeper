@@ -73,7 +73,7 @@ export function CrossplayRows({ server: s }: { server: ServerStatus }) {
   )
   const todo = (
     <ul className="flex flex-col gap-1 text-[13px] leading-[18px] text-muted-foreground">
-      {port ? <li>{t('crossplay.firewall', { port })}</li> : null}
+      {port && place.name ? <li>{t('crossplay.firewall', { port })}</li> : null}
       <li>
         {t('crossplay.consoles')}{' '}
         <a href={bedrockConsolesUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-success-strong hover:underline">
@@ -184,7 +184,7 @@ function CrossplayBody({ server: s, on, view, phone, onClose, onDone }: { server
               <span className="text-lg font-bold tracking-[-0.01em]">{t('voice.port', { port })}</span>
               <span className="text-[13px] text-muted-foreground">{t('voice.onePort')}</span>
             </p>
-            <p className="mt-1 text-[15px] leading-5 text-muted-foreground">{t('voice.firewallPhone', { port })}</p>
+            <p className="mt-1 text-[15px] leading-5 text-muted-foreground">{place.name ? t('voice.firewallPhone', { port }) : t('voice.firewallHidden')}</p>
           </>
         ) : (
           <div className="flex gap-5">
@@ -194,11 +194,13 @@ function CrossplayBody({ server: s, on, view, phone, onClose, onDone }: { server
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-semibold">{t('crossplay.ownPort')}</p>
-              <p className="mt-0.5 text-xs leading-[18px] text-muted-foreground">{t('voice.firewall', { machine: place.name, port })}</p>
-              <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-success-strong hover:underline">
-                {t('onboarding.check.firewallLink')}
-                <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-              </a>
+              <p className="mt-0.5 text-xs leading-[18px] text-muted-foreground">{place.name ? t('voice.firewall', { machine: place.name, port }) : t('voice.firewallHidden')}</p>
+              {place.name && (
+                <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-success-strong hover:underline">
+                  {t('onboarding.check.firewallLink')}
+                  <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+                </a>
+              )}
             </div>
           </div>
         )}
