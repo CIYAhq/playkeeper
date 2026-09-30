@@ -1054,6 +1054,68 @@ func TestACopyLeftOnARemovedMachineIsntTakenForTheServer(t *testing.T) {
 	}
 }
 
+// A machine that lists a server again after deleting the copy a move left
+// there has its own record of that copy taken up again, to delete it once
+// more, and the copy another host's removed machine had stays recorded for
+// that host.
+func TestAMachineListingItsDeletedCopyAgainKeepsAnotherHostsCopy(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	owner(t, e)
+	e.reply("GET", "/v1/servers", `[]`)
+	alpha := e.addRemote(t, "a2345abcde", "alpha")
+	gamma := e.addRemote(t, "c2345abcde", "gamma")
+	local, err := e.srv.machineByID(e.localMachine(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := e.srv
+	ctx := context.Background()
+	s.claimLocal(local, serverList("againsrv23"), s.now())
+	for _, m := range []machine{alpha, gamma} {
+		if err := leftCopy(ctx, s.db, "againsrv23", m.ID, 7, movedBackupDays, millis(s.now())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`UPDATE left_copies SET left_at = ? WHERE machine_id = ?`, millis(s.now()), gamma.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE machines SET revoked_at = 1 WHERE id = ?`, alpha.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.add(time.Minute)
+	if got := s.claimServers(gamma, serverList("againsrv23")); len(got) != 0 {
+		t.Errorf("gamma, listing the copy it deleted again, runs it: %v", got)
+	}
+	var left int64
+	if err := s.db.QueryRow(`SELECT left_at FROM left_copies WHERE server_id = 'againsrv23' AND machine_id = ?`, gamma.ID).Scan(&left); err != nil || left != 0 {
+		t.Errorf("gamma isn't asked to delete its copy again: left at %d (%v)", left, err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM left_copies WHERE server_id = 'againsrv23' AND machine_id = ? AND left_at = 0`, alpha.ID).Scan(&n); err != nil || n != 1 {
+		t.Errorf("the copy alpha's host has went from the records: %d (%v)", n, err)
+	}
+}
+
+// A customer's disk isn't split while it can't be told whether a move of
+// theirs is under way, since the last counts may be from before its
+// servers switched machines.
+func TestADiskSplitNeedsToKnowNoMoveIsUnderWay(t *testing.T) {
+	f := newMoveFleet(t)
+	ctx := context.Background()
+	if _, err := f.e.srv.db.Exec(`UPDATE customer_homes SET machine_id = ? WHERE user_id = ?`, f.local, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if !f.e.srv.splitDisk(ctx, f.alex.id) {
+		t.Fatal("alex, whose servers are apart with no move under way, doesn't have their disk split")
+	}
+	if _, err := f.e.srv.db.Exec(`ALTER TABLE server_moves RENAME TO server_moves_gone`); err != nil {
+		t.Fatal(err)
+	}
+	if f.e.srv.splitDisk(ctx, f.alex.id) {
+		t.Error("alex's disk is split while it can't be told whether a move of theirs is under way")
+	}
+}
+
 // A failed move's copy left on a removed machine can't be told from the
 // server itself once the server's own machine was removed too: a new
 // machine listing it is neither given the server nor asked to delete what

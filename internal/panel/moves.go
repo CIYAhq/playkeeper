@@ -215,11 +215,11 @@ func (s *Server) customerMoving(ctx context.Context, userID int64) bool {
 
 // moveUnderWay reports whether customer userID's servers are being moved,
 // or a restart stopped their move before it ended, rather than it stopping
-// on an error.
+// on an error. When that can't be read, one is.
 func (s *Server) moveUnderWay(ctx context.Context, userID int64) bool {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM customer_moves WHERE user_id = ? AND error = '') + (SELECT COUNT(*) FROM server_moves WHERE user_id = ?)`, userID, userID).Scan(&n)
-	return err == nil && n > 0
+	return err != nil || n > 0
 }
 
 // serversApart reports whether any server customer userID created is on a
@@ -1084,8 +1084,10 @@ const leftOnRemoved = `server_id = ? AND left_at = 0 AND machine_id NOT IN (SELE
 // is joined and connected (ownerOnline), whatever it is, since that machine's
 // host is another, and has the server. Otherwise one running, stopped since
 // or not saying when may be the server, so it isn't. Each copy is taken
-// once, and the others stay for their hosts. It reports whether it was
-// taken.
+// once, and the others stay for their hosts. When machineID has a copy of
+// its own recorded already, one it deleted (one it hasn't hides the
+// listing), that record is taken up again instead, and no other host's is.
+// It reports whether it was taken.
 func adoptLeftCopy(ctx context.Context, q querier, id, machineID string, sv map[string]any, ownerOnline bool) (bool, error) {
 	var from string
 	err := q.QueryRowContext(ctx, `SELECT machine_id FROM left_copies WHERE `+leftOnRemoved+` AND switched_at > ? ORDER BY switched_at, machine_id LIMIT 1`, id, listedStop(sv)).Scan(&from)
@@ -1098,10 +1100,19 @@ func adoptLeftCopy(ctx context.Context, q querier, id, machineID string, sv map[
 	case err != nil:
 		return false, err
 	}
-	if _, err := q.ExecContext(ctx, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days, switched_at)
+	res, err := q.ExecContext(ctx, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days, switched_at)
 		SELECT server_id, ?, user_id, keep_days, switched_at FROM left_copies WHERE server_id = ? AND machine_id = ?
-		ON CONFLICT(server_id, machine_id) DO NOTHING`, machineID, id, from); err != nil {
+		ON CONFLICT(server_id, machine_id) DO NOTHING`, machineID, id, from)
+	if err != nil {
 		return false, err
+	}
+	added, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if added == 0 {
+		_, err = q.ExecContext(ctx, `UPDATE left_copies SET left_at = 0 WHERE server_id = ? AND machine_id = ?`, id, machineID)
+		return err == nil, err
 	}
 	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, from)
 	return err == nil, err

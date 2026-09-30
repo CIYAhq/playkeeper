@@ -10394,6 +10394,21 @@ control "moving customers: each copy left on a removed machine is taken once, th
   '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, from)' \
   '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE `+leftOnRemoved+` OR machine_id = ?`, id, from)' \
   ./internal/panel '^TestEachCopyLeftOnARemovedMachineIsTakenOnce$'
+control "moving customers: a machine listing a copy it deleted again takes up its own record, not another host's" internal/panel/moves.go \
+  '	if added == 0 {' \
+  '	if added == 0 && false {' \
+  ./internal/panel '^TestAMachineListingItsDeletedCopyAgainKeepsAnotherHostsCopy$'
+# shellcheck disable=SC2016
+control "moving customers: a copy a machine deleted and lists again is deleted once more" internal/panel/moves.go \
+  '		_, err = q.ExecContext(ctx, `UPDATE left_copies SET left_at = 0 WHERE server_id = ? AND machine_id = ?`, id, machineID)' \
+  '		_, err = q.ExecContext(ctx, `UPDATE left_copies SET left_at = left_at WHERE server_id = ? AND machine_id = ?`, id, machineID)' \
+  ./internal/panel '^TestAMachineListingItsDeletedCopyAgainKeepsAnotherHostsCopy$'
+control "moving customers: a customer's disk isn't split while it can't be told whether a move of theirs is under way" internal/panel/moves.go \
+  '	return err != nil || n > 0
+}' \
+  '	return err == nil && n > 0
+}' \
+  ./internal/panel '^TestADiskSplitNeedsToKnowNoMoveIsUnderWay$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside
