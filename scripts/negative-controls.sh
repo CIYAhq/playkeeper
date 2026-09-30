@@ -10358,6 +10358,127 @@ webcontrol "confirming by itself: the Customers card says it was found in the He
   "return found ? t('machines.customers.foundHint', { server: found, date }) :" \
   "return false ? t('machines.customers.foundHint', { server: found, date }) :" \
   src/pages/pages.test.tsx 'confirmed a joined machine itself'
+# Watching the fleet (internal/panel/fleetwatch.go): a joined machine off
+# for 5 minutes and back, room for fewer than 2 Starters across every store,
+# a disk past 75%, a machine busy at its busiest hour three days running,
+# and a server lagging with players on, posted by the dashboard's agent
+# whatever the switches say, and only by a dashboard with a fleet.
+control "fleet watch: a dashboard without a store or joined machines watches nothing" internal/panel/fleetwatch.go \
+  'if len(plans) == 0 && !slices.ContainsFunc(list, func(m machine) bool { return m.Kind == remoteKind }) {' \
+  'if false && len(plans) == 0 && !slices.ContainsFunc(list, func(m machine) bool { return m.Kind == remoteKind }) {' \
+  ./internal/panel '^TestADashboardWithoutAFleetPostsNothingAboutIt$'
+control "fleet watch: a machine is posted off only after 5 minutes" internal/panel/fleetwatch.go \
+  'case !online && !f.offPosted[m.ID] && now.Sub(since) >= fleetOffAfter:' \
+  'case !online && !f.offPosted[m.ID] && now.Sub(since) >= 0:' \
+  ./internal/panel '^TestAMachineOffTheDashboardForFiveMinutesIsPostedAndSoIsItsReturn$'
+control "fleet watch: a machine off is posted once" internal/panel/fleetwatch.go \
+  'case !online && !f.offPosted[m.ID] && now.Sub(since) >= fleetOffAfter:' \
+  'case !online && now.Sub(since) >= fleetOffAfter:' \
+  ./internal/panel '^TestAMachineOffTheDashboardForFiveMinutesIsPostedAndSoIsItsReturn$'
+control "fleet watch: a machine is posted back only after it was posted off" internal/panel/fleetwatch.go \
+  '		if posted {
+			return []api.DiscordNotifyRequest{{Kind: api.DiscordMachineBack,' \
+  '		if posted || true {
+			return []api.DiscordNotifyRequest{{Kind: api.DiscordMachineBack,' \
+  ./internal/panel '^TestAMachineOffTheDashboardForFiveMinutesIsPostedAndSoIsItsReturn$'
+control "fleet watch: a disk is posted past three quarters full" internal/panel/fleetwatch.go \
+  'case full > fleetDiskFull && !f.full[m.ID]:' \
+  'case full > 90 && !f.full[m.ID]:' \
+  ./internal/panel '^TestADiskFillingPastThreeQuartersIsPostedOnce$'
+control "fleet watch: a filling disk is posted once" internal/panel/fleetwatch.go \
+  'case full > fleetDiskFull && !f.full[m.ID]:' \
+  'case full > fleetDiskFull:' \
+  ./internal/panel '^TestADiskFillingPastThreeQuartersIsPostedOnce$'
+control "fleet watch: a disk is posted again only after it was below 70%" internal/panel/fleetwatch.go \
+  '	case full < fleetDiskClear:
+		delete(f.full, m.ID)' \
+  '	case false:
+		delete(f.full, m.ID)' \
+  ./internal/panel '^TestADiskFillingPastThreeQuartersIsPostedOnce$'
+control "fleet watch: a machine's hour ends when the next begins" internal/panel/fleetwatch.go \
+  'ended := h.n > 0 && !h.hour.Equal(hour)' \
+  'ended := false && h.n > 0 && !h.hour.Equal(hour)' \
+  ./internal/panel '^TestAMachineBusyAtItsPeakThreeDaysRunningIsPosted$'
+control "fleet watch: only a day busier than 70% counts toward the run" internal/panel/fleetwatch.go \
+  '			if p > fleetCPUBusy {' \
+  '			if p > 0 {' \
+  ./internal/panel '^TestAMachineBusyAtItsPeakThreeDaysRunningIsPosted$'
+control "fleet watch: a run of busy days is posted once" internal/panel/fleetwatch.go \
+  'if err := rows.Err(); err != nil || busy < fleetCPUDays || posted {' \
+  'if err := rows.Err(); err != nil || busy < fleetCPUDays {' \
+  ./internal/panel '^TestAMachineBusyAtItsPeakThreeDaysRunningIsPosted$'
+control "fleet watch: a server lagging with nobody on isn't posted" internal/panel/fleetwatch.go \
+  'if players == 0 || mspt <= fleetSlowMSPT {' \
+  'if mspt <= fleetSlowMSPT {' \
+  ./internal/panel '^TestAServerLaggingTenMinutesWithPlayersOnIsPosted$'
+control "fleet watch: a server is posted lagging only after 10 minutes" internal/panel/fleetwatch.go \
+  'now.Sub(r.since) >= fleetSlowFor && (last.IsZero() || now.Sub(last) >= fleetSlowQuiet)' \
+  'now.Sub(r.since) >= 0 && (last.IsZero() || now.Sub(last) >= fleetSlowQuiet)' \
+  ./internal/panel '^TestAServerLaggingTenMinutesWithPlayersOnIsPosted$'
+control "fleet watch: a lagging server is posted at most once a day" internal/panel/fleetwatch.go \
+  'now.Sub(r.since) >= fleetSlowFor && (last.IsZero() || now.Sub(last) >= fleetSlowQuiet)' \
+  'now.Sub(r.since) >= fleetSlowFor && (last.IsZero() || true)' \
+  ./internal/panel '^TestAServerLaggingTenMinutesWithPlayersOnIsPosted$'
+control "fleet watch: room is counted in the smallest paid plan's servers" internal/panel/fleetwatch.go \
+  'if !p.Free && p.MemoryMB > 0 && (size == 0 || p.MemoryMB < size) {' \
+  'if p.MemoryMB > 0 && (size == 0 || p.MemoryMB < size) {' \
+  ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: the customers waiting for room get theirs first" internal/panel/fleetwatch.go \
+  'if mb > 0 && !give(free, mb) {' \
+  'if mb > 0 && false {' \
+  ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: little room is posted once" internal/panel/fleetwatch.go \
+  'case room < fleetRoomLow && !f.low:' \
+  'case room < fleetRoomLow:' \
+  ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: little room is posted again only after there was room for 2" internal/panel/fleetwatch.go \
+  '	case room >= fleetRoomLow:
+		f.low = false' \
+  '	case false:
+		f.low = false' \
+  ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: the fleet's alerts go out whatever the switches say" internal/discord/alerts.go \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks:' \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock:' \
+  ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
+control "fleet watch: a machine's name can't format the alert" internal/discord/alerts.go \
+  '	if name = userText(name, 64); name == "" {
+		return "A machine"' \
+  '	if name == "" {
+		return "A machine"' \
+  ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
+control "fleet watch: a lagging server's name can't format the alert" internal/discord/alerts.go \
+  'if s := userText(e.ServerName, 64); s != "" {' \
+  'if s := e.ServerName; s != "" {' \
+  ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
+control "fleet watch: a fleet alert names its machine" internal/agent/discord.go \
+  'named := machine != "" && len(machine) <= 64' \
+  'named := true || machine != "" && len(machine) <= 64' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a machine is off for some time" internal/agent/discord.go \
+  'discord.MachineOff(machine, req.Minutes), named && in(req.Minutes, 1, maxFleetCount)' \
+  'discord.MachineOff(machine, req.Minutes), named && in(req.Minutes, 0, maxFleetCount)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: little room names a plan's memory" internal/agent/discord.go \
+  'in(req.MemoryMB, 1, maxFleetMemory)' \
+  'in(req.MemoryMB, 0, maxFleetMemory)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a disk is at most full" internal/agent/discord.go \
+  'discord.DiskFilling(machine, req.Percent), named && in(req.Percent, 0, 100)' \
+  'discord.DiskFilling(machine, req.Percent), named && in(req.Percent, 0, 1000)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a busy machine's run has days" internal/agent/discord.go \
+  'in(req.Days, 1, 366)' \
+  'in(req.Days, 0, 366)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a lagging server has a name" internal/agent/discord.go \
+  'err == nil && named && in(req.MSPT, 1, maxFleetCount)' \
+  '(err == nil || true) && named && in(req.MSPT, 1, maxFleetCount)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
+control "fleet watch: a lagging server's ticks took some time" internal/agent/discord.go \
+  'err == nil && named && in(req.MSPT, 1, maxFleetCount)' \
+  'err == nil && named && in(req.MSPT, 0, maxFleetCount)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
 webcontrol "room for sale: the card is the owner's alone" web/src/pages/machines.tsx \
   "{can(ws.me, 'machines.customers') && <SaleRoomCard />}" \
   '<SaleRoomCard />' \
