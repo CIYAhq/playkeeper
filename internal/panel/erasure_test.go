@@ -36,7 +36,8 @@ func agentHit(e *env, what string) bool {
 // A customer the owner deletes on request, once their plan ended, loses
 // their account and everything personal the dashboard keeps of them:
 // their server, with every backup and no final one kept, and the final
-// backups a machine keeps for them; their sign-ins and tokens, at once;
+// backups a machine keeps for them; their sign-ins and tokens, at once,
+// even a token the pause left working;
 // their memberships, Whop row and messages at their store; their invites,
 // the copies their moves left, and their server's join requests, players'
 // origins and shared links. A payment of theirs keeps its amounts for the
@@ -47,6 +48,9 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 	e, ctx := p.e, context.Background()
 	p.lapse("succeeded")
 	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE api_tokens SET revoked_at = 0, revoked_by = '' WHERE user_id = ?`, p.alex.id); err != nil {
 		t.Fatal(err)
 	}
 	keptBackupsAt(e.env, map[string]string{"20261013-120000-abc123": keptFor(p.alex.id), "20261013-120000-def456": keptFor(p.alex.id + 1)})
@@ -247,7 +251,7 @@ func TestOnlyTheOwnerDeletesACustomerWhosePlanEnded(t *testing.T) {
 	}{
 		"the wrong name": {`{"confirm":"alex"}`, own.auth(), http.StatusBadRequest},
 		"no name":        {`{}`, own.auth(), http.StatusBadRequest},
-		"an admin":       {`{"confirm":"` + name + `"}`, addMember(t, e, "morgan", "admin", "*").auth(), http.StatusForbidden},
+		"an admin":       {`{"confirm":"` + name + `"}`, addAdmin(t, e, "morgan", "*").auth(), http.StatusForbidden},
 	} {
 		if r := e.do(t, "DELETE", path, c.body, c.auth); r.status != c.status {
 			t.Errorf("%s: %d %v", who, r.status, r.body)
@@ -316,7 +320,7 @@ func TestACustomerIsDeletedSomeDaysAfterTheirServers(t *testing.T) {
 			t.Errorf("setting %s: %d %v", body, r.status, r.body)
 		}
 	}
-	if r := e.do(t, "PUT", "/api/customers/retention", `{"days":45}`, addMember(t, e.env, "morgan", "admin", "*").auth()); r.status != http.StatusForbidden {
+	if r := e.do(t, "PUT", "/api/customers/retention", `{"days":45}`, addAdmin(t, e.env, "morgan", "*").auth()); r.status != http.StatusForbidden {
 		t.Fatalf("an admin setting it: %d %v", r.status, r.body)
 	}
 	e.clock.add(2 * 24 * time.Hour)
