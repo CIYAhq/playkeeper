@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/whop"
@@ -161,8 +162,13 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such override"}}`)
 	case route == "GET /payments":
 		q := r.URL.Query()
+		after, _ := time.Parse(time.RFC3339, q.Get("created_after"))
 		var data []map[string]any
 		for _, p := range b.payments {
+			created, err := time.Parse(time.RFC3339Nano, fmt.Sprint(p["created_at"]))
+			if err == nil && !after.IsZero() && !created.After(after) {
+				continue
+			}
 			if (q.Get("membership_id") == "" || p["membership_id"] == q.Get("membership_id")) && p["status"] == q.Get("status") {
 				data = append(data, p)
 			}

@@ -206,14 +206,18 @@ func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	if amount, share, refunded, user, plan := kept("pay_mem_kim"); amount != 1200 || share != 850 || refunded != 0 || user != "user_kim" || plan != "plan_other" {
 		t.Fatalf("the payment kim started on: %d paid, %d shared, %d refunded, by %q for %q", amount, share, refunded, user, plan)
 	}
+	// The renewal is read once; the read after next, over an hour on, goes
+	// back only to an hour before the last, so its refund alone brings it
+	// back.
 	f.mu.Lock()
 	b := f.installed["biz_other"]
-	b.payments = append([]map[string]any{{"id": "pay_renew", "status": "paid", "membership_id": "mem_kim", "plan_id": "plan_other", "paid_at": "2026-10-24T12:00:00.000Z",
+	b.payments = append([]map[string]any{{"id": "pay_renew", "status": "paid", "membership_id": "mem_kim", "plan_id": "plan_other",
+		"created_at": e.clock.now().Add(time.Minute).UTC().Format(time.RFC3339), "paid_at": e.clock.now().Add(time.Minute).UTC().Format(time.RFC3339),
 		"user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
 	b.fees["pay_renew"] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
 		"settlement_amount": map[string]any{"amount": "8.50", "currency": "usd", "decimals": 2}}}
 	f.mu.Unlock()
-	e.clock.add(2 * whopPollEvery)
+	e.clock.add(90 * time.Minute)
 	e.reconcile()
 	if amount, share, refunded, _, _ := kept("pay_renew"); amount != 1200 || share != 850 || refunded != 0 {
 		t.Fatalf("the renewal: %d paid, %d shared, %d refunded", amount, share, refunded)
@@ -222,7 +226,7 @@ func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	b.payments[0]["refunded_amount"] = map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
 	b.refunds = append(b.refunds, map[string]any{"id": "ref_1", "payment_id": "pay_renew", "status": "succeeded"})
 	f.mu.Unlock()
-	e.clock.add(2 * whopPollEvery)
+	e.clock.add(90 * time.Minute)
 	e.reconcile()
 	if _, _, refunded, _, _ := kept("pay_renew"); refunded != 1200 {
 		t.Fatalf("the refunded renewal: %d refunded", refunded)
