@@ -754,10 +754,30 @@ func (s *Site) addDirectory() error {
 		open.dir = &DirView{Kind: "open", Category: t.Primary(), Template: t}
 		s.pages = append(s.pages, open)
 	}
-	for p := range own {
-		return fmt.Errorf("site/pages has a page at %s, which is no category with a listed template, nor a listed template: a guide whose templates are all held or unchecked comes down until one is listed", p)
+	for path, p := range own {
+		if !ownUnderTemplates(p) {
+			return fmt.Errorf("site/pages has a page at %s, which is no category with a listed template, nor a listed template: a guide whose templates are all held or unchecked comes down until one is listed", path)
+		}
+		id := strings.TrimPrefix(path, "/templates/")
+		if checkSlug("page", id) != nil {
+			return fmt.Errorf("%s: a page of the site's own under /templates, with none of the directory's layouts, is one word under it, like /templates/ai-build-battle, and not page", path)
+		}
+		if d.tax.Categories[id] != nil {
+			return fmt.Errorf("%s is the address of category %s in taxonomy.json, which lists no template yet: it's that category's page, with layout: category", path, id)
+		}
 	}
 	return nil
+}
+
+// dirLayouts are the directory's layouts.
+var dirLayouts = []string{"directory", "category", "template", "open"}
+
+// ownUnderTemplates reports whether p is a page of the site's own under
+// /templates, with none of the directory's layouts, like the AI build
+// battle's: one word under /templates where no category is, listed or not,
+// so neither can take the other's address.
+func ownUnderTemplates(p *Page) bool {
+	return strings.HasPrefix(p.Path, "/templates/") && !slices.Contains(dirLayouts, p.Layout)
 }
 
 // directoryPage makes p one of the directory's pages: its section, styles
