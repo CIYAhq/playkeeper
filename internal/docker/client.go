@@ -432,6 +432,7 @@ type ContainerJSON struct {
 		Memory       int64                    `json:"Memory"`
 		NanoCPUs     int64                    `json:"NanoCpus"`
 		PortBindings map[string][]PortBinding `json:"PortBindings"`
+		Binds        []string                 `json:"Binds"`
 	} `json:"HostConfig"`
 	NetworkSettings struct {
 		Networks map[string]struct {

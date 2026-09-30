@@ -18,6 +18,8 @@ import (
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // Modrinth serves most icons as WebP
+
+	"github.com/CIYAhq/playkeeper/internal/addons"
 )
 
 // Add-ons' icons: what each listed template installs, plugins, mods or its
@@ -25,7 +27,9 @@ import (
 // fetched while the site builds (Options.Icons) and published as its own
 // assets, since the Content-Security-Policy keeps images to the site's own.
 // A project without an icon, or whose source doesn't answer, shows its
-// initial instead, as every add-on does without a fetcher.
+// initial instead, as every add-on does without a fetcher. Playkeeper's own
+// plugins are on no registry: they always show their initial, and no
+// fetcher is asked about them.
 
 // iconSize is the side of the square each icon is published at: twice the
 // largest it's shown, 40 pixels on a template's page.
@@ -36,7 +40,7 @@ const maxIconFile = 2 << 20
 
 // Project is an add-on or modpack on the source it comes from.
 type Project struct {
-	// Source is modrinth, hangar or curseforge.
+	// Source is modrinth, hangar, curseforge or playkeeper.
 	Source, ID, Slug string
 }
 
@@ -90,7 +94,8 @@ func (c *TemplateCard) IconOf(slug string) *asset {
 
 // addIcons fetches the icons of what the listed templates install and
 // publishes each as icons/<source>-<id>.png, and returns the projects left
-// with their initial.
+// with their initial. Playkeeper's own plugins are neither fetched nor
+// returned.
 func (s *Site) addIcons() ([]string, error) {
 	icons := map[string]*asset{}
 	var want []Project
@@ -98,7 +103,7 @@ func (s *Site) addIcons() ([]string, error) {
 	for _, c := range s.dir.Templates {
 		c.icons = icons
 		for _, p := range c.projects() {
-			if !seen[p.key()] {
+			if !seen[p.key()] && p.Source != string(addons.Playkeeper) {
 				seen[p.key()] = true
 				want = append(want, p)
 			}

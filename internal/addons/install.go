@@ -39,8 +39,9 @@ type Progress struct {
 // Install carries out PlanInstall's plan. Every file is downloaded from the
 // source's own hosts into TempDir and checked against the published size and
 // hash before anything is written to the server's folder; then the files are
-// put in place without overwriting anything. It refuses when req.Fingerprint
-// is set and the plan has changed since.
+// put in place without overwriting anything. Playkeeper's own plugins are
+// written into TempDir from the binary instead, and checked the same way. It
+// refuses when req.Fingerprint is set and the plan has changed since.
 func (l *Library) Install(ctx context.Context, srv Server, installed []Installed, req InstallRequest) (*Result, error) {
 	p, err := l.PlanInstall(ctx, srv, installed, req)
 	if err != nil {
@@ -77,6 +78,9 @@ func (l *Library) apply(ctx context.Context, srv Server, p *Plan, progress func(
 		case s.Size > max:
 			return nil, tooLarge(s, max)
 		}
+		if s.Source == Playkeeper {
+			continue
+		}
 		if _, err := l.stepHosts(s).Check(s.url); err != nil {
 			return nil, downloadError(s, err, max)
 		}
@@ -94,11 +98,16 @@ func (l *Library) apply(ctx context.Context, srv Server, p *Plan, progress func(
 	for i, s := range p.Steps {
 		var received int64
 		progress(Progress{Plan: p, Step: i})
-		path, err := fetch.Download(ctx, l.HTTP, l.stepHosts(s), l.userAgent(), s.url, stage,
-			fetch.Want{Algo: s.HashAlgo, Hash: s.Hash, Size: s.Size, Max: max, Progress: func(n int64) {
-				received = n
-				progress(Progress{Plan: p, Step: i, Received: n})
-			}})
+		want := fetch.Want{Algo: s.HashAlgo, Hash: s.Hash, Size: s.Size, Max: max, Progress: func(n int64) {
+			received = n
+			progress(Progress{Plan: p, Step: i, Received: n})
+		}}
+		var path string
+		if s.Source == Playkeeper {
+			path, err = stageFirstParty(s, stage, want)
+		} else {
+			path, err = fetch.Download(ctx, l.HTTP, l.stepHosts(s), l.userAgent(), s.url, stage, want)
+		}
 		if err != nil {
 			return nil, downloadError(s, err, max)
 		}

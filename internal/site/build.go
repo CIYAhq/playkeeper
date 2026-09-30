@@ -53,8 +53,10 @@ type Output struct {
 	// redirects that follow the settings.
 	Nginx []byte
 	// Policy is the Content-Security-Policy nginx sends with every page but
-	// /start, whose own is StartPolicy; cmd/site -serve sends them too.
-	Policy, StartPolicy string
+	// /start, whose own is StartPolicy, and Films, the other pages that play
+	// a film, whose own is FilmPolicy; cmd/site -serve sends them too.
+	Policy, StartPolicy, FilmPolicy string
+	Films                           []string
 	// NoIcons are the projects that kept their initial though Options.Icons
 	// was set, with why.
 	NoIcons []string
@@ -148,6 +150,9 @@ func Build(o Options) (*Output, error) {
 		}
 	}
 	sort.SliceStable(s.posts, func(i, j int) bool { return s.posts[i].Published > s.posts[j].Published })
+	if err := checkShort(s.pages); err != nil {
+		return nil, err
+	}
 	if err := s.addSearchIndex(); err != nil {
 		return nil, err
 	}
@@ -179,6 +184,9 @@ func Build(o Options) (*Output, error) {
 			}
 			return nil, fmt.Errorf("%s (%s): %w", p.Path, src, err)
 		}
+		if err := checkFilm(p, html); err != nil {
+			return nil, err
+		}
 		out.Files[p.outFile()] = html
 	}
 	for _, a := range s.assets {
@@ -193,9 +201,26 @@ func Build(o Options) (*Output, error) {
 	out.Files["sitemap.xml"] = sitemap(o.Settings.BaseURL, s.pages, day)
 	out.Files["robots.txt"] = robots(o.Settings.BaseURL)
 	out.Files["blog/feed.xml"] = feed(o.Settings, s.posts)
-	out.Nginx = nginxInclude(o.Settings)
-	out.Policy, out.StartPolicy = contentSecurityPolicy(o.Settings, false), contentSecurityPolicy(o.Settings, true)
+	out.Nginx = nginxInclude(o.Settings, s.pages)
+	out.Policy, out.StartPolicy, out.FilmPolicy = contentSecurityPolicy(o.Settings, false, false), contentSecurityPolicy(o.Settings, true, true), contentSecurityPolicy(o.Settings, true, false)
+	for _, p := range films(s.pages) {
+		out.Films = append(out.Films, p.Path)
+	}
 	return out, nil
+}
+
+// checkFilm holds a page's film to its film setting: a <video> needs the
+// policy that lets the site's media in, and a page without one keeps the
+// site's, which doesn't. /start's location lets its film in.
+func checkFilm(p *Page, html []byte) error {
+	video := bytes.Contains(html, []byte("<video"))
+	switch {
+	case video && !p.Film && p.Path != "/start":
+		return fmt.Errorf("%s plays a <video>, which the site's Content-Security-Policy blocks: give it film: true", p.Path)
+	case p.Film && !video:
+		return fmt.Errorf("%s has film: true, but plays no <video>: drop the setting, so its policy lets in no more than the site's", p.Path)
+	}
+	return nil
 }
 
 var reRelease = regexp.MustCompile(`(?m)^## (\d+\.\d+\.\d+)\s*$`)

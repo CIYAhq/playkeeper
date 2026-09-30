@@ -121,15 +121,17 @@ var (
 // error page's sentences are its own: said on no other page under the same
 // hub. Pages
 // kept out of search engines, like a template's page without notes of its
-// own, don't compete, so they aren't compared.
+// own, don't compete, so they aren't compared, nor are the site's own pages
+// under /templates, like the AI build battle's, which no template makes.
 func TestModpackAndTemplatePagesAreMostlyTheirOwn(t *testing.T) {
 	built := pages(build(t, Default))
+	ownPage := ownPages(t)
 	for _, hub := range []string{"/modpacks/", "/templates/", "/errors/"} {
 		t.Run(strings.Trim(hub, "/"), func(t *testing.T) {
 			sentences := map[string][]string{}
 			seen := map[string]int{}
 			for p, html := range built {
-				if !strings.HasPrefix(p, hub) || strings.Contains(html, `<meta name="robots" content="noindex">`) {
+				if !strings.HasPrefix(p, hub) || strings.Contains(html, `<meta name="robots" content="noindex">`) || ownPage[p] {
 					continue
 				}
 				m := reArticle.FindStringSubmatch(html)

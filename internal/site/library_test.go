@@ -23,17 +23,23 @@ import (
 // server by hand, it opens its template, and the hub and the sitemap list
 // it. The directory's own pages are checked in directory_test.go.
 func TestLibraryPagesFollowTheirTemplates(t *testing.T) {
-	o := build(t, Default)
+	libraryPagesFollow(t, os.DirFS("../.."), build(t, Default))
+}
+
+// libraryPagesFollow checks the library pages of o, a site built from root,
+// as TestLibraryPagesFollowTheirTemplates says.
+func libraryPagesFollow(t *testing.T, root fs.FS, o *Output) {
+	t.Helper()
 	built := pages(o)
-	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	cards, err := loadTemplateCards(root, "site/data/templates")
 	if err != nil {
 		t.Fatal(err)
 	}
-	checked, err := checks.Read(os.DirFS("../.."), "site/data/checks")
+	checked, err := checks.Read(root, "site/data/checks")
 	if err != nil {
 		t.Fatal(err)
 	}
-	library, err := loadLibrary(os.DirFS("../.."), "site/data/library", cards, checked)
+	library, err := loadLibrary(root, "site/data/library", cards, checked)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +64,18 @@ func TestLibraryPagesFollowTheirTemplates(t *testing.T) {
 			`<th scope="row">Memory</th><td>` + gigabytes(budget) + ", " + gigabytes(heap) + " of it for Java</td>",
 			`<th scope="row">Checked</th><td>` + Day(l.Checked) + ": created and started on Playkeeper " + l.Release + ",",
 		}
+		docker := between(page, `<pre id="code-docker"`, `</pre>`)
+		inDocker := []string{
+			"--memory " + gbFlag(budget) + " --memory-swap " + gbFlag(budget),
+			"-e TYPE=" + strings.ToUpper(tpl.Server.Type) + " -e VERSION=" + tpl.Server.MinecraftVersion + " -e MEMORY=" + gbFlag(heap) + " ",
+			"itzg/minecraft-server:java" + java,
+		}
 		for _, p := range l.Plugins {
+			if p.FirstParty() {
+				want = append(want, "<td>"+p.Name+" "+p.Version+" · "+licenceName(p.Licence)+" · ships with Playkeeper</td>")
+				inDocker = append(inDocker, "# "+p.Name+" ships with Playkeeper and no registry has it, so this leaves it out")
+				continue
+			}
 			want = append(want, `<a href="https://modrinth.com/plugin/`+p.Slug+`">`+p.Name+`</a> `+p.Version+" · "+licenceName(p.Licence)+"</td>")
 		}
 		for _, w := range want {
@@ -69,13 +86,12 @@ func TestLibraryPagesFollowTheirTemplates(t *testing.T) {
 		if !strings.Contains(page, `href="`+l.Card().Link+`"`) {
 			t.Errorf("%s doesn't open its template, %s", l.Path(), l.Template)
 		}
-		docker := between(page, `<pre id="code-docker"`, `</pre>`)
-		for _, w := range []string{
-			"--memory " + gbFlag(budget) + " --memory-swap " + gbFlag(budget),
-			"-e TYPE=" + strings.ToUpper(tpl.Server.Type) + " -e VERSION=" + tpl.Server.MinecraftVersion + " -e MEMORY=" + gbFlag(heap) + " ",
-			"-e MODRINTH_PROJECTS=" + l.Projects() + " ",
-			"itzg/minecraft-server:java" + java,
-		} {
+		if p := l.Projects(); p != "" {
+			inDocker = append(inDocker, "-e MODRINTH_PROJECTS="+p+" ")
+		} else if strings.Contains(docker, "MODRINTH_PROJECTS") {
+			t.Errorf("%s's Docker command asks Modrinth for nothing: %s", l.Path(), docker)
+		}
+		for _, w := range inDocker {
 			if !strings.Contains(docker, w) {
 				t.Errorf("%s's Docker command doesn't say %q: %s", l.Path(), w, docker)
 			}
@@ -274,9 +290,9 @@ func TestLibraryFactsTheTemplateCantBackStopTheBuild(t *testing.T) {
 	}
 	good := func() *LibraryPage {
 		return &LibraryPage{ID: "towny", Template: "towny", Checked: "2026-09-28", Release: "0.4.2", Build: "129", DoneSeconds: 15.4, Plugins: []LibraryPlugin{
-			{Name: "LuckPerms", Slug: "luckperms", Version: "5.5.71", Licence: "MIT", Downloads: 1},
-			{Name: "Towny", Slug: "towny", Version: "0.103.2.0", Licence: "LicenseRef-CC-BY-NC-ND-3.0", Downloads: 1},
-			{Name: "Chunky", Slug: "chunky", Version: "1.5.3", Licence: "GPL-3.0-only", Downloads: 1},
+			{Name: "LuckPerms", Source: "modrinth", Slug: "luckperms", Version: "5.5.71", Licence: "MIT", Downloads: 1},
+			{Name: "Towny", Source: "modrinth", Slug: "towny", Version: "0.103.2.0", Licence: "LicenseRef-CC-BY-NC-ND-3.0", Downloads: 1},
+			{Name: "Chunky", Source: "modrinth", Slug: "chunky", Version: "1.5.3", Licence: "GPL-3.0-only", Downloads: 1},
 		}}
 	}
 	if err := good().check(cards); err != nil {
@@ -296,6 +312,8 @@ func TestLibraryFactsTheTemplateCantBackStopTheBuild(t *testing.T) {
 		"a modpack's template":               func(l *LibraryPage) { l.Template = "cobblemon" },
 		"a plugin the template doesn't have": func(l *LibraryPage) { l.Plugins[1].Slug = "townyadvanced" },
 		"a plugin under another name":        func(l *LibraryPage) { l.Plugins[1].Name = "TownyAdvanced" },
+		"a plugin from another source":       func(l *LibraryPage) { l.Plugins[1].Source = "hangar" },
+		"a plugin claimed as Playkeeper's":   func(l *LibraryPage) { l.Plugins[0].Source, l.Plugins[0].Downloads = "playkeeper", 0 },
 		"a plugin left out":                  func(l *LibraryPage) { l.Plugins = l.Plugins[:2] },
 		"plugins in another order":           func(l *LibraryPage) { l.Plugins[0], l.Plugins[1] = l.Plugins[1], l.Plugins[0] },
 		"a plugin without its version":       func(l *LibraryPage) { l.Plugins[0].Version = "" },

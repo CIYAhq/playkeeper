@@ -1914,9 +1914,37 @@ control "an add-on file larger than 512 MiB is refused" internal/addons/addons.g
   'DefaultMaxFileSize = 1 << 62' \
   ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
 control "an add-on's download must match the hash its library publishes" internal/addons/fetch/download.go \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/addons '^TestInstallRefusesBadDownloads$'
+control "Playkeeper's own plugins install only on the server types they run on" internal/addons/firstparty.go \
+  'if !fp.RunsOn(t.Type) {' \
+  'if false && !fp.RunsOn(t.Type) {' \
+  ./internal/addons '^TestPlaykeeperRefusesOtherServerTypes$'
+control "a template's plugin of Playkeeper's own must be one this Playkeeper carries" internal/templates/validate.go \
+  'if src == addons.Playkeeper && firstparty.Lookup(project) == nil {' \
+  'if false && src == addons.Playkeeper && firstparty.Lookup(project) == nil {' \
+  ./internal/templates '^TestValidateRefusesPlaykeeperPlugins$'
+control "a template lists a plugin of Playkeeper's own only for the server types it runs on" internal/templates/validate.go \
+  'return fp != nil && fp.RunsOn(target.Type)' \
+  'return fp != nil' \
+  ./internal/templates '^TestValidateRefusesPlaykeeperPlugins$'
+control "a template's add-on installs only when the file has its pinned hash" internal/templates/install.go \
+  'if p := a.Pin; p != nil && !a.Unpinned && (s.VersionID != p.VersionID || s.HashAlgo != p.HashAlgo || strings.ToLower(s.Hash) != p.Hash) {' \
+  'if p := a.Pin; p != nil && !a.Unpinned && (s.VersionID != p.VersionID || s.HashAlgo != p.HashAlgo) {' \
+  ./internal/templates '^TestInstallPlaykeeperPlugin$'
+control "the site asks no source for an icon of Playkeeper's own plugins" internal/site/icons.go \
+  'if !seen[p.key()] && p.Source != string(addons.Playkeeper) {' \
+  'if !seen[p.key()] && addons.Playkeeper != "" {' \
+  ./internal/site '^TestPlaykeepersOwnPluginsAreListedWithoutARegistry$'
+control "a template page's Docker command asks Modrinth for none of Playkeeper's own plugins" internal/site/library.go \
+  'if a.Source == addons.Playkeeper {' \
+  'if false && a.Source == addons.Playkeeper {' \
+  ./internal/site '^TestPlaykeepersOwnPluginsAreListedWithoutARegistry$'
+control "a library page's plugin facts come from a check of the template's own source" internal/site/library.go \
+  'p.Name != a.Name || p.Source != string(a.Source) || p.Slug != a.Slug' \
+  'p.Name != a.Name || p.Slug != a.Slug' \
+  ./internal/site '^TestLibraryFactsTheTemplateCantBackStopTheBuild$'
 control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
   'err = nil' \
@@ -2303,8 +2331,8 @@ control "the settings check looks again while the pack's mod hasn't used its fil
 	}' \
   ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/modpacks '^TestDownloadsMustMatchThePacksHashes$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'if err := setProperties(d, props); err != nil {
@@ -9613,6 +9641,56 @@ control "removing a machine: only the owner removes one customers are on" intern
   '} else if n > 0 && !sess.Access.owner() {' \
   '} else if n > 0 && false {' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
+
+# AI keys (0.4.9): only admins see, save and remove them; a key must look
+# like its provider's; its file and folder are the game user's alone, beside
+# data/; only a server with the folder mounts it, read-only, so no other
+# server's container changes; the plugin's server gets the folder before it
+# starts; a running container without the mount says it waits for a restart.
+control "seeing whether a server has an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"GET", "/api/servers/{id}/ai-keys", needSession, actViewFiles,' \
+  '{"GET", "/api/servers/{id}/ai-keys", needSession, actView,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "saving an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"PUT", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actEditFiles,' \
+  '{"PUT", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actRunServers,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "removing an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"DELETE", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actEditFiles,' \
+  '{"DELETE", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actRunServers,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "an AI key that isn't its provider's is refused" internal/agent/aikeys.go \
+  'case !strings.HasPrefix(key, p.prefix):' \
+  'case false:' \
+  ./internal/agent '^TestAnAIKeyIsCheckedWithoutBeingQuoted$'
+control "an AI key with spaces or other characters is refused" internal/agent/aikeys.go \
+  "case strings.ContainsFunc(key, func(r rune) bool { return r < '!' || r > '~' }):" \
+  'case false:' \
+  ./internal/agent '^TestAnAIKeyIsCheckedWithoutBeingQuoted$'
+control "an AI key's file is the game user's alone to read" internal/agent/aikeys.go \
+  'err = f.Chmod(0o400)' \
+  'err = f.Chmod(0o644)' \
+  ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
+control "the secrets folder is the game user's alone" internal/agent/aikeys.go \
+  'return s.setSecretsMode(0o500)' \
+  'return s.setSecretsMode(0o755)' \
+  ./internal/agent '^TestAServerWithThePluginMountsItsSecretsFolderFromItsStart$'
+control "only a server with its secrets folder mounts it" internal/agent/lifecycle.go \
+  'if !setupOnly && s.hasSecretsDir() {' \
+  'if !setupOnly {' \
+  ./internal/agent '^TestOnlyAServerWithASecretsFolderMountsIt$'
+control "the secrets folder is mounted read-only" internal/agent/lifecycle.go \
+  'keys := s.secretsDir() + ":" + secretsMount + ":ro"' \
+  'keys := s.secretsDir() + ":" + secretsMount' \
+  ./internal/agent '^TestOnlyAServerWithASecretsFolderMountsIt$'
+control "a server with the AI Build Battle plugin gets its secrets folder before it starts" internal/agent/lifecycle.go \
+  'if err := s.prepareSecrets(); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAServerWithThePluginMountsItsSecretsFolderFromItsStart$'
+control "a key saved while the container lacks the mount waits for a restart" internal/agent/aikeys.go \
+  'out.Pending = set && s.secretsPending(ctx)' \
+  'out.Pending = false' \
+  ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
 
 if [ "$bad" != 0 ]; then
   echo

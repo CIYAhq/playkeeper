@@ -13,7 +13,7 @@
       <tr><th scope="row">Java</th><td>{{$l.Java}}</td></tr>
       <tr><th scope="row">Memory</th><td>{{$l.Memory}}, {{gb $l.JavaHeapMB}} of it for Java</td></tr>
       <tr><th scope="row">Rules</th><td>{{title $l.Difficulty}} difficulty, PvP {{if $l.PVP}}on{{else}}off{{end}}{{if $l.Hardcore}}, hardcore{{end}}, up to {{$l.MaxPlayers}} players</td></tr>
-      {{range $l.Plugins}}<tr><th scope="row">Plugin</th><td><a href="https://modrinth.com/plugin/{{.Slug}}">{{.Name}}</a> {{.Version}} · {{licence .Licence}}</td></tr>
+      {{range $l.Plugins}}<tr><th scope="row">Plugin</th><td>{{if .FirstParty}}{{.Name}} {{.Version}} · {{licence .Licence}} · ships with Playkeeper{{else}}<a href="https://modrinth.com/plugin/{{.Slug}}">{{.Name}}</a> {{.Version}} · {{licence .Licence}}{{end}}</td></tr>
       {{end}}<tr><th scope="row">Checked</th><td>{{day $l.Checked}}: created and started on Playkeeper {{$l.Release}}, ready in {{$l.Done}} seconds with every plugin enabled</td></tr>
     </tbody>
   </table>
@@ -23,7 +23,8 @@
 {{/* library-docker: the template by hand in the itzg image, the one
      Playkeeper runs servers in, sized as Playkeeper sizes it: the container
      gets the template's memory and Java's heap (MEMORY) what Playkeeper
-     would give Java of it. L is the page. */}}
+     would give Java of it. Playkeeper's own plugins aren't on Modrinth, so
+     it says it leaves them out. L is the page. */}}
 {{define "library-docker"}}{{$l := .L}}{{$t := $l.T}}
 <div class="codeblock">
   <div class="code-head">
@@ -33,12 +34,13 @@
     <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
   </div>
 <pre id="code-docker" role="tabpanel" tabindex="0" aria-labelledby="tab-docker"><span class="c"># {{$l.Card.Name}}: {{$l.TypeName}} {{$t.Server.MinecraftVersion}} on Java {{$l.Java}}, {{$l.Memory}} in all</span>
-docker run -d --name {{$l.ID}} -p 25565:25565{{if $l.Has "simple-voice-chat"}} -p 24454:24454/udp{{end}} \
+{{range $l.Plugins}}{{if .FirstParty}}<span class="c"># {{.Name}} ships with Playkeeper and no registry has it, so this leaves it out</span>
+{{end}}{{end}}docker run -d --name {{$l.ID}} -p 25565:25565{{if $l.Has "simple-voice-chat"}} -p 24454:24454/udp{{end}} \
   --memory {{gbFlag $t.Settings.MemoryMB}} --memory-swap {{gbFlag $t.Settings.MemoryMB}} \
   -e EULA=TRUE -e TYPE={{upper $t.Server.Type}} -e VERSION={{$t.Server.MinecraftVersion}} -e MEMORY={{gbFlag $l.JavaHeapMB}} -e USE_AIKAR_FLAGS=TRUE \
   -e DIFFICULTY={{$l.Difficulty}} -e PVP={{$l.PVP}} -e MAX_PLAYERS={{$l.MaxPlayers}}{{if $l.Hardcore}} -e HARDCORE=true{{end}} \
-  -e MODRINTH_PROJECTS={{$l.Projects}} \
-  -v {{$l.ID}}-data:/data itzg/minecraft-server:java{{$l.Java}}</pre>
+{{with $l.Projects}}  -e MODRINTH_PROJECTS={{.}} \
+{{end}}  -v {{$l.ID}}-data:/data itzg/minecraft-server:java{{$l.Java}}</pre>
 </div>
 {{end}}
 

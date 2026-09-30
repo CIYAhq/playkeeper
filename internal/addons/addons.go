@@ -8,6 +8,12 @@
 // two come from there, pinned to a build and checked against the SHA-256
 // GeyserMC publishes for it.
 //
+// Playkeeper's own plugins (internal/addons/firstparty) are the source
+// Playkeeper. They ship inside the binary and arrive only through templates:
+// search and browse never list them, and nothing about them makes a network
+// request. Each has one version, the build the binary carries, written into
+// the folder the way a download is once its size and SHA-256 match.
+//
 // The package keeps no state. Callers pass the server and the add-ons
 // already installed on it, and store the Installed records they get back:
 // the agent's addons table, keyed by (server_id, source, project).
@@ -30,6 +36,8 @@ type Source string
 const (
 	Modrinth Source = "modrinth"
 	Hangar   Source = "hangar"
+	// Playkeeper is the plugins that ship inside Playkeeper itself.
+	Playkeeper Source = "playkeeper"
 )
 
 // Name is the source's name for messages, CurseForge's (modpacks.CurseForge)
@@ -40,6 +48,8 @@ func (s Source) Name() string {
 		return "Modrinth"
 	case Hangar:
 		return "Hangar"
+	case Playkeeper:
+		return "Playkeeper"
 	case "curseforge":
 		return "CurseForge"
 	}
@@ -83,7 +93,7 @@ type Installed struct {
 	Channel       string    `json:"channel"` // release, beta or alpha
 	Published     time.Time `json:"published"`
 	FileName      string    `json:"fileName"` // inside the target folder
-	HashAlgo      string    `json:"hashAlgo"` // sha512 for Modrinth, sha256 for Hangar
+	HashAlgo      string    `json:"hashAlgo"` // sha512 for Modrinth, sha256 for Hangar and Playkeeper
 	Hash          string    `json:"hash"`
 	Size          int64     `json:"size"`
 	// DependencyOf is the project id (same source) of the add-on this one

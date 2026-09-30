@@ -11,6 +11,7 @@
 
 import { ApiError } from '@/api/client'
 import type {
+  AIProvider,
   Action,
   Activity,
   Addon,
@@ -172,6 +173,8 @@ export interface DemoState {
   fileUploads: Record<string, DemoUpload>
   /** Whether usage stats are on, once the switch was used; states from before it have none. */
   usageOn?: boolean
+  /** The providers each server has an AI key for, once one was saved (ai-keys.ts); never a key. */
+  aiKeys?: Record<string, AIProvider[]>
   /** Whether Playkeeper checks for updates by itself, once the switch was used. */
   updateAuto?: boolean
 }
