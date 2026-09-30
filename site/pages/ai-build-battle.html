@@ -17,10 +17,10 @@ styles: css/ai-build-battle.css
 
 {{/* For people who saw the AI build battle videos, most on a phone, from a
      reply on X through /ai: the clip, three steps with Send to my computer
-     beside the install command, and what the template does with their key.
-     The template opens only from Playkeeper 0.4.9, so the page doesn't open
-     it yet. Give the page a hosted setting (a path on the site or an https
-     address) and "Or get it hosted" shows under the install command. */}}
+     beside the install command, Open in my dashboard for those who have
+     Playkeeper, and what the template does with their key. Give the page a
+     hosted setting (a path on the site or an https address) and "Or get it
+     hosted" shows under the install command. */}}
 {{define "main"}}{{$poster := img "film/ai-build-battle-poster.webp"}}
 <section class="band-chalk aibb-hero" aria-labelledby="page-title">
   <div class="container aibb-row">
@@ -54,14 +54,17 @@ styles: css/ai-build-battle.css
         <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div>
           <h3 class="step-title">Pick the template</h3>
           <p>In your dashboard: New server → A template → AI Build Battle. Then paste your OpenRouter key on the server's Overview.</p>
+          {{with shown "ai-build-battle"}}{{$c := card .}}<p class="aibb-after tpage-actions"><a class="link-arrow" href="{{$c.Link}}" data-template-open="{{$c.ID}}">Open in my dashboard{{template "icon" "arrow-right"}}<span class="visually-hidden"> the {{$c.Name}} template</span></a></p>{{end}}
         </div></li>
         <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div>
           <h3 class="step-title">Type <code>/aibuild</code> in Minecraft</h3>
           <p>Say what to build, and watch it go up.</p>
           <p class="aibb-chat"><code>/aibuild a castle on a cliff</code></p>
+          <p class="aibb-after">Or two models side by side, like the videos:</p>
+          <p class="aibb-chat"><code>/aibattle claude gpt a castle on a cliff</code></p>
         </div></li>
       </ol>
-      <p class="fine aibb-needs reveal">Needs Playkeeper 0.4.9 or newer.</p>
+      <p class="fine aibb-needs reveal">Needs Playkeeper 0.4.10 or newer.</p>
     </div>
     <div class="aibb-facts reveal">
       <h2 id="facts-title" class="aibb-facts-title">Good to know</h2>
