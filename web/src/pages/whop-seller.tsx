@@ -5,6 +5,7 @@ import type { WhopSellerOpen } from '@/api/types'
 import { Frame, FrameCard } from '@/components/app/frame'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
+import { SellerStoreView } from './whop-seller-view'
 
 type State =
   | { kind: 'opening' }
@@ -16,7 +17,8 @@ type State =
  * A seller's page inside their Whop dashboard, which Whop shows through its
  * proxy with a token saying who's looking. Opening it registers the business
  * as a store on Playkeeper Cloud, once the business approved everything the
- * app asks for. Its calls go to relative addresses, which carry Whop's token.
+ * app asks for, and then shows the seller's view of it. Its calls go to
+ * relative addresses, which carry Whop's token.
  */
 export function WhopSellerPage({ store }: { store: string }) {
   const [state, setState] = useState<State>(() => (store ? { kind: 'opening' } : { kind: 'refused', text: t('whopSeller.notABusiness') }))
@@ -52,6 +54,7 @@ export function WhopSellerPage({ store }: { store: string }) {
           <>
             <p className="mt-2 text-sm">{t(state.open.new ? 'whopSeller.connected' : 'whopSeller.open', { store: state.open.store.title || state.open.store.id })}</p>
             <p className="mt-2 text-sm text-muted-foreground">{state.open.store.problem ? t('whopSeller.problem', { problem: state.open.store.problem }) : t('whopSeller.next')}</p>
+            <SellerStoreView store={store} />
           </>
         )}
         {state.kind === 'unapproved' && (
