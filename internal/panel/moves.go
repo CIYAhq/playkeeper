@@ -840,6 +840,26 @@ func leftCopy(ctx context.Context, q querier, id, machineID string, userID int64
 	return err
 }
 
+// adoptLeftCopy takes server id on machine machineID for a copy a move
+// left, when a move left one on a machine since removed that wasn't
+// deleted: a removed machine's host joins again only as another machine,
+// so what it lists of the server is that copy, which it deletes as the
+// removed machine would have. It reports whether there was one.
+func adoptLeftCopy(ctx context.Context, q querier, id, machineID string) (bool, error) {
+	const removed = `server_id = ? AND left_at = 0 AND machine_id NOT IN (SELECT id FROM machines WHERE revoked_at = 0)`
+	res, err := q.ExecContext(ctx, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days)
+		SELECT server_id, ?, user_id, keep_days FROM left_copies WHERE `+removed+` LIMIT 1
+		ON CONFLICT(server_id, machine_id) DO NOTHING`, machineID, id)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, nil
+	}
+	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE `+removed, id)
+	return err == nil, err
+}
+
 // abandonMove ends mv, a move that failed before its server's requests
 // went to the machine it was going to: they go where it is again, it
 // starts there again if it ran and its customer isn't paused or suspended,
@@ -1011,8 +1031,9 @@ func (s *Server) leaveMoveCopy(ctx context.Context, mv serverMove) {
 // leaveCopy has machineID delete the copy of server id a move left on it,
 // keeping the final backup its left_copies row says, and records when it
 // went: that machine's listings count again from one asked for after that
-// (see forgetLeft). A removed machine's never count, and a copy that is the
-// server, or one it's moving to, stays.
+// (see forgetLeft). A copy that is the server, or one it's moving to,
+// stays. A removed machine's copy stays recorded, for its host joining
+// again (see adoptLeftCopy).
 func (s *Server) leaveCopy(ctx context.Context, id, machineID string) error {
 	var userID int64
 	var days int
@@ -1029,11 +1050,13 @@ func (s *Server) leaveCopy(ctx context.Context, id, machineID string) error {
 		return errDB
 	}
 	m, err := s.machineByID(machineID)
-	if busy > 0 || errors.Is(err, errNotFound) {
+	switch {
+	case busy > 0:
 		_, err = s.db.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, machineID)
 		return err
-	}
-	if err != nil {
+	case errors.Is(err, errNotFound):
+		return nil
+	case err != nil:
 		return err
 	}
 	var st api.ServerStatus

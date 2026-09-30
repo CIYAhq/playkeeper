@@ -723,6 +723,50 @@ func TestACopyLeftOnTheDashboardsMachineIsNeverTheServer(t *testing.T) {
 	}
 }
 
+// A copy a move left on a machine that was removed before it could delete
+// it isn't forgotten. That machine's host can only join again as a new
+// machine, and when it lists the copy, the copy is taken for what it is
+// and deleted, keeping its final backup, rather than disputing the server
+// on the machine it moved to.
+func TestACopyLeftOnARemovedMachineIsntTakenForTheServer(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	owner(t, e)
+	e.reply("GET", "/v1/servers", `[]`)
+	alpha := e.addRemote(t, "a2345abcde", "alpha")
+	beta := e.addRemote(t, "b2345abcde", "beta")
+	s := e.srv
+	ctx := context.Background()
+	s.claimServers(beta, serverList("movedsrv23"))
+	if err := leftCopy(ctx, s.db, "movedsrv23", alpha.ID, 7, movedBackupDays); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE machines SET revoked_at = 1 WHERE id = ?`, alpha.ID); err != nil {
+		t.Fatal(err)
+	}
+	s.leaveLeftovers(ctx)
+
+	gamma := e.addRemote(t, "c2345abcde", "gamma")
+	if got := s.claimServers(gamma, serverList("movedsrv23", "gammasrv23")); len(got) != 1 || got[0]["id"] != "gammasrv23" {
+		t.Errorf("alpha's host, joined again as gamma, shows the copy a move left there: %v", got)
+	}
+	var m, disputed string
+	if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = 'movedsrv23'`).Scan(&m, &disputed); err != nil || m != beta.ID || disputed != "" {
+		t.Errorf("the server that moved to beta is on %q, disputed by %q (%v)", m, disputed, err)
+	}
+	var user int64
+	var days int
+	if err := s.db.QueryRow(`SELECT user_id, keep_days FROM left_copies WHERE server_id = 'movedsrv23' AND machine_id = ? AND left_at = 0`, gamma.ID).Scan(&user, &days); err != nil || user != 7 || days != movedBackupDays {
+		t.Errorf("gamma isn't asked to delete the copy keeping its final backup: %d %d %v", user, days, err)
+	}
+	if n := func() int {
+		var n int
+		s.db.QueryRow(`SELECT COUNT(*) FROM left_copies WHERE machine_id = ?`, alpha.ID).Scan(&n)
+		return n
+	}(); n != 0 {
+		t.Errorf("alpha still has %d copies recorded once gamma has its copy", n)
+	}
+}
+
 // A copy of the server still on the machine it's going to, which an
 // earlier move left there, is an old one: the move deletes it and makes
 // the server there from a new backup, and the copy's record goes once the
