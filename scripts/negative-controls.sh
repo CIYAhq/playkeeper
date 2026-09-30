@@ -6699,6 +6699,10 @@ control "turning the dashboard's port off while a look asks the agent stays off"
   'p.dashboard, p.reached, p.gen = false, false, p.gen+1' \
   'p.dashboard, p.reached, p.gen = false, false, p.gen+0' \
   ./internal/panel '^TestALookDoesntUndoWhatChangedWhileItAsked$'
+control "the card checks port 443 only once the panel answers there" internal/panel/dashboard443.go \
+  'v.Serving = p.held[0] != nil && p.dashboard && strings.EqualFold(p.host, host)' \
+  'v.Serving = true' \
+  ./internal/panel '^TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress$'
 control "the check's answer gets through to a page at the panel's port" internal/panel/dashboard443.go \
   'h.Set("Cross-Origin-Resource-Policy", "cross-origin")' \
   'h.Set("Cross-Origin-Resource-Policy", "same-origin")' \
@@ -6759,6 +6763,10 @@ webcontrol "the browser's check of port 443 sends no cookies" web/src/pages/mach
   "credentials: 'omit'" \
   "credentials: 'include'" \
   src/pages/machine-settings/dashboard-port.test.tsx 'checks from this browser that port 443 answers'
+webcontrol "the card's check of port 443 waits for the panel to answer there" web/src/pages/machine-settings/dashboard-port.tsx \
+  '!v.reached && !!v.serving && !!url' \
+  '!v.reached && !!url' \
+  src/pages/machine-settings/dashboard-port.test.tsx 'checks only once the panel answers port 443'
 webcontrol "the card says this browser is inside only once the panel didn't count its visit" web/src/pages/machine-settings/dashboard-port.tsx \
   '        window.setTimeout(() => {' \
   "        setReach('ok'); window.setTimeout(() => {" \
