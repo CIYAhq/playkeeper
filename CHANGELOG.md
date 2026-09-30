@@ -2,6 +2,11 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.12
+
+- **Moving customers:** when you sell on Whop, a machine's page in **Settings › Machines** lists the customers whose servers run on it, and **Move…** moves one to another machine that takes customers and has room for their plan. Their servers are checked first, so a move that can't go, for want of room on that machine's disk or a folder too big to carry, is refused before any of them stops, saying why. Each of their servers stops for a few minutes and goes over with its whole folder and its settings: schedules, sleep, backup rules, public page, links and copies somewhere else. It starts again there if it was running or asleep, and keeps its members, invites and address without a port. The machine it leaves keeps its whole folder for 7 days. Customers only see that a server is being moved. An AI key doesn't go along, as it never leaves its machine, so it's pasted again. The owner's alone. A move that stops partway leaves a customer's servers on two machines until it's run again, and meanwhile they get their plan's disk once between the two, not on each.
+- **Removing a machine customers are on** gives them room on another machine to start again, so they can create servers. Move them first to take their servers along. Only the owner can remove one. With no room anywhere, they're told there's no room for their servers right now, not that one is being set up, and told again once there is.
+
 ## 0.4.11
 
 - **Selling on Whop without its webhook:** when Whop won't add or keep the webhook, the dashboard now reads the store's memberships every minute instead of every 10, so a buyer is started and messaged within about a minute. With the webhook it still reads them every 10 minutes, as a backstop.

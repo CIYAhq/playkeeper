@@ -73,7 +73,7 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
       return { tone, label: statusLabel(st), detail: at ? relativeTime(at) : undefined, labelClass: 'text-destructive-foreground' }
     }
     case 'busy':
-      return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }
+      return { tone, label: statusLabel(st), labelClass: 'text-info-foreground' }
     case 'stopped':
     case 'unknown':
       return {
