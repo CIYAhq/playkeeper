@@ -9240,6 +9240,31 @@ control "moving customers: the machine a failed move was going to deletes its co
   'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+webcontrol "moving customers: nothing can be done to a server being moved" web/src/lib/phase.ts \
+  "if (st.moving) return t('reason.moving')" \
+  "if (false) return t('reason.moving')" \
+  src/lib/lib.test.ts 'why a control can'
+webcontrol "moving customers: a server being moved says so" web/src/lib/phase.ts \
+  "if (st.moving) return t('status.moving')" \
+  "if (false) return t('status.moving')" \
+  src/lib/lib.test.ts 'calls a server being moved one being moved'
+webcontrol "moving customers: a customer goes where the owner picks" web/src/pages/machines.tsx \
+  'to === fullest ? {} : { machineId: to }' \
+  '{}' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: only machines that take customers are offered" web/src/pages/machines.tsx \
+  "(x.kind === 'local' || x.takesCustomers)" \
+  'true' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: the machine a customer is on isn't offered" web/src/pages/machines.tsx \
+  'x.id !== from.id && ' \
+  '' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+# shellcheck disable=SC2016
+webcontrol "moving customers: a move that stopped is tried again to the same machine" web/src/pages/machines.tsx \
+  'await post(`/api/customers/${c.id}/move`, { machineId: m.id })' \
+  'await post(`/api/customers/${c.id}/move`, {})' \
+  src/pages/pages.test.tsx 'tries one that stopped again'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

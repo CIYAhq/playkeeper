@@ -61,8 +61,9 @@ export function phaseLabel(p: Phase): string {
   }
 }
 
-/** A server that is stopped with a crash or a refused start to explain looks crashed. */
+/** A server being moved looks busy, and one that is stopped with a crash or a refused start to explain looks crashed. */
 export function statusTone(st: ServerStatus): Tone {
+  if (st.moving) return 'busy'
   const tone = phaseTone(st.phase)
   return tone === 'stopped' && (st.crash || st.refusal) ? 'crashed' : tone
 }
@@ -72,8 +73,9 @@ export function couldntStart(st: ServerStatus): boolean {
   return !!st.refusal || !!st.crash?.start || !!st.softwareChanged
 }
 
-/** "Crashed", "Couldn't start" when it never came up, or the phase. */
+/** "Being moved", "Crashed", "Couldn't start" when it never came up, or the phase. */
 export function statusLabel(st: ServerStatus): string {
+  if (st.moving) return t('status.moving')
   if (statusTone(st) !== 'crashed') return phaseLabel(st.phase)
   return couldntStart(st) ? t('status.couldntStart') : t('status.crashed')
 }
@@ -128,6 +130,7 @@ export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change' |
  * reason when there's a better one than the agent not answering.
  */
 export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean | string | undefined): string | undefined {
+  if (st.moving) return t('reason.moving')
   if (stale) return typeof stale === 'string' ? stale : t('reason.noAgent')
   if (st.phase === 'docker_unavailable') return t('status.docker')
   if (!st.exists) return t('reason.notCreated', { server: st.name })

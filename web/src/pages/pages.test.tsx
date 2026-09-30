@@ -4072,6 +4072,60 @@ describe('Machines and AI agents', () => {
       expect(button('Take customers…').title).toBe('Can’t reach home-server')
     })
 
+    it('lists the customers on a machine, and moves one to the machine the owner picks', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 2 }
+      const attic: MachineView = { ...taking, id: 'a2345abcde', name: 'attic', customers: 0 }
+      const cellar: MachineView = { ...home, id: 'c2345abcde', name: 'cellar' }
+      answer({
+        '/api/machines/h2345abcde/customers': [
+          { id: 7, name: 'alex', handle: 'alex', state: 'active', planId: 'plan_plus', memoryMB: 8192, servers: 2 },
+          { id: 8, name: 'sam', state: 'paused', memoryMB: 4096, servers: 1 },
+        ],
+      })
+      answerPosts({ '/api/customers/7/move': { machineId: 'a2345abcde' } })
+      const refresh = vi.fn(async () => {})
+      await render(<MachineDetailsSection id={home.id} />, { ...workspace({ machines: [machine, taking, attic, cellar], me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } }), refresh })
+      expect(page()).toContain('8 GB plan · 2 servers')
+      expect(page()).toContain('4 GB plan · 1 server · Paused')
+      expect(buttons('Move…')).toHaveLength(2)
+      await click(buttons('Move…')[0]!)
+      const dialog = () => document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog()).toContain('Move alex to another machine?')
+      expect(dialog()).toContain('The machine each one leaves keeps its final backup for 7 days.')
+      expect(dialog()).toContain('The fullest machine with room for their plan')
+      expect(dialog()).toContain('my-vps')
+      expect(dialog()).toContain('attic')
+      expect(dialog()).not.toContain('cellar')
+      expect(dialog()).not.toContain('home-server')
+      const pick = [...document.querySelectorAll('label')].find((l) => l.textContent === 'attic')?.querySelector<HTMLElement>('[role="radio"]')
+      if (!pick) throw new Error('no attic choice')
+      await click(pick)
+      await click('Move alex')
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/7/move', { machineId: 'a2345abcde' })
+      expect(refresh).toHaveBeenCalled()
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+      await click(buttons('Move…')[1]!)
+      await click('Move sam')
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', {})
+    })
+
+    it('follows a move to a machine, and tries one that stopped again', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 2 }
+      answer({
+        '/api/machines/h2345abcde/customers': [
+          { id: 7, name: 'alex', state: 'active', memoryMB: 8192, servers: 2, move: { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1 } },
+          { id: 8, name: 'sam', state: 'active', memoryMB: 4096, servers: 1, move: { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1, error: 'survival: attic couldn’t make it from its backup.' } },
+        ],
+      })
+      await render(<MachineDetailsSection id={home.id} />, owner(taking))
+      expect(page()).toContain('8 GB plan · 2 servers · Moving here: 1 server to go')
+      expect(page()).toContain('Their move here stopped: survival: attic couldn’t make it from its backup.')
+      expect(buttons('Move…')).toEqual([])
+      await click('Try again')
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', { machineId: 'h2345abcde' })
+    })
+
     it('warns before removing a machine customers are on', async () => {
       await render(<MachineDetailsSection id={home.id} />, owner({ ...home, customers: 2 }))
       await click('Remove home-server…')
