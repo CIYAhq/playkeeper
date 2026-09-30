@@ -8992,12 +8992,12 @@ control "deleting customers: the store remembers who it deleted" internal/panel/
   'c.store, erasedSubject(c.store, c.subject+"x"), s.now().UnixMilli()' \
   ./internal/panel '^TestDeletingACustomerLeavesTheirOtherStoreAlone$'
 control "deleting customers: the store's reads leave out their ended memberships" internal/panel/whop_customers.go \
-  'if !m.HasAccess() && s.forgotten(storeID, m.UserID) {' \
-  'if false {' \
+  's.now().UnixMilli(), m.HasAccess()}' \
+  's.now().UnixMilli(), true}' \
   ./internal/panel '^TestADeletedCustomersEndedMembershipIsntKeptAgain$'
 control "deleting customers: a membership that gives access is kept" internal/panel/whop_customers.go \
-  'if !m.HasAccess() && s.forgotten(storeID, m.UserID) {' \
-  'if s.forgotten(storeID, m.UserID) {' \
+  's.now().UnixMilli(), m.HasAccess()}' \
+  's.now().UnixMilli(), false}' \
   ./internal/panel '^TestADeletedCustomersEndedMembershipIsntKeptAgain$'
 control "deleting customers: one who came back has their ended memberships kept" internal/panel/erasure.go \
   'AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ?)' \
