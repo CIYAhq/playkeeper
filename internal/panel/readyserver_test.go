@@ -273,10 +273,17 @@ func TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBein
 	}
 
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	n.mu.Lock()
+	n.fail = errors.New("Whop didn't answer")
+	n.mu.Unlock()
+	if err := e.srv.startWaitingCustomer(ctx, info.UserID); err == nil {
+		t.Fatal("a message that there's room again, which Whop didn't take, was taken for sent")
+	}
+	n.mu.Lock()
+	n.fail = nil
+	n.mu.Unlock()
 	for range 2 {
-		if err := e.srv.startWaitingCustomer(ctx, info.UserID); err != nil {
-			t.Fatal(err)
-		}
+		e.srv.startWaitingCustomers(ctx)
 	}
 	if k := n.kinds(); !slices.Equal(k, []string{messageReady, messageNoRoom, messageRoomAgain}) || !strings.Contains(n.sent[2].Text, "room for your Playkeeper servers again") {
 		t.Fatalf("what alex was told once room appeared again: %v %+v", k, n.sent)
