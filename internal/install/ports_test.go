@@ -138,14 +138,16 @@ func TestUpgradeAllowsPort80InAnActiveUFWOnce(t *testing.T) {
 		return o.Out.(*bytes.Buffer).String()
 	}
 	out := upgrade("0.4.0")
-	if !strings.Contains(out, "Firewall:  ufw allow 80/tcp once 0.4.0 is running.") {
-		t.Fatalf("the plan must say port 80 is allowed:\n%s", out)
+	if !strings.Contains(out, "Firewall:  ufw allow 80/tcp once 0.4.0 is running.") || !strings.Contains(out, "Firewall:  allow 443/tcp in ufw once 0.4.0 is running.") {
+		t.Fatalf("the plan must say ports 80 and 443 are allowed:\n%s", out)
 	}
-	started, allowed := slices.Index(h.cmds, "systemctl start playkeeper-agent.service playkeeper-panel.service"), slices.Index(h.cmds, "ufw allow 80/tcp")
-	if allowed < 0 || allowed < started {
-		t.Fatalf("port 80 must be allowed after the new version started: %v", h.cmds)
+	started := slices.Index(h.cmds, "systemctl start playkeeper-agent.service playkeeper-panel.service")
+	for _, rule := range []string{"80/tcp", "443/tcp"} {
+		if allowed := slices.Index(h.cmds, "ufw allow "+rule); allowed < 0 || allowed < started {
+			t.Fatalf("%s must be allowed after the new version started: %v", rule, h.cmds)
+		}
 	}
-	if m := manifestOf(t, h); !slices.Equal(m.FirewallRules, []string{"8443/tcp", "25565/tcp", "80/tcp"}) || m.Version != "0.4.0" {
+	if m := manifestOf(t, h); !slices.Equal(m.FirewallRules, []string{"8443/tcp", "25565/tcp", "80/tcp", "443/tcp"}) || m.Version != "0.4.0" {
 		t.Fatalf("manifest after the upgrade: %+v", m)
 	}
 	h.cmds = nil

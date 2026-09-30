@@ -6763,6 +6763,22 @@ control "the installer allows port 443 in ufw" internal/install/install.go \
   '		add(httpsRule)' \
   '		_ = httpsRule' \
   ./internal/install '^TestActiveUFWAllowsPort80AndUninstallLeavesTheAdminsRules$'
+control "an update from the dashboard allows port 443 where the install opens ports" internal/install/selfupdate.go \
+  '		allowHTTPSPort(sys, cfg, out)' \
+  '		_ = out' \
+  ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
+control "the installer's upgrade allows port 443 too" internal/install/inplace.go \
+  '	allowHTTPSPort(sys, cfg, out)' \
+  '	_ = out' \
+  ./internal/install '^TestUpgradeAllowsPort80InAnActiveUFWOnce$'
+control "an update leaves a port 443 rule that was already there to the admin" internal/install/firewall.go \
+  '	if !added {' \
+  '	if false && !added {' \
+  ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
+control "an update allows no port 443 on a joined machine" internal/install/firewall.go \
+  '	if cfg.NoPanel || contains(m.FirewallRules, httpsRule) {' \
+  '	if contains(m.FirewallRules, httpsRule) {' \
+  ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
 webcontrol "the browser's check of port 443 sends no cookies" web/src/pages/machine-settings/dashboard-port.tsx \
   "credentials: 'omit'" \
   "credentials: 'include'" \
