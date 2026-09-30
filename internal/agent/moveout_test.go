@@ -91,7 +91,8 @@ func (e *agentEnv) moveOut() (int, []byte) {
 // no world, as before its first start, moves too. Nothing is written where
 // it was, so a server whose disk limit is full moves as it is. Its folder
 // goes only while it's stopped, and only a move takes it: a restore refuses
-// it.
+// it. Where it goes, it's off the public page until the dashboard gives it
+// the settings it had.
 func TestAServerMovesWithItsWholeFolder(t *testing.T) {
 	e := newAgentEnv(t)
 	e.createWith(map[string]any{"name": "Survival", "playStyle": "friends"})
@@ -151,5 +152,9 @@ func TestAServerMovesWithItsWholeFolder(t *testing.T) {
 		if got, err := os.ReadFile(filepath.Join(e.dataDir(), rel)); err != nil || string(got) != body {
 			t.Errorf("%s where Survival moved: %q, %v", rel, got, err)
 		}
+	}
+	var page int
+	if err := e.a.db.QueryRow(`SELECT public_page FROM servers WHERE id = ?`, id).Scan(&page); err != nil || page != 0 {
+		t.Errorf("Survival is on the public page before the dashboard gives it the settings it had: %d %v", page, err)
 	}
 }
