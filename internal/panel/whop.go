@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -791,29 +790,46 @@ func (s *Server) putWhopMarksBack(ctx context.Context, c *whop.Client, products 
 var errAddressUnknown = errors.New("Playkeeper couldn't ask this machine for its address. It tries again when you read the store.")
 
 // dashboardURL is where Whop and buyers reach this dashboard: the machine's
-// address, with the panel's port, once the agent has a certificate for it
-// that's still good. It's "" without one: Whop only calls trusted HTTPS
-// addresses, and a buyer's invite link must open without a warning. An
-// agent that can't be asked is errAddressUnknown, never "".
+// address, once the agent has a certificate for it that's still good,
+// without a port while the dashboard answers there on port 443 (see
+// dashboard443.go) and with the panel's port otherwise. It's "" without a
+// certificate: Whop only calls trusted HTTPS addresses, and a buyer's invite
+// link must open without a warning. An agent that can't be asked is
+// errAddressUnknown, never "".
 func (s *Server) dashboardURL(ctx context.Context) (string, error) {
+	now, _, err := s.dashboardURLs(ctx)
+	return now, err
+}
+
+// dashboardURLs is dashboardURL, and the dashboard's address at the panel's
+// port, which keeps reaching it whatever port 443 does.
+func (s *Server) dashboardURLs(ctx context.Context) (now, panelPort string, err error) {
 	var addr api.Address
 	if status, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil || status != http.StatusOK {
-		return "", errAddressUnknown
+		return "", "", errAddressUnknown
 	}
+	host := s.certifiedHost(addr)
+	if host == "" {
+		return "", "", nil
+	}
+	port := s.cfg.PanelPort
+	if addr.Dashboard != nil && addr.Dashboard.Port != 0 {
+		port = addr.Dashboard.Port
+	}
+	return hostURL(host, port), hostURL(host, s.cfg.PanelPort), nil
+}
+
+// certifiedHost is the machine's name, lowercase, while the agent has a
+// certificate for it that's still good, and "" otherwise.
+func (s *Server) certifiedHost(addr api.Address) string {
 	cert := addr.Certificate
 	if addr.Kind == api.AddressNone || addr.Host == "" || cert == nil || cert.NotAfter == nil || !cert.NotAfter.After(s.now()) {
-		return "", nil
+		return ""
 	}
-	named := false
 	for _, n := range cert.Names {
-		named = named || strings.EqualFold(n, addr.Host)
+		if strings.EqualFold(n, addr.Host) {
+			return strings.ToLower(addr.Host)
+		}
 	}
-	if !named {
-		return "", nil
-	}
-	host := strings.ToLower(addr.Host)
-	if s.cfg.PanelPort != 443 && s.cfg.PanelPort != 0 {
-		host += ":" + strconv.Itoa(s.cfg.PanelPort)
-	}
-	return "https://" + host, nil
+	return ""
 }

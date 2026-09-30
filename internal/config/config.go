@@ -82,6 +82,11 @@ type Config struct {
 	UsageTest bool `json:"usageTest,omitempty"`
 	// StatsURL is where usage stats go; empty means usage.DefaultURL.
 	StatsURL string `json:"statsURL,omitempty"`
+	// Dashboard443 is "on" when the install found port 443 free, so the
+	// dashboard answers there, without a port, once the machine has an
+	// address; empty on installs from before 0.4.11 and when something used
+	// port 443. The switch in Machine settings wins over it.
+	Dashboard443 string `json:"dashboard443,omitempty"`
 	// Dev relaxes host checks for `playkeeper dev`; never set by the installer.
 	Dev bool `json:"dev,omitempty"`
 	// NoPanel is set on a machine installed to join another dashboard: it

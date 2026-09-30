@@ -98,8 +98,9 @@ type fakeWhop struct {
 	// refuseFilter refuses listing memberships by plan, as a Whop that
 	// doesn't know the filter might.
 	refuseFilter bool
-	// requests counts what the dashboard asked.
-	requests int
+	// requests counts what the dashboard asked, and planReads its reads of
+	// the store's plans, which only reading the store does.
+	requests, planReads int
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
 	// the refresh tokens ended. noTokenExchange is an app without the
 	// oauth:token_exchange permission on Whop.
@@ -110,6 +111,10 @@ type fakeWhop struct {
 	// by id, and chats their support chats, by id.
 	installed map[string]*fakeBusiness
 	chats     map[string]fakeChat
+	// redirects are the redirect URLs the sign-in app lists; nil lists the
+	// dashboard's address at the panel's port alone. unsure are those whose
+	// check Whop answers with neither a sign-in page nor a refusal.
+	redirects, unsure []string
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
@@ -159,6 +164,25 @@ func (f *fakeWhop) serveOAuth(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client", "error_description": why})
 	}
 	switch r.Method + " " + r.URL.Path {
+	case "GET /oauth/authorize":
+		// A browser leaving to sign in goes on to Whop's sign-in page, when
+		// the app lists the redirect URL it names.
+		q := r.URL.Query()
+		listed := f.redirects
+		if listed == nil {
+			listed = []string{whopDashboard + whopSignInCallback}
+		}
+		switch {
+		case q.Get("client_id") != whopTestApp:
+			refuse("invalid_request", "client_id is invalid")
+		case slices.Contains(f.unsure, q.Get("redirect_uri")):
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, "<html>Bad gateway</html>")
+		case !slices.Contains(listed, q.Get("redirect_uri")):
+			refuse("invalid_request", "redirect_uri is invalid")
+		default:
+			http.Redirect(w, r, "https://whop.com/oauth/authorize?"+r.URL.RawQuery, http.StatusFound)
+		}
 	case "POST /oauth/token":
 		// Whop checks the app before the code, and wants the app's secret.
 		switch {
@@ -273,6 +297,7 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	case "GET /variants":
+		f.planReads++
 		json.NewEncoder(w).Encode(map[string]any{"data": f.plans, "page_info": map[string]any{"has_next_page": false}})
 	case "POST /webhooks":
 		var body map[string]any
