@@ -9240,6 +9240,19 @@ control "moving customers: the machine a failed move was going to deletes its co
   'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "removing a machine: its customers are placed again once it's removed" internal/panel/machines.go \
+  's.rehomeStranded(context.Background())' \
+  '_ = context.Background()' \
+  ./internal/panel '^TestARemovedMachinesCustomersGetRoomElsewhere$'
+# shellcheck disable=SC2016
+control "removing a machine: its customers lose it as their machine" internal/panel/placement.go \
+  '_, err = s.db.ExecContext(ctx, `UPDATE customer_homes SET machine_id = '"''"', placed_at = ? WHERE `+stranded, s.now().UnixMilli())' \
+  '_ = stranded' \
+  ./internal/panel '^TestARemovedMachinesCustomersGetRoomElsewhere$'
+control "removing a machine: a server left on it doesn't stop its customer's move" internal/panel/moves.go \
+  'case errors.Is(err, errNotFound):' \
+  'case false:' \
+  ./internal/panel '^TestARemovedMachinesCustomersGetRoomElsewhere$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

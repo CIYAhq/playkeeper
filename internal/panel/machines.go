@@ -153,6 +153,7 @@ func (s *Server) onMachineEvent(e machinelink.Event) {
 		if _, err := s.db.Exec(`UPDATE server_machines SET disputed_by = '' WHERE disputed_by = ?`, e.MachineID); err != nil {
 			s.log.Error("forget a removed machine's servers", "err", err)
 		}
+		s.rehomeStranded(context.Background())
 	}
 }
 

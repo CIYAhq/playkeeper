@@ -289,6 +289,46 @@ func (s *Server) placeCustomer(ctx context.Context, userID int64, plan CustomerP
 	}
 }
 
+// rehomeStranded has the customers whose machine was removed placed again,
+// as new customers are: on the fullest machine with room for their plan, or
+// waiting for room until one has it. Their servers stay on the removed
+// machine, out of reach, unless it joins again.
+func (s *Server) rehomeStranded(ctx context.Context) {
+	const stranded = `machine_id != '' AND machine_id NOT IN (SELECT id FROM machines WHERE revoked_at = 0)`
+	s.placeMu.Lock()
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id FROM customer_homes WHERE `+stranded)
+	if err != nil {
+		s.placeMu.Unlock()
+		s.log.Error("could not read whose machine was removed", "err", err)
+		return
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	if len(ids) > 0 {
+		_, err = s.db.ExecContext(ctx, `UPDATE customer_homes SET machine_id = '', placed_at = ? WHERE `+stranded, s.now().UnixMilli())
+	}
+	s.placeMu.Unlock()
+	if err != nil {
+		s.log.Error("could not place again the customers whose machine was removed", "err", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	for _, id := range ids {
+		s.audit(placementActor, "customer.place", fmt.Sprint(id), "waiting", "the machine they were on was removed")
+	}
+	s.kickRoom()
+	s.kickSaleRoom()
+	s.kickDiskLimits()
+}
+
 // setHome records the customer's home machine, or "" while they wait.
 func (s *Server) setHome(ctx context.Context, userID int64, machineID string) error {
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO customer_homes(user_id, machine_id, placed_at) VALUES(?,?,?)
