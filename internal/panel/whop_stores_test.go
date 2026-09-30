@@ -412,6 +412,32 @@ func TestEachStoresStockIsItsOwn(t *testing.T) {
 	}
 }
 
+// A store another dashboard took over sells on that dashboard's machines,
+// so its plans take none of this one's room from the stores it still sells
+// for.
+func TestATakenOverStoresPlansTakeNoRoom(t *testing.T) {
+	f, e, _ := twoStores(t)
+	ctx := context.Background()
+	e.reconcile()
+	b, ownB := secondDashboard(t, f)
+	if r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth()); r.status != http.StatusOK {
+		t.Fatalf("taking Pip over: %d %v", r.status, r.body)
+	}
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	plans, err := e.srv.sales.SalePlans(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stores := map[string]string{}
+	for _, p := range plans {
+		stores[p.ID] = p.Store
+	}
+	if taken := e.srv.whopTakenOver(testStore); !taken || !maps.Equal(stores, map[string]string{"plan_other": "biz_other"}) {
+		t.Fatalf("Pip taken over: %v; the plans for sale: %v", taken, stores)
+	}
+}
+
 // A store's delivery or message hurries that store's pass alone, so a buyer
 // doesn't wait on every store's; a kick for every store looks at them all.
 func TestAKickHurriesItsOwnStoresPass(t *testing.T) {
