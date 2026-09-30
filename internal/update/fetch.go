@@ -117,11 +117,10 @@ func (s Source) get(ctx context.Context, name string, limit int64, since Validat
 		return nil, Validators{}, err
 	}
 	req.Header.Set("User-Agent", "playkeeper-updater")
-	if since.ETag != "" {
-		req.Header.Set("If-None-Match", since.ETag)
-	}
-	if since.LastModified != "" {
-		req.Header.Set("If-Modified-Since", since.LastModified)
+	for k, v := range map[string]string{"If-None-Match": since.ETag, "If-Modified-Since": since.LastModified} {
+		if v != "" {
+			req.Header.Set(k, v)
+		}
 	}
 	resp, err := s.client().Do(req)
 	if err != nil {

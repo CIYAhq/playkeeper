@@ -239,7 +239,7 @@ function PlaykeeperCard() {
           </div>
         )}
       </div>
-      {info?.supported && manage && (
+      {manage && info?.supported && (
         <div className="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4">
           <div className="min-w-0">
             <p className="text-[13px] font-medium">{t('update.auto')}</p>
