@@ -10,9 +10,10 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
-wt="$(mktemp -d)/playkeeper"
+tmp=$(mktemp -d)
+wt=$tmp/playkeeper
 git -C "$root" worktree add --detach -q "$wt" HEAD
-trap 'git -C "$root" worktree remove --force "$wt"' EXIT
+trap 'git -C "$root" worktree remove --force "$wt"; rm -rf "$tmp"' EXIT
 cd "$wt"
 # The web controls run vitest with the checkout's own dependencies, which
 # scripts/setup.sh installs.
@@ -69,13 +70,17 @@ webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
     return
   fi
   mutate "$name" "$file" "$3" "$4" || return 0
-  if (cd web && npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
+  # Vitest leaves a copy of every module it loaded in a folder under TMPDIR,
+  # about 9 MB a run, so each run has a TMPDIR of its own, deleted after it.
+  mkdir -p "$tmp/vitest"
+  if (cd web && TMPDIR="$tmp/vitest" npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
     problem "MISSED   $name: ${tests:-$testfile} still passes without the guard"
   elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
     problem "INVALID  $name: no test ran to fail"
   else
     echo "caught   $name: $(grep -m1 -E '^(AssertionError|Error): |^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
+  rm -rf "$tmp/vitest"
   git checkout -q -- "$file"
 }
 
