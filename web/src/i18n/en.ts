@@ -2660,6 +2660,9 @@ export const en = {
   'voice.install': 'Install and open the port',
   'voice.restarts': '{server} restarts for about 20 s.',
   'voice.cantInstall': 'Voice chat can’t be installed on this server.',
+  // 0.4.9: the button that shows and hides what's typed in a secret's field (SecretField).
+  'secret.show': 'Show key',
+  'secret.hide': 'Hide key',
   // 0.4.4: crossplay, Bedrock players through Geyser and Floodgate.
   'crossplay.label': 'Bedrock players',
   'crossplay.hint': 'Friends on phones, tablets, consoles and Windows join too, through Geyser and Floodgate.',
