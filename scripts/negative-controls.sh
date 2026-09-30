@@ -9692,6 +9692,18 @@ webcontrol "removing a machine: Home tells a customer who lost theirs there's no
   "t(again ? 'home.noRoomTitle' : 'home.settingUpTitle')" \
   "t('home.settingUpTitle')" \
   src/pages/pages.test.tsx 'lost their machine'
+control "moving customers: a customer whose servers are apart gets their disk once between the machines" internal/panel/disklimits.go \
+  '		if in.apart[uid] {' \
+  '		if false {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: a copy a move is making isn't its customer's on the machine making it" internal/panel/disklimits.go \
+  'if sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  'if false && sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: the copy about to become the server counts against its customer's limit there" internal/panel/disklimits.go \
+  'if sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  'if copyHidden(copies, sv.ID, now) {' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside

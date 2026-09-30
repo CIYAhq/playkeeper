@@ -174,6 +174,7 @@ type Server struct {
 		sync.Mutex
 		at     time.Time
 		used   map[int64]int64
+		usedOn map[string]map[int64]int64
 		failed map[string]string
 	}
 	// dnsMu serialises sending the dashboard's machine its DNS zone with

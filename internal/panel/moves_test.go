@@ -1286,6 +1286,57 @@ func TestServersApartAreBroughtTogether(t *testing.T) {
 	}
 }
 
+// A customer whose servers are on two machines, as while a move of theirs
+// is stopped, gets their plan's disk once between them: each machine's
+// limit for them is what their servers on the others leave of it, as last
+// counted. A copy a move is making isn't theirs on the machine making it,
+// so it isn't counted twice. Together again, they get all of it.
+func TestACustomerWhoseServersAreApartGetsTheirDiskOnce(t *testing.T) {
+	f := newMoveFleet(t)
+	ctx := context.Background()
+	s := f.e.srv
+	id := accountLimit(f.alex.id)
+	plan := int64(starter.MemoryMB) * 15 << 19
+	f.ra.reply("GET /v1/disk-limits", `[{"id":"`+id+`","limitBytes":1,"servers":["`+movedServer+`"],"usedBytes":`+strconv.FormatInt(12<<30, 10)+`}]`)
+	f.e.reply("GET", "/v1/disk-limits", `[{"id":"`+id+`","limitBytes":1,"servers":[],"usedBytes":`+strconv.FormatInt(5<<30, 10)+`}]`)
+	limitIn := func(body string) api.DiskLimit {
+		var req api.DiskLimitsRequest
+		json.Unmarshal([]byte(body), &req)
+		if i := slices.IndexFunc(req.Limits, func(l api.DiskLimit) bool { return l.ID == id }); i >= 0 {
+			return req.Limits[i]
+		}
+		return api.DiskLimit{}
+	}
+	f.stopped(t, f.local, f.local)
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	if _, err := s.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES(?, ?, ?, ?)`, movedServer, f.alex.id, f.rid, f.local); err != nil {
+		t.Fatal(err)
+	}
+	s.syncDiskLimits(ctx)
+	s.syncDiskLimits(ctx)
+	if there := limitIn(f.ra.body("PUT /v1/disk-limits")); there.LimitBytes != plan-5<<30 {
+		t.Errorf("home-server's limit for alex, whose servers are apart: %+v", there)
+	}
+	if here := limitIn(f.e.agentBody("PUT /v1/disk-limits")); here.LimitBytes != plan-12<<30 || len(here.Servers) != 0 {
+		t.Errorf("the dashboard's machine's limit for alex, whose servers are apart: %+v", here)
+	}
+
+	for _, q := range []string{`DELETE FROM server_moves`, `DELETE FROM customer_moves`, `UPDATE customer_homes SET machine_id = '` + f.rid + `'`} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.mu.Lock()
+	f.madeHere = false
+	f.mu.Unlock()
+	s.syncDiskLimits(ctx)
+	if there := limitIn(f.ra.body("PUT /v1/disk-limits")); there.LimitBytes != plan {
+		t.Errorf("home-server's limit for alex, whose servers are together again: %+v", there)
+	}
+}
+
 // A machine still has a customer whose move stopped with a server on it: it
 // counts them, and lists them with their machine and the servers left
 // there, so it isn't taken for empty and removed with those servers on it.

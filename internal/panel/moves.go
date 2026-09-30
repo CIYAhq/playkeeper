@@ -602,7 +602,7 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 		err = s.copyMoveState(ctx, id, from, to)
 	}
 	if err == nil {
-		if err = s.sendLimitsTo(ctx, to); err != nil {
+		if err = s.sendLimitsTo(ctx, to, id); err != nil {
 			err = fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
 		}
 	}
@@ -1155,25 +1155,18 @@ func waitMoveOp(ctx context.Context, m machine, id string) (api.Operation, error
 }
 
 // sendLimitsTo sends m the disk limits it should have now, as
-// syncDiskLimits does for every machine.
-func (s *Server) sendLimitsTo(ctx context.Context, m machine) error {
-	allowances, err := s.diskAllowances(ctx)
+// syncDiskLimits does for every machine, with the copy of server
+// switching there counted as the server it's about to be.
+func (s *Server) sendLimitsTo(ctx context.Context, m machine, switching string) error {
+	list, err := s.machines()
 	if err != nil {
 		return err
 	}
-	holds, err := s.customerHolds(ctx)
+	in, err := s.diskInputs(ctx, list)
 	if err != nil {
 		return err
 	}
-	owners, err := s.creatorServerOwners(ctx)
-	if err != nil {
-		return err
-	}
-	homes, err := s.customerHomes(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.sendDiskLimits(ctx, m, allowances, holds, owners, homes, false)
+	_, err = s.sendDiskLimits(ctx, m, in, false, switching)
 	return err
 }
 
