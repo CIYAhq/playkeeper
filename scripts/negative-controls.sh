@@ -8862,7 +8862,11 @@ control "deleting customers: each server's deletion starts only after another lo
 control "deleting customers: each kept backup's deletion starts only after another look" internal/panel/erasure.go \
   'if err := s.whileNoPlan(ctx, userID, del); err != nil {' \
   'if err := del(); err != nil {' \
-  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+  ./internal/panel '^TestACustomerWhoBuysAgainWhileTheirBackupsAreListedKeepsThem$'
+control "deleting customers: buying again cancels a deletion that waits for a move" internal/panel/erasure.go \
+  'if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan {' \
+  'if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan && false {' \
+  ./internal/panel '^TestBuyingAgainCancelsADeletionWaitingForAMove$'
 control "deleting customers: a renewal Whop's API hasn't confirmed counts as a plan" internal/panel/erasure.go \
   'FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND status IN' \
   'FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND stale = 0 AND status IN' \
@@ -8900,8 +8904,8 @@ control "deleting customers: a deletion is in the audit log" internal/panel/eras
   '_ = fmt.Sprint(actor, "customer.erase", c.username, "succeeded",' \
   ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
 control "deleting customers: their servers are deleted" internal/panel/erasure.go \
-  'for _, id := range here {' \
-  'for _, id := range here[:0] {' \
+  'for _, id := range ids {' \
+  'for _, id := range ids[:0] {' \
   ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
 control "deleting customers: a deleted server takes its records along at once" internal/panel/erasure.go \
   'if err := s.forgetErasedServer(ctx, id); err != nil {' \
@@ -8988,13 +8992,17 @@ control "deleting customers: one who came back has their ended memberships kept"
   'AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ? AND 0)' \
   ./internal/panel '^TestDeletingACustomerLeavesTheirOtherStoreAlone$'
 control "deleting customers: the deletion waits while their servers move" internal/panel/erasure.go \
-  'if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
   'if s.leftCopiesPending(ctx, userID) {' \
   ./internal/panel '^TestACustomersDeletionWaitsForTheirMoves$'
 control "deleting customers: the deletion waits for the copies their moves left" internal/panel/erasure.go \
-  'if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
-  'if s.customerMoving(ctx, userID) {' \
+  'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  'if s.moveUnderWay(ctx, userID) {' \
   ./internal/panel '^TestACustomersDeletionWaitsForTheirMoves$'
+control "deleting customers: a move that stopped on an error doesn't hold a deletion" internal/panel/erasure.go \
+  'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  'if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  ./internal/panel '^TestAMoveThatStoppedOnAnErrorDoesntHoldADeletion$'
 control "deleting customers: a customer is deleted the owner's days after their servers" internal/panel/erasure.go \
   'cutoff := s.now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()' \
   'cutoff := s.now().Add(-time.Duration(days) * 0).UnixMilli()' \
