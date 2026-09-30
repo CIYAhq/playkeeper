@@ -265,6 +265,14 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 			return
 		}
 	}
+	// A suspended store sells nothing, and its pass does nothing else: each
+	// of its plans, a new one included, gets a stock of 0 on Whop.
+	if !st.SuspendedAt.IsZero() {
+		s.refreshWhopPlans(ctx, c, st)
+		s.stopWhopSales(ctx, st.ID)
+		s.pushWhopStock(ctx, c, st.ID)
+		return
+	}
 	// Without the machine's address the webhook stays where it is. An app
 	// store's memberships are read every minute until the app's webhook
 	// tells of them.

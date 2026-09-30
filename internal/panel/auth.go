@@ -673,6 +673,19 @@ CREATE INDEX whop_plans_store ON whop_plans(store_id, position);
 CREATE INDEX whop_messages_store ON whop_messages(store_id, sent_at, id);
 DROP TABLE whop_account;
 `,
+	// Suspensions (see suspension.go): when each customer's account was
+	// suspended and why, and whether the owner suspended it on its own, with
+	// its store, or both; and when each store was suspended, and why. An
+	// account suspended before is the owner's own suspension.
+	`
+ALTER TABLE customers   ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers   ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
+ALTER TABLE customers   ADD COLUMN suspended_self  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers   ADD COLUMN suspended_store INTEGER NOT NULL DEFAULT 0;
+UPDATE customers SET suspended_self = 1 WHERE state = 'suspended';
+ALTER TABLE whop_stores ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_stores ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
+`,
 }
 
 const (

@@ -54,18 +54,22 @@ type whopStore struct {
 	// over, at TakenOverAt.
 	MarkedAs, TakenOverBy string
 	TakenOverAt           time.Time
+	// SuspendedAt is when the owner suspended the store, zero while it
+	// isn't, and SuspendReason why (see suspension.go).
+	SuspendedAt   time.Time
+	SuspendReason string
 }
 
 const whopStoreColumns = `store_id, via, title, route, api_key, connected_by, connected_at, synced_at, problem, webhook_id, webhook_url, webhook_secret,
-	polled_at, marked_as, taken_over_by, taken_over_at`
+	polled_at, marked_as, taken_over_by, taken_over_at, suspended_at, suspend_reason`
 
 func scanWhopStore(row interface{ Scan(...any) error }) (whopStore, error) {
 	var st whopStore
-	var connected, synced, polled, takenOver int64
+	var connected, synced, polled, takenOver, suspended int64
 	err := row.Scan(&st.ID, &st.Via, &st.Title, &st.Route, &st.Key, &st.ConnectedBy, &connected, &synced, &st.Problem,
-		&st.WebhookID, &st.WebhookURL, &st.WebhookSecret, &polled, &st.MarkedAs, &st.TakenOverBy, &takenOver)
+		&st.WebhookID, &st.WebhookURL, &st.WebhookSecret, &polled, &st.MarkedAs, &st.TakenOverBy, &takenOver, &suspended, &st.SuspendReason)
 	st.ConnectedAt, st.SyncedAt, st.PolledAt = time.UnixMilli(connected).UTC(), msTimeOrZero(synced), msTimeOrZero(polled)
-	st.TakenOverAt = msTimeOrZero(takenOver)
+	st.TakenOverAt, st.SuspendedAt = msTimeOrZero(takenOver), msTimeOrZero(suspended)
 	return st, err
 }
 
