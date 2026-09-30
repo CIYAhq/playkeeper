@@ -50,7 +50,7 @@ var reWhopID = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
 
 // whopAccess are the statuses in which a membership grants access (see
 // whop.Membership.HasAccess).
-const whopAccess = `('trialing', 'active', 'past_due', 'completed')`
+const whopAccess = `('trialing', 'active', 'canceling', 'past_due', 'completed')`
 
 // whopWebhook receives Whop's deliveries: it checks the signature with the
 // webhook's secret, counts each delivery once, keeps what a membership
@@ -161,14 +161,20 @@ func (s *Server) runWhop(ctx context.Context) {
 }
 
 // retryWhopNow drops the waits of the calls and messages that failed, so
-// they're tried at once. Starting again does it, so a release that brings
-// what was missing, such as the hosting core, needs no wait.
+// they're tried at once, and has the next pass read the store and every
+// membership again. Starting again does it, so a release that brings what
+// was missing, such as the hosting core or a webhook Whop now takes, needs
+// no wait, and a purchase made while the webhook was missing is caught
+// straight away.
 func (s *Server) retryWhopNow() {
 	if _, err := s.db.Exec(`UPDATE whop_customers SET next_try_at = 0`); err != nil {
 		s.log.Error("could not retry Whop customers", "err", err)
 	}
 	if _, err := s.db.Exec(`UPDATE whop_messages SET next_try_at = 0 WHERE sent_at = 0`); err != nil {
 		s.log.Error("could not retry Whop messages", "err", err)
+	}
+	if _, err := s.db.Exec(`UPDATE whop_account SET polled_at = 0, synced_at = 0`); err != nil {
+		s.log.Error("could not have Whop read again", "err", err)
 	}
 }
 

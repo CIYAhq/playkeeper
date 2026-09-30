@@ -33,11 +33,12 @@ type Webhook struct {
 }
 
 // CreateWebhook adds an endpoint at u for the account's membership events,
-// its payloads pinned to APIVersion.
+// its payloads pinned to APIVersion. Whop refuses api_version on a new
+// webhook, since every new one gets its v1 events.
 func (c *Client) CreateWebhook(ctx context.Context, accountID, u string) (Webhook, error) {
 	var w Webhook
 	err := c.do(ctx, http.MethodPost, "/webhooks", nil, map[string]any{
-		"url": u, "events": Events, "api_version": "v1", "api_version_date": APIVersion, "resource_id": accountID, "enabled": true,
+		"url": u, "events": Events, "api_version_date": APIVersion, "resource_id": accountID, "enabled": true,
 	}, &w)
 	return w, err
 }

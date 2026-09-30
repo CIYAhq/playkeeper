@@ -56,7 +56,8 @@ func (f *fakeWhop) sent(user string) []string {
 // the dashboard's time.
 func (e *env) deliver(t *testing.T, id, event string, m map[string]any) resp {
 	t.Helper()
-	body, _ := json.Marshal(map[string]any{"id": id, "type": event, "api_version": "v1", "account_id": "biz_pip", "data": m})
+	body, _ := json.Marshal(map[string]any{"type": event, "api_version": "v1", "api_version_date": whop.APIVersion,
+		"timestamp": e.clock.now().Format(time.RFC3339Nano), "account_id": "biz_pip", "data": m})
 	hdr := map[string]string{}
 	for k, v := range whop.SignWebhook(whopTestSecret, id, e.clock.now(), body) {
 		hdr[k] = v[0]
@@ -135,7 +136,8 @@ func TestConnectingAddsTheWebhookAndDisconnectingRemovesIt(t *testing.T) {
 		hook = h
 	}
 	events, _ := hook["events"].([]any)
-	if len(f.webhooks) != 1 || hook["url"] != whopDashboard+whopWebhookPath || hook["api_version"] != "v1" || hook["api_version_date"] != whop.APIVersion ||
+	_, versioned := hook["api_version"]
+	if len(f.webhooks) != 1 || hook["url"] != whopDashboard+whopWebhookPath || versioned || hook["api_version_date"] != whop.APIVersion ||
 		hook["resource_id"] != "biz_pip" || len(events) != 3 {
 		t.Fatalf("webhooks: %v", f.webhooks)
 	}
@@ -377,6 +379,33 @@ func TestACancellationIsRemindedOnceAndAgainAfterItsUndone(t *testing.T) {
 	}
 }
 
+// Whop's current API calls a membership cancelled at its period's end
+// canceling, and it runs until then.
+func TestACancelingMembershipKeepsItsCustomerUntilItEnds(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	core := useFakeCore(e)
+	f.buy("mem_alex1", "user_alex", "plan_starter", "active")
+	e.reconcile()
+	f.mu.Lock()
+	m := f.memberships["mem_alex1"]
+	m["status"], m["cancel_at_period_end"], m["current_period_end"] = "canceling", true, "2026-10-12T09:00:00Z"
+	f.mu.Unlock()
+	e.deliver(t, "msg_1", whop.EventMembershipCancelling, m)
+	e.reconcile()
+	e.reconcile()
+	if got := core.got(); len(got) != 1 {
+		t.Fatalf("a membership running to its period's end paused its customer: %q", got)
+	}
+	if msgs := f.sent("user_alex"); len(msgs) != 1 || !strings.Contains(msgs[0], "It keeps running until 12 October") {
+		t.Fatalf("messages: %q", msgs)
+	}
+	e.deliver(t, "msg_2", whop.EventMembershipDeactivated, f.buy("mem_alex1", "user_alex", "plan_starter", "canceled"))
+	e.reconcile()
+	if got := core.got(); len(got) != 2 || !strings.HasPrefix(got[1], "pause") {
+		t.Fatalf("once it ended: %q", got)
+	}
+}
+
 func TestCancellingOnePlanWhileAnotherGoesOnSaysNothingUntilTheLast(t *testing.T) {
 	f, e, _ := connectedWhop(t)
 	useFakeCore(e)
@@ -563,6 +592,47 @@ func TestReadingMembershipsCatchesWhatNoWebhookSaid(t *testing.T) {
 	e.reconcile()
 	if got := core.got(); len(got) != 2 || got[1] != "start plan_big (Big) 2/8192/0 for whop/user_sam samcrafts" {
 		t.Fatalf("the core's calls: %q", got)
+	}
+}
+
+// A purchase no webhook told of, as while Whop refused the webhook, is read
+// at once after an update, a new key or reading the store again, rather than
+// at the next ten-minute read, and reading again starts nobody twice.
+func TestAPurchaseNoWebhookToldOfIsReadAtOnceAfterAnUpdateANewKeyOrARead(t *testing.T) {
+	f, e, own := connectedWhop(t)
+	core := useFakeCore(e)
+	e.reconcile()
+	f.mu.Lock()
+	f.users["user_ann"], f.users["user_bo"], f.users["user_cy"] = "annplays", "bobuilds", "cycrafts"
+	f.mu.Unlock()
+
+	f.buy("mem_ann", "user_ann", "plan_starter", "completed")
+	e.srv.retryWhopNow()
+	e.reconcile()
+	if got := core.got(); len(got) != 1 || !strings.HasSuffix(got[0], "whop/user_ann annplays") {
+		t.Fatalf("after an update: %q", got)
+	}
+	f.buy("mem_bo", "user_bo", "plan_starter", "active")
+	if r := e.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`"}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("replacing the key: %d %v", r.status, r.body)
+	}
+	e.reconcile()
+	if got := core.got(); len(got) != 2 || !strings.HasSuffix(got[1], "whop/user_bo bobuilds") {
+		t.Fatalf("after a new key: %q", got)
+	}
+	f.buy("mem_cy", "user_cy", "plan_starter", "active")
+	if r := e.do(t, "POST", "/api/whop/sync", "", own.auth()); r.status != http.StatusOK {
+		t.Fatalf("reading the store again: %d %v", r.status, r.body)
+	}
+	e.reconcile()
+	if got := core.got(); len(got) != 3 || !strings.HasSuffix(got[2], "whop/user_cy cycrafts") {
+		t.Fatalf("after reading the store again: %q", got)
+	}
+	e.srv.retryWhopNow()
+	e.reconcile()
+	e.reconcile()
+	if got := core.got(); len(got) != 3 {
+		t.Fatalf("reading again called the core again: %q", got)
 	}
 }
 
