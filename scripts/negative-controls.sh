@@ -8845,7 +8845,7 @@ control "confirming: servers stay away while it takes customers" internal/panel/
   ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
 control "confirming: servers stay away while it has customers" internal/panel/machinecustomers.go \
   'case n > 0:' \
-  'case false:' \
+  'case n > 0 && false:' \
   ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
 control "confirming: the guard's refusal is kept" internal/panel/creators.go \
   'if msg != "" {' \
