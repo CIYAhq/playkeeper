@@ -8316,7 +8316,8 @@ webcontrol "closing: the owner's list says a store isn't open yet" web/src/pages
 # A seller's view of their store (internal/panel/sellerview.go, the hosted
 # blueprint's 3.1): its plans, customers and earnings are its own store's
 # alone; a payment is kept once, for its store, with amounts that add up;
-# a suspension's reason stays the owner's.
+# a suspension's reason stays the owner's. The seller's page reads it
+# through a relative address, and counts money in its smallest unit.
 control "seller view: a store's plans are its own" internal/panel/sellerview.go \
   'FROM whop_plans p WHERE p.store_id = ? AND' \
   'FROM whop_plans p WHERE (p.store_id = ? OR 1) AND' \
@@ -8361,6 +8362,15 @@ control "seller view: the dashboard's own store has none" internal/panel/sellerv
   'case !ok || st.Via != whopViaApp:' \
   'case !ok:' \
   ./internal/panel '^TestASellersViewSaysHowTheStoreStands$'
+# shellcheck disable=SC2016
+webcontrol "seller view: the page reads its store through a relative address, which carries Whop's token" web/src/pages/whop-seller-view.tsx \
+  '`/api/public/whop/seller/${store}`' \
+  '`https://playkeeper.invalid/api/public/whop/seller/${store}`' \
+  src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
+webcontrol "seller view: earnings are counted in the currency's smallest unit" web/src/pages/whop-seller-view.tsx \
+  'return f.format(amount / 10 ** (f.resolvedOptions().maximumFractionDigits ?? 2))' \
+  'return f.format(amount)' \
+  src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
