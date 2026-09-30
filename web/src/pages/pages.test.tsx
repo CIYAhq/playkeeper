@@ -4110,6 +4110,20 @@ describe('Machines and AI agents', () => {
       expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', {})
     })
 
+    it('lists the customers on the dashboard’s machine on its page, for the owner alone', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' } }
+      answer({ '/api/machines/m2345abcde/customers': [{ id: 7, name: 'alex', state: 'active', memoryMB: 4096, servers: 1 }] })
+      await render(<MachinePage id={machine.id} />, owner(taking))
+      expect(document.querySelector('#machine-customers')?.textContent).toBe('Customers')
+      expect(page()).toContain('4 GB plan · 1 server')
+      await click('Move…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('home-server')
+      expect(dialog).not.toContain('my-vps')
+      await render(<MachinePage id={machine.id} />, owner(taking, everything))
+      expect(page()).not.toContain('4 GB plan')
+    })
+
     it('follows a move to a machine, and tries one that stopped again', async () => {
       const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 2 }
       answer({

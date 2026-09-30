@@ -9261,20 +9261,24 @@ webcontrol "moving customers: a server being moved says so" web/src/lib/phase.ts
   "if (st.moving) return t('status.moving')" \
   "if (false) return t('status.moving')" \
   src/lib/lib.test.ts 'calls a server being moved one being moved'
-webcontrol "moving customers: a customer goes where the owner picks" web/src/pages/machines.tsx \
+webcontrol "moving customers: the dashboard's machine's customers are the owner's alone" web/src/pages/machine.tsx \
+  "{can(ws.me, 'machines.customers') && <CustomerList machine={m} card />}" \
+  '<CustomerList machine={m} card />' \
+  src/pages/pages.test.tsx 'lists the customers on the dashboard'
+webcontrol "moving customers: a customer goes where the owner picks" web/src/pages/machine-customers.tsx \
   'to === fullest ? {} : { machineId: to }' \
   '{}' \
   src/pages/pages.test.tsx 'moves one to the machine the owner picks'
-webcontrol "moving customers: only machines that take customers are offered" web/src/pages/machines.tsx \
+webcontrol "moving customers: only machines that take customers are offered" web/src/pages/machine-customers.tsx \
   "(x.kind === 'local' || x.takesCustomers)" \
   'true' \
   src/pages/pages.test.tsx 'moves one to the machine the owner picks'
-webcontrol "moving customers: the machine a customer is on isn't offered" web/src/pages/machines.tsx \
+webcontrol "moving customers: the machine a customer is on isn't offered" web/src/pages/machine-customers.tsx \
   'x.id !== from.id && ' \
   '' \
   src/pages/pages.test.tsx 'moves one to the machine the owner picks'
 # shellcheck disable=SC2016
-webcontrol "moving customers: a move that stopped is tried again to the same machine" web/src/pages/machines.tsx \
+webcontrol "moving customers: a move that stopped is tried again to the same machine" web/src/pages/machine-customers.tsx \
   'await post(`/api/customers/${c.id}/move`, { machineId: m.id })' \
   'await post(`/api/customers/${c.id}/move`, {})' \
   src/pages/pages.test.tsx 'tries one that stopped again'
