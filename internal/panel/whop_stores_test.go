@@ -155,7 +155,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		}
 		b.products[id] = meta
 		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": "Minecraft server", "metadata": meta})
-	case strings.HasPrefix(route, "PATCH /variants/") && body["renewal_price"] != nil && f.priceDown:
+	case strings.HasPrefix(route, "PATCH /variants/") && (body["renewal_price"] != nil && f.priceDown || body["visibility"] != nil && f.showDown):
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the plan:update scope."}}`)
 	case strings.HasPrefix(route, "PATCH /variants/"):
@@ -167,6 +167,9 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		if price, ok := body["renewal_price"]; ok {
 			p["initial_price"], p["renewal_price"] = body["initial_price"], price
 			f.priceSets = append(f.priceSets, fmt.Sprintf("%s=%v", id, price))
+		}
+		if vis, ok := body["visibility"]; ok {
+			p["visibility"] = vis
 		}
 		json.NewEncoder(w).Encode(p)
 	case route == "POST /affiliates":

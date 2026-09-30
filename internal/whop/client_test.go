@@ -193,6 +193,23 @@ func TestSetPlanPriceChargesItFirstAndOnEachRenewal(t *testing.T) {
 	}
 }
 
+func TestShowPlanMakesItVisible(t *testing.T) {
+	asked := false
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"PATCH /variants/plan_a": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"visibility": "visible"}) {
+				t.Errorf("body %v, %v", body, err)
+			}
+			asked = true
+			answer(map[string]any{"id": "plan_a", "visibility": "visible"})(w, r)
+		},
+	})
+	if err := c.ShowPlan(context.Background(), "plan_a"); err != nil || !asked {
+		t.Fatalf("showing the plan: asked %v, %v", asked, err)
+	}
+}
+
 func TestPlanMembershipsAreThePlansAlone(t *testing.T) {
 	all := []map[string]any{
 		{"id": "mem_1", "status": "active", "plan_id": "plan_a", "user_id": "user_alex"},

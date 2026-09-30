@@ -81,6 +81,13 @@ func (f *fakeWhop) setOtherPlan(id string, changes map[string]any) {
 	}
 }
 
+// otherPlanVisibility is how one of Other Hosting's plans shows on Whop.
+func (f *fakeWhop) otherPlanVisibility(id string) any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.installed["biz_other"].plan(id)["visibility"]
+}
+
 // pricesOf is the seller's prices a page read.
 func pricesOf(t *testing.T, r resp) sellerPrices {
 	t.Helper()
@@ -186,16 +193,19 @@ func TestASellerPricesTheirPlansAtOrAboveTheFloor(t *testing.T) {
 
 // Open the store sets Playkeeper's share on each hosting product, from its
 // price, marks each hosting product as this dashboard's for the store's
-// business, which the store site needs to show its plans, and only then
-// opens the store, which then sells. A product that isn't for hosting
-// keeps its metadata. Once the store is open, a new price takes the share
-// along at once.
+// business, which the store site needs to show its plans, makes the hosting
+// plans visible, since a copy's plans arrive hidden and the store site
+// lists only visible ones, and only then opens the store, which then
+// sells. A product that isn't for hosting keeps its metadata, and its plan
+// stays hidden. Once the store is open, a new price takes the share along
+// at once.
 func TestOpenTheStoreSetsPlaykeepersShareThenOpensIt(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
 	f.setOtherProduct("prod_other", whop.Metadata{"color": "blue"})
 	f.setOtherProduct("prod_merch", whop.Metadata{"color": "green"})
-	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "renewal_price": 5, "product": map[string]any{"id": "prod_merch", "title": "Merch"}})
+	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
+	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "visibility": "hidden", "renewal_price": 5, "product": map[string]any{"id": "prod_merch", "title": "Merch"}})
 	r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
 	if r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store: %d %v", r.status, r.body)
@@ -208,6 +218,12 @@ func TestOpenTheStoreSetsPlaykeepersShareThenOpensIt(t *testing.T) {
 	}
 	if meta := f.otherProduct("prod_merch"); len(meta) != 1 || meta["color"] != "green" {
 		t.Fatalf("Other's merch: %v", meta)
+	}
+	if vis := f.otherPlanVisibility("plan_other"); vis != "visible" {
+		t.Fatalf("Other's hosting plan shows as %v on Whop", vis)
+	}
+	if vis := f.otherPlanVisibility("plan_merch"); vis != "hidden" {
+		t.Fatalf("Other's merch plan shows as %v on Whop", vis)
 	}
 	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != "" {
 		t.Fatalf("the store is still closed: %q", st.ClosedWhy)
@@ -251,9 +267,12 @@ func TestOpenTheStorePutsRightAShareThatPaysTooLittle(t *testing.T) {
 // Open the store leaves the store closed while anything is wrong: nobody
 // named to receive Playkeeper's share, a plan under the floor, one that
 // doesn't renew monthly or that has a free trial, no hosting plan at all,
-// or the store suspended or gone. A plan's problem leaves the shares alone.
+// Whop refusing the products' marks or the plans' visibility, no address,
+// or the store suspended or gone. A plan's problem leaves the shares alone,
+// and the plans stay hidden until the shares and marks are done.
 func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	f, e, token := openedAsSeller(t)
+	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
 	sell := func(name string, status int, says string) {
 		t.Helper()
 		r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
@@ -287,6 +306,12 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	if meta := f.otherProduct("prod_other"); meta[whop.MetaDashboard] != "" {
 		t.Fatalf("a store that didn't open marked its product: %v", meta)
 	}
+	if vis := f.otherPlanVisibility("plan_other"); vis != "hidden" {
+		t.Fatalf("a store that didn't open showed its plan: %v", vis)
+	}
+	f.showDown = true
+	sell("Whop refusing to show the plans", http.StatusBadGateway, "plan:update")
+	f.showDown = false
 	writes := len(f.shareWrites)
 	if _, err := e.srv.suspendWhopStore(t.Context(), "biz_other", "admin", "griefing"); err != nil {
 		t.Fatal(err)

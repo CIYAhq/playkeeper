@@ -236,3 +236,9 @@ func (c *Client) SetPlanPrice(ctx context.Context, planID string, price float64)
 	err := c.do(ctx, http.MethodPatch, "/variants/"+url.PathEscape(planID), nil, map[string]any{"initial_price": price, "renewal_price": price}, &p)
 	return p, err
 }
+
+// ShowPlan makes a plan visible on the store's page. A hidden plan sells
+// only through its own link, and the store site lists only visible ones.
+func (c *Client) ShowPlan(ctx context.Context, planID string) error {
+	return c.do(ctx, http.MethodPatch, "/variants/"+url.PathEscape(planID), nil, map[string]any{"visibility": "visible"}, nil)
+}

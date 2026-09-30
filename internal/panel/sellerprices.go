@@ -207,6 +207,21 @@ func (s *Server) markHostedProducts(ctx context.Context, c *whop.Client, st whop
 	return nil
 }
 
+// showHostedPlans makes each of the store's hosting plans among plans
+// visible on Whop, where a copy's plans arrive hidden: the store site lists
+// only visible plans. A plan already visible is left alone.
+func showHostedPlans(ctx context.Context, c *whop.Client, plans []whop.Plan) error {
+	for _, p := range plans {
+		if _, ok := sellerPriceOf(p); !ok || p.Visibility == "visible" {
+			continue
+		}
+		if err := c.ShowPlan(ctx, p.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // readWhopStoreSoon has the store's next pass read it from Whop, and has
 // that pass come now.
 func (s *Server) readWhopStoreSoon(ctx context.Context, id string) {
@@ -325,8 +340,9 @@ type sellerOpened struct {
 // must renew monthly in US dollars, without a trial, at or above the floor.
 // Then Playkeeper's share is set on each hosting product, putting right any
 // share the seller changed (syncWhopShares, with force), and only when that
-// leaves nothing wrong are the hosting products marked for the store site,
-// and the store opens, for its seller's reason alone.
+// leaves nothing wrong are the hosting products marked for the store site
+// and the hosting plans made visible there, and the store opens, for its
+// seller's reason alone.
 func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store string) {
 	st, user, c, ok := s.sellerStore(w, r, store, true)
 	if !ok {
@@ -374,12 +390,16 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		s.sellerRefusal(w, err)
 		return
 	}
+	if err := showHostedPlans(ctx, c, plans); err != nil {
+		s.sellerRefusal(w, err)
+		return
+	}
 	open, err := s.openWhopStore(ctx, st.ID, whopNotOpenYet)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", "Open the store: Playkeeper's share is set on each hosting product, and the products are marked for the store site")
+	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", "Open the store: Playkeeper's share is set on each hosting product, the products are marked for the store site, and their plans are visible")
 	s.readWhopStoreSoon(ctx, st.ID)
 	out := sellerOpened{Open: open}
 	if !open {

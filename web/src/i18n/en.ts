@@ -3053,7 +3053,7 @@ export const en = {
   'sellerPrices.save': 'Save',
   'sellerPrices.saved': 'Saved',
   'sellerPrices.open': 'Open the store',
-  'sellerPrices.openAbout': 'Opening the store sets Playkeeper’s share on each hosting plan, then starts selling.',
+  'sellerPrices.openAbout': 'Opening the store sets Playkeeper’s share on each hosting plan and makes those plans visible on Whop, then starts selling.',
   'sellerPrices.opened': 'Your store is open.',
   'sellerPrices.stillClosed': 'Playkeeper’s share is set, but your store is still closed: {why}',
   'team.turnOff': 'Turn off link',
