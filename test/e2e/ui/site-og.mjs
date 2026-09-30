@@ -1,8 +1,10 @@
 // Social previews for playkeeper.io (site/static/og): 1200 × 630 PNGs with
 // the page's title and Pip on pixel ground, drawn from the site's own art.
-// The 0.4.0 post's preview is its cover; the live demo's goes with the demo,
-// which serves it itself (web/src/demo/vite.ts). The titles are Inter
-// ExtraBold, so draw them where Inter has that weight. Run from test/e2e/ui:
+// A page with a film can show a still from it where Pip goes, as the AI build
+// battle's does. The 0.4.0 post's preview is its cover; the live demo's goes
+// with the demo, which serves it itself (web/src/demo/vite.ts). The titles
+// are Inter ExtraBold, so draw them where Inter has that weight. Run from
+// test/e2e/ui:
 //   node site-og.mjs            (writes ../../../site/static/og/*.png)
 //   node site-og.mjs demo docs  (draws only those)
 import { chromium } from '@playwright/test'
@@ -12,7 +14,8 @@ import { fileURLToPath } from 'node:url'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const out = path.join(repo, 'site/static/og')
-const art = (p) => 'data:image/svg+xml;base64,' + fs.readFileSync(path.join(repo, p)).toString('base64')
+const types = { '.svg': 'image/svg+xml', '.webp': 'image/webp', '.png': 'image/png' }
+const art = (p) => `data:${types[path.extname(p)]};base64,` + fs.readFileSync(path.join(repo, p)).toString('base64')
 
 const previews = {
   default: { title: 'Host your own Minecraft server. Online 24/7.', pip: 'pip-wave' },
@@ -51,6 +54,7 @@ const previews = {
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
   t: { eyebrow: 'Server template', title: 'A Minecraft server setup, shared from Playkeeper', pip: 'pip-search' },
+  'ai-build-battle': { eyebrow: 'Server template', title: 'The AI build battle, on your own server', still: 'site/static/film/ai-build-battle-poster.webp' },
   demo: { eyebrow: 'Live demo', title: 'Try the dashboard in your browser', pip: 'pip-wave', file: 'web/src/demo/social.png' },
   tools: { eyebrow: 'Free tools', title: 'Free Minecraft server tools', pip: 'pip-box' },
   'server-icon': { eyebrow: 'Free tool', title: 'Minecraft server icon maker', pip: 'pip-cheer' },
@@ -72,14 +76,16 @@ const page = (p) => `<!doctype html><html><head><style>
   .eyebrow { position: absolute; left: 72px; top: 196px; font-size: 22px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #166534; }
   h1 { position: absolute; left: 72px; top: 236px; width: 760px; margin: 0; font-size: 68px; line-height: 1.02; font-weight: 800; letter-spacing: -0.045em; }
   .pip { position: absolute; right: 120px; bottom: 96px; width: 230px; }
+  h1.beside { width: 480px; font-size: 60px; }
+  .still { position: absolute; right: 72px; top: 164px; width: 560px; height: 315px; object-fit: cover; border-radius: 18px; box-shadow: 0 2px 4px rgb(29 33 28 / 0.06), 0 24px 56px -20px rgb(29 33 28 / 0.32); }
   .ground { position: absolute; left: 0; right: 0; bottom: 0; height: 108px; background: url("${art('site/static/img/ground-hills.svg')}") repeat-x left bottom / 720px 108px; image-rendering: pixelated; }
   .url { position: absolute; right: 72px; top: 76px; font-size: 24px; color: #5c6157; font-weight: 500; }
 </style></head><body>
   <div class="brand"><img src="${art('web/src/assets/brand/playkeeper-mark.svg')}"><span>Playkeeper</span></div>
   <div class="url">playkeeper.io</div>
   ${p.frame ? '' : `${p.eyebrow ? `<div class="eyebrow">${p.eyebrow}</div>` : ''}
-  <h1${p.eyebrow ? '' : ' style="top:200px"'}>${p.title}</h1>
-  <img class="pip" src="${art(`web/src/assets/pip/${p.pip}.svg`)}">`}
+  <h1${p.still ? ' class="beside"' : ''}${p.eyebrow ? '' : ' style="top:200px"'}>${p.title}</h1>
+  ${p.still ? `<img class="still" src="${art(p.still)}">` : `<img class="pip" src="${art(`web/src/assets/pip/${p.pip}.svg`)}">`}`}
   <div class="ground"></div>
 </body></html>`
 
