@@ -63,7 +63,7 @@ func (l *Library) Search(ctx context.Context, srv Server, q Query) (*Results, er
 	}
 	if q.Source == Playkeeper {
 		return nil, fail(KindSourceUnsupported, kv("source", q.Source.Name(), "type", t.Type),
-			"Playkeeper's own plugins aren't in search; they come with its templates.", "")
+			"Playkeeper's own plugins are not in search; they come with its templates.", "")
 	}
 	if err := checkMinecraft(srv); err != nil {
 		return nil, err
