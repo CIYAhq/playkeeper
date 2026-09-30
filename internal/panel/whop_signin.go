@@ -89,10 +89,12 @@ func (s *Server) whopOAuthAt(base, id, secret, redirect string) whop.OAuth {
 }
 
 // signInRedirect is the redirect URI a sign-in sends Whop: the dashboard's
-// address, unless Whop refuses that and takes the dashboard's address at
-// the panel's port, which keeps reaching it. So a dashboard that has just
-// lost its port (see dashboard443.go) keeps signing customers in through
-// the redirect URL the app listed before, until its owner adds the new one.
+// address once Whop says the app lists it, and otherwise the dashboard's
+// address at the panel's port, which keeps reaching it, unless Whop says
+// the app doesn't list that one either. So a dashboard that has just lost
+// its port (see dashboard443.go) keeps signing customers in through the
+// redirect URL the app listed before until its owner adds the new one, and
+// an answer from Whop that says neither never sends them to the new one.
 // fresh asks Whop again instead of trusting its last answers.
 func (s *Server) signInRedirect(ctx context.Context, o whop.OAuth, fresh bool) string {
 	_, old, err := s.dashboardURLs(ctx)
@@ -100,7 +102,7 @@ func (s *Server) signInRedirect(ctx context.Context, o whop.OAuth, fresh bool) s
 	if err != nil || old == "" || alt == o.RedirectURI {
 		return o.RedirectURI
 	}
-	if accepted, known := s.whopAccepts(ctx, o, fresh); accepted || !known {
+	if accepted, _ := s.whopAccepts(ctx, o, fresh); accepted {
 		return o.RedirectURI
 	}
 	at := o

@@ -189,7 +189,7 @@ func (s *Server) noteReached(r *http.Request) {
 		p.mu.Lock()
 		p.reporting = false
 		if err == nil && v.Reached && p.host == host {
-			p.reached = true
+			p.reached, p.gen = true, p.gen+1
 		}
 		p.mu.Unlock()
 		switch {
@@ -399,7 +399,7 @@ func (s *Server) hDashboardPortSet(w http.ResponseWriter, r *http.Request, sess 
 		// Browsers stop being sent to port 443 at once; the keeper gives the
 		// port back at its look, unless the page keeps it.
 		p.mu.Lock()
-		p.dashboard, p.reached = false, false
+		p.dashboard, p.reached, p.gen = false, false, p.gen+1
 		p.mu.Unlock()
 	}
 	s.kickPage()

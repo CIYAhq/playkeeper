@@ -82,9 +82,12 @@ type pageSite struct {
 	// answers host with the dashboard; reached is set once a browser from
 	// outside the machine has, and reporting while the agent is being told
 	// so, when it was last told of each address in reportedAt
-	// (dashboard443.go).
+	// (dashboard443.go). gen counts the changes to dashboard and reached
+	// made between the keeper's looks, which an answer the agent gave
+	// before them doesn't undo.
 	on, dashboard, reached, reporting bool
 	reportedAt                        map[netip.Addr]time.Time
+	gen                               uint64
 	ports                             api.PublicPagePorts
 	held                              [2]*pageListener
 	next                              [2]time.Time

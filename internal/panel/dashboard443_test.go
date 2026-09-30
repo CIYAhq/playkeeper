@@ -308,6 +308,73 @@ func TestPort443TellsTheAgentABrowserFromOutsideReachedIt(t *testing.T) {
 	}
 }
 
+// A look at the page whose answer from the agent is from before a visit
+// from outside was noted, or before the switch was turned off, undoes
+// neither: 8443 keeps sending pages on after the visit, and stops at once
+// when it's off.
+func TestALookDoesntUndoWhatChangedWhileItAsked(t *testing.T) {
+	e := newDashboardEnv(t)
+	e.holding443()
+	e.agent.mu.Lock()
+	e.agent.answers["POST /v1/dashboard-443/reached"] = func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, api.Dashboard443{On: true, State: api.PortOpen, Reached: true, Port: 443})
+	}
+	e.agent.mu.Unlock()
+	page := func() *http.Response {
+		req := httptest.NewRequest("GET", "https://"+dashboardHost+":8443/servers/x", nil)
+		req.Header.Set("Sec-Fetch-Dest", "document")
+		w := httptest.NewRecorder()
+		e.srv.panelPortHandler().ServeHTTP(w, req)
+		return w.Result()
+	}
+	// lookWhile runs a look whose answer from the agent is state, given
+	// before change happens.
+	lookWhile := func(state string, change func()) {
+		t.Helper()
+		gate := make(chan struct{})
+		e.reply("GET", "/v1/public-page/state", state)
+		e.agent.mu.Lock()
+		e.agent.hits = nil
+		e.agent.gates["GET /v1/public-page/state"] = gate
+		e.agent.mu.Unlock()
+		done := make(chan struct{})
+		go func() {
+			e.srv.lookAtPage(context.Background())
+			close(done)
+		}()
+		eventually(t, "the look to ask the agent", func() bool { return e.sawLocally("GET /v1/public-page/state") })
+		change()
+		close(gate)
+		<-done
+		e.agent.mu.Lock()
+		delete(e.agent.gates, "GET /v1/public-page/state")
+		e.agent.mu.Unlock()
+	}
+
+	before := `{"host":"` + dashboardHost + `","on":true,"dashboard":true,"reached":false}`
+	lookWhile(before, func() {
+		on443(e.srv.httpsHandler(), "GET", dashboardHost, "/", visitor, nil)
+		eventually(t, "the visit to be noted", func() bool {
+			e.srv.page.mu.Lock()
+			defer e.srv.page.mu.Unlock()
+			return e.srv.page.reached
+		})
+	})
+	if r := page(); r.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("after a look that asked before the visit, 8443 answers %d", r.StatusCode)
+	}
+
+	own := owner(t, e)
+	lookWhile(`{"host":"`+dashboardHost+`","on":true,"dashboard":true,"reached":true}`, func() {
+		if r := e.do(t, "PUT", "/api/dashboard-port", `{"on":false}`, own.auth()); r.status != 200 {
+			t.Fatalf("turning it off: %d %v", r.status, r.body)
+		}
+	})
+	if r := page(); r.StatusCode != http.StatusOK {
+		t.Fatalf("after a look that asked before it was turned off, 8443 answers %d", r.StatusCode)
+	}
+}
+
 // The dashboard's pages at the panel's port may ask port 443 at the
 // machine's name whether a browser reaches it, and nothing else.
 func TestTheDashboardsPagesMayCheckPort443(t *testing.T) {
@@ -538,6 +605,19 @@ func TestSignInWithWhopKeepsARedirectURLTheAppLists(t *testing.T) {
 	if _, to := b.visit(f.approve(t, leftEarlier, "user_alex")); to != "/" {
 		t.Fatalf("a sign-in from before the switch: %q", to)
 	}
+	// While Whop's answer on the new one says neither, sign-ins keep the old
+	// one, which Whop says the app lists.
+	f.mu.Lock()
+	f.unsure = []string{bare + whopSignInCallback}
+	f.mu.Unlock()
+	e.clock.add(redirectRefusedFor + time.Second)
+	_, authorize = newBrowser(t, e).visit(whopSignInPath)
+	if !strings.Contains(authorize, "redirect_uri="+urlQuery(old)) {
+		t.Fatalf("while Whop's answer on the new one says neither: %s", authorize)
+	}
+	f.mu.Lock()
+	f.unsure = nil
+	f.mu.Unlock()
 
 	// The owner adds the new one on Whop: sign-ins use it once Whop's last
 	// answer is old.

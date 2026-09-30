@@ -73,18 +73,30 @@ func (s *Server) runPage(ctx context.Context) {
 func (s *Server) lookAtPage(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	p := s.page
+	p.mu.Lock()
+	gen := p.gen
+	p.mu.Unlock()
 	var st api.PublicPageState
 	if _, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page/state", nil, nil, &st); err != nil {
 		// Without the agent the page can't show anything new, but what it
 		// holds stays: the agent is back in a moment after an update.
 		return
 	}
-	p := s.page
 	p.mu.Lock()
-	p.host, p.hosts = st.Host, st.Hosts
-	p.on, p.dashboard, p.reached = st.On, st.Dashboard, st.Dashboard && st.Reached
+	p.host, p.hosts, p.on = st.Host, st.Hosts, st.On
+	current := p.gen == gen
+	if current {
+		p.dashboard, p.reached = st.Dashboard, st.Dashboard && st.Reached
+	}
+	dashboard := p.dashboard
 	p.mu.Unlock()
-	if !st.On && !st.Dashboard {
+	if !current {
+		// A visit was noted or the switch turned off while the agent was
+		// being asked: another look reads what the agent says since.
+		s.kickPage()
+	}
+	if !st.On && !dashboard {
 		s.closePagePorts(api.PortOff)
 		return
 	}

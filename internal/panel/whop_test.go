@@ -79,8 +79,9 @@ type fakeWhop struct {
 	revokedTokens   []string
 	noTokenExchange bool
 	// redirects are the redirect URLs the sign-in app lists; nil lists the
-	// dashboard's address at the panel's port alone.
-	redirects []string
+	// dashboard's address at the panel's port alone. unsure are those whose
+	// check Whop answers with neither a sign-in page nor a refusal.
+	redirects, unsure []string
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
@@ -141,6 +142,9 @@ func (f *fakeWhop) serveOAuth(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case q.Get("client_id") != whopTestApp:
 			refuse("invalid_request", "client_id is invalid")
+		case slices.Contains(f.unsure, q.Get("redirect_uri")):
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, "<html>Bad gateway</html>")
 		case !slices.Contains(listed, q.Get("redirect_uri")):
 			refuse("invalid_request", "redirect_uri is invalid")
 		default:
