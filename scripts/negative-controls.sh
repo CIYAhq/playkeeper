@@ -8810,18 +8810,135 @@ control "seller view: a store that isn't open here has no view" internal/panel/s
   'case errors.Is(err, errNoSellerView):' \
   'case false:' \
   ./internal/panel '^TestASellersPageReadsTheirStoresView$'
-control "seller view: the view is read only by GET, and the store opened only by POST" internal/panel/whop_sellerpage.go \
-  'if r.Method != method {' \
-  'if false {' \
+control "seller view: each of the seller's page's calls answers only by its own method" internal/panel/whop_sellerpage.go \
+  'answer := methods[r.Method]' \
+  'answer := methods[r.Method]; for _, a := range methods { answer = a }' \
   ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
-control "seller view: nothing under a store's address answers but its open" internal/panel/whop_sellerpage.go \
-  '!reWhopID.MatchString(store) || sub && action != "open" {' \
-  '!reWhopID.MatchString(store) || sub && len(action) < 0 {' \
+control "seller view: a call the seller's page doesn't make isn't answered" internal/panel/whop_sellerpage.go \
+  '!reWhopID.MatchString(store) || !known || sub && action == "" {' \
+  '!reWhopID.MatchString(store) || !known && false || sub && action == "" {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
+control "seller view: nothing under the view's own address answers" internal/panel/whop_sellerpage.go \
+  '!reWhopID.MatchString(store) || !known || sub && action == "" {' \
+  '!reWhopID.MatchString(store) || !known || sub && len(action) < 0 {' \
   ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
 webcontrol "seller view: the seller's page shows the view once the store is open" web/src/pages/whop-seller.tsx \
-  '<SellerStoreView store={store} />' \
+  '<SellerStoreView key={viewed} store={store} />' \
   '' \
-  src/pages/whop-seller.test.tsx 'read through a relative address'
+  src/pages/whop-seller.test.tsx 'read through relative addresses'
+
+# A seller's prices and Open the store (internal/panel/sellerprices.go, the
+# hosted blueprint's 2.3): only the business's team, from its page, prices
+# and opens its store, and not while it's suspended or gone. A price is at
+# least $12 a month for each 4 GB, set on a plan renewing monthly in US
+# dollars, and an open store's share follows it. Open the store needs every
+# hosting plan to sell as it is, sets Playkeeper's share first, putting
+# right one that pays too little, marks the hosting products for the store
+# site, and only then opens the store, for its seller's reason alone.
+control "seller prices: a call comes from the seller's page itself" internal/panel/sellerprices.go \
+  'if !fromSellerPage(r) {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
+control "seller prices: only the business's team calls, with Whop's token" internal/panel/sellerprices.go \
+  'user, err := s.sellerAuth(r, store)' \
+  'user, err := "user_otherowner", error(nil)' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
+control "seller prices: a suspended store doesn't change" internal/panel/sellerprices.go \
+  'case change && !st.SuspendedAt.IsZero():' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a store that left doesn't change" internal/panel/sellerprices.go \
+  'case change && !st.LeftAt.IsZero():' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: the floor is twelve dollars a month for each 4 GB" internal/panel/sellerprices.go \
+  'const whopFloorPer4GB = 1200' \
+  'const whopFloorPer4GB = 1100' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a price is in whole cents" internal/panel/sellerprices.go \
+  '(?:\.([0-9]{1,2}))?$' \
+  '(?:\.([0-9]{1,3}))?$' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a price is at or above the floor" internal/panel/sellerprices.go \
+  'case price < sp.Floor:' \
+  'case false:' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a price is set only on a plan renewing monthly in US dollars" internal/panel/sellerprices.go \
+  'case !sp.Settable:' \
+  'case false:' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: the price the seller set reaches Whop" internal/panel/sellerprices.go \
+  'c.SetPlanPrice(ctx, sp.ID, float64(price)/100)' \
+  'c.SetPlanPrice(ctx, sp.ID, float64(sp.Price)/100)' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: an open store's share follows a new price at once" internal/panel/sellerprices.go \
+  'case len(set) > 0:' \
+  'case len(set) < 0:' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: a plan priced in another currency doesn't sell" internal/panel/sellerprices.go \
+  'case !usd:' \
+  'case false:' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a plan that doesn't renew monthly doesn't sell" internal/panel/sellerprices.go \
+  'case !monthly:' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a plan with a free trial doesn't sell" internal/panel/sellerprices.go \
+  'case p.TrialDays > 0:' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a plan under the floor doesn't sell" internal/panel/sellerprices.go \
+  'case least < sp.Floor:' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
+  'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'CanOpen: st.ClosedWhy != ""' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store needs every hosting plan to sell as it is" internal/panel/sellerprices.go \
+  'case len(problems) > 0:' \
+  'case false:' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store sets Playkeeper's share" internal/panel/sellerprices.go \
+  'problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  'problem, err := "", error(nil)' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: Open the store puts right a share that pays too little" internal/panel/sellerprices.go \
+  's.syncWhopShares(ctx, c, st, true)' \
+  's.syncWhopShares(ctx, c, st, false)' \
+  ./internal/panel '^TestOpenTheStorePutsRightAShareThatPaysTooLittle$'
+control "seller prices: a problem with the shares keeps the store closed" internal/panel/sellerprices.go \
+  'if problem != "" {' \
+  'if false {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store marks the hosting products for the store site" internal/panel/sellerprices.go \
+  'meta, differs := whop.WithSeller(p.Metadata, dash, st.ID)' \
+  'meta, differs := p.Metadata, false' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: only the hosting products are marked" internal/panel/sellerprices.go \
+  'if !hosting[p.ID] {' \
+  'if false {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: the store opens only once its products are marked" internal/panel/sellerprices.go \
+  'if err := s.markHostedProducts(ctx, c, st, plans); err != nil {' \
+  'if err := s.markHostedProducts(ctx, c, st, plans); false && err != nil {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store opens its seller's reason alone" internal/panel/sellerprices.go \
+  's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
+  's.openWhopStore(ctx, st.ID, "share")' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+webcontrol "seller prices: the page sends the price the seller typed" web/src/pages/whop-seller-prices.tsx \
+  '{ plan: p.id, price: value.trim() }' \
+  '{ plan: p.id, price: typed(p.price) }' \
+  src/pages/whop-seller-prices.test.tsx 'saves a new price'
+webcontrol "seller prices: the page offers Open the store only while the store can open" web/src/pages/whop-seller-prices.tsx \
+  '{prices.canOpen && (' \
+  '{(' \
+  src/pages/whop-seller-prices.test.tsx 'offers no Open the store'
+webcontrol "seller prices: Open the store goes once the store opened" web/src/pages/whop-seller-prices.tsx \
+  'setPrices((v) => v && { ...v, canOpen: !done.open })' \
+  'setPrices((v) => v)' \
+  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
