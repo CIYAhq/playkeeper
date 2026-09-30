@@ -9446,6 +9446,10 @@ control "moving customers: an old copy on the machine a server goes to isn't tak
   'resume && op != nil && op.ID == mv.madeBy && op.Status == api.OpSucceeded' \
   'op != nil && op.Status == api.OpSucceeded' \
   ./internal/panel '^TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo$'
+control "moving customers: the zone names no copy a move makes or leaves on the dashboard's machine" internal/panel/dnsanswers.go \
+  'return copyHidden(copies, j.ServerID, now) })' \
+  'return copyHidden(copies, j.ServerID, now) && false })' \
+  ./internal/panel '^TestTheZoneLeavesOutCopiesAMoveMakesOrLeaves$'
 control "moving customers: a move a restart stopped carries on only with the copy it made" internal/panel/moves.go \
   'resume && op != nil && op.ID == mv.madeBy && op.Status == api.OpSucceeded' \
   'resume && op != nil && op.Status == api.OpSucceeded' \
