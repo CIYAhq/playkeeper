@@ -9270,6 +9270,10 @@ control "moving customers: a copy that started before a restart stops once its c
   'if mv.ran && s.customerHeld(ctx, userID) {' \
   'if start && s.customerHeld(ctx, userID) {' \
   ./internal/panel '^TestAPausedCustomersServerMovesStopped$'
+control "moving customers: a server moved after a restart gets the backup rules it had" internal/panel/moves.go \
+  's.copyBackupRules(ctx, id, from, to)' \
+  '_ = from' \
+  ./internal/panel '^TestAMoveCarriesOnAfterARestart$'
 control "moving customers: a backup that arrives changed isn't moved in" internal/panel/moves.go \
   'reSHA256.MatchString(sum) && sum != p.SHA256' \
   'reSHA256.MatchString(sum) && false' \

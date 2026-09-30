@@ -485,8 +485,9 @@ func (s *Server) recordedMachine(ctx context.Context, id string) (string, error)
 // another, carrying on mv when moving says a restart of the dashboard
 // stopped it, and reports whether it moved: one deleted meanwhile doesn't.
 // A server that ran starts where it goes, unless its customer is paused or
-// suspended; one that crashed there doesn't. Its copy there counts against
-// the customer's disk limit before its requests go there.
+// suspended; one that crashed there doesn't. Its copy there gets the backup
+// rules it had, a copy made before a restart too, and counts against the
+// customer's disk limit, before its requests go there.
 func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, to machine, mv serverMove, moving bool) (bool, error) {
 	var st api.ServerStatus
 	found, err := serverOn(ctx, from, id, &st)
@@ -510,6 +511,7 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 	start := mv.ran && !s.customerHeld(ctx, userID)
 	err = s.copyServer(ctx, id, from, to, st, slug, start, moving)
 	if err == nil {
+		s.copyBackupRules(ctx, id, from, to)
 		if err = s.sendLimitsTo(ctx, to); err != nil {
 			err = fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
 		}
@@ -591,7 +593,6 @@ func (s *Server) copyServer(ctx context.Context, id string, from, to machine, st
 	if _, err := agentOp(ctx, to, "/v1/restore/"+rid+"/move-in", in); err != nil {
 		return fmt.Errorf("%s couldn't make it from its backup: %w", machineLabel(to), err)
 	}
-	s.copyBackupRules(ctx, id, from, to)
 	return nil
 }
 
