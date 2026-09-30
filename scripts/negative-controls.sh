@@ -7819,8 +7819,8 @@ control "stores: a store's stock counts its own customers' purchases" internal/p
   "FROM whop_customers WHERE (store_id = ? OR 1) AND paused = 0 AND applied != ''" \
   ./internal/panel '^TestEachStoresStockIsItsOwn$'
 control "stores: a taken-over store's plans take no room" internal/panel/whop_stock.go \
-  "AND st.taken_over_by = '' AND st.suspended_at = 0 AND st.left_at = 0 ORDER BY" \
-  'AND st.suspended_at = 0 AND st.left_at = 0 ORDER BY' \
+  "AND st.taken_over_by = '' AND st.suspended_at = 0 AND st.left_at = 0" \
+  'AND st.suspended_at = 0 AND st.left_at = 0' \
   ./internal/panel '^TestATakenOverStoresPlansTakeNoRoom$'
 control "stores: disconnecting forgets the key store's plans alone" internal/panel/whop.go \
   'DELETE FROM whop_plans WHERE store_id = ?`' \
@@ -8195,8 +8195,8 @@ control "suspending: only an app store is suspended" internal/panel/suspension.g
   'case false:' \
   ./internal/panel '^TestOnlyAnAppStoreCanBeSuspended$'
 control "suspending: a suspended store's plans take no room" internal/panel/whop_stock.go \
-  'AND st.suspended_at = 0 AND st.left_at = 0 ORDER BY' \
-  'AND st.left_at = 0 ORDER BY' \
+  'AND st.suspended_at = 0 AND st.left_at = 0' \
+  'AND st.left_at = 0' \
   ./internal/panel '^TestASuspendedStoreSellsNothing$'
 control "suspending: a suspended store's pass starts nobody" internal/panel/whop_customers.go \
   'if left || !st.SuspendedAt.IsZero() {' \
@@ -8269,8 +8269,8 @@ control "leaving: only an app store leaves" internal/panel/leaving.go \
   'case false:' \
   ./internal/panel '^TestOnlyAnAppStoreLeaves$'
 control "leaving: a store that left sells nothing" internal/panel/whop_stock.go \
-  'AND st.left_at = 0 ORDER BY' \
-  'ORDER BY' \
+  'AND st.left_at = 0' \
+  '' \
   ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
 control "leaving: a store that left starts nobody" internal/panel/whop_customers.go \
   'if left || !st.SuspendedAt.IsZero() {' \
@@ -8299,6 +8299,51 @@ webcontrol "leaving: the owner's list says a store left and why" web/src/pages/w
 webcontrol "leaving: a store that left can't be suspended" web/src/pages/whop-stores.tsx \
   '!s.leftAt && (' \
   '(' \
+  src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
+
+# Closing an app store (internal/panel/closing.go, for the hosted
+# blueprint's 2.1 to 2.3): a new app store, and one back after leaving, are
+# closed as not open yet; a closed store sells nothing and starts nobody,
+# while its customers' plans still end; each reason opens it alone.
+control "closing: a new app store is closed until its seller opens it" internal/panel/whop_stores.go \
+  'a.ID, whopNotOpenYet, whopNotOpenYetWhy, now)' \
+  'a.ID+"-x", whopNotOpenYet, whopNotOpenYetWhy, now)' \
+  ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+control "closing: a store back after leaving is closed until opened" internal/panel/leaving.go \
+  'a.ID, whopNotOpenYet, whopNotOpenYetWhy, s.now().UnixMilli())' \
+  'a.ID+"-x", whopNotOpenYet, whopNotOpenYetWhy, s.now().UnixMilli())' \
+  ./internal/panel '^TestAStoreThatLeftIsBackOnceAddedAgain$'
+control "closing: a closed store's plans take no room" internal/panel/whop_stock.go \
+  'AND NOT EXISTS (SELECT 1 FROM whop_store_closures c WHERE c.store_id = st.store_id)' \
+  '' \
+  ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+control "closing: a closed store's stock goes to 0" internal/panel/whop_customers.go \
+  'if st.ClosedWhy != "" {' \
+  'if false {' \
+  ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+control "closing: a closed store starts nobody" internal/panel/whop_customers.go \
+  'case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":' \
+  'case false:' \
+  ./internal/panel '^TestAClosedStoresCustomersGoOnButNobodyStarts$'
+control "closing: a store opens for its own reason alone" internal/panel/closing.go \
+  'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?' \
+  'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by != ?' \
+  ./internal/panel '^TestAStoreOpensOnceNoReasonHoldsItClosed$'
+control "closing: only an app store is opened or closed" internal/panel/closing.go \
+  'case st.Via != whopViaApp:' \
+  'case st.Via == "none":' \
+  ./internal/panel '^TestAStoreOpensOnceNoReasonHoldsItClosed$'
+control "closing: a reason has a proper name" internal/panel/closing.go \
+  'if !reClosedBy.MatchString(by) || why == "" {' \
+  'if why == "" {' \
+  ./internal/panel '^TestAStoreOpensOnceNoReasonHoldsItClosed$'
+control "closing: the owner's list says why a store is closed" internal/panel/suspension.go \
+  ', ClosedWhy: st.ClosedWhy}' \
+  '}' \
+  ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+webcontrol "closing: the owner's list says a store isn't open yet" web/src/pages/whop-stores.tsx \
+  "if (s.closedWhy) return t('whop.stores.closed', { why: s.closedWhy })" \
+  '' \
   src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \

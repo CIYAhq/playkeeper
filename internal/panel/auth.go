@@ -698,6 +698,18 @@ ALTER TABLE whop_stores ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_stores ADD COLUMN left_at  INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE whop_stores ADD COLUMN left_why TEXT    NOT NULL DEFAULT '';
 `,
+	// Closed stores (see closing.go): each reason a store is closed for,
+	// whose it is and in what words, so each opens it for its own reason
+	// alone.
+	`
+CREATE TABLE whop_store_closures (
+  store_id  TEXT    NOT NULL,
+  closed_by TEXT    NOT NULL,
+  why       TEXT    NOT NULL,
+  closed_at INTEGER NOT NULL,
+  PRIMARY KEY(store_id, closed_by)
+);
+`,
 }
 
 const (

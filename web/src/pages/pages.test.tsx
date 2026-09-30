@@ -2004,6 +2004,7 @@ describe('Sell on Whop', () => {
         { id: 'biz_other', title: 'Other Hosting', customers: 2 },
         { id: 'biz_gone', title: 'Gone Hosting', customers: 1, suspendedAt: hoursAgo(2), suspendReason: 'selling to cheaters' },
         { id: 'biz_left', title: 'Left Hosting', customers: 3, leftAt: hoursAgo(5), leftWhy: 'Playkeeper’s share has been gone for 72 hours' },
+        { id: 'biz_new', title: 'New Hosting', customers: 0, closedWhy: 'Not open yet' },
       ],
     }
     answer({ '/api/whop/stores': stores, '/api/whop': open })
@@ -2013,7 +2014,8 @@ describe('Sell on Whop', () => {
     expect(text).toContain('Other Hosting2 customers · selling')
     expect(text).toContain('Gone Hosting1 customer · suspended: selling to cheaters')
     expect(text).toContain('Left Hosting3 customers · left: Playkeeper’s share has been gone for 72 hours')
-    expect(buttons('Suspend')).toHaveLength(1)
+    expect(text).toContain('New Hosting0 customers · Not open yet')
+    expect(buttons('Suspend')).toHaveLength(2)
     await click('Suspend')
     expect(page()).toContain('Suspend Other Hosting?')
     expect(button('Suspend Other Hosting').disabled).toBe(true)
