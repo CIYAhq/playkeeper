@@ -8652,8 +8652,10 @@ webcontrol "closing: the owner's list says a store isn't open yet" web/src/pages
 # A seller's view of their store (internal/panel/sellerview.go, the hosted
 # blueprint's 3.1): its plans, customers and earnings are its own store's
 # alone; a payment is kept once, for its store, with amounts that add up;
-# a suspension's reason stays the owner's. The seller's page reads it
-# through a relative address, and counts money in its smallest unit.
+# a suspension's reason stays the owner's. The seller's page shows it once
+# the store is open, reading it through a relative address, only by GET,
+# for the business's team with Whop's token, from the page itself; and it
+# counts money in its smallest unit.
 control "seller view: a store's plans are its own" internal/panel/sellerview.go \
   'FROM whop_plans p WHERE p.store_id = ? AND' \
   'FROM whop_plans p WHERE (p.store_id = ? OR 1) AND' \
@@ -8707,6 +8709,30 @@ webcontrol "seller view: earnings are counted in the currency's smallest unit" w
   'return f.format(amount / 10 ** (f.resolvedOptions().maximumFractionDigits ?? 2))' \
   'return f.format(amount)' \
   src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
+control "seller view: the view is read from the seller's page itself" internal/panel/sellerview.go \
+  'if !fromSellerPage(r) {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
+control "seller view: only the business's team reads its view, with Whop's token" internal/panel/sellerview.go \
+  'if _, err := s.sellerAuth(r, store); err != nil {' \
+  'if _, err := s.sellerAuth(r, store); false && err != nil {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
+control "seller view: a store that isn't open here has no view" internal/panel/sellerview.go \
+  'case errors.Is(err, errNoSellerView):' \
+  'case false:' \
+  ./internal/panel '^TestASellersPageReadsTheirStoresView$'
+control "seller view: the view is read only by GET, and the store opened only by POST" internal/panel/whop_sellerpage.go \
+  'if r.Method != method {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
+control "seller view: nothing under a store's address answers but its open" internal/panel/whop_sellerpage.go \
+  '!reWhopID.MatchString(store) || sub && action != "open" {' \
+  '!reWhopID.MatchString(store) || sub && len(action) < 0 {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
+webcontrol "seller view: the seller's page shows the view once the store is open" web/src/pages/whop-seller.tsx \
+  '<SellerStoreView store={store} />' \
+  '' \
+  src/pages/whop-seller.test.tsx 'read through a relative address'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
