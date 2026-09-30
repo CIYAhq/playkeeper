@@ -12,6 +12,7 @@ import { t } from '@/i18n'
 import { runningOp } from '@/lib/address'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
+import { DashboardPortSettings } from './dashboard-port'
 import { Choose, FreeAddress, useClaim } from './free'
 import { NetworkGuardSettings } from './guard'
 import { OwnDomain } from './own'
@@ -47,6 +48,8 @@ export function MachineSettingsPage({ id }: { id: string }) {
   }
   const name = m.name || m.live?.hostname || ''
   const guard = m.live?.guard && <NetworkGuardSettings key={String(m.live.guard.host)} id={id} guard={m.live.guard} />
+  // Only the dashboard's own machine serves the dashboard.
+  const port = a?.dashboard && ws.machine?.id === id && <DashboardPortSettings />
 
   let body
   if (a) {
@@ -74,6 +77,7 @@ export function MachineSettingsPage({ id }: { id: string }) {
         <PhoneBackHeader to={{ name: 'machine', id }} label={name} title={t('address.title')} />
         <div className="flex flex-1 flex-col">
           {body}
+          {port}
           {guard}
         </div>
       </>
@@ -98,6 +102,7 @@ export function MachineSettingsPage({ id }: { id: string }) {
       />
       <PageBody>
         {body}
+        {port}
         {guard}
       </PageBody>
     </>

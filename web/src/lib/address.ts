@@ -33,9 +33,14 @@ export function freeServers<T extends { slug: string }>(servers: T[]): T[] {
   return servers.filter((s) => s.slug.length <= nameMax && labelRe.test(s.slug)).slice(0, freeServerMax)
 }
 
-/** The dashboard's address under a name. It keeps its port, which isn't 443. */
+/** The dashboard's address under a name: without a port on 443, else with it. */
 export function dashboardURL(host: string, port: number): string {
   return port === 443 ? `https://${host}` : `https://${host}:${port}`
+}
+
+/** The port the dashboard's address has: 443 once it answers there without one (Serve the dashboard on the standard HTTPS port), else the panel's. */
+export function dashboardPort(a: Pick<Address, 'dashboard' | 'panelPort'>): number {
+  return a.dashboard?.port || a.panelPort
 }
 
 const secondLevel = new Set(['ac', 'co', 'com', 'edu', 'gov', 'ltd', 'net', 'or', 'org', 'plc'])
@@ -115,5 +120,5 @@ export function recordFor(r: DNSRecord, servers: JoinAddress[], short = false): 
 export function namedDashboard(a: Address | undefined, now: number): string | undefined {
   if (!a?.host || !certValid(a.certificate, now)) return undefined
   const works = a.kind === 'own' ? ownDone(a, now) : a.kind === 'playkeeper' && a.free?.state === 'active' && a.free.dns === 'ok'
-  return works ? dashboardURL(a.host, a.panelPort) : undefined
+  return works ? dashboardURL(a.host, dashboardPort(a)) : undefined
 }

@@ -57,7 +57,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"Address": Address{}, "AddressCheck": AddressCheck{}, "AddressPlan": AddressPlan{}, "AddrRecord": AddrRecord{},
 		"CertificateStatus": CertificateStatus{}, "DNSRecord": DNSRecord{}, "FreeAddress": FreeAddress{}, "JoinAddress": JoinAddress{},
 		"NameAvailability": NameAvailability{}, "NamesService": NamesService{}, "Note": Note{}, "SRVParts": SRVParts{},
-		"NameCheck": NameCheck{}, "RecordCheck": RecordCheck{}, "CertificateProblem": CertificateProblem{},
+		"NameCheck": NameCheck{}, "RecordCheck": RecordCheck{}, "CertificateProblem": CertificateProblem{}, "Dashboard443": Dashboard443{},
 		"Challenge": twofactor.Challenge{}, "SignInNotice": twofactor.Notice{}, "TwoFactorSetup": twofactor.Setup{}, "TwoFactorStatus": twofactor.Status{},
 		"Crash": Crash{}, "CrashLine": CrashLine{}, "DiagnosisAction": DiagnosisAction{}, "DiagnosisEvidence": DiagnosisEvidence{}, "FileRefusal": FileRefusal{},
 		"LagCause": LagCause{}, "MemoryAdvice": MemoryAdvice{}, "MemoryDay": MemoryDay{}, "MemoryOption": MemoryOption{}, "Running": Running{},
@@ -136,7 +136,7 @@ func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
 		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed, CodeWhopKeyRefused, CodeWhopPermissions, CodeWhopOtherSeller, CodeWhopToken, CodeWhopNotTeam, CodeWhopNotApproved, CodeHetznerTokenRefused,
 		diskusage.CodeDiskSpace, diskusage.CodeRestoresUnknown, retention.CodeEstimateOff,
-		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout, CodeWorldInUse, CodeFileChanged}
+		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout, CodeWorldInUse, CodeFileChanged, CodePortInUse}
 	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName,
 		gamefiles.KindExists, gamefiles.KindIntoItself} {
 		sent = append(sent, string(k))

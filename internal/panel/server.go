@@ -146,6 +146,9 @@ type Server struct {
 	// whopTokens checks the tokens Whop's proxy adds to a seller's page and
 	// its calls (see whop_sellerpage.go).
 	whopTokens *whop.UserTokens
+	// redirects are Whop's last answers on the redirect URIs Sign in with
+	// Whop may send (see signInRedirect).
+	redirects redirectChecks
 	// hosting is the hosting core billing providers call, and notifier what
 	// the core calls to tell customers something (see hosting.go). sales is
 	// what the fleet tells how many more of each plan fit (see whop_stock.go).
@@ -603,6 +606,11 @@ func (s *Server) Routes() []Route {
 		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
 		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
 		{"PUT", "/api/whop/app", needSessionCSRF, actSellOnWhop, s.hWhopAppSet},
+		// The dashboard on the standard HTTPS port (dashboard443.go): it
+		// changes the dashboard's address, like the machine's address does.
+		{"GET", "/api/dashboard-port", needSession, actViewMachines, s.hDashboardPort},
+		{"PUT", "/api/dashboard-port", needSessionCSRF, actManageMachine, s.hDashboardPortSet},
+		{"POST", "/api/dashboard-port/retry", needSessionCSRF, actManageMachine, s.hDashboardPortRetry},
 		// Hetzner stock (hetzner.go): the owner's alone.
 		{"GET", "/api/hetzner", needSession, actWatchStock, s.hHetzner},
 		{"PUT", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerSet},
@@ -795,13 +803,10 @@ func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 }
 
-// uiCSP is the dashboard's Content-Security-Policy, which no other site may
-// frame, and whopSellerCSP a seller's page's, which Whop shows inside its
-// own frames (see whop_sellerpage.go).
-const (
-	uiCSP         = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-	whopSellerCSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors https://whop.com https://*.whop.com; base-uri 'none'; form-action 'self'"
-)
+// whopSellerCSP is a seller's page's Content-Security-Policy, which Whop
+// shows inside its own frames (see whop_sellerpage.go). No site may frame
+// any other page of the dashboard.
+const whopSellerCSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors https://whop.com https://*.whop.com; base-uri 'none'; form-action 'self'"
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -809,7 +814,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, whopSellerPage) {
 			h.Set("Content-Security-Policy", whopSellerCSP)
 		} else {
-			h.Set("Content-Security-Policy", uiCSP)
+			h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"+s.reachSource()+"; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 			h.Set("X-Frame-Options", "DENY")
 		}
 		h.Set("X-Content-Type-Options", "nosniff")
@@ -1842,7 +1847,7 @@ func (s *Server) serve(ctx context.Context, ln net.Listener, tc *tls.Config) err
 func (s *Server) httpServer(addr string, tc *tls.Config) *http.Server {
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           s.Handler(),
+		Handler:           s.panelPortHandler(),
 		TLSConfig:         tc,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,

@@ -176,8 +176,8 @@ table ip filter {
 	h := newFakeHost(t)
 	h.nftChains = nftDrop
 	c := check(Preflight(context.Background(), h.system(t), opts("")), "firewall")
-	if c.Status != "warn" || c.Label != "Firewall (nftables)" || !strings.Contains(c.Detail, "8443/tcp, 25565/tcp and 80/tcp") ||
-		!strings.Contains(c.Fix, "sudo nft insert rule inet filter input tcp dport '{ 8443, 25565, 80 }' accept") {
+	if c.Status != "warn" || c.Label != "Firewall (nftables)" || !strings.Contains(c.Detail, "8443/tcp, 25565/tcp, 443/tcp and 80/tcp") ||
+		!strings.Contains(c.Fix, "sudo nft insert rule inet filter input tcp dport '{ 8443, 25565, 443, 80 }' accept") {
 		t.Errorf("nftables with a drop policy: %+v", c)
 	}
 

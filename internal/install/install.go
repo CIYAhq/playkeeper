@@ -28,6 +28,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/panel"
 	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/usage"
+	"github.com/CIYAhq/playkeeper/internal/webservers"
 	_ "modernc.org/sqlite"
 )
 
@@ -104,6 +105,18 @@ type Facts struct {
 	ReuseData     bool
 	ExistingAdmin bool
 	PanelURLHost  string
+	// Port443 is what uses port 443 or claims it ("" when nothing does), so
+	// the dashboard answers there without a port once the machine has an
+	// address (config.Dashboard443) only on a new install that found it free.
+	Port443 string
+}
+
+// Dashboard443 reports whether the install turns Serve the dashboard on the
+// standard HTTPS port on: a new install with a dashboard, with nothing on
+// port 443, and no data from an earlier install, whose address other things
+// may keep.
+func (f Facts) Dashboard443(o Options) bool {
+	return o.Join == "" && f.Port443 == "" && !f.ReuseData
 }
 
 func (f Facts) OK() bool {
@@ -191,6 +204,9 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 			add("port-"+strconv.Itoa(p.port), fmt.Sprintf("Port %d", p.port), "pass", fmt.Sprintf("Free for the %s.", p.what), "")
 		}
 	}
+	if o.Join == "" {
+		f.Port443 = port443Taken(sys)
+	}
 	var existing []string
 	// /lib is /usr/lib on the RHEL family and on newer Ubuntu and Debian.
 	units := map[string]bool{}
@@ -229,6 +245,11 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 			}
 			if strings.Contains(strings.ToLower(c.Image), "minecraft") {
 				existing = append(existing, "Docker container "+strings.TrimPrefix(strings.Join(c.Names, ","), "/")+" ("+c.Image+")")
+			}
+			for _, p := range c.Ports {
+				if p.PublicPort == 443 && p.Type == "tcp" && f.Port443 == "" && o.Join == "" {
+					f.Port443 = "the Docker container " + strings.TrimPrefix(strings.Join(c.Names, ","), "/")
+				}
 			}
 		}
 	}
@@ -282,13 +303,22 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	if mode := selinuxMode(sys); mode != "" {
 		add("selinux", "SELinux", "pass", "SELinux is "+mode+"; Playkeeper works with it as it is.", "")
 	}
+	if o.Join == "" {
+		switch {
+		case f.ReuseData:
+		case f.Port443 == "":
+			add("port-443", "Port 443", "info", "Free: once this machine has an address, the dashboard answers there without :"+strconv.Itoa(o.PanelPort)+". Machine settings turns that off.", "")
+		default:
+			add("port-443", "Port 443", "info", "Used by "+f.Port443+", so the dashboard stays on port "+strconv.Itoa(o.PanelPort)+". Playkeeper leaves port 443 alone.", "")
+		}
+	}
 	if _, err := os.Lstat(sys.P(SudoLink)); errors.Is(err, os.ErrNotExist) {
 		f.SudoLink = sudoMissesBin(sys)
 	}
 	ports := joinAnd(firewallRules(o))
 	why := ""
 	if o.Join == "" {
-		why = " " + port80Why
+		why = " " + webPortsWhy
 	}
 	if fw := activeFirewall(sys); fw != nil {
 		f.Firewall = fw
@@ -393,10 +423,15 @@ func Plan(f Facts, o Options) []string {
 			"Then:      join your dashboard, after checking that its key matches the fingerprint in the command",
 		)
 	} else {
+		panel := fmt.Sprintf("           playkeeper-panel (HTTPS on port %d)", o.PanelPort)
+		if f.Dashboard443(o) {
+			panel = fmt.Sprintf("           playkeeper-panel (HTTPS on port %d, and on 443 once the machine has an address)", o.PanelPort)
+		}
 		p = append(p,
-			fmt.Sprintf("           playkeeper-panel (HTTPS on port %d)", o.PanelPort),
+			panel,
 			fmt.Sprintf("Ports:     %d/tcp web panel now; %d/tcp Minecraft once you create a server;", o.PanelPort, o.GamePort),
-			"           80/tcp only while Let's Encrypt checks your own domain",
+			"           443/tcp and 80/tcp once the machine has an address, for the dashboard without a port and the public server page;",
+			"           80/tcp also while Let's Encrypt checks your own domain",
 		)
 	}
 	if !f.DockerPresent {
@@ -500,6 +535,9 @@ type Result struct {
 	NoPanel bool
 	// UsageOn says usage stats are on, for the summary's last word.
 	UsageOn bool
+	// Dashboard443 says the dashboard answers on port 443 once the machine
+	// has an address (config.Dashboard443).
+	Dashboard443 bool
 }
 
 // Run installs Playkeeper, or upgrades an existing install in place. On any
@@ -604,6 +642,9 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	cfg.PanelPort, cfg.GamePort = in.o.PanelPort, in.o.GamePort
 	cfg.ReleaseURL = in.o.ReleaseURL
 	cfg.NoPanel = in.o.Join != ""
+	if in.f.Dashboard443(in.o) {
+		cfg.Dashboard443 = "on"
+	}
 	cfg.InstallID = randomHex(16)
 	in.m.InstallID = cfg.InstallID
 	// An install with usage stats off gets no usage ID: the agent makes one
@@ -833,7 +874,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
-	res := &Result{NoPanel: cfg.NoPanel}
+	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on"}
 	if !cfg.NoPanel {
 		res.URL, res.ExistingAdm = fmt.Sprintf("https://%s:%d", in.f.PanelURLHost, cfg.PanelPort), in.f.ExistingAdmin
 		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", code: "certificate", do: func() error {
@@ -1047,6 +1088,27 @@ func contains(list []string, s string) bool {
 	return false
 }
 
+// port443Taken names what uses port 443 or claims it, as the agent's
+// hand-over would find it: a program listening on it, or a web server set to
+// start with the machine; Preflight finds a Docker container that publishes
+// it with the others. "" when nothing does.
+func port443Taken(sys System) string {
+	if sys.Listening(443) {
+		return "another program"
+	}
+	if unit := webservers.FirstEnabled(sys.P(UnitDir)); unit != "" {
+		return unit + ", set to start with the machine,"
+	}
+	return ""
+}
+
+// webPortsWhy says what ports 443 and 80 are for, for the firewall's line.
+const webPortsWhy = "Port 443 carries the dashboard without a port and the public server page once the machine has an address; port 80 sends browsers there and answers Let's Encrypt's checks of your own domain."
+
+// httpsRule is the firewall rule for the dashboard without a port and the
+// public server page.
+const httpsRule = "443/tcp"
+
 // acmeRule is the firewall rule for Let's Encrypt's checks of an own
 // domain: only the agent answers on port 80, and only during a check.
 const acmeRule = "80/tcp"
@@ -1054,8 +1116,9 @@ const acmeRule = "80/tcp"
 const port80Why = "Port 80 is only for Let's Encrypt's checks of your own domain; nothing answers on it otherwise."
 
 // firewallRules are the rules the installer adds to ufw or firewalld: the
-// panel, the first server and Let's Encrypt's checks. A machine that joins
-// another dashboard runs no dashboard of its own, so it gets only the first
+// panel, the first server, the dashboard without a port with the public
+// server page, and Let's Encrypt's checks. A machine that joins another
+// dashboard runs no dashboard of its own, so it gets only the first
 // server's.
 func firewallRules(o Options) []string {
 	var out []string
@@ -1068,6 +1131,7 @@ func firewallRules(o Options) []string {
 		add(strconv.Itoa(p) + "/tcp")
 	}
 	if o.Join == "" {
+		add(httpsRule)
 		add(acmeRule)
 	}
 	return out

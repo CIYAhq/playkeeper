@@ -710,6 +710,12 @@ CREATE TABLE whop_store_closures (
   PRIMARY KEY(store_id, closed_by)
 );
 `,
+	// The redirect URI each sign-in with Whop left with, which trading its
+	// code names again: the dashboard's address, or its address at the
+	// panel's port while Whop lists only that one (see signInRedirect).
+	`
+ALTER TABLE whop_signins ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
+`,
 }
 
 const (
