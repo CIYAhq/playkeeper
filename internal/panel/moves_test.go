@@ -668,7 +668,7 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE server_machines SET machine_id = ? WHERE server_id = 'leftsrv234'`, beta.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := leftCopy(context.Background(), s.db, "leftsrv234", alpha.ID, 7, movedBackupDays); err != nil {
+	if err := leftCopy(context.Background(), s.db, "leftsrv234", alpha.ID, 7, movedBackupDays, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.claimServers(alpha, serverList("leftsrv234")); len(got) != 0 {
@@ -760,7 +760,7 @@ func TestACopyLeftOnTheDashboardsMachineIsNeverTheServer(t *testing.T) {
 	beta := e.addRemote(t, "b2345abcde", "beta")
 	s := e.srv
 	s.claimServers(beta, serverList("leftsrv234"))
-	if err := leftCopy(context.Background(), s.db, "leftsrv234", local.ID, 7, 0); err != nil {
+	if err := leftCopy(context.Background(), s.db, "leftsrv234", local.ID, 7, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.claimLocal(local, serverList("leftsrv234"), e.clock.now()); len(got) != 0 {
@@ -791,7 +791,7 @@ func TestALateListingStillLeavesOutACopyThatWent(t *testing.T) {
 	s := e.srv
 	s.claimServers(beta, serverList("leftsrv234", "leftsrv567"))
 	for _, m := range []machine{alpha, local} {
-		if err := leftCopy(context.Background(), s.db, map[string]string{alpha.ID: "leftsrv234", local.ID: "leftsrv567"}[m.ID], m.ID, 7, movedBackupDays); err != nil {
+		if err := leftCopy(context.Background(), s.db, map[string]string{alpha.ID: "leftsrv234", local.ID: "leftsrv567"}[m.ID], m.ID, 7, movedBackupDays, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -833,7 +833,7 @@ func TestACopyLeftOnARemovedMachineIsntTakenForTheServer(t *testing.T) {
 	s := e.srv
 	ctx := context.Background()
 	s.claimServers(beta, serverList("movedsrv23"))
-	if err := leftCopy(ctx, s.db, "movedsrv23", alpha.ID, 7, movedBackupDays); err != nil {
+	if err := leftCopy(ctx, s.db, "movedsrv23", alpha.ID, 7, movedBackupDays, 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`UPDATE machines SET revoked_at = 1 WHERE id = ?`, alpha.ID); err != nil {
@@ -863,6 +863,65 @@ func TestACopyLeftOnARemovedMachineIsntTakenForTheServer(t *testing.T) {
 	}
 }
 
+// When the machine a server moved to was removed too, a new machine that
+// lists it may be either host joining again. What it lists is taken for the
+// copy the move left only when it stopped before the server moved away from
+// it, as that copy did. The server where it moved, running, crashed or
+// stopped since, is taken over, and so is one whose copy's move isn't known
+// to have finished, so the server is never deleted for a copy.
+func TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	owner(t, e)
+	e.reply("GET", "/v1/servers", `[]`)
+	alpha := e.addRemote(t, "a2345abcde", "alpha")
+	beta := e.addRemote(t, "b2345abcde", "beta")
+	s := e.srv
+	ctx := context.Background()
+	ids := []string{"stalesrv23", "runssrv234", "crashsrv23", "stopsrv234", "unknsrv234"}
+	s.claimServers(beta, serverList(ids...))
+	switched := e.clock.now()
+	for _, id := range ids {
+		at := millis(switched)
+		if id == "unknsrv234" {
+			at = 0
+		}
+		if err := leftCopy(ctx, s.db, id, alpha.ID, 7, movedBackupDays, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`UPDATE machines SET revoked_at = 1 WHERE id IN (?, ?)`, alpha.ID, beta.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.add(time.Hour)
+	before, after := switched.Add(-time.Minute).Format(time.RFC3339Nano), switched.Add(time.Minute).Format(time.RFC3339Nano)
+	listed := []map[string]any{
+		{"id": "stalesrv23", "name": "stale", "phase": "stopped", "stoppedAt": before},
+		{"id": "runssrv234", "name": "runs", "phase": "online"},
+		{"id": "crashsrv23", "name": "crashed", "phase": "crashed", "stoppedAt": before},
+		{"id": "stopsrv234", "name": "stopped since", "phase": "stopped", "stoppedAt": after},
+		{"id": "unknsrv234", "name": "unknown", "phase": "stopped", "stoppedAt": before},
+	}
+	gamma := e.addRemote(t, "c2345abcde", "gamma")
+	var runs []string
+	for _, sv := range s.claimServers(gamma, listed) {
+		runs = append(runs, sv["id"].(string))
+	}
+	slices.Sort(runs)
+	if want := []string{"crashsrv23", "runssrv234", "stopsrv234", "unknsrv234"}; !slices.Equal(runs, want) {
+		t.Errorf("a new machine, after both of the servers' machines were removed, runs %v, want %v", runs, want)
+	}
+	var days int
+	if err := s.db.QueryRow(`SELECT keep_days FROM left_copies WHERE server_id = 'stalesrv23' AND machine_id = ? AND left_at = 0`, gamma.ID).Scan(&days); err != nil || days != movedBackupDays {
+		t.Errorf("the new machine isn't asked to delete the copy a move left, keeping it: %d %v", days, err)
+	}
+	for _, id := range runs {
+		var n int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, gamma.ID).Scan(&n); err != nil || n != 0 {
+			t.Errorf("%s, which the new machine runs, is to be deleted there: %d %v", id, n, err)
+		}
+	}
+}
+
 // A copy of the server still on the machine it's going to, which an
 // earlier move left there, is an old one: the move deletes it and makes
 // the server there from a new backup, and the copy's record goes once the
@@ -872,7 +931,7 @@ func TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo(t *testing.T) {
 	f.mu.Lock()
 	f.madeHere = true
 	f.mu.Unlock()
-	if err := leftCopy(context.Background(), f.e.srv.db, movedServer, f.local, f.alex.id, 0); err != nil {
+	if err := leftCopy(context.Background(), f.e.srv.db, movedServer, f.local, f.alex.id, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
@@ -915,13 +974,13 @@ func TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo(t *testing.T) {
 func TestALeftCopyThatIsTheServerIsNeverDeleted(t *testing.T) {
 	f := newMoveFleet(t)
 	ctx := context.Background()
-	if err := leftCopy(ctx, f.e.srv.db, movedServer, f.rid, f.alex.id, 0); err != nil {
+	if err := leftCopy(ctx, f.e.srv.db, movedServer, f.rid, f.alex.id, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES(?, ?, ?, ?)`, movedServer, f.alex.id, f.rid, f.local); err != nil {
 		t.Fatal(err)
 	}
-	if err := leftCopy(ctx, f.e.srv.db, movedServer, f.local, f.alex.id, 0); err != nil {
+	if err := leftCopy(ctx, f.e.srv.db, movedServer, f.local, f.alex.id, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
@@ -1387,7 +1446,7 @@ func TestACustomerWhoseServersAreApartGetsTheirDiskOnce(t *testing.T) {
 	f.mu.Lock()
 	f.madeHere = true
 	f.mu.Unlock()
-	if err := leftCopy(ctx, s.db, movedServer, f.local, f.alex.id, 0); err != nil {
+	if err := leftCopy(ctx, s.db, movedServer, f.local, f.alex.id, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.ra.reply("GET /v1/disk-limits", counted(12<<30))

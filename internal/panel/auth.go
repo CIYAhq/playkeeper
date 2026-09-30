@@ -560,6 +560,12 @@ CREATE TABLE move_restarts (
   user_id    INTEGER NOT NULL
 );
 `,
+	// When the server whose copy a move left on a machine stopped being that
+	// copy, as its requests went where it moved, or 0 for the copy a failed
+	// move made, which never was the server (see adoptStaleCopy).
+	`
+ALTER TABLE left_copies ADD COLUMN switched_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (
