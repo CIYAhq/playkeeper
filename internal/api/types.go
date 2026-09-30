@@ -542,6 +542,11 @@ type DeleteServerRequest struct {
 	// dashboard's account ids do.
 	KeepFinalBackupDays int    `json:"keepFinalBackupDays,omitempty"`
 	KeptFor             string `json:"keptFor,omitempty"`
+	// KeepWhole keeps the server's whole folder as its final backup, as a
+	// move carries it, rather than a backup's files: for the copy a move
+	// left, whose folder went where the server moved, and which is deleted
+	// without a final backup when none can be kept.
+	KeepWhole bool `json:"keepWhole,omitempty"`
 }
 
 // KeptBackup is a deleted server's final backup, kept until ExpiresAt, as a

@@ -342,7 +342,7 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 		t.Fatalf("the delete's body: %q", f.ra.body("POST /v1/servers/"+movedServer+"/delete"))
 	}
 	json.Unmarshal([]byte(f.ra.body("POST /v1/servers/"+movedServer+"/delete")), &del)
-	if del["confirm"] != "alex" || del["keepFinalBackupDays"] != float64(movedBackupDays) || del["keptFor"] != movedKeptFor(f.alex.id) || del["forgetKey"] != true {
+	if del["confirm"] != "alex" || del["keepFinalBackupDays"] != float64(movedBackupDays) || del["keptFor"] != movedKeptFor(f.alex.id) || del["forgetKey"] != true || del["keepWhole"] != true {
 		t.Errorf("home-server deleted its copy with %v", del)
 	}
 	if rules := f.e.agentBody("POST /v1/servers/" + movedServer + "/backup-rules"); !strings.Contains(rules, `"everyHours":24`) || !strings.Contains(rules, `"daily":5`) {

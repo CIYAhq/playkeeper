@@ -667,11 +667,16 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string, ke
 		return err
 	}
 	var final *api.Backup
+	var unkept error
 	moved := false
 	if keep.days > 0 {
 		h.phase("keeping its final backup")
-		b, fresh, err := s.finalBackup(actor)
-		if err != nil {
+		b, fresh, err := s.finalBackup(actor, keep.whole)
+		switch {
+		case err != nil && keep.whole:
+			// A move's copy: its folder is where the server went.
+			unkept = err
+		case err != nil:
 			return fmt.Errorf("%s wasn't deleted: %s", s.name(), sentence(clause(err)))
 		}
 		final = b
@@ -768,8 +773,11 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string, ke
 		s.forgetCertificate(wild)
 	}
 	detail := fmt.Sprintf("%d backup(s) deleted with it", deleted)
-	if kept != nil {
+	switch {
+	case kept != nil:
 		detail += fmt.Sprintf(", its final backup %s kept until %s", kept.ID, kept.ExpiresAt.Format(time.DateOnly))
+	case unkept != nil:
+		detail += fmt.Sprintf(", no final backup kept, as its folder went where it moved: %s", clause(unkept))
 	}
 	s.audit(actor, "server.deleted", s.id, "succeeded", detail)
 	s.serversChanged()

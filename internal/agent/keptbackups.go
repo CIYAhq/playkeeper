@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 )
 
 // Kept backups: a deleted server's final backup, kept for a while after it.
@@ -22,30 +23,33 @@ import (
 const maxKeepDays = 90
 
 // keepFinal is how long a deleted server's final backup is kept, and its
-// label; days is 0 when none is kept.
+// label; days is 0 when none is kept. whole keeps the server's whole folder
+// (see api.DeleteServerRequest.KeepWhole).
 type keepFinal struct {
 	days    int
 	keptFor string
+	whole   bool
 }
 
 func checkKeep(req api.DeleteServerRequest) (keepFinal, error) {
 	switch {
-	case req.KeepFinalBackupDays == 0 && req.KeptFor == "":
+	case req.KeepFinalBackupDays == 0 && req.KeptFor == "" && !req.KeepWhole:
 		return keepFinal{}, nil
 	case req.KeepFinalBackupDays < 1 || req.KeepFinalBackupDays > maxKeepDays:
 		return keepFinal{}, errInvalid("A final backup is kept from 1 to %d days.", maxKeepDays)
 	case req.KeptFor != "" && !reDiskLimitID.MatchString(req.KeptFor):
 		return keepFinal{}, errInvalid("A kept backup's label is up to 64 lower-case letters, digits and dashes.")
 	}
-	return keepFinal{days: req.KeepFinalBackupDays, keptFor: req.KeptFor}, nil
+	return keepFinal{days: req.KeepFinalBackupDays, keptFor: req.KeptFor, whole: req.KeepWhole}, nil
 }
 
 // finalBackup is the backup of the stopped server to keep once it's
-// deleted: a new one, or its newest that reads back whole when the machine
-// hasn't the room for a new one or it doesn't read back. fresh says it's
-// new, so it's the deletion's to drop if the server stays after all.
-func (s *server) finalBackup(actor string) (b *api.Backup, fresh bool, err error) {
-	if b, err = s.finalArchive(actor); err == nil {
+// deleted: a new one, of its whole folder when whole is set, or its newest
+// that reads back whole when the machine hasn't the room for a new one or
+// it doesn't read back. fresh says it's new, so it's the deletion's to drop
+// if the server stays after all.
+func (s *server) finalBackup(actor string, whole bool) (b *api.Backup, fresh bool, err error) {
+	if b, err = s.finalArchive(actor, whole); err == nil {
 		return b, true, nil
 	}
 	s.log.Warn("could not make a deleted server's final backup; keeping its newest instead", "err", err)
@@ -61,9 +65,10 @@ func (s *server) finalBackup(actor string) (b *api.Backup, fresh bool, err error
 	return nil, false, fmt.Errorf("no backup of it could be kept (%s)", clause(err))
 }
 
-// finalArchive makes an archive of the stopped server and reads it back. One
-// that doesn't read back is dropped.
-func (s *server) finalArchive(actor string) (*api.Backup, error) {
+// finalArchive makes an archive of the stopped server, of its whole folder
+// when whole is set, and reads it back. One that doesn't read back is
+// dropped.
+func (s *server) finalArchive(actor string, whole bool) (*api.Backup, error) {
 	sc, err := s.serverConfig()
 	if err != nil {
 		return nil, err
@@ -71,10 +76,18 @@ func (s *server) finalArchive(actor string) (*api.Backup, error) {
 	if sc == nil {
 		return nil, errNotCreated()
 	}
-	if free, _, err := s.opts.DiskUsage(s.cfg.BackupsDir()); err == nil && free < allowlistedSize(s.dataDir())+minFreeAfterBackup {
+	create, need := archiver(backup.Create), allowlistedSize(s.dataDir())
+	if whole {
+		size, err := backup.MeasureWhole(s.dataDir(), archiveLimits())
+		if err != nil {
+			return nil, err
+		}
+		create, need = backup.CreateWhole, size.ArchiveBytes()
+	}
+	if free, _, err := s.opts.DiskUsage(s.cfg.BackupsDir()); err == nil && free < need+minFreeAfterBackup {
 		return nil, errors.New("the machine hasn't the room for another backup")
 	}
-	b, err := s.createArchive(*sc, "final", actor, "kept after the server was deleted")
+	b, err := s.writeArchive(*sc, "final", actor, "kept after the server was deleted", create)
 	if err != nil {
 		return nil, err
 	}

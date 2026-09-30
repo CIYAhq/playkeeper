@@ -49,11 +49,11 @@ import (
 // (see runMoves), or leaves it where it was when it can't.
 
 const (
-	// movedBackupDays is how long the machine a server left keeps its final
-	// backup.
+	// movedBackupDays is how long the machine a server left keeps its whole
+	// folder as its final backup.
 	movedBackupDays = 7
 	// moveStepWait is how long one step of a server's move may take: its
-	// stop, its backup, its copy or its move-in.
+	// stop, its copy or its move-in.
 	moveStepWait = time.Hour
 	// moveRetry is how often machines that were away are asked again to
 	// delete the copies moves left on them.
@@ -1234,12 +1234,12 @@ func stopOn(ctx context.Context, m machine, id string) error {
 	return err
 }
 
-// deleteOn deletes server id, called name, on m, keeping its final backup
-// for userID days when days isn't 0.
+// deleteOn deletes server id, called name, on m, keeping its whole folder
+// for userID days when days isn't 0, as the copy a move left.
 func deleteOn(ctx context.Context, m machine, id, name string, days int, userID int64) error {
 	req := api.DeleteServerRequest{Confirm: name, Actor: placementActor, ForgetKey: true}
 	if days > 0 {
-		req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)
+		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true
 	}
 	_, err := agentOp(ctx, m, "/v1/servers/"+id+"/delete", req)
 	return err
