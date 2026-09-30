@@ -2931,6 +2931,7 @@ export const en = {
   'whop.app.removed': 'Removed the app’s key and webhook secret',
   'room.title': 'Room for customers',
   'room.lead': 'How many more of each plan the machines can take at once. Each plan’s stock on Whop follows it.',
+  'room.leadStores': 'Each store gets an even share of the room, and each plan is offered once while there’s room for it.',
   'room.planFree': '{memory} · free',
   'room.left': { one: '{count} more', other: '{count} more' },
   'room.soldOut': 'Sold out',

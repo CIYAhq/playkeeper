@@ -2107,9 +2107,9 @@ export interface WhopPlan {
   allowanceFrom?: 'store' | 'owner'
 }
 
-/** Settings › Machines › Room for customers, the owner's: how many more of each plan the store sells fit at once, and what each machine can still set aside for customers, or why it takes none. */
+/** Settings › Machines › Room for customers, the owner's: how many more of each plan fit, which is its stock, with the store selling it, and what each machine can still set aside for customers, or why it takes none. Stores selling on the same machines each get an even share of the room. */
 export interface SaleRoom {
-  plans: { id: string; name: string; memoryMB: number; free: boolean; left: number }[]
+  plans: { id: string; name: string; store: string; storeName: string; memoryMB: number; free: boolean; left: number }[]
   machines: { id: string; freeMB: number; takes: boolean; why?: string }[]
 }
 
