@@ -596,6 +596,83 @@ DROP TABLE customers;
 ALTER TABLE customers_by_store RENAME TO customers;
 ALTER TABLE whop_signins ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
 `,
+	// Stores: the Whop businesses the dashboard sells for, by business id,
+	// each reached with its own API key (the one key store, which Settings ›
+	// Sell on Whop manages) or with the Playkeeper Cloud app's key (an app
+	// store), with what its reconciler keeps; the Playkeeper Cloud app on the
+	// dashboard, whose client id and secret sign customers in and whose key
+	// acts on the app stores; and each plan, membership, customer, message
+	// and stock kept for its store. The store the dashboard sold for becomes
+	// the key store, and what no store sells for goes (see whop_stores.go).
+	`
+CREATE TABLE whop_stores (
+  store_id       TEXT    PRIMARY KEY,
+  via            TEXT    NOT NULL CHECK (via IN ('key', 'app')),
+  title          TEXT    NOT NULL DEFAULT '',
+  route          TEXT    NOT NULL DEFAULT '',
+  api_key        TEXT    NOT NULL DEFAULT '',
+  connected_by   TEXT    NOT NULL DEFAULT '',
+  connected_at   INTEGER NOT NULL,
+  synced_at      INTEGER NOT NULL DEFAULT 0,
+  problem        TEXT    NOT NULL DEFAULT '',
+  webhook_id     TEXT    NOT NULL DEFAULT '',
+  webhook_url    TEXT    NOT NULL DEFAULT '',
+  webhook_secret TEXT    NOT NULL DEFAULT '',
+  polled_at      INTEGER NOT NULL DEFAULT 0,
+  marked_as      TEXT    NOT NULL DEFAULT '',
+  taken_over_by  TEXT    NOT NULL DEFAULT '',
+  taken_over_at  INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX whop_stores_one_key ON whop_stores(via) WHERE via = 'key';
+INSERT INTO whop_stores(store_id, via, title, route, api_key, connected_by, connected_at, synced_at, problem, webhook_id, webhook_url, webhook_secret,
+  polled_at, marked_as, taken_over_by, taken_over_at)
+SELECT account_id, 'key', title, route, api_key, connected_by, connected_at, synced_at, problem, webhook_id, webhook_url, webhook_secret,
+  polled_at, marked_as, taken_over_by, taken_over_at FROM whop_account;
+CREATE TABLE whop_app (
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  client_id     TEXT    NOT NULL DEFAULT '',
+  client_secret TEXT    NOT NULL DEFAULT '',
+  api_key       TEXT    NOT NULL DEFAULT ''
+);
+INSERT INTO whop_app(id, client_id, client_secret) SELECT 1, oauth_client_id, oauth_client_secret FROM whop_account;
+ALTER TABLE whop_plans       ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_memberships ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_messages    ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_stock       ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+UPDATE whop_plans       SET store_id = COALESCE((SELECT account_id FROM whop_account), '');
+UPDATE whop_memberships SET store_id = COALESCE((SELECT account_id FROM whop_account), '');
+UPDATE whop_messages    SET store_id = COALESCE((SELECT account_id FROM whop_account), '');
+UPDATE whop_stock       SET store_id = COALESCE((SELECT account_id FROM whop_account), '');
+CREATE TABLE whop_customers_by_store (
+  store_id     TEXT    NOT NULL,
+  whop_user_id TEXT    NOT NULL,
+  handle       TEXT    NOT NULL DEFAULT '',
+  applied      TEXT    NOT NULL DEFAULT '',
+  paused       INTEGER NOT NULL DEFAULT 0,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_try_at  INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT '',
+  channel_id   TEXT    NOT NULL DEFAULT '',
+  updated_at   INTEGER NOT NULL DEFAULT 0,
+  applied_at   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(store_id, whop_user_id)
+);
+INSERT INTO whop_customers_by_store(store_id, whop_user_id, handle, applied, paused, attempts, next_try_at, problem, channel_id, updated_at, applied_at)
+SELECT COALESCE((SELECT account_id FROM whop_account), ''), whop_user_id, handle, applied, paused, attempts, next_try_at, problem, channel_id, updated_at, applied_at
+FROM whop_customers;
+DROP TABLE whop_customers;
+ALTER TABLE whop_customers_by_store RENAME TO whop_customers;
+DELETE FROM whop_plans       WHERE store_id = '';
+DELETE FROM whop_memberships WHERE store_id = '';
+DELETE FROM whop_messages    WHERE store_id = '';
+DELETE FROM whop_stock       WHERE store_id = '';
+DELETE FROM whop_customers   WHERE store_id = '';
+DROP INDEX whop_memberships_user;
+CREATE INDEX whop_memberships_store_user ON whop_memberships(store_id, whop_user_id);
+CREATE INDEX whop_plans_store ON whop_plans(store_id, position);
+CREATE INDEX whop_messages_store ON whop_messages(store_id, sent_at, id);
+DROP TABLE whop_account;
+`,
 	// The redirect URI each sign-in with Whop left with, which trading its
 	// code names again: the dashboard's address, or its address at the
 	// panel's port while Whop lists only that one (see signInRedirect).

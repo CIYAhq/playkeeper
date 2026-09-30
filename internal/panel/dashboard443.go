@@ -13,7 +13,6 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/share"
 	"github.com/CIYAhq/playkeeper/internal/packs"
-	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
 // Serve the dashboard on the standard HTTPS port (443), a switch in Machine
@@ -352,20 +351,19 @@ func (s *Server) dashboardPortView(ctx context.Context, sess *session, fresh boo
 func (s *Server) outsideChanges(ctx context.Context, sess *session, url, old string, fresh bool) []outsideChange {
 	out := []outsideChange{}
 	if permit(sess.Access, actSellOnWhop, "") == nil {
-		if a, ok, err := s.storedWhop(); err == nil && ok {
-			var id, secret string
-			if err := s.db.QueryRowContext(ctx, `SELECT oauth_client_id, oauth_client_secret FROM whop_account WHERE id = 1`).Scan(&id, &secret); err == nil && id != "" {
-				c := outsideChange{Kind: "whop_signin", App: id, Add: url + whopSignInCallback, Keep: old + whopSignInCallback}
-				if base, err := whop.OAuthURL(s.cfg.WhopAPIURL); err == nil {
-					o := s.whopOAuthAt(base, id, secret, c.Add)
-					c.Done, _ = s.whopAccepts(ctx, o, fresh)
-				}
+		if s.whopSignInOn() {
+			if o, ok := s.whopOAuth(ctx); ok {
+				c := outsideChange{Kind: "whop_signin", App: o.ClientID, Add: url + whopSignInCallback, Keep: old + whopSignInCallback}
+				o.RedirectURI = c.Add
+				c.Done, _ = s.whopAccepts(ctx, o, fresh)
 				out = append(out, c)
 			}
-			if a.WebhookID != "" {
-				add := url + whopWebhookPath
-				out = append(out, outsideChange{Kind: "whop_webhook", Add: add, Automatic: true, Done: a.WebhookURL == add})
-			}
+		}
+		// App stores' deliveries come through the app's webhook, which isn't
+		// the dashboard's to move.
+		if st, ok, err := s.keyStore(ctx); err == nil && ok && st.WebhookID != "" {
+			add := url + whopWebhookPath
+			out = append(out, outsideChange{Kind: "whop_webhook", Add: add, Automatic: true, Done: st.WebhookURL == add})
 		}
 	}
 	var tokens int

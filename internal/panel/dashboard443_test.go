@@ -126,13 +126,19 @@ func TestPort443AnswersTheMachinesNameWithTheDashboard(t *testing.T) {
 		t.Fatalf("the root with a session: %d %q %v", resp.StatusCode, body, resp.Header)
 	}
 	// The dashboard where customers sign in with Whop.
-	if _, err := e.srv.db.Exec(`INSERT INTO whop_account(id, account_id, title, route, api_key, connected_by, connected_at, oauth_client_id) VALUES(1, 'biz_pip', 'Pip', 'pip', 'apik_x', 'admin', 1, 'app_pipcloud')`); err != nil {
-		t.Fatal(err)
+	for _, q := range []string{
+		`INSERT INTO whop_stores(store_id, via, title, route, api_key, connected_by, connected_at) VALUES('biz_pip', 'key', 'Pip', 'pip', 'apik_x', 'admin', 1)`,
+		`INSERT INTO whop_app(id, client_id) VALUES(1, 'app_pipcloud') ON CONFLICT(id) DO UPDATE SET client_id = excluded.client_id`,
+	} {
+		if _, err := e.srv.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, body := on443(h, "GET", dashboardHost, "/", neighbor, nil); body != indexPage {
 		t.Fatalf("the root where customers sign in with Whop: %q", body)
 	}
-	e.srv.db.Exec(`DELETE FROM whop_account`)
+	e.srv.db.Exec(`DELETE FROM whop_stores`)
+	e.srv.db.Exec(`DELETE FROM whop_app`)
 	// The dashboard once no server is on the page.
 	e.replyStatus("GET", "/v1/public-page", 404, `{"error":"There's no server page here.","code":"not_found"}`)
 	e.clock.add(pageCacheFor + time.Second)

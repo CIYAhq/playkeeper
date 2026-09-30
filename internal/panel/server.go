@@ -135,9 +135,13 @@ type Server struct {
 	// "METHOD pattern", once Routes has built it: every one must take it.
 	hostStamped sync.Map
 	// whopMu serialises changes to Sell on Whop (see whop.go), and whopKick
-	// has its reconciler look now (see whop_customers.go).
-	whopMu   sync.Mutex
-	whopKick chan struct{}
+	// has its reconciler look now (see whop_customers.go): at the stores in
+	// whopKicked, or at every store when whopKickAll is set.
+	whopMu      sync.Mutex
+	whopKick    chan struct{}
+	whopKickMu  sync.Mutex
+	whopKicked  map[string]bool
+	whopKickAll bool
 	// redirects are Whop's last answers on the redirect URIs Sign in with
 	// Whop may send (see signInRedirect).
 	redirects redirectChecks
