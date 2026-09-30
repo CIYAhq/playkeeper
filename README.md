@@ -160,7 +160,7 @@ On a stock Ubuntu 24.04 machine:
 sudo apt-get update && sudo apt-get install -y git make curl ca-certificates xz-utils   # only if missing
 git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 ./scripts/setup.sh    # pinned Go and Node into .tools/, npm ci
-make check            # lint, typecheck, Go, web and installer-script unit tests (CI's check job)
+make check            # lint, typecheck, Go, web and installer-script unit tests, the first-load budget (CI's check job)
 make dev              # agent + panel locally at https://localhost:8443 (uses your Docker)
 make package          # release tarballs for x86_64 and 64-bit ARM, get.sh, the stable-named copies and the (unsigned) release manifest in dist/
 make e2e-vm           # the full KVM rehearsal: install, play, backup, restore, one-line install
