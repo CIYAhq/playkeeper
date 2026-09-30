@@ -666,7 +666,8 @@ func TestReadingMembershipsCatchesWhatNoWebhookSaid(t *testing.T) {
 
 // Without a webhook pointing at the dashboard, reading every membership is
 // how a purchase is heard of, so it happens every minute rather than every
-// ten, and goes back to every ten once the webhook is added.
+// ten. The look that adds the webhook reads everything at once, since the
+// webhook won't tell of what came before it, and then it's every ten.
 func TestWithoutAWebhookEveryMembershipIsReadEveryMinute(t *testing.T) {
 	f, e, own := connectedWhop(t)
 	core := useFakeCore(e)
@@ -675,7 +676,7 @@ func TestWithoutAWebhookEveryMembershipIsReadEveryMinute(t *testing.T) {
 		delete(f.webhooks, id)
 	}
 	f.hooksDown = true
-	f.users["user_sam"], f.users["user_bo"] = "samcrafts", "bobuilds"
+	f.users["user_sam"], f.users["user_bo"], f.users["user_cy"] = "samcrafts", "bobuilds", "cycrafts"
 	f.mu.Unlock()
 	e.srv.db.Exec(`UPDATE whop_account SET webhook_id = '', webhook_url = '', webhook_secret = ''`)
 	e.reconcile()
@@ -693,22 +694,28 @@ func TestWithoutAWebhookEveryMembershipIsReadEveryMinute(t *testing.T) {
 	if got := core.got(); len(got) != 1 || got[0] != "start plan_starter (Starter) 1/4096/0 for whop/user_sam samcrafts" {
 		t.Fatalf("a purchase without a webhook, a minute on: %q", got)
 	}
+	// Bo buys just before Whop takes the webhook, which never tells of it.
+	f.buy("mem_bo1", "user_bo", "plan_starter", "active")
 	f.mu.Lock()
 	f.hooksDown = false
 	f.mu.Unlock()
+	e.clock.add(10 * time.Second)
 	e.reconcile()
 	if v := e.whopView(t, own); !v.Webhook {
 		t.Fatal("the webhook wasn't added once Whop took it")
 	}
-	f.buy("mem_bo1", "user_bo", "plan_starter", "active")
+	if got := core.got(); len(got) != 2 || !strings.HasSuffix(got[1], "whop/user_bo bobuilds") {
+		t.Fatalf("a purchase from just before the webhook, read as it's added: %q", got)
+	}
+	f.buy("mem_cy1", "user_cy", "plan_starter", "active")
 	e.clock.add(whopPollUnhooked)
 	e.reconcile()
-	if len(core.got()) != 1 {
+	if len(core.got()) != 2 {
 		t.Fatalf("read every minute with a webhook: %q", core.got())
 	}
 	e.clock.add(whopPollEvery)
 	e.reconcile()
-	if len(core.got()) != 2 {
+	if len(core.got()) != 3 {
 		t.Fatalf("the ten-minute read with a webhook: %q", core.got())
 	}
 }

@@ -202,11 +202,18 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 	// Without the machine's address the webhook stays where it is.
 	every := whopPollUnhooked
 	if dash, err := s.dashboardURL(ctx); err == nil {
+		was := whopHooked(a, dash)
 		if err := s.ensureWhopWebhook(ctx, c, &a, dash); err != nil {
 			s.log.Warn("could not keep Whop's webhook pointing at this dashboard", "err", err)
 		}
-		if whopHooked(a, dash) {
+		switch {
+		case !whopHooked(a, dash):
+		case was:
 			every = whopPollEvery
+		default:
+			// A webhook tells only of what happens once it's there, so
+			// what happened since the last read is read now.
+			every = 0
 		}
 	}
 	if err := s.refreshWhopMemberships(ctx, c, a, every); err != nil {
