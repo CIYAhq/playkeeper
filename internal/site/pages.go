@@ -36,7 +36,8 @@ type Page struct {
 	// on it when they aren't the page's label, as on a page that shares its
 	// hub's image.
 	OG, OGWords string
-	// OGAlt describes a preview that isn't Pip and words, like a template's.
+	// OGAlt describes a preview that isn't Pip and words, like a template's
+	// or one with a still from a film.
 	OGAlt string
 	// Published and Updated are days, YYYY-MM-DD.
 	Published, Updated string
@@ -58,6 +59,9 @@ type Page struct {
 	// Short is the page's short address for posts and videos, like /ai:
 	// nginx sends it on to the page with its query string, UTM tags and all.
 	Short string
+	// Hosted is where a page's "get it hosted" goes, a path on the site or
+	// an https address; empty, the page shows none.
+	Hosted string
 	// Partner names the provider (providers) whose partner links a guide
 	// carries; its top then says so, while the provider has one.
 	Partner string
@@ -198,6 +202,8 @@ func parsePage(src string) (*Page, error) {
 			p.Crumb = value
 		case "og":
 			p.OG = value
+		case "ogalt":
+			p.OGAlt = value
 		case "published":
 			p.Published = value
 		case "updated":
@@ -229,6 +235,11 @@ func parsePage(src string) (*Page, error) {
 				return nil, fmt.Errorf("short is an address like /ai, one word of a-z, 0-9 and -, not %q", value)
 			}
 			p.Short = value
+		case "hosted":
+			if !strings.HasPrefix(value, "https://") && (!strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//")) {
+				return nil, fmt.Errorf("hosted is a path on the site or an https address, not %q", value)
+			}
+			p.Hosted = value
 		case "partner":
 			p.Partner = value
 		case "scripts":
