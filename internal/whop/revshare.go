@@ -35,14 +35,15 @@ type RevShare struct {
 }
 
 // SharePercent is the percentage of price that pays at least dollars:
-// dollars ÷ price, rounded up to two decimals, as Whop takes a percentage.
-// Whop caps a share at 100%, so a price under dollars can't carry it.
+// dollars ÷ price, rounded up to two decimals, as Whop takes a percentage,
+// and 1% at least, the least Whop takes. Whop caps a share at 100%, so a
+// price under dollars can't carry it.
 func SharePercent(dollars, price float64) (float64, error) {
 	d, p := int64(math.Round(dollars*100)), int64(math.Round(price*100))
 	if d <= 0 || p < d {
 		return 0, fmt.Errorf("a price of %.2f can't carry a share of %.2f, since Whop caps a share at 100%%", price, dollars)
 	}
-	return float64((d*10000+p-1)/p) / 100, nil
+	return float64(max((d*10000+p-1)/p, 100)) / 100, nil
 }
 
 // Partner makes user, by id or username, a partner of the account, or finds

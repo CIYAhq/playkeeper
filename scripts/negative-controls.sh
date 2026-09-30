@@ -8325,6 +8325,10 @@ control "share: rounded up for each 4 GB" internal/panel/whop_share.go \
   'return (int64(memoryMB)*whopSharePer4GB + 4095) / 4096' \
   'return int64(memoryMB) * whopSharePer4GB / 4096' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "share: at least the 1% Whop takes" internal/whop/revshare.go \
+  'max((d*10000+p-1)/p, 100)' \
+  '(d*10000+p-1)/p' \
+  ./internal/whop '^TestSharePercentPaysAtLeastTheFee$'
 control "share: from the least a plan charges" internal/panel/whop_share.go \
   'if price > 0 && (least == 0 || price < least) {' \
   'if price > 0 && (least == 0 || price > least) {' \

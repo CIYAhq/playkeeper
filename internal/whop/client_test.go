@@ -452,6 +452,7 @@ func TestSharePercentPaysAtLeastTheFee(t *testing.T) {
 		dollars, price, want float64
 	}{
 		{8.5, 12, 70.84}, {8.5, 15, 56.67}, {8.5, 20, 42.5}, {8.5, 10, 85}, {8.5, 8.5, 100}, {17, 24, 70.84}, {8.5, 12.99, 65.44},
+		{8.5, 850, 1}, {8.5, 900, 1}, {8.5, 2000, 1},
 	} {
 		got, err := SharePercent(c.dollars, c.price)
 		if err != nil || got != c.want {
