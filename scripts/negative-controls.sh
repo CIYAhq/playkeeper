@@ -9842,6 +9842,39 @@ control "room for sale: the billing side hears the numbers" internal/panel/saler
   'if err := s.sales.SetAvailability(ctx, room.left); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestEachPlansStockFollowsTheMachinesRoom$'
+# Room per store (the hosted blueprint's 1.3): stores selling on the same
+# machines each get an even share of the room, each plan once while the
+# room fits it, and any mix of one store's numbers fits at once.
+control "room per store: a store's plans stop at its share of the room" internal/panel/saleroom.go \
+  'if left[p.ID] >= maxWhopStock || (left[p.ID] > 0 && offered >= share) {' \
+  'if left[p.ID] >= maxWhopStock || (left[p.ID] > 0 && offered >= share && false) {' \
+  ./internal/panel '^(TestEachStoreGetsAnEvenShareOfTheRoom|TestStoresShareTheMachinesRoomEvenly)$'
+control "room per store: each of a store's plans is offered once while the room fits it" internal/panel/saleroom.go \
+  'if left[p.ID] >= maxWhopStock || (left[p.ID] > 0 && offered >= share) {' \
+  'if left[p.ID] >= maxWhopStock || offered >= share {' \
+  ./internal/panel '^TestEachStoreGetsAnEvenShareOfTheRoom$'
+control "room per store: the room is shared by store" internal/panel/saleroom.go \
+  '			stores[p.Store] = append(stores[p.Store], p)' \
+  '			stores[""] = append(stores[""], p)' \
+  ./internal/panel '^(TestEachStoreGetsAnEvenShareOfTheRoom|TestStoresShareTheMachinesRoomEvenly)$'
+control "room per store: each store's share is of the room on machines that take customers" internal/panel/saleroom.go \
+  '		if r.Takes {
+			pool += max(r.FreeMB, 0)' \
+  '		if true {
+			pool += max(r.FreeMB, 0)' \
+  ./internal/panel '^TestEachStoreGetsAnEvenShareOfTheRoom$'
+control "room per store: each store's numbers come from the whole room, not what another's left" internal/panel/saleroom.go \
+  '		roomForStore(slices.Clone(free), sold, pool/len(stores), left)' \
+  '		roomForStore(free, sold, pool/len(stores), left)' \
+  ./internal/panel '^(TestEachStoreGetsAnEvenShareOfTheRoom|TestStoresShareTheMachinesRoomEvenly)$'
+control "room per store: the owner's room for customers names each plan's store" internal/panel/saleroom.go \
+  'Store: p.Store, StoreName: p.StoreName,' \
+  '' \
+  ./internal/panel '^TestTheRoomForCustomersNamesEachPlansStore$'
+control "room per store: a plan's store has its name" internal/panel/whop_stock.go \
+  'SELECT p.store_id, st.title, p.plan_id' \
+  "SELECT p.store_id, '', p.plan_id" \
+  ./internal/panel '^TestTheRoomForCustomersNamesEachPlansStore$'
 control "room for sale: placing a customer changes the room" internal/panel/placement.go \
   's.kickDiskLimits()
 		s.kickSaleRoom()' \
@@ -9968,6 +10001,18 @@ webcontrol "room for sale: no card without plans on sale" web/src/pages/sale-roo
   'if (r && r.plans.length === 0) return null' \
   'if (false) return null' \
   src/pages/pages.test.tsx 'for the owner alone, and only while plans are on sale'
+webcontrol "room per store: each plan is under its store while stores share the machines" web/src/pages/sale-room.tsx \
+  '{stores.length > 1 ? (' \
+  '{false ? (' \
+  src/pages/pages.test.tsx 'puts each plan under its store'
+webcontrol "room per store: the card says how stores share the room" web/src/pages/sale-room.tsx \
+  "{stores.length > 1 && \` \${t('room.leadStores')}\`}" \
+  '{false}' \
+  src/pages/pages.test.tsx 'puts each plan under its store'
+webcontrol "room per store: one store's plans have no store heading" web/src/pages/sale-room.tsx \
+  '{stores.length > 1 ? (' \
+  '{stores.length > 0 ? (' \
+  src/pages/pages.test.tsx 'says how many more of each plan fit'
 
 # Step 8 of the fleet plan: a server moved in from another machine keeps its
 # id, and only the dashboard's move-in picks one.
