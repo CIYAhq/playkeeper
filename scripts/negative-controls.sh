@@ -7654,13 +7654,17 @@ control "customers: a new plan gives its allowance" internal/panel/customers.go 
   'al.Servers, al.MemoryMB, al.DiskGB, 0*info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
   ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
 control "customers: a customer waiting for room is placed once there's room" internal/panel/customers.go \
-  "WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0) ORDER BY c.created_at" \
+  "WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0 OR c.told_waiting != 0) ORDER BY c.created_at" \
   'WHERE c.state = ? AND 0 ORDER BY c.created_at' \
   ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
 control "ready server: a ready message that failed after placing is sent later" internal/panel/customers.go \
-  ' OR c.told_ready = 0)' \
-  ')' \
+  ' OR c.told_ready = 0 OR' \
+  ' OR' \
   ./internal/panel '^TestAReadyMessageThatFailedAfterPlacingIsSentLater$'
+control "removing a machine: a message that there's room again, which failed, is sent later" internal/panel/customers.go \
+  ' OR c.told_waiting != 0)' \
+  ')' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
 control "customers: a paused customer waiting isn't placed" internal/panel/readyserver.go \
   'if CustomerState(state) != CustomerActive {' \
   'if false {' \
