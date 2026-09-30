@@ -52,7 +52,7 @@ type Results struct {
 
 // Search finds add-ons in one source that fit the server's type and
 // Minecraft version. Modrinth projects that only run in the game client are
-// left out.
+// left out. Playkeeper's own plugins can't be searched.
 func (l *Library) Search(ctx context.Context, srv Server, q Query) (*Results, error) {
 	t, err := TargetFor(srv.Type)
 	if err != nil {
@@ -60,6 +60,10 @@ func (l *Library) Search(ctx context.Context, srv Server, q Query) (*Results, er
 	}
 	if err := t.supports(q.Source); err != nil {
 		return nil, err
+	}
+	if q.Source == Playkeeper {
+		return nil, fail(KindSourceUnsupported, kv("source", q.Source.Name(), "type", t.Type),
+			"Playkeeper's own plugins aren't in search; they come with its templates.", "")
 	}
 	if err := checkMinecraft(srv); err != nil {
 		return nil, err
