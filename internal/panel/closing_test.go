@@ -17,7 +17,11 @@ func closedStores(t *testing.T) (*fakeWhop, *env, member) {
 	t.Helper()
 	f, e, own := connectedWhop(t)
 	f.installOther()
-	if _, err := e.srv.db.Exec(`INSERT INTO whop_app(id, api_key) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key`, whopTestAppKey); err != nil {
+	f.mu.Lock()
+	f.users["user_siya"] = "siyabuilt"
+	f.mu.Unlock()
+	if _, err := e.srv.db.Exec(`INSERT INTO whop_app(id, api_key, share_user, share_username) VALUES(1, ?, 'user_siya', 'siyabuilt')
+		ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key, share_user = excluded.share_user, share_username = excluded.share_username`, whopTestAppKey); err != nil {
 		t.Fatal(err)
 	}
 	if added, err := e.srv.addWhopStore(context.Background(), whop.Account{ID: "biz_other", Title: "Other Hosting", Route: "other-hosting"}); err != nil || !added {
