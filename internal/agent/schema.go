@@ -454,4 +454,10 @@ CREATE TABLE kept_backups (
   expires_at  INTEGER NOT NULL
 );
 `,
+	// The disk limit of the account a server is one of, a customer's, whose
+	// servers' names its must differ from ('' for the machine's own; see
+	// nameTaken).
+	`
+ALTER TABLE servers ADD COLUMN account TEXT NOT NULL DEFAULT '';
+`,
 }

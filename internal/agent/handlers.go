@@ -468,6 +468,10 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := validAccount(req.Account); err != nil {
+		writeError(w, err)
+		return
+	}
 	if !playStyles[req.PlayStyle] {
 		writeError(w, errInvalid("Unknown play style."))
 		return
@@ -565,7 +569,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			record = func(tx *sql.Tx, id string) error { return saveTemplateInstall(tx, id, planned, dataPacks, at) }
 		}
 	}
-	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor, record: record}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
+	_, op, err := a.addServer(newServerSpec{name: name, account: req.Account, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor, record: record}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
 			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
 			s.recordEvent(s.now(), "server_created", "", "playkeeper", label)
@@ -803,8 +807,8 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 		if name, err = validName(*req.Name); err != nil {
 			return err
 		}
-		if s.nameTaken(name, s.id) {
-			return errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+		if account := s.accountOf(s.id); s.nameTaken(name, s.id, account) {
+			return errNameTaken(name, account)
 		}
 		if name != old {
 			changed = append(changed, fmt.Sprintf("name %q→%q", old, name))

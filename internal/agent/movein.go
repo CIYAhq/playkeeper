@@ -47,15 +47,18 @@ func (a *Agent) checkMoveIn(req api.MoveInRequest, actor string) (moveIn, error)
 	if err != nil || req.EULAAcceptedAt.IsZero() {
 		return moveIn{}, errInvalid("A server moves in only with the Minecraft EULA acceptance it had: who accepted it, and when.")
 	}
-	if a.nameTaken(name, "") {
-		name = a.uniqueName(name)
+	if err := validAccount(req.Account); err != nil {
+		return moveIn{}, err
+	}
+	if a.nameTaken(name, "", req.Account) {
+		name = a.uniqueName(name, req.Account)
 	}
 	created := req.CreatedAt
 	if created.IsZero() {
 		created = a.now()
 	}
 	return moveIn{
-		spec:  newServerSpec{id: req.ServerID, slug: req.Slug, name: name, actor: actor, record: offThePage},
+		spec:  newServerSpec{id: req.ServerID, slug: req.Slug, name: name, account: req.Account, actor: actor, record: offThePage},
 		mem:   req.MemoryMB,
 		prev:  api.ServerConfig{EULAAcceptedAt: req.EULAAcceptedAt.UTC(), EULAAcceptedBy: by, CreatedAt: created.UTC(), PlayStyle: req.PlayStyle},
 		start: req.Start,
