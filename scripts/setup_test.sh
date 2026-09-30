@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests scripts/setup.sh without network: a copy runs in a temporary checkout
 # whose pins name fake Go and Node toolchains, with curl and uname stand-ins on
-# PATH. With python3 and curl 7.71 or later, the real curl also downloads them
+# PATH; the fake go's module download fails as GO_MOD_FAILS and GO_MOD_ERROR
+# say. With python3 and curl 7.71 or later, the real curl also downloads them
 # from a loopback server that cuts the first response to each file short.
 # Assertions are written "condition || fail ...": fail always exits.
 # shellcheck disable=SC2015
@@ -27,7 +28,18 @@ node='node-v0.0.2-linux-x64'
 mkdir -p "$t/pack/go/bin" "$t/pack/$node/bin" "$t/site" "$t/bin"
 cat >"$t/pack/go/bin/go" <<'EOF'
 #!/bin/sh
-case $1 in env) echo go0.0.1 ;; version) echo "go version go0.0.1" ;; esac
+case $1 in
+  env) echo go0.0.1 ;;
+  version) echo "go version go0.0.1" ;;
+  mod)
+    n=$(($(cat "$T/go-mod-runs" 2>/dev/null || echo 0) + 1))
+    echo "$n" >"$T/go-mod-runs"
+    if [ "$n" -le "${GO_MOD_FAILS:-0}" ]; then
+      echo "$GO_MOD_ERROR" >&2
+      exit 1
+    fi
+    ;;
+esac
 EOF
 cat >"$t/pack/$node/bin/node" <<'EOF'
 #!/bin/sh
@@ -77,10 +89,10 @@ exec "$REAL_CURL" "${args[@]}"
 EOF
 chmod +x "$t/bin/uname" "$t/bin/curl"
 
-checkout() { # a fresh checkout: setup.sh, pins for the fake toolchains, web/
+checkout() { # a fresh checkout: setup.sh and net-retry.sh, pins for the fake toolchains, web/
   rm -rf "$t/co"
   mkdir -p "$t/co/scripts" "$t/co/web"
-  cp "$root/scripts/setup.sh" "$t/co/scripts/"
+  cp "$root/scripts/setup.sh" "$root/scripts/net-retry.sh" "$t/co/scripts/"
   {
     printf 'go 0.0.1\nnode 0.0.2\n'
     (cd "$t/site" && sha256sum "$go" "$node.tar.xz")
@@ -89,6 +101,7 @@ checkout() { # a fresh checkout: setup.sh, pins for the fake toolchains, web/
 status=0 out=''
 setup() { # [VAR=value...] — runs the checkout's setup.sh
   : >"$t/curl.log"
+  rm -f "$t/go-mod-runs"
   status=0
   out=$(env PATH="$t/bin:$PATH" T="$t" "$@" bash "$t/co/scripts/setup.sh" 2>&1) || status=$?
 }
@@ -109,6 +122,18 @@ setup CURL_OLD=1
 [ "$(downloads ' --retry 3 ')" = 2 ] && [ "$(downloads 'retry-all-errors')" = 0 ] ||
   fail "with curl before 7.71, both downloads should use --retry 3 alone: $(cat "$t/curl.log")"
 ok "with curl before 7.71, setup still works and downloads use --retry 3"
+
+checkout
+setup NET_RETRY_WAIT=0 GO_MOD_FAILS=1 GO_MOD_ERROR='go: golang.org/x/text@v0.42.0: read "https://proxy.golang.org/golang.org/x/text/@v/v0.42.0.zip": stream error: stream ID 117; INTERNAL_ERROR; received from peer'
+[ "$status" = 0 ] && [[ $out == *"Setup complete."* ]] && [ "$(cat "$t/go-mod-runs")" = 2 ] ||
+  fail "a module download the proxy dropped should be tried again ($status, $(cat "$t/go-mod-runs") downloads): $out"
+ok "a module download the proxy dropped is tried again, and setup completes"
+
+checkout
+setup NET_RETRY_WAIT=0 GO_MOD_FAILS=1 GO_MOD_ERROR='verifying golang.org/x/text@v0.42.0: checksum mismatch'
+[ "$status" != 0 ] && [[ $out == *"checksum mismatch"* ]] && [ "$(cat "$t/go-mod-runs")" = 1 ] ||
+  fail "a module download that fails otherwise should stop setup at once ($status, $(cat "$t/go-mod-runs") downloads): $out"
+ok "a module download that fails otherwise stops setup at once"
 
 dropped() {
   cat >"$t/serve.py" <<'PY'
