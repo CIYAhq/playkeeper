@@ -9982,7 +9982,7 @@ control "moving customers: a copy left on a removed machine stays recorded" inte
   '	case busy > 0 || errors.Is(err, errNotFound):' \
   ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
 control "moving customers: a removed machine's host joining again lists its copy as one, not the server" internal/panel/machines.go \
-  '				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerActive)' \
+  '				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerOnline)' \
   '				adopted, err := false, error(nil)' \
   ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
 control "removing a machine: a customer who lost theirs is told there's no room for their servers" internal/panel/readyserver.go \
