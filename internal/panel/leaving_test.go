@@ -131,10 +131,11 @@ func TestAStoreThatLeftSellsNothingAndTellsItsCustomers(t *testing.T) {
 	}
 }
 
-// A store that left is back once 2.1 adds it again: it's read again at
-// once, so its customers with a plan start again, as a renewal does, a
-// purchase made while it was away starts too, and it sells again. Added
-// once more, it's a store already.
+// A store that left is back once 2.1 adds it again, closed as not open yet:
+// it's read again at once, but nobody starts and it sells nothing until its
+// seller opens it. Then its customers with a plan start again, as a renewal
+// does, a purchase made while it was away starts too, and it sells again.
+// Added once more, it's a store already.
 func TestAStoreThatLeftIsBackOnceAddedAgain(t *testing.T) {
 	f, e, _ := twoStores(t)
 	core := useFakeCore(e)
@@ -155,6 +156,14 @@ func TestAStoreThatLeftIsBackOnceAddedAgain(t *testing.T) {
 	added, err := e.srv.addWhopStore(ctx, whop.Account{ID: "biz_other", Title: "Other Hosting", Route: "other-hosting"})
 	if err != nil || !added {
 		t.Fatalf("adding Other Hosting again: %v, %v", added, err)
+	}
+	e.reconcile()
+	plans, _ := e.srv.sales.SalePlans(ctx)
+	if st, _, _ := e.srv.whopStoreByID(ctx, "biz_other"); st.ClosedWhy != whopNotOpenYetWhy || len(core.got()) != 2 || slices.ContainsFunc(plans, func(p SalePlan) bool { return p.Store == "biz_other" }) {
+		t.Fatalf("Other back but not open yet: closed %q, calls %q, plans for sale %v", st.ClosedWhy, core.got(), plans)
+	}
+	if open, err := e.srv.openWhopStore(ctx, "biz_other", whopNotOpenYet); err != nil || !open {
+		t.Fatalf("opening Other Hosting: %v, %v", open, err)
 	}
 	e.reconcile()
 	got := core.got()
