@@ -64,6 +64,11 @@ type Manifest struct {
 	// Build is the build of a type other than Paper: a Purpur build, a
 	// Fabric or Quilt loader, or a NeoForge or Forge version.
 	Build string `json:"build,omitempty"`
+
+	// Whole says the archive holds a server's whole folder, for its move to
+	// another machine (CreateWhole), rather than a backup's allowlist. It
+	// may have no world yet.
+	Whole bool `json:"whole,omitempty"`
 }
 
 // Limits bound what an (untrusted) archive may make the agent write. Create
@@ -199,15 +204,38 @@ func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, e
 	if err != nil {
 		return meta, err
 	}
-	meta.Format = FormatVersion
-	meta.LevelName = level
-	meta.Files = nil
-	meta.TotalBytes = 0
-
 	rels, err := archiveFiles(dataDir, level)
 	if err != nil {
 		return meta, err
 	}
+	meta.Whole = false
+	return create(w, dataDir, level, rels, meta, lim)
+}
+
+// CreateWhole archives dataDir to w as Create does, but all of it, for the
+// server's move to another machine: every file but what wholeFiles leaves
+// behind, and no world needed, as before a server's first start. Nothing is
+// written when dataDir can't be listed.
+func CreateWhole(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, error) {
+	level, err := levelName(dataDir)
+	if err != nil {
+		return meta, err
+	}
+	rels, err := wholeFiles(dataDir)
+	if err != nil {
+		return meta, err
+	}
+	meta.Whole = true
+	return create(w, dataDir, level, rels, meta, lim)
+}
+
+// create writes the files rels of dataDir, whose world is level, to w as an
+// archive, and returns its manifest.
+func create(w io.Writer, dataDir, level string, rels []string, meta Manifest, lim Limits) (Manifest, error) {
+	meta.Format = FormatVersion
+	meta.LevelName = level
+	meta.Files = nil
+	meta.TotalBytes = 0
 	root, err := os.OpenRoot(dataDir)
 	if err != nil {
 		return meta, err
@@ -326,6 +354,54 @@ func archiveFiles(dataDir, level string) ([]string, error) {
 	}
 	if len(rels) == 0 || !containsPrefix(rels, level+"/") {
 		return nil, &NoWorldError{Level: level, DataDir: dataDir}
+	}
+	sort.Strings(rels)
+	return rels, nil
+}
+
+// wholeSkippedDirs are the folders at the top of a server's folder a move
+// leaves behind: what the server downloads again at its first start where
+// it goes, its logs and its crash reports.
+var wholeSkippedDirs = map[string]bool{"libraries": true, "versions": true, "cache": true, ".cache": true, "logs": true, "crash-reports": true}
+
+// wholeSkippedFile reports whether a move leaves behind the file name at
+// the top of a server's folder: a server jar, downloaded again, eula.txt,
+// which the machine it goes to writes from the acceptance it's told, and
+// the image's files holding the RCON password (server.properties loses its
+// secret lines instead, see SanitizeProperties).
+func wholeSkippedFile(name string) bool {
+	return name == "eula.txt" || strings.HasPrefix(name, ".rcon-cli") || strings.HasSuffix(name, ".jar")
+}
+
+// wholeFiles lists the files of dataDir a move carries, sorted: every
+// regular file but those wholeSkippedDirs and wholeSkippedFile leave behind
+// at the top, and those in folders skipDirNames names anywhere. Links and
+// special files are left out, as a backup leaves them.
+func wholeFiles(dataDir string) ([]string, error) {
+	var rels []string
+	err := filepath.WalkDir(dataDir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == dataDir {
+			return nil
+		}
+		rel, err := filepath.Rel(dataDir, p)
+		if err != nil {
+			return err
+		}
+		top := !strings.ContainsRune(rel, filepath.Separator)
+		switch {
+		case e.IsDir() && (skipDirNames[e.Name()] || top && wholeSkippedDirs[e.Name()]):
+			return filepath.SkipDir
+		case !e.Type().IsRegular(), top && wholeSkippedFile(e.Name()):
+			return nil
+		}
+		rels = append(rels, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	sort.Strings(rels)
 	return rels, nil
@@ -617,7 +693,7 @@ func walk(r io.Reader, lim Limits, write sink) (Manifest, error) {
 	if m.LevelName == "" || !validRel(m.LevelName) || strings.Contains(m.LevelName, "/") {
 		return m, errors.New("manifest has an invalid level name")
 	}
-	if !containsPrefix(sortedKeys(seen), m.LevelName+"/") {
+	if !m.Whole && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {
 		return m, fmt.Errorf("archive does not contain the world %q", m.LevelName)
 	}
 	return m, nil

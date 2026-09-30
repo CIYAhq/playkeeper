@@ -120,6 +120,8 @@ func (b mcpBackend) Agent(_ context.Context, serverID string) (mcptools.Agent, e
 			Hint: "Remove the machine that shouldn't list it in Settings › Machines, in the Playkeeper dashboard."}
 	case errors.Is(err, errServerMachine):
 		return nil, &mcp.ToolError{Kind: api.CodeInternal, Msg: "The dashboard couldn't look up which machine runs this server, so it sent the request to none.", Hint: "Try again in a moment."}
+	case errors.Is(err, errServerMoving):
+		return nil, &mcp.ToolError{Kind: codeServerMoving, Msg: serverMovingText, Hint: "Try again in a few minutes."}
 	case err != nil:
 		return nil, &mcp.ToolError{Kind: "server_not_found", Msg: "No machine runs this server any more.", Hint: "Call list_servers to see the servers."}
 	}

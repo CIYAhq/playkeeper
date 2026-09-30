@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -108,33 +109,43 @@ func pausedText(until time.Time) string {
 		until.UTC().Format("2 January") + ". Renew before then to pick up where you left off."
 }
 
-// stopCustomerServers stops each server the customer created, on their home
-// machine. One that won't stop is logged; starting it stays refused while
-// they're paused.
+// stopCustomerServers stops each server the customer created, on the
+// machine that has it: their home machine, or the one a move of theirs that
+// stopped left it on. One that won't stop is logged; starting it stays
+// refused while they're paused.
 func (s *Server) stopCustomerServers(ctx context.Context, userID int64, actor string) {
 	ids, err := s.creatorServers(userID)
 	if err != nil || len(ids) == 0 {
 		return
 	}
-	home, ok, err := s.homeMachine(ctx, userID)
-	if err != nil || !ok {
-		s.log.Warn("could not find a paused customer's machine to stop their servers", "user", userID, "err", err)
-		return
-	}
-	m, err := s.machineByID(home)
+	home, _, err := s.homeMachine(ctx, userID)
 	if err != nil {
 		s.log.Warn("could not find a paused customer's machine to stop their servers", "user", userID, "err", err)
 		return
 	}
 	for _, id := range ids {
-		status, err := m.agent.Do(asActor(ctx, actor), http.MethodPost, "/v1/servers/"+id+"/stop", nil, map[string]string{"actor": actor}, nil)
-		if err == nil && status >= 400 && status != http.StatusNotFound {
-			err = fmt.Errorf("the agent answered %d", status)
-		}
-		if err != nil {
+		if err := s.stopCustomerServer(ctx, id, home, actor); err != nil {
 			s.log.Warn("could not stop a paused customer's server", "server", id, "err", err)
 		}
 	}
+}
+
+// stopCustomerServer stops server id where its record says, or on home
+// without one.
+func (s *Server) stopCustomerServer(ctx context.Context, id, home, actor string) error {
+	at, err := s.recordedMachine(ctx, id)
+	if err != nil {
+		return err
+	}
+	m, err := s.machineByID(cmp.Or(at, home))
+	if err != nil {
+		return err
+	}
+	status, err := m.agent.Do(asActor(ctx, actor), http.MethodPost, "/v1/servers/"+id+"/stop", nil, map[string]string{"actor": actor}, nil)
+	if err == nil && status >= 400 && status != http.StatusNotFound {
+		err = fmt.Errorf("the agent answered %d", status)
+	}
+	return err
 }
 
 // heldRefusal is why a may not take act on serverID because the customer

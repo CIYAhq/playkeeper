@@ -3,7 +3,8 @@ package agent
 import "github.com/CIYAhq/playkeeper/internal/machinelink"
 
 // streamed are the routes whose bodies are large or open-ended, or that can
-// take more than a minute to answer: backup downloads and uploads, data and
+// take more than a minute to answer: backup downloads and uploads, a server's
+// folder on its way to another machine, data and
 // resource pack uploads (up to packs.ResourcePackMaxBytes), world uploads,
 // checking or using an uploaded world, which reads all of it, and the file
 // browser's downloads, uploads and saves (up to maxEditBytes).
@@ -12,6 +13,7 @@ var streamed = map[string]bool{
 	"PUT /v1/servers/{id}/files/content":                true,
 	"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": true,
 	"GET /v1/servers/{id}/backups/{bid}/download":       true,
+	"GET /v1/servers/{id}/move-out":                     true,
 	"GET /v1/kept-backups/{kid}/download":               true,
 	"POST /v1/servers/{id}/restore/upload":              true,
 	"POST /v1/restore/upload":                           true,

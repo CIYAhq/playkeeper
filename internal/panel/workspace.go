@@ -509,8 +509,8 @@ var errServerMachine = errors.New("could not look up the machine that runs the s
 // machine only if that machine listed it last or no joined machine did: a
 // joined machine's server whose record couldn't be saved goes to none. A
 // server whose record names a removed machine is unknown, unless the
-// dashboard's machine listed it last. A disputed server has none. It never
-// asks the machines.
+// dashboard's machine listed it last. A disputed server has none, and so
+// has one being moved (see moves.go). It never asks the machines.
 func (s *Server) machineForServer(serverID string) (machine, error) {
 	list, err := s.machines()
 	if err != nil {
@@ -519,6 +519,14 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 	}
 	if len(list) == 0 {
 		return machine{}, errUnknownServer
+	}
+	var moving int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM server_moves WHERE server_id = ?`, serverID).Scan(&moving); err != nil {
+		s.log.Error("look up the machine that runs a server", "server", serverID, "err", err)
+		return machine{}, errServerMachine
+	}
+	if moving > 0 {
+		return machine{}, errServerMoving
 	}
 	var owner, disputedBy string
 	err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
@@ -609,7 +617,12 @@ type machineView struct {
 const machineTimeout = 8 * time.Second
 
 func (s *Server) machineView(ctx context.Context, m machine, link *machinelink.Status) machineView {
-	v := machineView{machine: m, Link: link, Customers: s.customersOn(m.ID)}
+	v := machineView{machine: m, Link: link}
+	if n, err := s.customersOn(ctx, m.ID); err != nil {
+		s.log.Error("count a machine's customers", "machine", m.ID, "err", err)
+	} else {
+		v.Customers = n
+	}
 	if m.Kind == remoteKind {
 		v.Dials, v.JoinedFrom, v.AddedBy = m.dials, m.joinedFrom, m.addedBy
 		v.JoinedAt = &m.joinedAt
@@ -762,7 +775,7 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 	}
 	for i, m := range list {
 		if m.Kind == localKind && got[i].err == nil {
-			s.claimLocal(m, got[i].servers)
+			got[i].servers = s.claimLocal(m, got[i].servers, listedAt)
 		}
 	}
 	out := []map[string]any{}
@@ -798,6 +811,7 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 			out = append(out, sv)
 		}
 	}
+	s.markMoving(ctx, out)
 	s.stableSlugs(ctx, out, list)
 	if everyMachine && len(ids) > 0 {
 		s.forgetDeletedServers(ids)

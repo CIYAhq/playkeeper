@@ -50,14 +50,15 @@ func blind(w http.ResponseWriter) bool {
 
 // blindFailure is body, the answer to a request to a machine that failed,
 // for an account that doesn't see the machines. A machine's own refusal is
-// about the server and stays as it is. Anything else would name a machine,
+// about the server and stays as it is, as does a server being moved, which
+// names no machine. Anything else would name a machine,
 // say there are several, or tell how to fix one: a link that's down, a
 // removed machine, two machines that list the same server, an agent that
 // doesn't answer. Those become the same few words, with their code kept for
 // the dashboard.
 func blindFailure(err error, body api.Error) api.Error {
 	var ae *agentclient.Error
-	if errors.As(err, &ae) {
+	if errors.As(err, &ae) || errors.Is(err, errServerMoving) {
 		return body
 	}
 	return api.Error{Error: unreachableText, Code: body.Code, Hint: "It's probably still running. Try again in a few minutes."}
