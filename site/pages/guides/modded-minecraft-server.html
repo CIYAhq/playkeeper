@@ -141,7 +141,7 @@ sudo ufw allow 25565/tcp
   <div class="error-card reveal">
     <h3>A client-only mod on the server</h3>
     <code class="err">Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER</code>
-    <p>{{template "icon" "arrow-right"}}Minimaps, shaders and menus belong in players' games. Take them off the server.</p>
+    <p>{{template "icon" "arrow-right"}}Minimaps, shaders and menus belong in players' games. Take them off the server. From Playkeeper 0.4.8, the Overview names such a mod when the log says which it is, and offers to remove it.</p>
   </div>
   <p>A server that crashes while it runs, with Description: Ticking entity in its crash report, has one mob, cart or machine that keeps failing: <a href="/errors/ticking-entity">how to find it and remove it</a>.</p>
   {{template "cardshot" (dict "Name" "guide-crash" "Alt" "A crashed server's Overview: what happened, the last lines of the log, and how to fix it." "Caption" "Playkeeper reads the log and offers the fix." "Sizes" $article)}}
