@@ -9597,6 +9597,10 @@ control "removing a machine: a server left on it doesn't stop its customer's mov
   'case errors.Is(err, errNotFound):' \
   'case false:' \
   ./internal/panel '^TestARemovedMachinesCustomersGetRoomElsewhere$'
+control "moving customers: a customer whose servers are apart gives none more memory" internal/panel/creators.go \
+  '(!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID)' \
+  '(!ok || memoryMB > cur) && false' \
+  ./internal/panel '^TestServersApartAreBroughtTogether$'
 
 if [ "$bad" != 0 ]; then
   echo

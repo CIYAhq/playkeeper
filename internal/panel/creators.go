@@ -346,6 +346,12 @@ func (s *Server) creatorMemoryFits(w http.ResponseWriter, r *http.Request, a acc
 		s.listFailure(w, err)
 		return false
 	}
+	// Their allowance counts one machine's servers, so while theirs are on
+	// two none takes more memory.
+	if cur, ok := use.memory[id]; (!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID) {
+		writeRefusal(w, errCustomerMoving)
+		return false
+	}
 	if msg, hint := memoryRefusal(a.Allowance, use, id, memoryMB); msg != "" {
 		writeErr(w, http.StatusConflict, api.CodeConflict, msg, hint)
 		return false

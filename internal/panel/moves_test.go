@@ -1182,6 +1182,9 @@ func TestServersApartAreBroughtTogether(t *testing.T) {
 	if r := f.e.do(t, "POST", "/api/machines/"+f.local+"/servers", `{"name":"alex 2","acceptEula":true,"memoryMB":2048}`, f.alex.auth()); r.status != http.StatusConflict {
 		t.Errorf("alex makes a server with theirs apart: %d %v", r.status, r.body)
 	}
+	if r := f.e.do(t, "POST", "/api/servers/"+movedServer+"/settings", `{"memoryMB":4096}`, f.alex.auth()); r.status != http.StatusConflict {
+		t.Errorf("alex gives a server more memory with theirs apart: %d %v", r.status, r.body)
+	}
 	f.pause(t, f.e.clock.now().Add(-time.Hour))
 	if r := f.move(t, f.local); r.status != http.StatusAccepted {
 		t.Fatalf("moving alex, their plan ended, to bring their servers together: %d %v", r.status, r.body)
