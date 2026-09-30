@@ -287,7 +287,10 @@ func (s *Server) eraseCustomer(ctx context.Context, userID int64, days int) erro
 	if c.requestedAt > 0 {
 		actor, why = cmpOr(c.requestedBy, placementActor), "on request"
 	}
-	if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {
+	if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan {
+		return s.stopErasure(ctx, c, actor, 0, cmp.Or(err, errCustomerHasPlan))
+	}
+	if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {
 		return errErasureWaits
 	}
 	erased, err := s.eraseServers(ctx, userID)
@@ -366,40 +369,50 @@ func (s *Server) leftCopiesPending(ctx context.Context, userID int64) bool {
 }
 
 // eraseServers deletes each of the customer's servers on the machine that
-// has it, with every backup and no final one kept, forgetting each with its
-// records once it's gone, and returns how many were deleted on a machine.
-// Those out of reach are forgotten, as a lapsed customer's are.
+// has it, where its record says or on their home machine without one, with
+// every backup and no final one kept, forgetting each with its records once
+// it's gone, and returns how many were deleted on a machine. Unlike a
+// lapsed customer's, they may be on two machines, as a move that stopped
+// on an error leaves them. Those on a removed machine or on none are out of
+// reach, and forgotten.
 func (s *Server) eraseServers(ctx context.Context, userID int64) (int, error) {
+	ids, err := s.creatorServers(userID)
+	if err != nil {
+		return 0, err
+	}
 	home, _, err := s.homeMachine(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
-	m, here, gone, err := s.lapsedServers(ctx, userID, home)
-	if err != nil {
-		return 0, err
-	}
 	erased := 0
-	for _, id := range here {
-		opID, err := s.startErase(ctx, m, userID, id)
+	for _, id := range ids {
+		at, err := s.recordedMachine(ctx, id)
 		if err != nil {
 			return erased, err
 		}
-		if opID != "" {
-			op, err := waitAgentOp(ctx, m, opID, deleteWait)
+		var m machine
+		if at = cmp.Or(at, home); at != "" {
+			if m, err = s.machineByID(at); err != nil && !errors.Is(err, errNotFound) {
+				return erased, err
+			}
+		}
+		if m.ID != "" {
+			opID, err := s.startErase(ctx, m, userID, id)
 			if err != nil {
 				return erased, err
 			}
-			if op.Status != api.OpSucceeded {
-				return erased, fmt.Errorf("deleting %s failed: %s", id, op.Error)
+			if opID != "" {
+				op, err := waitAgentOp(ctx, m, opID, deleteWait)
+				if err != nil {
+					return erased, err
+				}
+				if op.Status != api.OpSucceeded {
+					return erased, fmt.Errorf("deleting %s failed: %s", id, op.Error)
+				}
+				erased++
 			}
-			erased++
 		}
 		if err := s.forgetErasedServer(ctx, id); err != nil {
-			return erased, err
-		}
-	}
-	for _, lost := range gone {
-		if err := s.forgetErasedServer(ctx, lost); err != nil {
 			return erased, err
 		}
 	}

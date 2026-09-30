@@ -457,6 +457,92 @@ func TestACustomersDeletionWaitsForTheirMoves(t *testing.T) {
 	}
 }
 
+// A move that stopped on an error doesn't hold a customer's deletion: it
+// won't go on unless the owner moves them again, and the deletion finds
+// their servers wherever the move left them.
+func TestAMoveThatStoppedOnAnErrorDoesntHoldADeletion(t *testing.T) {
+	p := newPausable(t)
+	e, ctx := p.e, context.Background()
+	p.lapse("succeeded")
+	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	if _, err := e.srv.db.Exec(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by, error) VALUES(?, 'm_new', 1, 'admin', 'the disk is full')`, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "DELETE", customerDeletePath(p.alex.id), `{"confirm":"alex"}`, p.own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("asking for alex's deletion: %d %v", r.status, r.body)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); ok || p.deletions() != 1 {
+		t.Fatalf("alex, whose move stopped on an error: deleted %d times", p.deletions())
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM customer_moves WHERE user_id = ?`, p.alex.id); n != 0 {
+		t.Fatalf("alex's move is still recorded: %d", n)
+	}
+}
+
+// A customer who buys again while their deletion waits for a move has the
+// request cancelled at once, not once the move is done.
+func TestBuyingAgainCancelsADeletionWaitingForAMove(t *testing.T) {
+	p := newPausable(t)
+	e, ctx := p.e, context.Background()
+	p.lapse("succeeded")
+	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES(?, ?, 'm_old', 'm_new')`, p.serverID, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "DELETE", customerDeletePath(p.alex.id), `{"confirm":"alex"}`, p.own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("asking for alex's deletion: %d %v", r.status, r.body)
+	}
+	if _, err := e.srv.db.Exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at)
+		VALUES(?, 'mem_alex2', 'user_alex', 'plan_starter', 'active', 1)`, testStore); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if n := e.count(t, `SELECT COUNT(*) FROM customers WHERE user_id = ? AND erase_requested_at > 0`, p.alex.id); n != 0 {
+		t.Fatal("alex's deletion is still asked for while their server moves, once they bought again")
+	}
+	if rows := e.auditRows(t, "customer.erase"); len(rows) != 2 || !strings.HasSuffix(rows[1], "refused they have a plan at their store again") {
+		t.Fatalf("the audit log: %v", rows)
+	}
+}
+
+// A customer who buys again while the backups kept for them are being
+// listed keeps them: each one's deletion starts only after another look.
+func TestACustomerWhoBuysAgainWhileTheirBackupsAreListedKeepsThem(t *testing.T) {
+	f, e, own := storesWithCustomers(t)
+	ctx := context.Background()
+	other := storeAccount(t, e, "biz_other", "user_alex")
+	f.mu.Lock()
+	f.installed["biz_other"].memberships["mem_alex2"]["status"] = "expired"
+	f.mu.Unlock()
+	e.srv.db.Exec(`UPDATE whop_stores SET polled_at = 0`)
+	e.reconcile()
+	keptBackupsAt(e, map[string]string{"20261013-120000-abc123": keptFor(other.UserID)})
+	e.agent.mu.Lock()
+	e.agent.before["GET /v1/kept-backups"] = func() {
+		e.srv.db.Exec(`UPDATE whop_memberships SET status = 'active' WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`)
+	}
+	e.agent.mu.Unlock()
+	if r := e.do(t, "DELETE", customerDeletePath(other.UserID), `{"confirm":"`+usernameOf(t, e, other.UserID)+`"}`, own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("asking for alex's deletion at Other: %d %v", r.status, r.body)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if agentHit(e, "DELETE /v1/kept-backups/20261013-120000-abc123") {
+		t.Fatal("the backup kept for alex, who bought again while it was listed, was deleted")
+	}
+	if again := storeAccount(t, e, "biz_other", "user_alex"); again.UserID != other.UserID {
+		t.Fatalf("alex at Other: %+v", again)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM customers WHERE user_id = ? AND erase_requested_at > 0`, other.UserID); n != 0 {
+		t.Fatal("alex's deletion is still asked for once they bought again")
+	}
+}
+
 // The last look before a customer's records go, in the same transaction,
 // keeps everything of one who bought again since the deletion began: their
 // membership gives access, or they run as active again, whatever the
