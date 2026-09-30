@@ -140,6 +140,12 @@ func TestPlaykeepersOwnPluginsAreListedWithoutARegistry(t *testing.T) {
 		if others := len(e.Addons) - 1; strings.Count(installs, " downloads</span>") != others || strings.Count(installs, `href="https://modrinth.com/project/`) != others {
 			t.Errorf("%s doesn't show its %d other add-ons' downloads and pages: %s", e.Page, others, installs)
 		}
+		docker := between(built[e.Page], `<pre id="code-docker"`, `</pre>`)
+		projects, asksModrinth := between(docker, "-e MODRINTH_PROJECTS=", " "), strings.Contains(docker, "MODRINTH_PROJECTS")
+		if !strings.Contains(docker, "# "+fp.Name+" ships with Playkeeper and no registry has it, so this leaves it out") ||
+			strings.Contains(projects, fp.Slug) || asksModrinth != (len(e.Addons) > 1) {
+			t.Errorf("%s's Docker command asks Modrinth for %q, or doesn't say it leaves AI Build Battle out: %s", e.Page, projects, docker)
+		}
 	}
 
 	libraryPagesFollow(t, root, o)
