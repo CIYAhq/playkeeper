@@ -8130,6 +8130,16 @@ control "repeating crashes: the alert isn't swallowed by an earlier crash's" int
 		}' \
   '' \
   ./internal/discord '^TestRepeatedAlertsAreThrottled$'
+control "a third crash of a server meant to be off is no give-up either" internal/agent/lifecycle.go \
+  'GaveUp: wanted && counted' \
+  'GaveUp: counted' \
+  ./internal/agent '^TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp$'
+control "a server meant to be off doesn't say Playkeeper stopped restarting it" internal/agent/lifecycle.go \
+  '	case wanted:
+		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it' \
+  '	default:
+		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it' \
+  ./internal/agent '^TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp$'
 
 # Uploads for a new server counted against a named disk limit, as a
 # creator's are (internal/agent/worldimports.go, handlers.go, backups.go),
