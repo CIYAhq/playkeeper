@@ -48,6 +48,8 @@ type machineRoom struct {
 	ExceptMB int
 	// Guarded says whether Keep servers away from this machine is on.
 	Guarded bool
+	// DiskFree is what its disk has free, when it says.
+	DiskFree *int64
 }
 
 // homeRow is a customer_homes row: the machine, or "" while they wait.
@@ -197,6 +199,7 @@ func (s *Server) machineRoom(ctx context.Context, m machine, local string, excep
 	r.FreeMB = live.MemoryFreeMB - aside
 	r.ExceptMB = used[except]
 	r.Guarded = live.Guard != nil && live.Guard.Host
+	r.DiskFree = live.DiskFreeBytes
 	switch {
 	case m.Kind == localKind:
 		r.Takes = true

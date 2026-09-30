@@ -62,7 +62,7 @@ func (s *Server) whopSignIn() http.Handler {
 // back to.
 func (s *Server) whopOAuth(ctx context.Context) (whop.OAuth, bool) {
 	var id, secret string
-	if err := s.db.QueryRowContext(ctx, `SELECT oauth_client_id, oauth_client_secret FROM whop_account WHERE id = 1`).Scan(&id, &secret); err != nil || id == "" {
+	if err := s.db.QueryRowContext(ctx, `SELECT client_id, client_secret FROM whop_app WHERE id = 1`).Scan(&id, &secret); err != nil || id == "" {
 		return whop.OAuth{}, false
 	}
 	return s.whopOAuthFor(ctx, id, secret)
@@ -250,17 +250,17 @@ func (s *Server) whoOnWhop(ctx context.Context, o whop.OAuth, code, verifier str
 
 // whopSignInWithoutAccount says why a Whop user with no account here, in
 // store when the sign-in named one, can't sign in: their account is on its
-// way ("starting") when Whop confirmed a plan of theirs in the store the
-// dashboard sells for, else they have none ("no_account").
+// way ("starting") when Whop confirmed a plan of theirs in that store, or
+// in any store when it named none, else they have none ("no_account").
 func (s *Server) whopSignInWithoutAccount(ctx context.Context, store, whopUserID string) string {
-	var selling string
-	if err := s.db.QueryRowContext(ctx, `SELECT account_id FROM whop_account WHERE id = 1`).Scan(&selling); err != nil || store != "" && store != selling {
-		return "no_account"
-	}
 	var n int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m JOIN whop_plans p ON p.plan_id = m.plan_id AND p.allowance_from != ''
-		WHERE m.whop_user_id = ? AND m.stale = 0 AND m.status IN `+whopAccess, whopUserID).Scan(&n); err == nil && n > 0 {
-		s.kickWhop()
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id AND p.allowance_from != ''
+		WHERE (? = '' OR m.store_id = ?) AND m.whop_user_id = ? AND m.stale = 0 AND m.status IN `+whopAccess, store, store, whopUserID).Scan(&n); err == nil && n > 0 {
+		if store != "" {
+			s.kickWhopStore(store)
+		} else {
+			s.kickWhop()
+		}
 		return "starting"
 	}
 	return "no_account"
@@ -280,7 +280,7 @@ type whopSignInView struct {
 func (s *Server) readWhopSignIn(ctx context.Context, dash string) (whopSignInView, error) {
 	var v whopSignInView
 	var secret string
-	err := s.db.QueryRowContext(ctx, `SELECT oauth_client_id, oauth_client_secret FROM whop_account WHERE id = 1`).Scan(&v.ClientID, &secret)
+	err := s.db.QueryRowContext(ctx, `SELECT client_id, client_secret FROM whop_app WHERE id = 1`).Scan(&v.ClientID, &secret)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return v, err
 	}
@@ -291,10 +291,11 @@ func (s *Server) readWhopSignIn(ctx context.Context, dash string) (whopSignInVie
 	return v, nil
 }
 
-// whopSignInOn is whether the sign-in page offers Sign in with Whop.
+// whopSignInOn is whether the sign-in page offers Sign in with Whop: while
+// the dashboard sells for a store and has the app to sign in through.
 func (s *Server) whopSignInOn() bool {
 	var id string
-	return s.db.QueryRow(`SELECT oauth_client_id FROM whop_account WHERE id = 1`).Scan(&id) == nil && id != ""
+	return s.db.QueryRow(`SELECT client_id FROM whop_app WHERE id = 1 AND EXISTS (SELECT 1 FROM whop_stores)`).Scan(&id) == nil && id != ""
 }
 
 // hWhopSignInSet keeps the Whop app customers sign in through.
@@ -317,7 +318,7 @@ func (s *Server) hWhopSignInSet(w http.ResponseWriter, r *http.Request, sess *se
 		return
 	}
 	var stores int
-	if err := s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM whop_account WHERE id = 1`).Scan(&stores); err != nil {
+	if err := s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM whop_stores`).Scan(&stores); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
@@ -343,13 +344,9 @@ func (s *Server) hWhopSignInSet(w http.ResponseWriter, r *http.Request, sess *se
 	}
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
-	res, err := s.db.Exec(`UPDATE whop_account SET oauth_client_id = ?, oauth_client_secret = ? WHERE id = 1`, req.ClientID, req.ClientSecret)
-	if err != nil {
+	if _, err := s.db.Exec(`INSERT INTO whop_app(id, client_id, client_secret) VALUES(1,?,?)
+		ON CONFLICT(id) DO UPDATE SET client_id = excluded.client_id, client_secret = excluded.client_secret`, req.ClientID, req.ClientSecret); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		writeErr(w, http.StatusConflict, api.CodeConflict, "Connect a store on Whop first.", "")
 		return
 	}
 	detail := "Whop app " + req.ClientID
@@ -364,7 +361,7 @@ func (s *Server) hWhopSignInSet(w http.ResponseWriter, r *http.Request, sess *se
 func (s *Server) hWhopSignInOff(w http.ResponseWriter, r *http.Request, sess *session) {
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
-	if _, err := s.db.Exec(`UPDATE whop_account SET oauth_client_id = '', oauth_client_secret = '' WHERE id = 1`); err != nil {
+	if _, err := s.db.Exec(`UPDATE whop_app SET client_id = '', client_secret = ''`); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
