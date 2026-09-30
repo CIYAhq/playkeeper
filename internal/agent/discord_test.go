@@ -521,6 +521,13 @@ func TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	crashed := "stopped unexpectedly. Open the dashboard to see what went wrong."
+	wrongs := []string{"stays off", "kept crashing", "Playkeeper is restarting it"}
+	wrong := func() (n int) {
+		for _, w := range wrongs {
+			n += f.count(w)
+		}
+		return n
+	}
 	for n := 1; n <= maxCrashes; n++ {
 		if n > 1 {
 			if err := e.a.docker.ContainerStart(context.Background(), e.cname()); err != nil {
@@ -532,11 +539,11 @@ func TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp(t *testing.T) {
 		}
 		e.fd.addLog("[12:00:05 INFO]: Timings Reset")
 		e.fd.crash(137)
-		e.waitFor(fmt.Sprintf("crash %d's alert", n), func() bool { return f.count(crashed) == n })
+		e.waitFor(fmt.Sprintf("crash %d's alert", n), func() bool { return f.count(crashed) == n || wrong() > 0 })
 		time.Sleep(300 * time.Millisecond)
-		for _, wrong := range []string{"stays off", "kept crashing", "Playkeeper is restarting it"} {
-			if f.count(wrong) != 0 {
-				t.Fatalf("crash %d of a server meant to be off, and the alert says %q", n, wrong)
+		for _, w := range wrongs {
+			if f.count(w) != 0 {
+				t.Fatalf("crash %d of a server meant to be off, and the alert says %q", n, w)
 			}
 		}
 	}
