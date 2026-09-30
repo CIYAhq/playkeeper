@@ -137,23 +137,33 @@ func TestOnlyTheBusinesssTeamOpensItsPageFromWhop(t *testing.T) {
 	}
 }
 
-// A business that hasn't approved everything the app asks for, as when its
-// owner approved the app for another of their businesses, is told to approve
-// it for this one, with the install link, and isn't registered.
+// A business that hasn't approved everything the app asks for, as when it
+// approved an older version of the app, or its owner approved the app for
+// another of their businesses, is told to approve it for this one, with the
+// install link, and isn't registered.
 func TestABusinessThatHasntApprovedTheAppIsToldToApproveIt(t *testing.T) {
 	f, e := sellerEnv(t)
+	token := f.sellerToken(e, whopTestApp, "user_otherowner")
+	unapproved := func(name string, lacks int) {
+		t.Helper()
+		r := e.openAsSeller(t, "biz_other", token, nil)
+		params, _ := r.body["params"].(map[string]any)
+		lacking, _ := params["lacking"].([]any)
+		if r.status != http.StatusConflict || r.body["code"] != "whop_not_approved" || params["installUrl"] != "https://whop.com/apps/"+whopTestApp+"/install" || len(lacking) != lacks {
+			t.Fatalf("%s: %d %v", name, r.status, r.body)
+		}
+		if _, ok, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); ok {
+			t.Fatalf("%s was registered", name)
+		}
+	}
 	f.mu.Lock()
-	f.installed["biz_other"].revoked = true
+	f.installed["biz_other"].declined = []string{"member:email:read"}
 	f.mu.Unlock()
-	r := e.openAsSeller(t, "biz_other", f.sellerToken(e, whopTestApp, "user_otherowner"), nil)
-	params, _ := r.body["params"].(map[string]any)
-	lacking, _ := params["lacking"].([]any)
-	if r.status != http.StatusConflict || r.body["code"] != "whop_not_approved" || params["installUrl"] != "https://whop.com/apps/"+whopTestApp+"/install" || len(lacking) != len(whop.AppNeeds) {
-		t.Fatalf("an unapproved business: %d %v", r.status, r.body)
-	}
-	if _, ok, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); ok {
-		t.Fatal("an unapproved business was registered")
-	}
+	unapproved("a business that approved all but one permission", 1)
+	f.mu.Lock()
+	f.installed["biz_other"].declined, f.installed["biz_other"].revoked = nil, true
+	f.mu.Unlock()
+	unapproved("a business that approved none", len(whop.AppNeeds))
 }
 
 // Whop shows the seller's page inside its own frames, and nothing else of
