@@ -8649,7 +8649,7 @@ control "confirming: servers are kept away from the machine first" internal/pane
 		g, err := setNetworkGuard(ctx, m, actor, true)' \
   'if false && on {
 		g, err := setNetworkGuard(ctx, m, actor, true)' \
-  ./internal/panel '^(TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt|TestConfirmingKeepsServersAwayFromTheMachineFirst)$'
+  ./internal/panel '^(TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt|TestConfirmingKeepsServersAwayFromTheMachineFirst|TestAJoinedMachineInTheOwnersHetznerProjectIsConfirmedByItself)$'
 control "confirming: a machine that leaves servers free to reach it isn't confirmed" internal/panel/machinecustomers.go \
   'if !g.Host {' \
   'if false && !g.Host {' \
@@ -8956,6 +8956,65 @@ control "room for sale: the room for customers is the owner's" internal/panel/se
   '{"GET", "/api/machines/room", needSession, actTakeCustomers, s.hSaleRoom},' \
   '{"GET", "/api/machines/room", needSession, actView, s.hSaleRoom},' \
   ./internal/panel '^TestOnlyTheOwnerSeesTheRoomForCustomers$'
+# Confirming by itself: a joined machine connected from a server in the
+# owner's Hetzner project takes customers as if confirmed by hand
+# (internal/panel/autoconfirm.go).
+control "confirming by itself: only a machine connected from a server in the project" internal/panel/autoconfirm.go \
+  'return sv.Has(m.ip) })' \
+  'return true })' \
+  ./internal/panel '^TestAJoinedMachineInTheOwnersHetznerProjectIsConfirmedByItself$'
+control "confirming by itself: a server's IPv4 address is the machine's only when it's the same" internal/hetzner/hetzner.go \
+  's.IPv4.IsValid() && s.IPv4 == addr' \
+  's.IPv4.IsValid()' \
+  ./internal/hetzner '^TestServersReadsEveryPageAndEachServersAddresses$'
+control "confirming by itself: a server's IPv6 network is the machine's only when it holds the address" internal/hetzner/hetzner.go \
+  's.IPv6.IsValid() && s.IPv6.Contains(addr)' \
+  's.IPv6.IsValid()' \
+  ./internal/hetzner '^TestServersReadsEveryPageAndEachServersAddresses$'
+control "confirming by itself: a project with too many servers isn't read" internal/hetzner/hetzner.go \
+  'case *next > maxServerPages:' \
+  'case false:' \
+  ./internal/hetzner '^TestServersStopsAtAPageThatGoesBackOrTooFar$'
+control "confirming by itself: the stock watch looks" internal/panel/hetzner.go \
+  'if err := s.confirmFromHetzner(qctx, c); err != nil {' \
+  'if err := error(nil); qctx == nil && err != nil {' \
+  ./internal/panel '^TestAJoinedMachineInTheOwnersHetznerProjectIsConfirmedByItself$'
+control "confirming by itself: the Hetzner server stands for the owner in the log" internal/panel/autoconfirm.go \
+  's.confirmFound(ctx, m.id, hetznerActor+name)' \
+  's.confirmFound(ctx, m.id, placementActor)' \
+  ./internal/panel '^TestAJoinedMachineInTheOwnersHetznerProjectIsConfirmedByItself$'
+control "confirming by itself: stopping a machine is remembered" internal/panel/machinecustomers.go \
+  'at, by, stopped, result, detail := int64(0), "", millis(s.now()), "stopped"' \
+  'at, by, stopped, result, detail := int64(0), "", int64(0), "stopped"' \
+  ./internal/panel '^TestAMachineTheOwnerStoppedIsntConfirmedAgain$'
+control "confirming by itself: a machine the owner stopped isn't looked for" internal/panel/autoconfirm.go \
+  '!m.customersStopped.IsZero() || l == nil' \
+  'l == nil' \
+  ./internal/panel '^TestAMachineTheOwnerStoppedIsntConfirmedAgain$'
+control "confirming by itself: a machine the owner stopped meanwhile isn't confirmed" internal/panel/autoconfirm.go \
+  'case m.Kind != remoteKind || !m.customersAt.IsZero() || !m.customersStopped.IsZero():' \
+  'case m.Kind != remoteKind || !m.customersAt.IsZero():' \
+  ./internal/panel '^TestAMachineTheOwnerStoppedIsntConfirmedAgain$'
+control "confirming by itself: only a connected machine is looked for" internal/panel/autoconfirm.go \
+  'l == nil || l.State != machinelink.StateConnected' \
+  'l == nil' \
+  ./internal/panel '^TestOnlyAConnectedMachineIsConfirmedAndOnlyWithTheOwnersToken$'
+control "confirming by itself: a machine that couldn't be confirmed waits" internal/panel/autoconfirm.go \
+  'if at, ok := s.confirmFailed[m.ID]; ok && s.now().Sub(at) < confirmRetry {' \
+  'if at, ok := s.confirmFailed[m.ID]; ok && false && s.now().Sub(at) < confirmRetry {' \
+  ./internal/panel '^TestAMachineThatWontKeepServersAwayWaitsBeforeTheNextTry$'
+control "confirming by itself: a failed try is remembered" internal/panel/autoconfirm.go \
+  's.confirmFailed[m.id] = s.now()' \
+  '_ = s.now()' \
+  ./internal/panel '^TestAMachineThatWontKeepServersAwayWaitsBeforeTheNextTry$'
+webcontrol "confirming by itself: its events say it was found in the Hetzner project" web/src/lib/machines.ts \
+  "if (found) return t('machines.event.customersFound', { server: found })" \
+  "if (false) return t('machines.event.customersFound', { server: found })" \
+  src/lib/lib.test.ts 'confirmed a machine itself'
+webcontrol "confirming by itself: the Customers card says it was found in the Hetzner project" web/src/pages/machines.tsx \
+  "return found ? t('machines.customers.foundHint', { server: found, date }) :" \
+  "return false ? t('machines.customers.foundHint', { server: found, date }) :" \
+  src/pages/pages.test.tsx 'confirmed a joined machine itself'
 webcontrol "room for sale: the card is the owner's alone" web/src/pages/machines.tsx \
   "{can(ws.me, 'machines.customers') && <SaleRoomCard />}" \
   '<SaleRoomCard />' \

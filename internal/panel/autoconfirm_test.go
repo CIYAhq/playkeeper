@@ -102,8 +102,8 @@ func TestAMachineTheOwnerStoppedIsntConfirmedAgain(t *testing.T) {
 	}
 	f.inProject("fleet-1", "127.0.0.1")
 	e.srv.checkStock(ctx)
-	if by := e.takesCustomersBy(t, rid); by != "" {
-		t.Fatalf("a machine the owner stopped was confirmed again by %q", by)
+	if by := e.takesCustomersBy(t, rid); by != "" || f.listings() != 0 {
+		t.Fatalf("a machine the owner stopped: confirmed again by %q, the project listed %d times", by, f.listings())
 	}
 	if err := e.srv.confirmFound(ctx, rid, "hetzner:fleet-1"); err != nil || e.takesCustomersBy(t, rid) != "" {
 		t.Fatalf("confirming a machine the owner stopped: %v, confirmed by %q", err, e.takesCustomersBy(t, rid))
@@ -147,8 +147,8 @@ func TestOnlyAConnectedMachineIsConfirmedAndOnlyWithTheOwnersToken(t *testing.T)
 	link.stop()
 	eventually(t, "the machine is offline", func() bool { return linkState(e.machineView(t, own.cookie, rid)) == "offline" })
 	e.srv.checkStock(ctx)
-	if by := e.takesCustomersBy(t, rid); by != "" {
-		t.Fatalf("a machine that isn't connected was confirmed by %q", by)
+	if by := e.takesCustomersBy(t, rid); by != "" || f.listings() != 0 {
+		t.Fatalf("a machine that isn't connected: confirmed by %q, the project listed %d times", by, f.listings())
 	}
 
 	e2, f2, own2, rid2, _, _ := hetznerFleetEnv(t)
