@@ -14,6 +14,9 @@ vi.mock('@/api/client', async (importOriginal) => ({
 
 let root: Root | undefined
 
+/** The link to Playkeeper Cloud's seller terms on playkeeper.io, if the page shows it. */
+const termsLink = () => [...document.querySelectorAll('a')].find((a) => a.getAttribute('href') === 'https://playkeeper.io/cloud/seller-terms' && a.textContent === 'seller terms')
+
 async function render(store: string): Promise<string> {
   if (root) await act(async () => root?.unmount())
   document.body.innerHTML = ''
@@ -50,6 +53,8 @@ describe('a seller’s page inside Whop', () => {
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/open')
     expect(text).toContain('Other Hosting is connected. Playkeeper Cloud runs its customers’ servers.')
     expect(text).toContain('Next, you’ll set your prices and open the store here.')
+    expect(text).toContain('Selling through Playkeeper Cloud follows its seller terms.')
+    expect(termsLink()?.getAttribute('target')).toBe('_blank')
   })
 
   it('says what a store that’s already there needs', async () => {
@@ -71,6 +76,8 @@ describe('a seller’s page inside Whop', () => {
     const link = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes('Approve Playkeeper Cloud for this business'))
     expect(link?.getAttribute('href')).toBe('https://whop.com/apps/app_6oyNYgGluUMTx4/install')
     expect(link?.getAttribute('target')).toBe('_blank')
+    expect(text).toContain('By approving it, you accept Playkeeper Cloud’s seller terms.')
+    expect(termsLink()).toBeTruthy()
   })
 
   it('refuses someone who isn’t on the business’s team, and a page opened outside Whop', async () => {

@@ -2910,6 +2910,8 @@ export const en = {
   'whopSeller.problem': 'It needs a look: {problem}',
   'whopSeller.unapproved': 'This business hasn’t approved Playkeeper Cloud yet. It may have gone to another of your businesses: open the install page, pick this business in Whop’s business picker, and approve. Then open this page again.',
   'whopSeller.approve': 'Approve Playkeeper Cloud for this business',
+  'whopSeller.termsApprove': 'By approving it, you accept Playkeeper Cloud’s <link>seller terms</link>.',
+  'whopSeller.terms': 'Selling through Playkeeper Cloud follows its <link>seller terms</link>.',
   'whopSeller.notTeam': 'Only this business’s team on Whop can open its Playkeeper Cloud page.',
   'whopSeller.noToken': 'Open this page from your Whop dashboard, which tells Playkeeper who you are.',
   'whopSeller.notABusiness': 'This address isn’t a business’s Playkeeper Cloud page.',

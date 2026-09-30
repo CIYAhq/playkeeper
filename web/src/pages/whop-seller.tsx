@@ -5,7 +5,15 @@ import type { WhopSellerOpen } from '@/api/types'
 import { Frame, FrameCard } from '@/components/app/frame'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
+import { rich } from '@/i18n/rich'
 import { SellerStoreView } from './whop-seller-view'
+
+/** Playkeeper Cloud's seller terms, on playkeeper.io, opened beside Whop. */
+const termsLink = (chunk: string) => (
+  <a href="https://playkeeper.io/cloud/seller-terms" target="_blank" rel="noreferrer" className="font-medium underline">
+    {chunk}
+  </a>
+)
 
 type State =
   | { kind: 'opening' }
@@ -54,6 +62,7 @@ export function WhopSellerPage({ store }: { store: string }) {
           <>
             <p className="mt-2 text-sm">{t(state.open.new ? 'whopSeller.connected' : 'whopSeller.open', { store: state.open.store.title || state.open.store.id })}</p>
             <p className="mt-2 text-sm text-muted-foreground">{state.open.store.problem ? t('whopSeller.problem', { problem: state.open.store.problem }) : t('whopSeller.next')}</p>
+            <p className="mt-2 text-xs text-muted-foreground">{rich('whopSeller.terms', { link: termsLink })}</p>
             <SellerStoreView store={store} />
           </>
         )}
@@ -66,6 +75,7 @@ export function WhopSellerPage({ store }: { store: string }) {
                 <ExternalLinkIcon className="size-3" aria-hidden="true" />
               </a>
             )}
+            <p className="mt-3 text-xs text-muted-foreground">{rich('whopSeller.termsApprove', { link: termsLink })}</p>
           </>
         )}
         {state.kind === 'refused' && <p className="mt-2 text-sm text-destructive-foreground">{state.text}</p>}
