@@ -401,8 +401,14 @@ type machine struct {
 var reMachineID = regexp.MustCompile(`^[a-z2-9]{10}$`)
 
 func randomID() string {
+	return randomLetters(10)
+}
+
+// randomLetters is n random lower-case letters and digits, none easily
+// taken for another.
+func randomLetters(n int) string {
 	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
-	b := make([]byte, 10)
+	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	for i := range b {
 		b[i] = alphabet[int(b[i])%len(alphabet)]
@@ -826,8 +832,9 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 // which its Discord links use. Every other server keeps the slug its record
 // keeps, as a removed machine's servers do for when the same host joins
 // again. A server new to the dashboard gets its agent's slug when no server
-// has it, else a number, as the agent numbers its own ("my-server-2"),
-// skipping every slug a server has or its agent gave it; servers new at once
+// has it, else that with a few random letters after it, as the agent gives
+// its own, since a number would count the servers with it, skipping every
+// slug a server has or its agent gave it; servers new at once
 // go in the order the dashboard first saw them. The dashboard's machine then
 // hears of the slugs shown for other machines' servers, so that a server it
 // makes gets none of them.
@@ -895,6 +902,10 @@ func (s *Server) stableSlugs(ctx context.Context, servers []map[string]any, list
 	for _, e := range entries {
 		avoid[e.agentSlug], avoid[e.kept] = true, true
 	}
+	letters := s.opts.SlugLetters
+	if letters == nil {
+		letters = func(int) string { return randomLetters(4) }
+	}
 	choose := func(e *entry, want string) {
 		slug := want
 		if taken[slug] {
@@ -902,8 +913,8 @@ func (s *Server) stableSlugs(ctx context.Context, servers []map[string]any, list
 			if base == "" {
 				base = want
 			}
-			for i := 2; ; i++ {
-				if next := fmt.Sprintf("%s-%d", base, i); !taken[next] && !avoid[next] {
+			for try := 1; ; try++ {
+				if next := base + "-" + letters(try); !taken[next] && !avoid[next] {
 					slug = next
 					break
 				}

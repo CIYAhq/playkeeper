@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1853,6 +1854,28 @@ func TestEveryServerInTheListHasItsOwnSlug(t *testing.T) {
 				t.Fatalf("servers %q, want %q", strings.Join(got, " "), tc.want)
 			}
 		})
+	}
+}
+
+// A later machine's duplicate gets a few random letters after its slug, not
+// a number, which would tell a customer how many servers have it.
+func TestADuplicateSlugGetsRandomLettersNotANumber(t *testing.T) {
+	e := newEnvWith(t, func(o *Options) { o.SlugLetters = nil })
+	cookie, _ := e.setup(t)
+	e.reply("GET", "/v1/servers", `[]`)
+	alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+	e.srv.claimServers(alpha, []map[string]any{{"id": "xxxxxxxxxx", "slug": "survival", "name": "Survival", "phase": "online"}})
+	e.srv.claimServers(beta, []map[string]any{{"id": "zzzzzzzzzz", "slug": "survival", "name": "Survival", "phase": "online"}})
+	var list []map[string]any
+	if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK {
+		t.Fatalf("servers: %d", r)
+	}
+	slugs := map[any]string{}
+	for _, sv := range list {
+		slugs[sv["id"]], _ = sv["slug"].(string)
+	}
+	if slugs["xxxxxxxxxx"] != "survival" || !regexp.MustCompile(`^survival-[a-z0-9]{4}$`).MatchString(slugs["zzzzzzzzzz"]) {
+		t.Fatalf("two joined machines' Survivals have slugs %v", slugs)
 	}
 }
 

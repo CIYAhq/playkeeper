@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -266,21 +265,27 @@ func reRandomSlug(base string) *regexp.Regexp {
 	return regexp.MustCompile(`^` + base + `-[a-z0-9]{4}$`)
 }
 
-// A slug another server has gets a few random letters and digits after it,
-// never a number, which would tell how many servers have it. A server's
-// slug stays as it was.
-func TestATakenSlugGetsRandomLettersNotACount(t *testing.T) {
-	e := roomyAgentEnv(t)
+// A slug another server has gets letters after it, never a number, which
+// would tell how many servers have it: a few random ones, and others on each
+// try while a server here or elsewhere has those. A server's slug stays as
+// it was.
+func TestATakenSlugGetsLettersNotACount(t *testing.T) {
+	e := newAgentEnvWith(t, func(e *agentEnv) {
+		e.tweak = func(o *Options) {
+			o.HostMemoryMB = func() int { return 16384 }
+			o.SlugLetters = func(try int) string { return "try" + string(rune('a'+try)) }
+		}
+	})
 	e.createWith(map[string]any{"name": "Survival"})
 	first := e.sid
-	seen := map[string]bool{}
-	for range 3 {
-		e.createWith(map[string]any{"name": "Survival", "account": "account-" + strconv.Itoa(len(seen)+2)})
-		st := e.status()
-		if !reRandomSlug("survival").MatchString(st.Slug) || seen[st.Slug] {
-			t.Fatalf("a server named Survival beside %d others has slug %q", len(seen)+1, st.Slug)
+	if code, out := e.call("PUT", "/v1/slugs/elsewhere", map[string]any{"slugs": []string{"survival-tryb"}}); code != http.StatusNoContent {
+		t.Fatalf("slugs elsewhere: %d %v", code, out)
+	}
+	for _, want := range []string{"survival-tryc", "survival-tryd"} {
+		e.createWith(map[string]any{"name": "Survival", "account": "account-" + want[len(want)-1:]})
+		if st := e.status(); st.Slug != want {
+			t.Fatalf("a Survival beside survival and a server elsewhere at survival-tryb has slug %q, want %q", st.Slug, want)
 		}
-		seen[st.Slug] = true
 	}
 	e.sid = first
 	if st := e.status(); st.Slug != "survival" {

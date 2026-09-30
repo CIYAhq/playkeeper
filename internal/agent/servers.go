@@ -324,13 +324,21 @@ func (a *Agent) uniqueSlug(base string) string {
 	if free(base) {
 		return base
 	}
-	for range 100 {
-		if s := base + "-" + randomLetters(4); free(s) {
+	letters := a.opts.SlugLetters
+	if letters == nil {
+		letters = randomSlugLetters
+	}
+	for try := 1; try <= 100; try++ {
+		if s := base + "-" + letters(try); free(s) {
 			return s
 		}
 	}
 	return base + "-" + randomLetters(10)
 }
+
+// randomSlugLetters is what a slug another server has gets after it: a few
+// random letters and digits, whatever the try.
+func randomSlugLetters(int) string { return randomLetters(4) }
 
 // randomLetters is n random lower-case letters and digits, none easily
 // taken for another.
