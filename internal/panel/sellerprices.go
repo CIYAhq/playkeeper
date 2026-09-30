@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -65,15 +66,17 @@ type sellerPrices struct {
 }
 
 // sellerPrice is one hosting plan as its seller prices it: what it allows,
-// its monthly price, the floor and Playkeeper's share of each payment, in
-// cents. Settable says the seller can set its price here, since it renews
-// monthly in US dollars, and Problem is what keeps it from selling.
+// its monthly price in its currency's smallest unit, and the floor and
+// Playkeeper's share of each payment, in US cents. Settable says the seller
+// can set its price here, since it renews monthly in US dollars, and
+// Problem is what keeps it from selling.
 type sellerPrice struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
 	Servers  int    `json:"servers"`
 	MemoryMB int    `json:"memoryMB"`
 	Price    int64  `json:"price"`
+	Currency string `json:"currency"`
 	Floor    int64  `json:"floor"`
 	Share    int64  `json:"share"`
 	Settable bool   `json:"settable"`
@@ -89,7 +92,7 @@ func sellerPriceOf(p whop.Plan) (sellerPrice, bool) {
 		return sellerPrice{}, false
 	}
 	sp := sellerPrice{ID: p.ID, Title: cmpOr(p.Title, p.ID), Servers: servers, MemoryMB: memoryMB, Price: centsOf(p.RenewalPrice),
-		Floor: whopFloorFor(memoryMB), Share: whopShareFor(memoryMB)}
+		Currency: strings.ToLower(cmpOr(p.Currency, "usd")), Floor: whopFloorFor(memoryMB), Share: whopShareFor(memoryMB)}
 	monthly := p.PlanType == "renewal" && p.BillingPeriod == 30
 	usd := strings.EqualFold(p.Currency, "usd")
 	sp.Settable = monthly && usd
@@ -164,6 +167,44 @@ func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 		}
 	}
 	return v
+}
+
+// markHostedProducts marks each of the store's hosting products, the ones
+// with a hosting plan among plans, as sold by this dashboard for the
+// store's business (whop.WithSeller): the store site shows a product's
+// plans only once it's marked so. A product already marked so is left
+// alone.
+func (s *Server) markHostedProducts(ctx context.Context, c *whop.Client, st whopStore, plans []whop.Plan) error {
+	dash, err := s.dashboardURL(ctx)
+	if err != nil {
+		return err
+	}
+	if dash == "" {
+		return errNoDashboardAddress
+	}
+	hosting := map[string]bool{}
+	for _, p := range plans {
+		if _, ok := sellerPriceOf(p); ok {
+			hosting[p.Product.ID] = true
+		}
+	}
+	products, err := c.Products(ctx, st.ID)
+	if err != nil {
+		return err
+	}
+	for _, p := range products {
+		if !hosting[p.ID] {
+			continue
+		}
+		meta, differs := whop.WithSeller(p.Metadata, dash, st.ID)
+		if !differs {
+			continue
+		}
+		if err := c.SetProductMetadata(ctx, p.ID, meta); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // readWhopStoreSoon has the store's next pass read it from Whop, and has
@@ -284,7 +325,8 @@ type sellerOpened struct {
 // must renew monthly in US dollars, without a trial, at or above the floor.
 // Then Playkeeper's share is set on each hosting product, putting right any
 // share the seller changed (syncWhopShares, with force), and only when that
-// leaves nothing wrong does the store open, for its seller's reason alone.
+// leaves nothing wrong are the hosting products marked for the store site,
+// and the store opens, for its seller's reason alone.
 func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store string) {
 	st, user, c, ok := s.sellerStore(w, r, store, true)
 	if !ok {
@@ -294,11 +336,12 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 	defer s.whopMu.Unlock()
 	ctx, cancel := context.WithTimeout(r.Context(), whopCallsFor)
 	defer cancel()
-	v, err := s.sellerPricesOf(ctx, c, st)
+	plans, err := c.Plans(ctx, st.ID)
 	if err != nil {
 		s.sellerRefusal(w, err)
 		return
 	}
+	v := sellerPricesFrom(st, plans)
 	var problems []string
 	for _, p := range v.Plans {
 		if p.Problem != "" {
@@ -322,12 +365,21 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		writeErr(w, http.StatusConflict, api.CodeConflict, problem, "")
 		return
 	}
+	if err := s.markHostedProducts(ctx, c, st, plans); err != nil {
+		if errors.Is(err, errNoDashboardAddress) || errors.Is(err, errAddressUnknown) {
+			s.log.Warn("a store couldn't open without the dashboard's address", "store", st.ID, "err", err)
+			writeErr(w, http.StatusServiceUnavailable, api.CodeRetryLater, "Playkeeper Cloud can't open stores just now. Try again in a few minutes.", "")
+			return
+		}
+		s.sellerRefusal(w, err)
+		return
+	}
 	open, err := s.openWhopStore(ctx, st.ID, whopNotOpenYet)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", "Open the store: Playkeeper's share is set on each hosting product")
+	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", "Open the store: Playkeeper's share is set on each hosting product, and the products are marked for the store site")
 	s.readWhopStoreSoon(ctx, st.ID)
 	out := sellerOpened{Open: open}
 	if !open {

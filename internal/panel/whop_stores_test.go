@@ -62,7 +62,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 			biz = b
 		case strings.HasPrefix(route, "PATCH /variants/") && fb.plan(id) != nil:
 			biz = b
-		case strings.HasPrefix(route, "GET /products/") && fb.products[id] != nil:
+		case (strings.HasPrefix(route, "GET /products/") || strings.HasPrefix(route, "PATCH /products/")) && fb.products[id] != nil:
 			biz = b
 		case len(parts) > 3 && parts[1] == "affiliates" && parts[2] == "aff_"+b && fb.partner != "":
 			biz = b
@@ -122,6 +122,17 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		page(data)
 	case strings.HasPrefix(route, "GET /memberships/"):
 		json.NewEncoder(w).Encode(b.memberships[id])
+	case strings.HasPrefix(route, "PATCH /products/") && f.marksDown:
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the access_pass:update scope."}}`)
+	case strings.HasPrefix(route, "PATCH /products/"):
+		meta := whop.Metadata{}
+		m, _ := body["metadata"].(map[string]any)
+		for k, v := range m {
+			meta[k] = fmt.Sprint(v)
+		}
+		b.products[id] = meta
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": "Minecraft server", "metadata": meta})
 	case strings.HasPrefix(route, "PATCH /variants/") && body["renewal_price"] != nil && f.priceDown:
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the plan:update scope."}}`)

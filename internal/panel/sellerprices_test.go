@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -52,6 +53,21 @@ func (f *fakeWhop) addOtherPlan(plan map[string]any) {
 		p[k] = v
 	}
 	f.installed["biz_other"].plans = append(f.installed["biz_other"].plans, p)
+}
+
+// setOtherProduct gives one of Other Hosting's products this metadata on
+// Whop, adding the product if it's new.
+func (f *fakeWhop) setOtherProduct(id string, meta whop.Metadata) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.installed["biz_other"].products[id] = meta
+}
+
+// otherProduct is one of Other Hosting's products' metadata as Whop has it.
+func (f *fakeWhop) otherProduct(id string) whop.Metadata {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return maps.Clone(f.installed["biz_other"].products[id])
 }
 
 // setOtherPlan changes one of Other Hosting's plans on Whop, as its seller
@@ -169,17 +185,29 @@ func TestASellerPricesTheirPlansAtOrAboveTheFloor(t *testing.T) {
 }
 
 // Open the store sets Playkeeper's share on each hosting product, from its
-// price, and only then opens the store, which then sells. Once it's open, a
-// new price takes the share along at once.
+// price, marks each hosting product as this dashboard's for the store's
+// business, which the store site needs to show its plans, and only then
+// opens the store, which then sells. A product that isn't for hosting
+// keeps its metadata. Once the store is open, a new price takes the share
+// along at once.
 func TestOpenTheStoreSetsPlaykeepersShareThenOpensIt(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
+	f.setOtherProduct("prod_other", whop.Metadata{"color": "blue"})
+	f.setOtherProduct("prod_merch", whop.Metadata{"color": "green"})
+	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "renewal_price": 5, "product": map[string]any{"id": "prod_merch", "title": "Merch"}})
 	r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
 	if r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store: %d %v", r.status, r.body)
 	}
 	if share := f.share("biz_other", "prod_other"); share == nil || share["commission_value"] != 70.84 {
 		t.Fatalf("Playkeeper's share on Other's product: %v", share)
+	}
+	if meta := f.otherProduct("prod_other"); meta[whop.MetaDashboard] != whopDashboard || meta[whop.MetaBusiness] != "biz_other" || meta["color"] != "blue" {
+		t.Fatalf("Other's hosting product: %v", meta)
+	}
+	if meta := f.otherProduct("prod_merch"); len(meta) != 1 || meta["color"] != "green" {
+		t.Fatalf("Other's merch: %v", meta)
 	}
 	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != "" {
 		t.Fatalf("the store is still closed: %q", st.ClosedWhy)
@@ -232,6 +260,16 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	f.setOtherPlan("plan_other", map[string]any{"trial_period_days": 0, "metadata": map[string]any{}})
 	sell("no hosting plan", http.StatusConflict, "no hosting plan yet")
 	f.setOtherPlan("plan_other", map[string]any{"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	f.marksDown = true
+	sell("Whop refusing the products' marks", http.StatusBadGateway, "access_pass:update")
+	f.marksDown = false
+	e.setAddress(t, "")
+	sell("no address for the store site to send buyers to", http.StatusServiceUnavailable, "can't open stores just now")
+	e.setAddress(t, "beta.playkeeper.me")
+	if meta := f.otherProduct("prod_other"); meta[whop.MetaDashboard] != "" {
+		t.Fatalf("a store that didn't open marked its product: %v", meta)
+	}
+	writes := len(f.shareWrites)
 	if _, err := e.srv.suspendWhopStore(t.Context(), "biz_other", "admin", "griefing"); err != nil {
 		t.Fatal(err)
 	}
@@ -255,8 +293,8 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "left Playkeeper Cloud") {
 		t.Fatalf("a store that left: %d %v", r.status, r.body)
 	}
-	if len(f.shareWrites) != 0 {
-		t.Fatalf("shares were set: %v", f.shareWrites)
+	if len(f.shareWrites) != writes {
+		t.Fatalf("a suspended store, or one that left, set shares: %v", f.shareWrites)
 	}
 }
 
