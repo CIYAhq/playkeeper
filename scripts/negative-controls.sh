@@ -8997,7 +8997,7 @@ control "confirming by itself: a machine the owner stopped meanwhile isn't confi
   ./internal/panel '^TestAMachineTheOwnerStoppedIsntConfirmedAgain$'
 control "confirming by itself: only a connected machine is looked for" internal/panel/autoconfirm.go \
   'l == nil || l.State != machinelink.StateConnected' \
-  'l == nil' \
+  'l == nil || l.State == machinelink.State("")' \
   ./internal/panel '^TestOnlyAConnectedMachineIsConfirmedAndOnlyWithTheOwnersToken$'
 control "confirming by itself: a machine that couldn't be confirmed waits" internal/panel/autoconfirm.go \
   'if at, ok := s.confirmFailed[m.ID]; ok && s.now().Sub(at) < confirmRetry {' \
