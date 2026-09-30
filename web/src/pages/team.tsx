@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { CheckIcon, ChevronRightIcon, EllipsisIcon, LinkIcon, ServerIcon, ShieldCheckIcon, SparklesIcon, UnlinkIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
+import { BanIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, LinkIcon, ServerIcon, ShieldCheckIcon, SparklesIcon, UnlinkIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
 import { del, get, post, put } from '@/api/client'
 import type { CreatedTeamInvite, Grant, ProjectRole, Scope, TeamInvite, TeamMember, TeamResponse } from '@/api/types'
 import { errorText, usePhoneServer, useWorkspace } from '@/api/workspace'
@@ -70,6 +70,7 @@ export function TeamSection() {
   const [grant, setGrant] = useState<{ editing: Editing; n: number }>()
   const [grantOpen, setGrantOpen] = useState(false)
   const [removing, setRemoving] = useState<TeamMember>()
+  const [suspending, setSuspending] = useState<TeamMember>()
   const data = team.data
   const listed = useMemo<TeamRow[] | undefined>(() => data && [...data.members.map((member) => ({ kind: 'member' as const, key: `m${member.id}`, member })), ...data.invites.map((invite) => ({ kind: 'invite' as const, key: `i${invite.id}`, invite }))], [data])
   const rows = useListPresence(listed, rowKey)
@@ -151,10 +152,11 @@ export function TeamSection() {
         </DialogPopup>
       </Dialog>
       <RemoveDialog member={removing} onClose={() => setRemoving(undefined)} onRemoved={team.refresh} />
+      <SuspendDialog member={suspending} onClose={() => setSuspending(undefined)} onChanged={team.refresh} />
     </>
   )
 
-  if (phone) return <PhoneTeam team={data} rows={rows} notice={notice} dialogs={dialogs} owner={owner} onEdit={edit} />
+  if (phone) return <PhoneTeam team={data} rows={rows} notice={notice} dialogs={dialogs} owner={owner} onEdit={edit} onSuspend={setSuspending} />
 
   return (
     <>
@@ -178,7 +180,7 @@ export function TeamSection() {
         <ul className="mt-2 flex flex-col">
           {rows.map(({ key, item, state }) =>
             item.kind === 'member' ? (
-              <MemberRow key={key} member={item.member} team={data} onChanged={team.refresh} onEdit={edit} onConfirm={confirm} onRemove={setRemoving} presence={presenceProps(state)} />
+              <MemberRow key={key} member={item.member} team={data} onChanged={team.refresh} onEdit={edit} onConfirm={confirm} onRemove={setRemoving} onSuspend={setSuspending} presence={presenceProps(state)} />
             ) : (
               <InviteRow key={key} invite={item.invite} team={data} onChanged={team.refresh} onEdit={edit} onTurnOff={turnOff} presence={presenceProps(state)} />
             ),
@@ -246,7 +248,27 @@ function memberLine(m: TeamMember): string {
     const limit = formatMB(allowanceDiskMB(m.allowance))
     parts.push(m.diskUsedBytes === undefined ? t('team.diskOf', { limit }) : t('team.diskUsed', { used: formatBytes(m.diskUsedBytes), limit }))
   }
+  if (m.storeName) parts.push(t('team.fromStore', { store: m.storeName }))
+  const state = customerStateText(m)
+  if (state) parts.push(state)
   return parts.join(t('common.dot'))
+}
+
+/** Where a customer's account stands, when it isn't simply active: paused, or suspended and why. */
+function customerStateText(m: TeamMember): string | undefined {
+  switch (m.customerState) {
+    case undefined:
+    case 'active':
+      return undefined
+    case 'paused':
+      return t('team.customerPaused')
+    case 'suspended':
+      return m.suspendedSelf ? t('team.suspended', { reason: m.suspendReason ?? '' }) : t('team.suspendedWithStore')
+    default: {
+      const unknown: never = m.customerState
+      return unknown
+    }
+  }
 }
 
 /** A role only the owner may give (Admin, when an admin signs in); the role someone has now stays pickable. */
@@ -272,7 +294,7 @@ function useRole(saved: ProjectRole, save: (role: ProjectRole) => Promise<unknow
   return { role: pending.changes.at(-1)?.role ?? saved, pick }
 }
 
-function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, presence }: { member: TeamMember; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onConfirm: (m: TeamMember) => Promise<void>; onRemove: (m: TeamMember) => void; presence?: ReturnType<typeof presenceProps> }) {
+function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, onSuspend, presence }: { member: TeamMember; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onConfirm: (m: TeamMember) => Promise<void>; onRemove: (m: TeamMember) => void; onSuspend: (m: TeamMember) => void; presence?: ReturnType<typeof presenceProps> }) {
   const { role, pick } = useRole(m.role, (r) => put(`/api/team/members/${m.id}`, { role: r, servers: m.servers } satisfies Grant), onChanged)
   return (
     <li {...presence} className="grid min-h-[60px] grid-cols-[minmax(0,1fr)_160px_160px_28px] items-center gap-3 border-t border-border py-2 first:border-t-0">
@@ -293,7 +315,7 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, pr
       ) : (
         <span className="text-[13px]">{memberRole(m)}</span>
       )}
-      {(m.canEdit || m.canConfirm) && !m.owner ? (
+      {(m.canEdit || m.canConfirm || m.canSuspend) && !m.owner ? (
         <Menu>
           <MenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t('team.menuFor', { name: m.username })} />}>
             <EllipsisIcon />
@@ -305,6 +327,18 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, pr
                 {t('team.confirm')}
               </MenuItem>
             )}
+            {m.canSuspend &&
+              (m.suspendedSelf ? (
+                <MenuItem onClick={() => onSuspend(m)}>
+                  <CircleCheckIcon />
+                  {t('team.liftSuspension')}
+                </MenuItem>
+              ) : (
+                <MenuItem variant="destructive" onClick={() => onSuspend(m)}>
+                  <BanIcon />
+                  {t('team.suspend')}
+                </MenuItem>
+              ))}
             {m.canEdit && (
               <>
                 {!m.allowance && (
@@ -422,19 +456,21 @@ function RoleTable() {
   )
 }
 
-function PhoneTeam({ team, rows: listed, notice, dialogs, owner, onEdit }: { team: TeamResponse; rows: Present<TeamRow>[]; notice: ReactNode; dialogs: ReactNode; owner: boolean; onEdit: (e: Editing) => void }) {
+function PhoneTeam({ team, rows: listed, notice, dialogs, owner, onEdit, onSuspend }: { team: TeamResponse; rows: Present<TeamRow>[]; notice: ReactNode; dialogs: ReactNode; owner: boolean; onEdit: (e: Editing) => void; onSuspend: (m: TeamMember) => void }) {
   const tabs = !!usePhoneServer()
-  const rows = listed.map(({ key, item, state }): { key: string; state: Present<TeamRow>['state']; name: string; line: string; edit?: Editing } => {
+  const rows = listed.map(({ key, item, state }): { key: string; state: Present<TeamRow>['state']; name: string; line: string; edit?: Editing; suspend?: TeamMember } => {
     if (item.kind === 'member') {
       const m = item.member
       const role = memberRole(m)
       const what = serversText(m, team)
+      const customer = customerStateText(m)
       return {
         key,
         state,
         name: m.username,
-        line: m.owner ? t('team.phone.owner') : `${role}${t('common.dot')}${m.waiting ? t('team.waiting') : what}`,
+        line: m.owner ? t('team.phone.owner') : `${role}${t('common.dot')}${m.waiting ? t('team.waiting') : what}${customer ? t('common.dot') + customer : ''}`,
         edit: m.canEdit && !m.owner ? (m.allowance ? { kind: 'creatorMember', member: m } : { kind: 'member', member: m }) : undefined,
+        suspend: m.canSuspend && !m.canEdit ? m : undefined,
       }
     }
     const inv = item.invite
@@ -458,13 +494,14 @@ function PhoneTeam({ team, rows: listed, notice, dialogs, owner, onEdit }: { tea
                 <span className="block truncate text-[17px] leading-6">{r.name}</span>
                 <span className="block truncate text-[13px] text-muted-foreground">{r.line}</span>
               </span>
-              {r.edit && <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
+              {(r.edit || r.suspend) && <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
             </>
           )
+          const open = r.edit ? () => r.edit && onEdit(r.edit) : r.suspend ? () => r.suspend && onSuspend(r.suspend) : undefined
           return (
             <li key={r.key} {...presenceProps(r.state)} className="border-b border-border last:border-b-0">
-              {r.edit ? (
-                <button type="button" onClick={() => r.edit && onEdit(r.edit)} className="flex min-h-[60px] w-full items-center gap-3 px-4 py-2 text-left active:bg-muted">
+              {open ? (
+                <button type="button" onClick={open} className="flex min-h-[60px] w-full items-center gap-3 px-4 py-2 text-left active:bg-muted">
                   {inner}
                 </button>
               ) : (
@@ -846,6 +883,79 @@ function RemoveDialog({ member, onClose, onRemoved }: { member: TeamMember | und
             {t('team.removeConfirm', { name: m?.username ?? '' })}
           </Button>
         </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  )
+}
+
+/** Suspending a customer's account, with the owner's reason, or lifting the owner's own suspension of it. */
+function SuspendDialog({ member, onClose, onChanged }: { member: TeamMember | undefined; onClose: () => void; onChanged: () => Promise<void> }) {
+  const phone = useIsPhone()
+  const [busy, setBusy] = useState(false)
+  const [reason, setReason] = useState('')
+  const [shown, setShown] = useState<TeamMember>()
+  if (member && member !== shown) {
+    setShown(member)
+    setReason('')
+  }
+  const m = member ?? shown
+  const name = m?.username ?? ''
+  const lifting = !!m?.suspendedSelf
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (!m || (!lifting && !reason.trim())) return
+    setBusy(true)
+    try {
+      if (lifting) {
+        await del(`/api/customers/${m.id}/suspension`)
+        toastManager.add({ title: t('team.liftedToast', { name }), type: 'success' })
+      } else {
+        await post(`/api/customers/${m.id}/suspension`, { reason: reason.trim() })
+        toastManager.add({ title: t('team.suspendedToast', { name }), type: 'success' })
+      }
+      onClose()
+      await onChanged()
+    } catch (err) {
+      toastManager.add({ title: errorText(err), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!member} onOpenChange={(o) => !o && onClose()}>
+      <DialogPopup className="sm:max-w-[440px]">
+        <form onSubmit={(e) => void submit(e)} className="contents" noValidate>
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">{lifting ? t('team.liftTitle', { name }) : t('team.suspendTitle', { name })}</DialogTitle>
+            <DialogDescription className="text-[13px]">{lifting ? t(m?.suspendedStore ? 'team.liftBodyStore' : 'team.liftBody') : t('team.suspendBody')}</DialogDescription>
+          </DialogHeader>
+          {!lifting && (
+            <DialogPanel>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[13px] font-semibold">{t('team.suspendReason')}</span>
+                <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder={t('team.suspendReasonPlaceholder')} autoComplete="off" className="max-sm:h-11 max-sm:[&>input]:h-full" />
+              </label>
+            </DialogPanel>
+          )}
+          <DialogFooter variant="bare" className="border-t border-border pt-4">
+            <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            {lifting ? (
+              <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy}>
+                <CircleCheckIcon />
+                {t('team.liftConfirm')}
+              </Button>
+            ) : (
+              <Button type="submit" variant="destructive" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={reason.trim() ? undefined : t('reason.sayWhy')}>
+                <BanIcon />
+                {t('team.suspendConfirm', { name })}
+              </Button>
+            )}
+          </DialogFooter>
+        </form>
       </DialogPopup>
     </Dialog>
   )

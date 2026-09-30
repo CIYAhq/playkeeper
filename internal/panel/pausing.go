@@ -51,7 +51,8 @@ var (
 
 // PauseCustomer is for a customer whose access ended: their servers stop,
 // their API tokens are revoked, and the grace period starts. A customer who
-// is paused already, or suspended, stays as they are.
+// is paused already stays as they are, and a suspended one too, with the
+// end noted for when the suspension is lifted (see suspension.go).
 func (c customerCore) PauseCustomer(ctx context.Context, cust Customer, reason string) error {
 	s := c.s
 	s.customersMu.Lock()
@@ -62,11 +63,16 @@ func (c customerCore) PauseCustomer(ctx context.Context, cust Customer, reason s
 		return err
 	case !ok:
 		return errNoCustomer
-	case info.State != CustomerActive:
-		return nil
 	}
 	if len(reason) > 200 {
 		reason = reason[:200]
+	}
+	switch info.State {
+	case CustomerActive:
+	case CustomerSuspended:
+		return s.pauseUnderSuspension(ctx, cust, info, reason)
+	default:
+		return nil
 	}
 	now := s.now()
 	until := now.Add(graceDays * 24 * time.Hour)

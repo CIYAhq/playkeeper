@@ -42,6 +42,7 @@ import type {
   ServerConfig,
   ServerStatus,
   SignInNotice,
+  StoresResponse,
   TeamInvite,
   TeamResponse,
   TemplateContents,
@@ -1997,6 +1998,32 @@ describe('Sell on Whop', () => {
     expect(document.body.textContent).toContain(`Redirect URL: ${redirect}`)
   })
 
+  it('lists the businesses selling through the app, and lets the owner suspend one with a reason or lift it', async () => {
+    const stores: StoresResponse = {
+      stores: [
+        { id: 'biz_other', title: 'Other Hosting', customers: 2 },
+        { id: 'biz_gone', title: 'Gone Hosting', customers: 1, suspendedAt: hoursAgo(2), suspendReason: 'selling to cheaters' },
+      ],
+    }
+    answer({ '/api/whop/stores': stores, '/api/whop': open })
+    answerPosts({})
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Businesses selling through your app')
+    expect(text).toContain('Other Hosting2 customers · selling')
+    expect(text).toContain('Gone Hosting1 customer · suspended: selling to cheaters')
+    await click('Suspend')
+    expect(page()).toContain('Suspend Other Hosting?')
+    expect(button('Suspend Other Hosting').disabled).toBe(true)
+    await typeInto('input[placeholder="Why, for the audit log"]', ' selling to cheaters ')
+    await act(async () => button('Suspend Other Hosting').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    // internal/panel's TestSuspendingAStoreSuspendsItsOwnCustomersAlone posts this body.
+    expect(client.post).toHaveBeenCalledWith('/api/whop/stores/biz_other/suspension', { reason: 'selling to cheaters' })
+    await click('Lift suspension')
+    expect(page()).toContain('Lift Gone Hosting’s suspension?')
+    await act(async () => [...document.querySelectorAll('[role="dialog"] form')].at(-1)?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(client.del).toHaveBeenCalledWith('/api/whop/stores/biz_gone/suspension')
+  })
+
   it('saves the app’s key and webhook secret, so businesses that install the app sell here', async () => {
     const redirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
     const webhookUrl = 'https://my-vps.playkeeper.me:8443/api/public/whop/app-webhook'
@@ -3151,6 +3178,43 @@ describe('Team', () => {
     expect(text).toContain('Customer')
     expect(text).toContain('signs in with Whop as Siya')
     expect(text).not.toContain('two-factor on')
+  })
+
+  it('shows a customer’s store and suspension, and lets the owner suspend them with a reason or lift it', async () => {
+    const customer = { owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, canEdit: false, allowance: { servers: 1, memoryMB: 4096 }, customer: 'whop', store: 'biz_other', storeName: 'Other Hosting', canSuspend: true } as const
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { ...customer, id: 6, username: 'alexplays', handle: 'alexplays', addedAt: hoursAgo(1), customerState: 'active' },
+        { ...customer, id: 7, username: 'samcrafts', handle: 'samcrafts', addedAt: hoursAgo(2), customerState: 'suspended', suspendedSelf: true, suspendReason: 'griefing' },
+      ],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    answerPosts({})
+    const text = await render(<TeamSection />)
+    expect(text).toContain('signs in with Whop as alexplays · 30 GB of disk · bought from Other Hosting')
+    expect(text).toContain('bought from Other Hosting · suspended: griefing')
+    const item = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === label)
+    await click(button('More for alexplays'))
+    await act(async () => item('Suspend')?.click())
+    await act(async () => {})
+    expect(page()).toContain('Suspend alexplays?')
+    expect(button('Suspend alexplays').disabled).toBe(true)
+    await typeInto('input[placeholder="Why, for the audit log"]', ' a DDoS from their server ')
+    await act(async () => button('Suspend alexplays').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    // internal/panel's TestASuspendedCustomerCanDoNothingUntilTheOwnerLiftsIt posts this body.
+    expect(client.post).toHaveBeenCalledWith('/api/customers/6/suspension', { reason: 'a DDoS from their server' })
+    await click(button('More for samcrafts'))
+    await act(async () => item('Lift suspension')?.click())
+    await act(async () => {})
+    expect(page()).toContain('Lift samcrafts’s suspension?')
+    await act(async () => button('Lift suspension').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(client.del).toHaveBeenCalledWith('/api/customers/7/suspension')
   })
 
   it('makes a creator invite with the dialog’s defaults, in the body the panel takes', async () => {
