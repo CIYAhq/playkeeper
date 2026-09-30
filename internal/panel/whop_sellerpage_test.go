@@ -68,8 +68,8 @@ func (e *env) openAsSeller(t *testing.T, biz, token string, hdr map[string]strin
 
 // A seller opens the Playkeeper Cloud app's page in their Whop dashboard:
 // their business becomes an app store, named as its products say, at the
-// address its memberships give once there are some. Opening it again
-// changes nothing.
+// address its memberships give once there are some, and closed until its
+// seller opens it. Opening the page again changes nothing.
 func TestASellerOpensTheirStoreFromTheirWhopDashboard(t *testing.T) {
 	f, e := sellerEnv(t)
 	token := f.sellerToken(e, whopTestApp, "user_otherowner")
@@ -79,7 +79,7 @@ func TestASellerOpensTheirStoreFromTheirWhopDashboard(t *testing.T) {
 		t.Fatalf("first open: %d %v", r.status, r.body)
 	}
 	st, ok, err := e.srv.whopStoreByID(t.Context(), "biz_other")
-	if err != nil || !ok || st.Via != whopViaApp || st.Title != "Other Hosting" || st.Route != "" {
+	if err != nil || !ok || st.Via != whopViaApp || st.Title != "Other Hosting" || st.Route != "" || st.ClosedWhy != whopNotOpenYetWhy {
 		t.Fatalf("the store: %+v, %v, %v", st, ok, err)
 	}
 	f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
