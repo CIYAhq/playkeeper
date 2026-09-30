@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,59 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
+
+// A server moved to another machine keeps what the agent where it was kept
+// about it: its sleep and public page settings, its pack page's and map's
+// links, its schedules, and its copies somewhere else with their secrets
+// and keys, so those copies still open. An own address that doesn't fit the
+// machine it goes to is left out, and said so.
+func TestAServerMovedInKeepsItsSettings(t *testing.T) {
+	from := newAgentEnv(t)
+	from.addIdleServer()
+	id := from.sid
+	if code, out := from.call("POST", from.sp("/schedules"), map[string]any{"actor": "admin", "kind": "backup",
+		"timing": map[string]any{"kind": "daily", "at": "04:00", "timeZone": "UTC"}}); code != http.StatusCreated {
+		t.Fatalf("a schedule: %d %v", code, out)
+	}
+	for _, q := range []string{
+		`UPDATE servers SET sleep = '{"enabled":true,"idleMinutes":15}', public_page = 0, public_about = 'our place', own_address = 'survival.example.com', packs_public = 1, packs_token = 'packtoken' WHERE id = ?`,
+		`INSERT INTO maps(server_id, addons, installed_at, public, share_token) VALUES(?, '[]', 1, 1, 'maptoken')`,
+		`INSERT INTO offsite(server_id, enabled, config, secret, keys, updated_at) VALUES(?, 1, '{"kind":"s3"}', 'the-secret', 'the-keys', 1)`,
+		`INSERT INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, copy, copied_at) VALUES(?, 'b1', 'automatic', 1, 'f.tar.gz', 10, 'copy-1', 2)`,
+	} {
+		if _, err := from.a.db.Exec(q, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, state := from.call("GET", from.sp("/move-state"), nil)
+	if code != http.StatusOK {
+		t.Fatalf("reading what the agent keeps about Survival: %d %v", code, state)
+	}
+
+	to := newAgentEnv(t)
+	to.addIdleServer()
+	code, out := to.call("PUT", to.sp("/move-state"), map[string]any{"state": state, "actor": "playkeeper"})
+	if code != http.StatusOK || fmt.Sprint(out["left"]) != "[ownAddress]" {
+		t.Fatalf("giving the server moved in what it had: %d %v", code, out)
+	}
+	var sleep, about, own, packs, share, secret, keys string
+	var page, public int
+	if err := to.a.db.QueryRow(`SELECT s.sleep, s.public_page, s.public_about, s.own_address, s.packs_token, m.share_token, m.public, o.secret, o.keys
+		FROM servers s JOIN maps m ON m.server_id = s.id JOIN offsite o ON o.server_id = s.id WHERE s.id = ?`, to.sid).
+		Scan(&sleep, &page, &about, &own, &packs, &share, &public, &secret, &keys); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sleep, `"idleMinutes":15`) || page != 0 || about != "our place" || own != "" || packs != "packtoken" || share != "maptoken" || public != 1 || secret != "the-secret" || keys != "the-keys" {
+		t.Errorf("the server moved in has sleep %s, public page %d %q, own address %q, pack link %q, map link %q %d, off-site %q %q", sleep, page, about, own, packs, share, public, secret, keys)
+	}
+	if code, out := to.call("GET", to.sp("/schedules"), nil); code != http.StatusOK || len(out["schedules"].([]any)) != 1 {
+		t.Errorf("the server moved in's schedules: %d %v", code, out)
+	}
+	var copies int
+	if err := to.a.db.QueryRow(`SELECT COUNT(*) FROM offsite_copies WHERE server_id = ? AND backup_id = 'b1' AND copy = 'copy-1'`, to.sid).Scan(&copies); err != nil || copies != 1 {
+		t.Errorf("the server moved in's copies somewhere else: %d, %v", copies, err)
+	}
+}
 
 // moveOut streams the current server's whole folder, as the dashboard asks
 // for it when it moves the server.

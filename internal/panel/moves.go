@@ -548,6 +548,9 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 	err = s.copyServer(ctx, mv, from, to, st, slug, start, moving)
 	if err == nil {
 		s.copyBackupRules(ctx, id, from, to)
+		err = s.copyMoveState(ctx, id, from, to)
+	}
+	if err == nil {
 		if err = s.sendLimitsTo(ctx, to); err != nil {
 			err = fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
 		}
@@ -684,6 +687,26 @@ func (s *Server) copyFolder(ctx context.Context, from, to machine, id string) (s
 		return "", errors.New("it arrived changed")
 	}
 	return p.ID, nil
+}
+
+// copyMoveState gives server id, moved to machine to, what the agent on
+// from kept about it (api.MoveState): its schedules, its sleep and public
+// page settings, its map's and pack page's links, and its copies somewhere
+// else with their secrets and keys, without which they no longer open. An
+// own address that doesn't fit to's is left out, and the audit log says so.
+func (s *Server) copyMoveState(ctx context.Context, id string, from, to machine) error {
+	var state api.MoveState
+	if err := askAgent(ctx, from, http.MethodGet, "/v1/servers/"+id+"/move-state", nil, &state); err != nil {
+		return fmt.Errorf("%s didn't say what it keeps about it: %w", machineLabel(from), err)
+	}
+	var res api.MoveStateResult
+	if err := askAgent(ctx, to, http.MethodPut, "/v1/servers/"+id+"/move-state", api.MoveStateRequest{State: state, Actor: placementActor}, &res); err != nil {
+		return fmt.Errorf("%s didn't take what %s kept about it: %w", machineLabel(to), machineLabel(from), err)
+	}
+	if slices.Contains(res.Left, "ownAddress") {
+		s.audit(placementActor, "customer.move", id, "own address left out", fmt.Sprintf("its own address doesn't fit %s's address", machineLabel(to)))
+	}
+	return nil
 }
 
 // discardUpload deletes upload rid on m, which no move-in took.

@@ -43,6 +43,8 @@ type moveFleet struct {
 }
 
 const (
+	// movedState is what home-server's agent keeps about alex's server.
+	movedState  = `{"rows":{"servers":[{"public_page":0,"packs_token":"packtoken"}],"schedules":[{"id":"sched12345","name":"nightly"}],"offsite":[{"secret":"the-secret","keys":"the-keys"}]}}`
 	movedServer = "cafebabe23"
 	movedStatus = `{"id":"cafebabe23","name":"alex","slug":"alex","phase":"online","desired":"running","gamePort":25566,
 		"config":{"memoryMB":2048,"playStyle":"friends","createdAt":"2026-09-20T10:00:00Z","eulaAcceptedAt":"2026-09-20T10:00:00Z","eulaAcceptedBy":"alex"}}`
@@ -82,6 +84,7 @@ func newMoveFleet(t *testing.T) *moveFleet {
 		w.Header().Set("Content-Type", "application/gzip")
 		w.Write(f.archive)
 	})
+	ra.reply("GET /v1/servers/"+movedServer+"/move-state", movedState)
 	ra.reply("GET /v1/servers/"+movedServer+"/backup-rules", `{"automatic":{"enabled":true,"everyHours":24,"onlyIfPlayed":true},"rules":{"onHost":{"daily":5}},"custom":true}`)
 
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
@@ -308,6 +311,12 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	hits := f.e.agentHits()
 	if movein, sent := slices.Index(hits, "POST /v1/restore/"+movedUpload+"/move-in"), slices.Index(hits, "PUT /v1/disk-limits"); movein < 0 || sent < movein {
 		t.Errorf("alex's disk limit went to the dashboard's machine before it made the server: %v", hits)
+	}
+	if kept, sent := slices.Index(hits, "PUT /v1/servers/"+movedServer+"/move-state"), slices.Index(hits, "PUT /v1/disk-limits"); kept < 0 || kept > sent {
+		t.Errorf("the server moved wasn't given what home-server kept about it before its requests went there: %v", hits)
+	}
+	if kept := f.e.agentBody("PUT /v1/servers/" + movedServer + "/move-state"); !strings.Contains(kept, `"keys":"the-keys"`) || !strings.Contains(kept, `"packs_token":"packtoken"`) || !strings.Contains(kept, `"sched12345"`) {
+		t.Errorf("the server moved was given %s", kept)
 	}
 	if n := f.rows(t, `SELECT COUNT(*) FROM public_links WHERE server_id = ? AND machine_id = ?`, movedServer, f.local); n != 1 {
 		t.Error("the server's public link stayed with the machine it left")
@@ -777,6 +786,36 @@ func TestALeftCopyThatIsTheServerIsNeverDeleted(t *testing.T) {
 	}
 	if n := f.rows(t, `SELECT COUNT(*) FROM left_copies`); n != 0 {
 		t.Errorf("%d records of copies left stayed", n)
+	}
+}
+
+// A server whose settings the machine it goes to won't take isn't moved:
+// the move stops, that machine deletes the copy it made, and the server
+// stays where it was, started again since it ran.
+func TestAMoveWhoseSettingsDontArriveIsUndone(t *testing.T) {
+	f := newMoveFleet(t)
+	f.e.answer("PUT /v1/servers/"+movedServer+"/move-state", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":"The schedules the server had can't be kept.","code":"invalid_request"}`)
+	})
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-undo","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-undo", `{"id":"op-undo","status":"succeeded"}`)
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.Contains(why, "didn't take what home-server kept about it") {
+		t.Fatalf("why the move stopped: %q", why)
+	}
+	if _, started := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); f.recorded(t) != f.rid || f.made() || !started {
+		t.Errorf("the server whose settings didn't arrive: requests go to %q, copy still made %v, started again %v", f.recorded(t), f.made(), started)
 	}
 }
 

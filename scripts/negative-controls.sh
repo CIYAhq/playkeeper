@@ -9414,6 +9414,26 @@ control "moving customers: an upload no move-in took goes" internal/panel/moves.
 		return fmt.Errorf("%s couldn'"'"'t make it from its folder: %w", machineLabel(to), err)' \
   '		return fmt.Errorf("%s couldn'"'"'t make it from its folder: %w", machineLabel(to), err)' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "moving customers: a moved server keeps what its agent kept about it" internal/panel/moves.go \
+  'err = s.copyMoveState(ctx, id, from, to)' \
+  'err = nil' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: a server whose settings don't arrive isn't moved" internal/panel/moves.go \
+  'return fmt.Errorf("%s didn'"'"'t take what %s kept about it: %w", machineLabel(to), machineLabel(from), err)' \
+  'return nil' \
+  ./internal/panel '^TestAMoveWhoseSettingsDontArriveIsUndone$'
+control "moving in: a server keeps its copies' keys, so they still open" internal/agent/movestate.go \
+  '"ssh_public", "keys", "key_saved_at",' \
+  '"ssh_public", "key_saved_at",' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server off the public page stays off it" internal/agent/movestate.go \
+  '{"servers", []string{"sleep", "public_page", ' \
+  '{"servers", []string{"sleep", ' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: an own address that doesn't fit the machine is left out" internal/agent/movestate.go \
+  'if fit, err := s.validOwnAddress(name); err != nil || fit != name {' \
+  'if false {' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
 control "moving out: a move takes the whole folder, not a backup's" internal/agent/moveout.go \
   'backup.CreateWhole(out,' \
   'backup.Create(out,' \
