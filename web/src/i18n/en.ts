@@ -2809,6 +2809,7 @@ export const en = {
   'whop.customer.activeAs': 'Active as {account}',
   'whop.customer.paused': 'Paused: their plan ended',
   'whop.customer.ended': 'Their plan ended',
+  'whop.customer.messageProblem': 'Their messages on Whop aren’t going out. {problem}',
   'whop.signIn': 'Sign in with Whop',
   'whop.signIn.on': 'Customers sign in with their Whop account, through {app}.',
   'whop.signIn.secret': 'Its secret ends {ending}.',

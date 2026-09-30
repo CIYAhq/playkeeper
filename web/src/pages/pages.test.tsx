@@ -1995,6 +1995,13 @@ describe('Sell on Whop', () => {
     expect(document.body.textContent).toContain(`Redirect URL: ${redirect}`)
   })
 
+  it('says why a message to a customer hasn’t gone out, as the store needing a look', async () => {
+    answer({ '/api/whop': { ...open, customers: [{ ...open.customers[0], messageProblem: 'Whop said: Something went wrong' }] } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Pip HostingNeeds a look')
+    expect(text).toContain('alexplaysActive as alexplays · Starter · Up to 1 server with 4 GBTheir messages on Whop aren’t going out. Whop said: Something went wrong')
+  })
+
   it('says Sign in with Whop needs the machine’s address', async () => {
     answer({ '/api/whop': { ...open, signIn: {} } })
     const text = await render(<SellOnWhopSection />, owner)

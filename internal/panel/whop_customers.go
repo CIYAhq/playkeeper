@@ -696,11 +696,21 @@ func (s *Server) sendWhopMessages(ctx context.Context, c *whop.Client, a whopAcc
 	rows.Close()
 	held := map[string]bool{}
 	channels := map[string]string{}
+	var token string
+	var tokenErr error
 	for _, m := range due {
 		if held[m.user] {
 			continue
 		}
 		if m.nextTryAt > now.UnixMilli() {
+			held[m.user] = true
+			continue
+		}
+		if token == "" && tokenErr == nil {
+			token, tokenErr = whopSenderToken(ctx, c, a.ID)
+		}
+		if tokenErr != nil {
+			s.whopMessageFailed(m.id, m.attempts, tokenErr)
 			held[m.user] = true
 			continue
 		}
@@ -719,7 +729,7 @@ func (s *Server) sendWhopMessages(ctx context.Context, c *whop.Client, a whopAcc
 			}
 		}
 		channels[m.user] = channel
-		if err := c.SendMessage(ctx, channel, m.text); err != nil {
+		if err := c.SendMessage(ctx, token, channel, m.text); err != nil {
 			if whop.NotFound(err) {
 				// The chat is gone; the next try opens another.
 				_, _ = s.db.Exec(`UPDATE whop_customers SET channel_id = '' WHERE whop_user_id = ?`, m.user)
@@ -732,6 +742,18 @@ func (s *Server) sendWhopMessages(ctx context.Context, c *whop.Client, a whopAcc
 			s.log.Error("could not record a Whop message that went out", "err", err)
 		}
 	}
+}
+
+// whopSenderToken gets a token to send messages as the store's owner, who
+// is in each of its support chats, since Whop takes none from the key. It
+// may send support chat messages and nothing else, and the dashboard gets a
+// new one each time it sends rather than keep one.
+func whopSenderToken(ctx context.Context, c *whop.Client, accountID string) (string, error) {
+	owner, err := c.Owner(ctx)
+	if err != nil {
+		return "", fmt.Errorf("couldn't read who owns the store on Whop: %w", err)
+	}
+	return c.UserToken(ctx, accountID, owner.ID, whop.MessageAction)
 }
 
 func (s *Server) whopMessageFailed(id int64, attempts int, err error) {
@@ -756,6 +778,9 @@ type whopCustomerView struct {
 	// Account is their account on this dashboard, once the core has made it.
 	Account string `json:"account,omitempty"`
 	Problem string `json:"problem,omitempty"`
+	// MessageProblem is why a message to them hasn't gone out on Whop, while
+	// it waits for its next try.
+	MessageProblem string `json:"messageProblem,omitempty"`
 }
 
 // whopCustomerViews lists the customers the dashboard knows, newest first.
@@ -764,12 +789,16 @@ func (s *Server) whopCustomerViews(ctx context.Context) ([]whopCustomerView, err
 	if err != nil {
 		return nil, err
 	}
+	waiting, err := s.whopMessageProblems(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := []whopCustomerView{}
 	for i, wc := range custs {
 		if i == 200 {
 			break
 		}
-		v := whopCustomerView{WhopUserID: wc.WhopUserID, Handle: wc.Handle, Plan: wc.Plan.Name, Problem: wc.Problem,
+		v := whopCustomerView{WhopUserID: wc.WhopUserID, Handle: wc.Handle, Plan: wc.Plan.Name, Problem: wc.Problem, MessageProblem: waiting[wc.WhopUserID],
 			Allowance: invites.Allowance{Servers: wc.Plan.Servers, MemoryMB: wc.Plan.MemoryMB}}
 		has := wc.Plan.Servers > 0 && wc.Plan.MemoryMB > 0
 		switch {
@@ -788,4 +817,26 @@ func (s *Server) whopCustomerViews(ctx context.Context) ([]whopCustomerView, err
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// whopMessageProblems is why each customer's message that failed hasn't
+// gone out yet. Theirs go in order, so the oldest one waiting is the one
+// being tried.
+func (s *Server) whopMessageProblems(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT whop_user_id, problem FROM whop_messages WHERE sent_at = 0 AND problem != '' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var user, problem string
+		if err := rows.Scan(&user, &problem); err != nil {
+			return nil, err
+		}
+		if _, ok := out[user]; !ok {
+			out[user] = problem
+		}
+	}
+	return out, rows.Err()
 }
