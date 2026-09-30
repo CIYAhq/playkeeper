@@ -4916,6 +4916,14 @@ control "a storage service with no answer in time says so" internal/offsite/erro
   '	case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout():' \
   '	case false && (errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout()):' \
   ./internal/offsite '^TestTransportErrors$'
+control "a storage service that refuses the connection says so" internal/offsite/errors.go \
+  '	case errors.Is(err, syscall.ECONNREFUSED):' \
+  '	case false:' \
+  ./internal/offsite '^TestTransportErrors$'
+control "an SFTP port nothing listens on says so" internal/offsite/ssh.go \
+  '	case errors.Is(err, syscall.ECONNREFUSED):' \
+  '	case false:' \
+  ./internal/offsite '^TestSFTPConnectErrors$'
 control "a copy says the rules removed its backup only when they did" internal/agent/offsite.go \
   'case removedBy == retentionActor:' \
   'case false:' \
