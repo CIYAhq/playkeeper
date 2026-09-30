@@ -254,6 +254,60 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 	}
 }
 
+// A page of the site's own can go under /templates, like the AI build
+// battle's, as none of the directory's pages: one word under it, and neither
+// page, which the directory's pages use, nor a category's address, listed or
+// not. A page there with a directory's layout is still one of its pages.
+func TestOwnPagesUnderTemplates(t *testing.T) {
+	if !ownPages(t)["/templates/ai-build-battle"] {
+		t.Fatal("the AI build battle's page isn't a page of the site's own under /templates")
+	}
+	built := pages(build(t, Default))
+	b, err := os.ReadFile("../../" + taxonomyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tax map[string]any
+	if err := json.Unmarshal(b, &tax); err != nil {
+		t.Fatal(err)
+	}
+	categories := tax["categories"].(map[string]any)
+	// A listed category without a guide of its own, whose page the directory
+	// makes; and battles, a category with no template at all.
+	listed := ""
+	for _, id := range slices.Sorted(maps.Keys(categories)) {
+		if _, err := os.Stat("../../site/pages/templates/" + id + ".html"); err != nil && built["/templates/"+id] != "" {
+			listed = id
+			break
+		}
+	}
+	if listed == "" {
+		t.Fatal("every listed category has a guide; this test needs one without")
+	}
+	categories["battles"] = categories["smp"]
+	withBattles, _ := json.Marshal(tax)
+	for name, c := range map[string]struct {
+		edits map[string]func(string) string
+		says  string
+	}{
+		"page":                        {map[string]func(string) string{battlePage: set("path", "/templates/page")}, "one word under it"},
+		"two words under /templates":  {map[string]func(string) string{battlePage: set("path", "/templates/smp/battle")}, "one word under it"},
+		"a listed category's address": {map[string]func(string) string{battlePage: set("path", "/templates/"+listed)}, "category's page, with layout: category"},
+		"an unlisted category's address": {map[string]func(string) string{
+			battlePage:   set("path", "/templates/battles"),
+			taxonomyFile: func(string) string { return string(withBattles) },
+		}, "lists no template yet"},
+		"a directory's layout": {map[string]func(string) string{battlePage: set("layout", "category")}, "no category with a listed template"},
+	} {
+		if _, err := buildEdited(t, c.edits); err == nil || !strings.Contains(err.Error(), c.says) {
+			t.Errorf("a page of the site's own under /templates at %s: %v, want an error that says %q", name, err, c.says)
+		}
+	}
+	if _, err := buildEdited(t, map[string]func(string) string{taxonomyFile: func(string) string { return string(withBattles) }}); err != nil {
+		t.Errorf("with battles, a category with no template, the site doesn't build: %v", err)
+	}
+}
+
 // What cards.json and taxonomy.json say that the directory can't list stops
 // the build.
 func TestTaxonomyMistakesStopTheBuild(t *testing.T) {
