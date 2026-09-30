@@ -192,10 +192,14 @@ func TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere(t *testin
 		resp := get("GET", withPort, path, nil)
 		return resp.StatusCode == http.StatusTemporaryRedirect && resp.Header.Get("Location") == "https://"+dashboardHost+path
 	}
-	// Listening but not reached from outside, then reached but not held.
+	// Held but not reached from outside, then reached but not held.
+	e.holding443()
 	if sent("/") {
 		t.Fatal("sent to port 443 before a browser from outside reached it")
 	}
+	e.srv.page.mu.Lock()
+	e.srv.page.held[0] = nil
+	e.srv.page.mu.Unlock()
 	e.dashboardState(true, true)
 	if sent("/") {
 		t.Fatal("sent to port 443 while the panel doesn't hold it")

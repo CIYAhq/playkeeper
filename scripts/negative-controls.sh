@@ -6600,12 +6600,16 @@ control "the dashboard's address keeps its port until a browser from outside rea
   'if !blocked {' \
   ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
 control "another program on port 443 gives the dashboard's address its port back" internal/agent/dashboardport.go \
-  'if v.Reached && !blocked {' \
-  'if v.Reached {' \
+  'v.State, v.Holder, blocked = https.State, https.Holder, true' \
+  'v.State, v.Holder, blocked = https.State, https.Holder, false' \
   ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
-control "a visit from the machine itself doesn't count as one from outside" internal/agent/dashboardport.go \
+control "a visit from the machine's address behind NAT doesn't count as one from outside" internal/agent/dashboardport.go \
   '!ok || ip == a.machineIP(a.address())' \
-  '!ok' \
+  '!ok || false && ip == a.machineIP(a.address())' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "a visit from one of the machine's own interfaces doesn't count as one from outside" internal/agent/dashboardport.go \
+  'if own.Unmap().WithZone("") == ip {' \
+  'if false && own.Unmap().WithZone("") == ip {' \
   ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
 control "only the machine's working name counts as reached" internal/agent/dashboardport.go \
   'if named == "" || host != named {' \

@@ -186,6 +186,12 @@ func TestTheDashboardHasPort443WithThePageOff(t *testing.T) {
 // program has the port.
 func TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt(t *testing.T) {
 	e, _ := dashboardEnv(t, "on", nil)
+	// Behind NAT the machine's public address is on no interface: the one
+	// the dashboard was opened with.
+	const natted = "203.0.113.99"
+	if err := e.a.updateAddress(func(st *addressState) { st.IP = natted }); err != nil {
+		t.Fatal(err)
+	}
 	const visitor = "198.51.100.77"
 	withPort := "https://" + pageTestHost + ":" + strconv.Itoa(e.cfg.PanelPort)
 	// Discord hasn't been told where the dashboard was opened, so its
@@ -197,9 +203,9 @@ func TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt(t *testing.T) {
 		code, _ := e.call("POST", dashboard443ReachedPath, map[string]any{"host": host, "from": from})
 		return code
 	}
-	// The machine asking itself, a private network, shared address space
-	// and another name don't count.
-	for _, from := range []string{testIP.String(), "10.0.0.8", "192.168.1.20", "100.100.1.2", "127.0.0.1", "fd00::1", "nonsense"} {
+	// The machine asking itself, at an interface's address or behind NAT, a
+	// private network, shared address space and another name don't count.
+	for _, from := range []string{testIP.String(), natted, "10.0.0.8", "192.168.1.20", "100.100.1.2", "127.0.0.1", "fd00::1", "nonsense"} {
 		if code := reached(pageTestHost, from); code == 200 {
 			t.Errorf("a visit from %s counted", from)
 		}
