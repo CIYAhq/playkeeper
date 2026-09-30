@@ -871,6 +871,16 @@ control "a start that goes ahead forgets the crash" internal/agent/lifecycle.go 
 		s.forgetCrashes()
 	}' \
   ./internal/agent '^TestAStartForgetsTheCrashOnlyOnceItGoesAhead$'
+control "an automatic start after a stop without a crash is owed while the server is busy" internal/agent/lifecycle.go \
+  '	s.mu.Lock()
+	s.startOwed = true
+	s.mu.Unlock()' \
+  '' \
+  ./internal/agent '^TestExternalCleanStopIsRestoredOnceTheServerIsFree$'
+control "an owed automatic start is tried again once the server is free" internal/agent/lifecycle.go \
+  '		owed := s.startOwed && !s.givenUp()' \
+  '		owed := false && s.startOwed && !s.givenUp()' \
+  ./internal/agent '^TestExternalCleanStopIsRestoredOnceTheServerIsFree$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \
