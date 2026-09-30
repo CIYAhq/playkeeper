@@ -2,13 +2,17 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
-## 0.4.10
+## 0.4.11
 
-- **Two models side by side:** in the AI Build Battle template, `/aibattle <model A> <model B> <prompt>` has two models build it side by side.
 - **Moving customers:** when you sell on Whop, a machine's page in **Settings › Machines** lists the customers whose servers run on it, and **Move…** moves one to another machine that takes customers and has room for their plan. Each of their servers stops for a few minutes and goes over with its whole folder and its settings: schedules, sleep, backup rules, public page, links and copies somewhere else. It starts again there if it was running or asleep, and keeps its members, invites and address without a port. The machine it leaves keeps its final backup for 7 days. Customers only see that a server is being moved. An AI key doesn't go along, as it never leaves its machine, so it's pasted again. The owner's alone.
 - **Removing a machine customers are on** gives them room on another machine to start again, so they can create servers. Move them first to take their servers along. Only the owner can remove one.
-- Fixed: customers who bought on Whop never got their messages, like the one saying their server is ready, because Whop refuses messages sent with the store's API key. They now go out in the store's support chat as the store's owner, and any still waiting go out as soon as the dashboard updates. A message that can't go out shows on its customer in **Settings › Sell on Whop**, with Whop's reason, and the store shows **Needs a look**.
-- Fixed: Sign in with Whop could be turned on with an app Whop refuses, and then every customer's sign-in ended with "Whop couldn't confirm who you are". **Turn on** now asks Whop first and says what it refused. Whop needs the `oauth:token_exchange` permission on the app's own Permissions tab, not on an API key, and the setup text now says so.
+
+## 0.4.10
+
+- **Customers get their "your server is ready" message on Whop:** messages now go out as the store's owner, since Whop doesn't accept them from a store key. They go out in the store's support chat, and any still waiting go out as soon as the dashboard updates. A message that can't go out shows on its customer in **Settings › Sell on Whop**, with Whop's reason, and the store shows **Needs a look**.
+- **Sign in with Whop checks the app when you turn it on,** and says exactly what's missing, such as the `oauth:token_exchange` permission on the app's Permissions tab. Before, it could be turned on with an app Whop refuses, and then every customer's sign-in ended with "Whop couldn't confirm who you are". Whop needs that permission on the app's own Permissions tab, not on an API key, and the setup text now says so.
+- **`/aibattle`:** two AI models build side by side in the AI Build Battle template. Type `/aibattle <model A> <model B> <prompt>`.
+- Tests: two agent tests that raced their timers under load, one of a long delete and one of a restore that 0.3.0 undid, now wait for what they check, and when a test panics, its shard still runs the tests the panic kept from starting.
 
 ## 0.4.9
 
