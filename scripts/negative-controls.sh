@@ -10372,6 +10372,40 @@ webcontrol "confirming by itself: the Customers card says it was found in the He
   "return found ? t('machines.customers.foundHint', { server: found, date }) :" \
   "return false ? t('machines.customers.foundHint', { server: found, date }) :" \
   src/pages/pages.test.tsx 'confirmed a joined machine itself'
+# Playkeeper Cloud's page on playkeeper.io (internal/panel/cloudplans.go):
+# the dashboard's own store's paid plans, each available or sold out.
+control "the Cloud page: its answer is public" internal/panel/public.go \
+  '{prefix: cloudPlansPath, limits: cloudPlansLimits, cache: cloudPlansCache, handler: http.HandlerFunc(s.hCloudPlans)},' \
+  '' \
+  ./internal/panel '^TestTheCloudPage'
+control "the Cloud page: only the dashboard's own store's plans" internal/panel/cloudplans.go \
+  'WHERE st.via = ? AND st.taken_over_by' \
+  'WHERE (st.via = ? OR 1) AND st.taken_over_by' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: not a store another dashboard took over" internal/panel/cloudplans.go \
+  "AND st.taken_over_by = '' AND p.free = 0" \
+  'AND p.free = 0' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: only paid plans" internal/panel/cloudplans.go \
+  'AND p.free = 0 AND p.visibility' \
+  'AND p.visibility' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: no archived plan" internal/panel/cloudplans.go \
+  "AND p.visibility != 'archived' AND p.allowance_from" \
+  'AND p.allowance_from' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: a plan with no stock left is sold out" internal/panel/cloudplans.go \
+  'p.unlimited_stock OR p.stock > 0' \
+  'p.unlimited_stock OR p.stock >= 0' \
+  ./internal/panel '^TestTheCloudPageHearsWhichPlansAreSoldOut$'
+control "the Cloud page: a plan the room hasn't limited is available" internal/panel/cloudplans.go \
+  'p.unlimited_stock OR p.stock > 0' \
+  '0 OR p.stock > 0' \
+  ./internal/panel '^TestTheCloudPageHearsOnlyTheOwnStoresPaidPlans$'
+control "the Cloud page: any site may ask" internal/panel/cloudplans.go \
+  'w.Header().Set("Access-Control-Allow-Origin", "*")' \
+  '' \
+  ./internal/panel '^TestTheCloudPageHearsWhichPlansAreSoldOut$'
 webcontrol "room for sale: the card is the owner's alone" web/src/pages/machines.tsx \
   "{can(ws.me, 'machines.customers') && <SaleRoomCard />}" \
   '<SaleRoomCard />' \
