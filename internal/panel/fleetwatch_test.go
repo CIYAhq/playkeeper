@@ -89,14 +89,21 @@ func TestAMachineOffTheDashboardForFiveMinutesIsPostedAndSoIsItsReturn(t *testin
 // store is posted once, with the customers waiting for room, and again only
 // after there was room for 2. A free plan, however small, isn't what sells.
 func TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain(t *testing.T) {
-	f, e, _ := twoStores(t)
+	f, e, own := twoStores(t)
 	f.mu.Lock()
 	f.plans = append(f.plans, map[string]any{"id": "plan_creator", "title": "Creator", "visibility": "hidden", "plan_type": "one_time", "initial_price": 0,
 		"product": map[string]any{"id": "prod_mc", "title": "Minecraft server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "2"}})
 	f.mu.Unlock()
 	ctx := context.Background()
 	e.reply("GET", "/v1/servers", `[]`)
+	if r := e.do(t, "POST", "/api/whop/sync", "", own.auth()); r.status != http.StatusOK {
+		t.Fatalf("reading the store: %d %v", r.status, r.body)
+	}
 	e.reconcile()
+	plans, err := e.srv.sales.SalePlans(ctx)
+	if err != nil || !slices.ContainsFunc(plans, func(p SalePlan) bool { return p.ID == "plan_creator" && p.Free && p.MemoryMB == 2048 }) {
+		t.Fatalf("the free 2 GB plan isn't on sale: %+v %v", plans, err)
+	}
 	watch := func(freeMB int) {
 		t.Helper()
 		e.reply("GET", "/v1/machine", liveMachine(freeMB, true))
