@@ -23,7 +23,7 @@ func keptBackupsAt(e *env, kept map[string]string) {
 	for kid, label := range kept {
 		list = append(list, `{"id":"`+kid+`","serverId":"cafebabe23","serverName":"alex","keptFor":"`+label+`","fileName":"playkeeper-alex-`+kid+`.tar.gz","sizeBytes":5,"sha256":"","madeAt":"2026-10-13T12:00:00Z","expiresAt":"2026-11-12T12:00:00Z"}`)
 	}
-	e.reply("GET", "/v1/kept-backups", "["+strings.Join(list, ",")+"]")
+	e.replyStatus("GET", "/v1/kept-backups", http.StatusOK, "["+strings.Join(list, ",")+"]")
 }
 
 // agentHit says whether the machine was asked for what, as "METHOD /path".
@@ -42,7 +42,9 @@ func agentHit(e *env, what string) bool {
 // the copies their moves left, and their server's join requests, players'
 // origins and shared links. A payment of theirs keeps its amounts for the
 // store's accounts without who paid, and nothing of another store or
-// another account changes.
+// another account changes. A deletion that stops midway, as when a machine
+// can't list the backups it keeps, ends at a later look, and the server it
+// deleted already took its records along.
 func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 	p := newPausable(t)
 	e, ctx := p.e, context.Background()
@@ -53,7 +55,7 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 	if _, err := e.srv.db.Exec(`UPDATE api_tokens SET revoked_at = 0, revoked_by = '' WHERE user_id = ?`, p.alex.id); err != nil {
 		t.Fatal(err)
 	}
-	keptBackupsAt(e.env, map[string]string{"20261013-120000-abc123": keptFor(p.alex.id), "20261013-120000-def456": keptFor(p.alex.id + 1)})
+	e.replyStatus("GET", "/v1/kept-backups", http.StatusServiceUnavailable, `{"error":"The machine is busy.","code":"busy"}`)
 	var project string
 	if err := e.srv.db.QueryRow(`SELECT id FROM projects LIMIT 1`).Scan(&project); err != nil {
 		t.Fatal(err)
@@ -89,6 +91,16 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 		t.Fatalf("%d of alex's tokens still work once their deletion was asked for", n)
 	}
 	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); !ok {
+		t.Fatal("alex was deleted though the backups kept for them couldn't be listed")
+	}
+	for _, table := range []string{"join_requests", "player_origins", "public_links", "creator_servers"} {
+		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE server_id = ?`, p.serverID); n != 0 {
+			t.Errorf("%s still has alex's deleted server once the deletion stopped: %d", table, n)
+		}
+	}
+	keptBackupsAt(e.env, map[string]string{"20261013-120000-abc123": keptFor(p.alex.id), "20261013-120000-def456": keptFor(p.alex.id + 1)})
+	e.srv.eraseDueCustomers(ctx)
 	if n := p.deletions(); n != 1 {
 		t.Fatalf("alex's server was asked to be deleted %d times", n)
 	}
@@ -115,11 +127,6 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 			t.Errorf("%s: %d", q, n)
 		}
 	}
-	for _, table := range []string{"join_requests", "player_origins", "public_links"} {
-		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE server_id = ?`, p.serverID); n != 0 {
-			t.Errorf("%s still has alex's server: %d", table, n)
-		}
-	}
 	for _, table := range []string{"whop_memberships", "whop_customers", "whop_messages"} {
 		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE store_id = ? AND whop_user_id = 'user_alex'`, testStore); n != 0 {
 			t.Errorf("%s still has alex at their store: %d", table, n)
@@ -137,8 +144,9 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 		t.Fatalf("alex's payment at another store lost who paid: %d", n)
 	}
 	rows := e.auditRows(t, "customer.erase")
-	if len(rows) != 2 || !strings.HasPrefix(rows[0], "admin alex requested") || !strings.HasPrefix(rows[1], "admin alex succeeded") ||
-		!strings.Contains(rows[1], "on request: 1 server(s) with their backups, 1 kept backup(s); 1 payment(s) kept") {
+	if len(rows) != 3 || !strings.HasPrefix(rows[0], "admin alex requested") ||
+		!strings.HasPrefix(rows[1], "admin alex failed it stopped, after 1 server(s) with their backups were deleted, and goes on later") ||
+		!strings.HasPrefix(rows[2], "admin alex succeeded") || !strings.Contains(rows[2], "on request: 0 server(s) with their backups, 1 kept backup(s); 1 payment(s) kept") {
 		t.Fatalf("the audit log: %v", rows)
 	}
 	e.srv.eraseDueCustomers(ctx)
@@ -228,12 +236,12 @@ func usernameOf(t *testing.T, e *env, uid int64) string {
 
 // Only the owner deletes a customer, one whose plan has ended, with the
 // account's name typed to confirm. One who buys again before the deletion
-// runs keeps their account.
+// runs keeps their account and the backups kept for them.
 func TestOnlyTheOwnerDeletesACustomerWhosePlanEnded(t *testing.T) {
 	f, e, own := storesWithCustomers(t)
 	ctx := context.Background()
-	e.reply("GET", "/v1/kept-backups", `[]`)
 	other := storeAccount(t, e, "biz_other", "user_alex")
+	keptBackupsAt(e, map[string]string{"20261013-120000-abc123": keptFor(other.UserID)})
 	name := usernameOf(t, e, other.UserID)
 	path := customerDeletePath(other.UserID)
 	if r := e.do(t, "DELETE", path, `{"confirm":"`+name+`"}`, own.auth()); r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "still have a plan") {
@@ -244,6 +252,16 @@ func TestOnlyTheOwnerDeletesACustomerWhosePlanEnded(t *testing.T) {
 	f.mu.Unlock()
 	e.srv.db.Exec(`UPDATE whop_stores SET polled_at = 0`)
 	e.reconcile()
+	if _, err := e.srv.db.Exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, stale, updated_at)
+		VALUES('biz_other', 'mem_alex9', 'user_alex', 'plan_other', 'active', 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "DELETE", path, `{"confirm":"`+name+`"}`, own.auth()); r.status != http.StatusConflict {
+		t.Fatalf("deleting alex while Whop reports a renewal its API hasn't confirmed: %d %v", r.status, r.body)
+	}
+	if _, err := e.srv.db.Exec(`DELETE FROM whop_memberships WHERE membership_id = 'mem_alex9'`); err != nil {
+		t.Fatal(err)
+	}
 	for who, c := range map[string]struct {
 		body   string
 		auth   map[string]string
@@ -280,7 +298,60 @@ func TestOnlyTheOwnerDeletesACustomerWhosePlanEnded(t *testing.T) {
 	if n := e.count(t, `SELECT COUNT(*) FROM customers WHERE user_id = ? AND erase_requested_at > 0`, other.UserID); n != 0 {
 		t.Fatal("alex's deletion is still asked for once they bought again")
 	}
-	if rows := e.auditRows(t, "customer.erase"); len(rows) != 2 || !strings.Contains(rows[1], "refused they have a plan at their store again") {
+	if agentHit(e, "DELETE /v1/kept-backups/20261013-120000-abc123") {
+		t.Fatal("the backup kept for alex, who bought again, was deleted")
+	}
+	if rows := e.auditRows(t, "customer.erase"); len(rows) != 2 || !strings.HasSuffix(rows[1], "refused they have a plan at their store again") {
+		t.Fatalf("the audit log: %v", rows)
+	}
+}
+
+// A customer who buys again while their deletion runs keeps whatever wasn't
+// deleted yet, and their account: each server's deletion starts only after
+// another look, with the store's pass and the hosting core waiting.
+func TestACustomerWhoBuysAgainWhileBeingDeletedKeepsTheRest(t *testing.T) {
+	p := newPausable(t)
+	e, ctx := p.e, context.Background()
+	p.lapse("succeeded")
+	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	const second, secondOp = "deadbeef45", "fedcba9876543210"
+	if _, err := e.srv.db.Exec(`INSERT INTO creator_servers(server_id, user_id, created_at) VALUES(?, ?, 1)`, second, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	renew := func() {
+		e.srv.db.Exec(`INSERT OR IGNORE INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at)
+			VALUES(?, 'mem_alex2', 'user_alex', 'plan_starter', 'active', 1)`, testStore)
+	}
+	e.agent.mu.Lock()
+	e.agent.replies["GET /v1/servers/"+second] = `{"id":"` + second + `","name":"alex-2"}`
+	e.agent.statuses["POST /v1/servers/"+second+"/delete"] = http.StatusAccepted
+	e.agent.replies["POST /v1/servers/"+second+"/delete"] = `{"id":"` + secondOp + `","status":"running"}`
+	e.agent.replies["GET /v1/operations/"+secondOp] = `{"id":"` + secondOp + `","status":"succeeded"}`
+	e.agent.before["POST /v1/servers/"+p.serverID+"/delete"] = renew
+	e.agent.before["POST /v1/servers/"+second+"/delete"] = renew
+	e.agent.mu.Unlock()
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	if r := e.do(t, "DELETE", customerDeletePath(p.alex.id), `{"confirm":"alex"}`, p.own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("asking for alex's deletion: %d %v", r.status, r.body)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	first, other := agentHit(e.env, "POST /v1/servers/"+p.serverID+"/delete"), agentHit(e.env, "POST /v1/servers/"+second+"/delete")
+	if first == other {
+		t.Fatalf("alex's servers were asked to be deleted: %s %v, %s %v", p.serverID, first, second, other)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM creator_servers WHERE user_id = ?`, p.alex.id); n != 1 {
+		t.Fatalf("alex's servers left: %d", n)
+	}
+	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); !ok {
+		t.Fatal("alex, who bought again, lost their account")
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM customers WHERE user_id = ? AND erase_requested_at > 0`, p.alex.id); n != 0 {
+		t.Fatal("alex's deletion is still asked for once they bought again")
+	}
+	if rows := e.auditRows(t, "customer.erase"); len(rows) != 2 ||
+		!strings.HasSuffix(rows[1], "refused they have a plan at their store again, after 1 server(s) with their backups were deleted") {
 		t.Fatalf("the audit log: %v", rows)
 	}
 }
@@ -387,7 +458,9 @@ func TestACustomersDeletionWaitsForTheirMoves(t *testing.T) {
 }
 
 // The last look before a customer's records go, in the same transaction,
-// keeps everything of one who bought again since the deletion began.
+// keeps everything of one who bought again since the deletion began: their
+// membership gives access, or they run as active again, whatever the
+// deletion saw of them when it began.
 func TestACustomerWhoBuysAgainWhileBeingDeletedKeepsEverything(t *testing.T) {
 	_, e, _ := storesWithCustomers(t)
 	ctx := context.Background()
@@ -397,8 +470,14 @@ func TestACustomerWhoBuysAgainWhileBeingDeletedKeepsEverything(t *testing.T) {
 		t.Fatalf("alex at Other: %v %v", ok, err)
 	}
 	c.state = CustomerPaused
-	if _, err := e.srv.eraseCustomerRecords(ctx, c, nil); !errors.Is(err, errCustomerHasPlan) {
-		t.Fatalf("deleting the records of alex, who has a plan: %v", err)
+	if _, err := e.srv.eraseCustomerRecords(ctx, c); !errors.Is(err, errCustomerHasPlan) {
+		t.Fatalf("deleting the records of alex, whose membership gives access: %v", err)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE whop_memberships SET status = 'expired' WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.eraseCustomerRecords(ctx, c); !errors.Is(err, errCustomerHasPlan) {
+		t.Fatalf("deleting the records of alex, who runs as active: %v", err)
 	}
 	if again := storeAccount(t, e, "biz_other", "user_alex"); again.UserID != other.UserID {
 		t.Fatalf("alex at Other: %+v", again)

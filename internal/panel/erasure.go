@@ -78,13 +78,14 @@ func (s *Server) erasableCustomer(ctx context.Context, userID int64) (erasable, 
 }
 
 // hasPlan says whether the customer still has a plan at their store: they
-// run as active, or a membership of theirs there still gives access.
+// run as active, or a membership of theirs there gives access, even one
+// Whop's API hasn't confirmed yet, which may be a renewal.
 func (s *Server) hasPlan(ctx context.Context, q querier, c erasable) (bool, error) {
 	if c.state == CustomerActive {
 		return true, nil
 	}
 	var n int
-	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND stale = 0 AND status IN `+whopAccess,
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND status IN `+whopAccess,
 		c.store, c.subject).Scan(&n)
 	if err != nil {
 		return false, errDB
@@ -274,7 +275,9 @@ func (s *Server) eraseDueCustomers(ctx context.Context) {
 //
 // Their payments keep what the store's accounts need, without who paid, and
 // a hash of who they were keeps the store's reads from bringing back a
-// membership of theirs that ended.
+// membership of theirs that ended. Each deletion starts only after another
+// look finds they still have no plan (whileNoPlan), so one who buys again
+// meanwhile keeps whatever wasn't deleted yet, and their account.
 func (s *Server) eraseCustomer(ctx context.Context, userID int64, days int) error {
 	c, ok, err := s.erasableCustomer(ctx, userID)
 	if err != nil || !ok {
@@ -284,39 +287,74 @@ func (s *Server) eraseCustomer(ctx context.Context, userID int64, days int) erro
 	if c.requestedAt > 0 {
 		actor, why = cmpOr(c.requestedBy, placementActor), "on request"
 	}
-	plan, err := s.hasPlan(ctx, s.db, c)
-	if err != nil {
-		return err
-	}
-	if plan {
-		if c.requestedAt > 0 {
-			if _, err := s.db.ExecContext(ctx, `UPDATE customers SET erase_requested_at = 0, erase_actor = '' WHERE user_id = ?`, userID); err != nil {
-				return errDB
-			}
-			s.audit(actor, "customer.erase", c.username, "refused", "they have a plan at their store again")
-		}
-		return errCustomerHasPlan
-	}
 	if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {
 		return errErasureWaits
 	}
-	servers, erased, err := s.eraseServers(ctx, userID)
-	if err != nil {
-		return err
+	erased, err := s.eraseServers(ctx, userID)
+	kept := 0
+	if err == nil {
+		kept, err = s.eraseKeptBackups(ctx, userID)
 	}
-	kept, err := s.eraseKeptBackups(ctx, userID)
-	if err != nil {
-		return err
+	var payments int64
+	if err == nil {
+		payments, err = s.eraseCustomerRecords(ctx, c)
 	}
-	payments, err := s.eraseCustomerRecords(ctx, c, servers)
 	if err != nil {
-		return err
+		return s.stopErasure(ctx, c, actor, erased, err)
 	}
 	s.kickDiskLimits()
 	s.kickSaleRoom()
 	s.audit(actor, "customer.erase", c.username, "succeeded", fmt.Sprintf("their account and personal records at %s, %s: %d server(s) with their backups, %d kept backup(s); %d payment(s) kept for the store's accounts, without who paid",
 		c.store, why, erased, kept, payments))
 	return nil
+}
+
+// stopErasure returns err, why a customer's deletion stopped once erased of
+// their servers were deleted. One who has a plan at their store again has a
+// request for their deletion cleared, and the audit log says so. Otherwise
+// it says when servers went before the deletion stopped, since it's only
+// tried again later.
+func (s *Server) stopErasure(ctx context.Context, c erasable, actor string, erased int, err error) error {
+	after := ""
+	if erased > 0 {
+		after = fmt.Sprintf(", after %d server(s) with their backups were deleted", erased)
+	}
+	switch {
+	case errors.Is(err, errCustomerHasPlan) && c.requestedAt > 0:
+		if _, dbErr := s.db.ExecContext(ctx, `UPDATE customers SET erase_requested_at = 0, erase_actor = '' WHERE user_id = ?`, c.userID); dbErr != nil {
+			return errDB
+		}
+		s.audit(actor, "customer.erase", c.username, "refused", "they have a plan at their store again"+after)
+	case erased > 0:
+		s.audit(actor, "customer.erase", c.username, "failed", fmt.Sprintf("it stopped%s, and goes on later: %v", after, err))
+	}
+	return err
+}
+
+// whileNoPlan runs start, the start of deleting something of the customer
+// userID's, only while they still have no plan at their store, with the
+// store's pass and the hosting core waiting, so a renewal can't slip in
+// between the look and the start. One with a plan gets errCustomerHasPlan.
+func (s *Server) whileNoPlan(ctx context.Context, userID int64, start func() error) error {
+	s.whopMu.Lock()
+	defer s.whopMu.Unlock()
+	s.customersMu.Lock()
+	defer s.customersMu.Unlock()
+	c, ok, err := s.erasableCustomer(ctx, userID)
+	switch {
+	case err != nil:
+		return err
+	case !ok:
+		return fmt.Errorf("account %d isn't a customer any more", userID)
+	}
+	plan, err := s.hasPlan(ctx, s.db, c)
+	if err != nil {
+		return err
+	}
+	if plan {
+		return errCustomerHasPlan
+	}
+	return start()
 }
 
 // leftCopiesPending says whether a copy a move of the customer's left is
@@ -328,78 +366,97 @@ func (s *Server) leftCopiesPending(ctx context.Context, userID int64) bool {
 }
 
 // eraseServers deletes each of the customer's servers on the machine that
-// has it, with every backup and no final one kept, and returns the servers
-// they had and how many were deleted on a machine. Those out of reach are
-// forgotten, as a lapsed customer's are.
-func (s *Server) eraseServers(ctx context.Context, userID int64) ([]string, int, error) {
-	ids, err := s.creatorServers(userID)
-	if err != nil {
-		return nil, 0, err
-	}
+// has it, with every backup and no final one kept, forgetting each with its
+// records once it's gone, and returns how many were deleted on a machine.
+// Those out of reach are forgotten, as a lapsed customer's are.
+func (s *Server) eraseServers(ctx context.Context, userID int64) (int, error) {
 	home, _, err := s.homeMachine(ctx, userID)
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 	m, here, gone, err := s.lapsedServers(ctx, userID, home)
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 	erased := 0
 	for _, id := range here {
-		opID, err := s.startErase(ctx, m, id)
+		opID, err := s.startErase(ctx, m, userID, id)
 		if err != nil {
-			return nil, 0, err
+			return erased, err
 		}
-		if opID == "" {
-			continue
+		if opID != "" {
+			op, err := waitAgentOp(ctx, m, opID, deleteWait)
+			if err != nil {
+				return erased, err
+			}
+			if op.Status != api.OpSucceeded {
+				return erased, fmt.Errorf("deleting %s failed: %s", id, op.Error)
+			}
+			erased++
 		}
-		op, err := waitAgentOp(ctx, m, opID, deleteWait)
-		if err != nil {
-			return nil, 0, err
+		if err := s.forgetErasedServer(ctx, id); err != nil {
+			return erased, err
 		}
-		if op.Status != api.OpSucceeded {
-			return nil, 0, fmt.Errorf("deleting %s failed: %s", id, op.Error)
-		}
-		s.forgetCreatorServer(id)
-		erased++
 	}
-	for _, id := range gone {
-		s.forgetCreatorServer(id)
+	for _, lost := range gone {
+		if err := s.forgetErasedServer(ctx, lost); err != nil {
+			return erased, err
+		}
 	}
-	return ids, erased, nil
+	return erased, nil
 }
 
-// startErase asks m to delete server id with all its backups, keeping no
-// final one, and returns the deletion's operation: "" when m has no such
-// server any more.
-func (s *Server) startErase(ctx context.Context, m machine, id string) (string, error) {
-	actx := asActor(ctx, placementActor)
-	var st api.ServerStatus
-	status, err := m.agent.Do(actx, http.MethodGet, "/v1/servers/"+id, nil, nil, &st)
-	switch {
-	case err != nil:
-		return "", err
-	case status == http.StatusNotFound:
-		s.forgetCreatorServer(id)
-		return "", nil
-	case status != http.StatusOK:
-		return "", fmt.Errorf("the agent answered %d about %s", status, id)
+// startErase asks m to delete the customer's server id with all its
+// backups, keeping no final one, while they still have no plan
+// (whileNoPlan), and returns the deletion's operation: "" when m has no
+// such server any more.
+func (s *Server) startErase(ctx context.Context, m machine, userID int64, id string) (string, error) {
+	var opID string
+	err := s.whileNoPlan(ctx, userID, func() error {
+		actx := asActor(ctx, placementActor)
+		var st api.ServerStatus
+		status, err := m.agent.Do(actx, http.MethodGet, "/v1/servers/"+id, nil, nil, &st)
+		switch {
+		case err != nil:
+			return err
+		case status == http.StatusNotFound:
+			return nil
+		case status != http.StatusOK:
+			return fmt.Errorf("the agent answered %d about %s", status, id)
+		}
+		req := api.DeleteServerRequest{Confirm: st.Name, Actor: placementActor, ForgetKey: true}
+		var op api.Operation
+		status, err = m.agent.Do(actx, http.MethodPost, "/v1/servers/"+id+"/delete", nil, req, &op)
+		switch {
+		case err != nil:
+			return err
+		case status != http.StatusAccepted || op.ID == "":
+			return fmt.Errorf("the agent answered %d to deleting %s", status, id)
+		}
+		opID = op.ID
+		return nil
+	})
+	return opID, err
+}
+
+// forgetErasedServer forgets a server of a customer being deleted once it's
+// gone: its join requests, players' origins and shared links, then who
+// created it, last, so a deletion that stops midway still knows the server
+// when it's tried again.
+func (s *Server) forgetErasedServer(ctx context.Context, id string) error {
+	for _, q := range []string{`DELETE FROM join_requests WHERE server_id = ?`, `DELETE FROM player_origins WHERE server_id = ?`,
+		`DELETE FROM public_links WHERE server_id = ?`, `DELETE FROM creator_servers WHERE server_id = ?`} {
+		if _, err := s.db.ExecContext(ctx, q, id); err != nil {
+			return errDB
+		}
 	}
-	req := api.DeleteServerRequest{Confirm: st.Name, Actor: placementActor, ForgetKey: true}
-	var op api.Operation
-	status, err = m.agent.Do(actx, http.MethodPost, "/v1/servers/"+id+"/delete", nil, req, &op)
-	switch {
-	case err != nil:
-		return "", err
-	case status != http.StatusAccepted || op.ID == "":
-		return "", fmt.Errorf("the agent answered %d to deleting %s", status, id)
-	}
-	return op.ID, nil
+	return nil
 }
 
 // eraseKeptBackups deletes the backups each machine keeps for the account,
-// of its deleted servers and of copies its moves left, and returns how
-// many. A machine that can't be asked leaves the deletion for a later look.
+// of its deleted servers and of copies its moves left, each while the
+// customer still has no plan (whileNoPlan), and returns how many. A machine
+// that can't be asked leaves the deletion for a later look.
 func (s *Server) eraseKeptBackups(ctx context.Context, userID int64) (int, error) {
 	ms, err := s.machines()
 	if err != nil {
@@ -420,11 +477,14 @@ func (s *Server) eraseKeptBackups(ctx context.Context, userID int64) (int, error
 				if k.KeptFor != label {
 					continue
 				}
-				status, err := m.agent.Do(ctx, http.MethodDelete, "/v1/kept-backups/"+url.PathEscape(k.ID), nil, nil, nil)
-				if err == nil && status != http.StatusNoContent && status != http.StatusOK && status != http.StatusNotFound {
-					err = fmt.Errorf("the agent answered %d to deleting a kept backup", status)
+				del := func() error {
+					status, err := m.agent.Do(ctx, http.MethodDelete, "/v1/kept-backups/"+url.PathEscape(k.ID), nil, nil, nil)
+					if err == nil && status != http.StatusNoContent && status != http.StatusOK && status != http.StatusNotFound {
+						err = fmt.Errorf("the agent answered %d to deleting a kept backup", status)
+					}
+					return err
 				}
-				if err != nil {
+				if err := s.whileNoPlan(ctx, userID, del); err != nil {
 					return n, fmt.Errorf("a backup %s keeps for the customer: %w", machineLabel(m), err)
 				}
 				n++
@@ -438,7 +498,7 @@ func (s *Server) eraseKeptBackups(ctx context.Context, userID int64) (int, error
 // transaction while the store's pass and the hosting core wait, and returns
 // how many of their payments were kept without who paid. A customer who
 // bought again meanwhile keeps everything.
-func (s *Server) eraseCustomerRecords(ctx context.Context, c erasable, servers []string) (int64, error) {
+func (s *Server) eraseCustomerRecords(ctx context.Context, c erasable) (int64, error) {
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
 	s.customersMu.Lock()
@@ -448,6 +508,11 @@ func (s *Server) eraseCustomerRecords(ctx context.Context, c erasable, servers [
 		return 0, errDB
 	}
 	defer tx.Rollback()
+	var state string
+	if err := tx.QueryRowContext(ctx, `SELECT state FROM customers WHERE user_id = ?`, c.userID).Scan(&state); err != nil {
+		return 0, errDB
+	}
+	c.state = CustomerState(state)
 	if plan, err := s.hasPlan(ctx, tx, c); err != nil || plan {
 		return 0, cmp.Or(err, errCustomerHasPlan)
 	}
@@ -476,13 +541,6 @@ func (s *Server) eraseCustomerRecords(ctx context.Context, c erasable, servers [
 		if err := exec(`INSERT INTO erased_customers(store_id, subject_hash, erased_at) VALUES(?,?,?)
 			ON CONFLICT(store_id, subject_hash) DO UPDATE SET erased_at = excluded.erased_at`, c.store, erasedSubject(c.store, c.subject), s.now().UnixMilli()); err != nil {
 			return 0, err
-		}
-	}
-	for _, id := range servers {
-		for _, q := range []string{`DELETE FROM join_requests WHERE server_id = ?`, `DELETE FROM player_origins WHERE server_id = ?`, `DELETE FROM public_links WHERE server_id = ?`} {
-			if err := exec(q, id); err != nil {
-				return 0, err
-			}
 		}
 	}
 	for _, q := range []string{
