@@ -16,7 +16,8 @@ record Settings(
         boolean confirm,
         String reasoningEffort,
         int maxTokens,
-        boolean savePictures) {
+        boolean savePictures,
+        java.util.Map<String, String> aliases) {
 
     /** The fewest output tokens a request may have; below it the model stops, as in the videos. */
     static final int MIN_OUTPUT_TOKENS = 8000;
@@ -35,7 +36,27 @@ record Settings(
                 c.getBoolean("confirm", true),
                 c.getString("request.reasoning-effort", "high").trim(),
                 (int) clamp(c.getInt("request.max-tokens", 48000), MIN_OUTPUT_TOKENS, 128000),
-                c.getBoolean("save-pictures", false));
+                c.getBoolean("save-pictures", false),
+                aliases(c));
+    }
+
+    private static java.util.Map<String, String> aliases(FileConfiguration c) {
+        java.util.Map<String, String> out = new java.util.TreeMap<>();
+        var sec = c.getConfigurationSection("aliases");
+        if (sec != null) {
+            for (String k : sec.getKeys(false)) {
+                String v = sec.getString(k, "").trim();
+                if (!v.isEmpty()) {
+                    out.put(k.toLowerCase(java.util.Locale.ROOT), v);
+                }
+            }
+        }
+        return java.util.Collections.unmodifiableMap(out);
+    }
+
+    /** A model id, or the id an alias stands for. */
+    String modelFor(String name) {
+        return aliases.getOrDefault(name.toLowerCase(java.util.Locale.ROOT), name);
     }
 
     private static double clamp(double v, double lo, double hi) {

@@ -9,8 +9,19 @@
 # Change it in the game with /aibuild model <id>.
 model: anthropic/claude-sonnet-5.5
 
+# Short names for /aibattle and /aibuild model, like /aibattle claude gpt a castle.
+aliases:
+  claude: anthropic/claude-sonnet-5.5
+  sonnet: anthropic/claude-sonnet-5.5
+  opus: anthropic/claude-opus-5.5
+  gpt: openai/gpt-6.1-sol
+  sol: openai/gpt-6.1-sol
+  luna: openai/gpt-6-luna
+  gemini: google/gemini-3.8-flash
+
 # Spending caps in US dollars, counted from OpenRouter's own cost of each request.
-# Both are shown before a build starts. The day starts at midnight UTC.
+# Both are shown before a build starts; in a battle, each model gets the build cap.
+# The day starts at midnight UTC.
 spend:
   per-build: 1.00
   per-day: 5.00

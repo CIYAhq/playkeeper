@@ -100,7 +100,9 @@ class MoneyAndKeysTest {
 
     @Test
     void thePromptStatesTheVideosLimits() {
-        Settings s = new Settings("m", 1, 5, 10, 6000, 45, 30, 80, 20, true, "high", 48000, false);
+        Settings s = new Settings("m", 1, 5, 10, 6000, 45, 30, 80, 20, true, "high", 48000, false, Map.of("claude", "anthropic/claude-sonnet-5.5"));
+        assertEquals("anthropic/claude-sonnet-5.5", s.modelFor("Claude"));
+        assertEquals("openai/gpt-6.1-sol", s.modelFor("openai/gpt-6.1-sol"));
         String p = Prompts.system("26.2", s, true);
         assertTrue(p.contains("x and z from -30 to 30, y from 0 to 80"));
         assertTrue(p.contains("at most 10 build calls, 6000 blocks placed in total, and 45 minutes in all"));
