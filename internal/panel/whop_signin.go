@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -164,21 +165,33 @@ func (s *Server) whopAccepts(ctx context.Context, o whop.OAuth, fresh bool) (acc
 	return accepted, known
 }
 
-// backToSignIn sends a sign-in that didn't work back to the sign-in page.
-func backToSignIn(w http.ResponseWriter, r *http.Request, why string) {
-	http.Redirect(w, r, "/login?whop="+why, http.StatusSeeOther)
+// backToSignIn sends a sign-in that didn't work back to the sign-in page,
+// for the store it was for when it named one, so trying again does too.
+func backToSignIn(w http.ResponseWriter, r *http.Request, why, store string) {
+	to := "/login?whop=" + why
+	if store != "" {
+		to += "&store=" + url.QueryEscape(store)
+	}
+	http.Redirect(w, r, to, http.StatusSeeOther)
 }
 
+// startWhopSignIn sends someone to Whop to sign in, for the store the
+// sign-in page names (?store=), whose account they then sign in to.
 func (s *Server) startWhopSignIn(w http.ResponseWriter, r *http.Request) {
+	store := r.URL.Query().Get("store")
+	if store != "" && !reWhopID.MatchString(store) {
+		backToSignIn(w, r, "failed", "")
+		return
+	}
 	o, ok := s.whopOAuth(r.Context())
 	if !ok {
-		backToSignIn(w, r, "off")
+		backToSignIn(w, r, "off", store)
 		return
 	}
 	o.RedirectURI = s.signInRedirect(r.Context(), o, false)
 	verifier, err := whop.NewVerifier()
 	if err != nil {
-		backToSignIn(w, r, "failed")
+		backToSignIn(w, r, "failed", store)
 		return
 	}
 	state := randomToken(32)
@@ -186,8 +199,8 @@ func (s *Server) startWhopSignIn(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.db.Exec(`DELETE FROM whop_signins WHERE created_at < ?`, now.Add(-whopSignInFor).UnixMilli()); err != nil {
 		s.log.Error("could not forget old Whop sign-ins", "err", err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO whop_signins(state_hash, verifier, created_at, redirect_uri) VALUES(?,?,?,?)`, tokenHash(state), verifier, now.UnixMilli(), o.RedirectURI); err != nil {
-		backToSignIn(w, r, "failed")
+	if _, err := s.db.Exec(`INSERT INTO whop_signins(state_hash, verifier, created_at, store_id, redirect_uri) VALUES(?,?,?,?,?)`, tokenHash(state), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {
+		backToSignIn(w, r, "failed", store)
 		return
 	}
 	// Lax, since Whop sends the browser back from its own site; only the
@@ -205,23 +218,23 @@ func (s *Server) finishWhopSignIn(w http.ResponseWriter, r *http.Request) {
 	state := q.Get("state")
 	c, err := r.Cookie(whopSignInCookie)
 	if err != nil || state == "" || subtle.ConstantTimeCompare([]byte(c.Value), []byte(state)) != 1 {
-		backToSignIn(w, r, "expired")
+		backToSignIn(w, r, "expired", "")
 		return
 	}
-	var verifier, redirect string
+	var verifier, store, redirect string
 	var created int64
-	err = s.db.QueryRowContext(ctx, `DELETE FROM whop_signins WHERE state_hash = ? RETURNING verifier, created_at, redirect_uri`, tokenHash(state)).Scan(&verifier, &created, &redirect)
+	err = s.db.QueryRowContext(ctx, `DELETE FROM whop_signins WHERE state_hash = ? RETURNING verifier, created_at, store_id, redirect_uri`, tokenHash(state)).Scan(&verifier, &created, &store, &redirect)
 	if err != nil || s.now().Sub(time.UnixMilli(created)) > whopSignInFor {
-		backToSignIn(w, r, "expired")
+		backToSignIn(w, r, "expired", "")
 		return
 	}
 	if q.Get("error") != "" {
-		backToSignIn(w, r, "denied")
+		backToSignIn(w, r, "denied", store)
 		return
 	}
 	o, ok := s.whopOAuth(ctx)
 	if !ok {
-		backToSignIn(w, r, "off")
+		backToSignIn(w, r, "off", store)
 		return
 	}
 	// Trading the code names the redirect URI the sign-in left with.
@@ -231,18 +244,22 @@ func (s *Server) finishWhopSignIn(w http.ResponseWriter, r *http.Request) {
 	who, err := s.whoOnWhop(ctx, o, q.Get("code"), verifier)
 	if err != nil {
 		s.log.Warn("a sign-in with Whop failed", "err", err)
-		backToSignIn(w, r, "failed")
+		backToSignIn(w, r, "failed", store)
 		return
 	}
-	acct, ok, err := s.hosting.CustomerAccount(ctx, whopProvider, who.Subject)
+	acct, ok, err := s.signInAccount(ctx, store, who.Subject)
 	switch {
+	case errors.Is(err, errSeveralStores):
+		s.audit("whop:"+who.Subject, "login", "panel", "refused", "signed in with Whop without saying which of their stores it's for")
+		backToSignIn(w, r, "stores", "")
+		return
 	case err != nil:
 		s.log.Error("could not look up a Whop customer's account", "err", err)
-		backToSignIn(w, r, "failed")
+		backToSignIn(w, r, "failed", store)
 		return
 	case !ok:
 		s.audit("whop:"+who.Subject, "login", "panel", "refused", "signed in with Whop without an account here")
-		backToSignIn(w, r, s.whopSignInWithoutAccount(ctx, who.Subject))
+		backToSignIn(w, r, s.whopSignInWithoutAccount(ctx, store, who.Subject), store)
 		return
 	case !acct.SignIn:
 		why := "paused"
@@ -250,24 +267,46 @@ func (s *Server) finishWhopSignIn(w http.ResponseWriter, r *http.Request) {
 			why = "suspended"
 		}
 		s.audit(acct.Username, "login", "panel", "refused", "signed in with Whop while their account can't sign in ("+string(acct.State)+")")
-		backToSignIn(w, r, why)
+		backToSignIn(w, r, why, store)
 		return
 	}
 	var u user
 	err = s.db.QueryRowContext(ctx, `SELECT id, username, role FROM users WHERE id = ?`, acct.UserID).Scan(&u.ID, &u.Username, &u.Role)
 	if err != nil || u.Role == roleOwner {
 		// The owner's account is never a customer's.
-		backToSignIn(w, r, "no_account")
+		backToSignIn(w, r, "no_account", store)
 		return
 	}
 	token, _, err := s.newSession(u)
 	if err != nil {
-		backToSignIn(w, r, "failed")
+		backToSignIn(w, r, "failed", store)
 		return
 	}
 	s.audit(u.Username, "login", "panel", "succeeded", "signed in with Whop")
 	s.setSessionCookie(w, token)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// errSeveralStores refuses a sign-in that names no store for someone with
+// an account in more than one: which one they meant isn't guessed.
+var errSeveralStores = errors.New("they have an account in more than one store")
+
+// signInAccount is the account a Whop user signs in to: theirs in store, or
+// when the sign-in named none, the one account they have.
+func (s *Server) signInAccount(ctx context.Context, store, subject string) (CustomerAccountInfo, bool, error) {
+	if store == "" {
+		stores, err := s.hosting.CustomerStores(ctx, whopProvider, subject)
+		switch {
+		case err != nil:
+			return CustomerAccountInfo{}, false, err
+		case len(stores) > 1:
+			return CustomerAccountInfo{}, false, errSeveralStores
+		case len(stores) == 0:
+			return CustomerAccountInfo{}, false, nil
+		}
+		store = stores[0]
+	}
+	return s.hosting.CustomerAccount(ctx, whopProvider, store, subject)
 }
 
 // whoOnWhop trades the code Whop sent back for who signed in, then ends the
@@ -297,10 +336,15 @@ func (s *Server) whoOnWhop(ctx context.Context, o whop.OAuth, code, verifier str
 	return who, nil
 }
 
-// whopSignInWithoutAccount says why a Whop user with no account here can't
-// sign in: their account is on its way ("starting") when Whop confirmed a
-// plan of theirs, else they have none ("no_account").
-func (s *Server) whopSignInWithoutAccount(ctx context.Context, whopUserID string) string {
+// whopSignInWithoutAccount says why a Whop user with no account here, in
+// store when the sign-in named one, can't sign in: their account is on its
+// way ("starting") when Whop confirmed a plan of theirs in the store the
+// dashboard sells for, else they have none ("no_account").
+func (s *Server) whopSignInWithoutAccount(ctx context.Context, store, whopUserID string) string {
+	var selling string
+	if err := s.db.QueryRowContext(ctx, `SELECT account_id FROM whop_account WHERE id = 1`).Scan(&selling); err != nil || store != "" && store != selling {
+		return "no_account"
+	}
 	var n int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m JOIN whop_plans p ON p.plan_id = m.plan_id AND p.allowance_from != ''
 		WHERE m.whop_user_id = ? AND m.stale = 0 AND m.status IN `+whopAccess, whopUserID).Scan(&n); err == nil && n > 0 {

@@ -104,8 +104,8 @@ func TestALapsedCustomersServersGoWithAFinalBackupKept(t *testing.T) {
 	if !kicked(e.env) {
 		t.Fatal("deleting alex's servers didn't send the limits at once")
 	}
-	if k := p.n.kinds(); !slices.Equal(k, []string{messageReady, messagePaused, messageDeleted}) || !strings.Contains(p.n.sent[2].Text, "until") {
-		t.Fatalf("what alex was told: %v %+v", k, p.n.sent)
+	if k := p.n.told(); !slices.Equal(k, []string{messageReady + " " + testStore, messagePaused + " " + testStore, messageDeleted + " " + testStore}) || !strings.Contains(p.n.sent[2].Text, "until") {
+		t.Fatalf("what alex was told, and for which store: %v %+v", k, p.n.sent)
 	}
 
 	e.clock.add(lapsedEvery)
@@ -150,7 +150,7 @@ func TestARenewalKeepsWhatsLeft(t *testing.T) {
 	if _, err := p.core.StartCustomer(ctx, p.cust, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	if info.State != CustomerActive || p.home(t) == "" {
 		t.Fatalf("alex once renewed after the deletion: %+v, home %q", info, p.home(t))
 	}
@@ -214,7 +214,7 @@ func TestARenewalDuringADeletionKeepsItsFinalBackup(t *testing.T) {
 	}
 	e.agent.mu.Unlock()
 	e.srv.deleteLapsedCustomers(ctx)
-	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	if info.State != CustomerActive || p.deletions() != 1 {
 		t.Fatalf("alex renewed during the deletion: %+v, asked %d times", info, p.deletions())
 	}

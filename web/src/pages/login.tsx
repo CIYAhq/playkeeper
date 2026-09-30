@@ -24,11 +24,18 @@ interface Pending {
 /** Where Sign in with Whop starts: the dashboard sends the browser on to Whop. */
 const whopSignInStart = '/api/public/whop/signin/start'
 
+/** Where Sign in with Whop starts for the store a customer's link names. */
+function whopSignInFor(store?: string): string {
+  return store ? `${whopSignInStart}?store=${encodeURIComponent(store)}` : whopSignInStart
+}
+
 /** Why Sign in with Whop sent someone back here, from its ?whop= code. */
 export function whopSignInError(code: string): string {
   switch (code) {
     case 'no_account':
       return t('login.whop.noAccount')
+    case 'stores':
+      return t('login.whop.stores')
     case 'starting':
       return t('login.whop.starting')
     case 'paused':
@@ -46,7 +53,7 @@ export function whopSignInError(code: string): string {
   }
 }
 
-export function LoginPage({ machine, version, whopSignIn, whopError, onDone }: { machine?: string; version?: string; whopSignIn?: boolean; whopError?: string; onDone: (m: Me) => void }) {
+export function LoginPage({ machine, version, whopSignIn, whopError, whopStore, onDone }: { machine?: string; version?: string; whopSignIn?: boolean; whopError?: string; whopStore?: string; onDone: (m: Me) => void }) {
   const [username, setUsername] = useState('')
   const [pending, setPending] = useState<Pending>()
   const [error, setError] = useState<string | undefined>(() => (whopError ? whopSignInError(whopError) : undefined))
@@ -66,6 +73,7 @@ export function LoginPage({ machine, version, whopSignIn, whopError, onDone }: {
         <PasswordStep
           machine={machine}
           whopSignIn={whopSignIn}
+          whopStore={whopStore}
           username={username}
           setUsername={setUsername}
           error={error}
@@ -80,7 +88,7 @@ export function LoginPage({ machine, version, whopSignIn, whopError, onDone }: {
   )
 }
 
-function PasswordStep({ machine, whopSignIn, username, setUsername, error, setError, onAnswer }: { machine?: string; whopSignIn?: boolean; username: string; setUsername: (v: string) => void; error?: string; setError: (e?: string) => void; onAnswer: (a: LoginAnswer) => void }) {
+function PasswordStep({ machine, whopSignIn, whopStore, username, setUsername, error, setError, onAnswer }: { machine?: string; whopSignIn?: boolean; whopStore?: string; username: string; setUsername: (v: string) => void; error?: string; setError: (e?: string) => void; onAnswer: (a: LoginAnswer) => void }) {
   const phone = useIsPhone()
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -106,7 +114,7 @@ function PasswordStep({ machine, whopSignIn, username, setUsername, error, setEr
       </div>
       {whopSignIn && (
         <div className="mt-5">
-          <Button variant="outline" size={phone ? 'touch' : 'lg'} className="w-full" render={<a href={whopSignInStart} />}>
+          <Button variant="outline" size={phone ? 'touch' : 'lg'} className="w-full" render={<a href={whopSignInFor(whopStore)} />}>
             {t('login.whop.button')}
           </Button>
           <p className="mt-4 text-center text-xs text-muted-foreground max-sm:text-[13px]">{t('login.whop.or')}</p>

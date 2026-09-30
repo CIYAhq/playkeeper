@@ -224,7 +224,7 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 		return
 	}
 	s.pushWhopStock(ctx, c, a.ID)
-	s.syncWhopCustomers(ctx, c)
+	s.syncWhopCustomers(ctx, c, a.ID)
 	s.remindCancelled(ctx, a)
 	s.sendWhopMessages(ctx, c, a)
 }
@@ -523,8 +523,9 @@ func (s *Server) whopCustomers(ctx context.Context) ([]whopCustomer, error) {
 // their last plan ending pauses them; a plan starting again after that
 // starts them again. A customer with a membership Whop's API hasn't
 // confirmed is left as they are until it does, and one whose call failed
-// waits for their next try.
-func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client) {
+// waits for their next try. Each is the core's customer of store, the
+// business the dashboard sells for.
+func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, store string) {
 	custs, err := s.whopCustomers(ctx)
 	if err != nil {
 		s.log.Error("could not list Whop customers", "err", err)
@@ -535,15 +536,15 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client) {
 		if wc.Unconfirmed > 0 || wc.NextTryAt > now {
 			continue
 		}
-		if err := s.stepWhopCustomer(ctx, c, wc); err != nil {
+		if err := s.stepWhopCustomer(ctx, c, store, wc); err != nil {
 			s.whopCustomerFailed(wc, err)
 		}
 	}
 }
 
-func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, wc whopCustomer) error {
+func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, store string, wc whopCustomer) error {
 	has := wc.Plan.Servers > 0 && wc.Plan.MemoryMB > 0
-	cust := Customer{Provider: whopProvider, Subject: wc.WhopUserID, Handle: wc.Handle}
+	cust := Customer{Provider: whopProvider, Store: store, Subject: wc.WhopUserID, Handle: wc.Handle}
 	// Taken before the core's call, since the fleet may count the customer
 	// in its room before the call returns (see pushWhopStock).
 	at := s.now()
@@ -614,21 +615,35 @@ func whopBackoff(attempts int) time.Duration {
 // the way the customer's billing provider reaches them.
 type billingNotifier struct{ s *Server }
 
-// Notify queues a message for a Whop customer, to go out in the store's
-// support chat with them from the reconciler's next look. It never waits
-// on Whop.
+// Notify queues a message for a Whop customer, to go out in the support
+// chat of the store they bought from, from the reconciler's next look. It
+// never waits on Whop.
 func (n billingNotifier) Notify(ctx context.Context, c Customer, m CustomerMessage) error {
 	switch c.Provider {
 	case whopProvider:
-		return n.s.queueWhopMessage(ctx, c.Subject, m.Kind, m.Text)
+		return n.s.queueWhopMessage(ctx, c.Store, c.Subject, m.Kind, m.Text)
 	default:
 		return fmt.Errorf("no billing provider called %q", c.Provider)
 	}
 }
 
-func (s *Server) queueWhopMessage(ctx context.Context, whopUserID, kind, text string) error {
+// errNotThisStore refuses a message for a customer of a store the dashboard
+// doesn't sell for, which would go out in another store's chat.
+var errNotThisStore = errors.New("that customer bought from a store this dashboard doesn't sell for")
+
+// queueWhopMessage queues a message for the Whop user who bought from
+// store, which must be the store the dashboard sells for, since the
+// messages go out in its support chat.
+func (s *Server) queueWhopMessage(ctx context.Context, store, whopUserID, kind, text string) error {
 	if !reWhopID.MatchString(whopUserID) || strings.TrimSpace(text) == "" {
 		return errors.New("a message needs a Whop user and some words")
+	}
+	var selling string
+	if err := s.db.QueryRowContext(ctx, `SELECT account_id FROM whop_account WHERE id = 1`).Scan(&selling); err != nil && !isNoRows(err) {
+		return err
+	}
+	if store == "" || store != selling {
+		return errNotThisStore
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO whop_messages(whop_user_id, kind, text, created_at) VALUES(?,?,?,?)`,
 		whopUserID, kind, text, s.now().UnixMilli()); err != nil {
@@ -688,7 +703,7 @@ func (s *Server) remindCancelled(ctx context.Context, a whopAccount) {
 		}
 		text := fmt.Sprintf("You cancelled your %s plan. It keeps running until %s, then your servers stop. "+
 			"To keep a copy of your world, download it before then: open your server, then World › Backups › Download.", whopName(a.Account), when)
-		if err := s.queueWhopMessage(ctx, user, "cancelling", text); err != nil {
+		if err := s.queueWhopMessage(ctx, a.ID, user, "cancelling", text); err != nil {
 			s.log.Error("could not queue a cancellation reminder", "err", err)
 			continue
 		}
@@ -820,8 +835,9 @@ type whopCustomerView struct {
 	MessageProblem string `json:"messageProblem,omitempty"`
 }
 
-// whopCustomerViews lists the customers the dashboard knows, newest first.
-func (s *Server) whopCustomerViews(ctx context.Context) ([]whopCustomerView, error) {
+// whopCustomerViews lists the customers the dashboard knows of store, the
+// business it sells for, newest first.
+func (s *Server) whopCustomerViews(ctx context.Context, store string) ([]whopCustomerView, error) {
 	custs, err := s.whopCustomers(ctx)
 	if err != nil {
 		return nil, err
@@ -848,7 +864,7 @@ func (s *Server) whopCustomerViews(ctx context.Context) ([]whopCustomerView, err
 		default:
 			v.Status = "ended"
 		}
-		if info, ok, err := s.hosting.CustomerAccount(ctx, whopProvider, wc.WhopUserID); err == nil && ok {
+		if info, ok, err := s.hosting.CustomerAccount(ctx, whopProvider, store, wc.WhopUserID); err == nil && ok {
 			v.Account = info.Username
 		}
 		out = append(out, v)

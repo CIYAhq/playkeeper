@@ -431,7 +431,7 @@ func TestTheDashboardsAddressFollowsItsPort(t *testing.T) {
 	if st := e.get(t, "/api/machines/link", own.cookie, &link); st != 200 || link.Dashboard != "https://"+dashboardHost {
 		t.Fatalf("AI agents' address: %d %q", st, link.Dashboard)
 	}
-	if got := e.srv.readyText(ctx); !strings.Contains(got, "Sign in at https://"+dashboardHost+" and") {
+	if got := e.srv.readyText(ctx, Customer{Provider: "whop", Store: "biz_pip", Subject: "user_alex"}); !strings.Contains(got, "Sign in at https://"+dashboardHost+"/login?store=biz_pip and") {
 		t.Fatalf("the ready message: %q", got)
 	}
 	// Without a certificate, invite links name the host the admin used.

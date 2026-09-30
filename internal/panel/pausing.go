@@ -56,7 +56,7 @@ func (c customerCore) PauseCustomer(ctx context.Context, cust Customer, reason s
 	s := c.s
 	s.customersMu.Lock()
 	defer s.customersMu.Unlock()
-	info, ok, err := c.CustomerAccount(ctx, cust.Provider, cust.Subject)
+	info, ok, err := c.CustomerAccount(ctx, cust.Provider, cust.Store, cust.Subject)
 	switch {
 	case err != nil:
 		return err
