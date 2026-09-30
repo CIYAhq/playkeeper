@@ -9044,7 +9044,7 @@ webcontrol "room for sale: no card without plans on sale" web/src/pages/sale-roo
 
 if [ "${#problems[@]}" != 0 ]; then
   echo
-  echo "${#problems[@]} controls need a look: a STALE one's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run"
+  echo "problems: ${#problems[@]} (a STALE control's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run)"
   printf '%s\n' "${problems[@]}"
   exit 1
 fi
