@@ -8,6 +8,7 @@ node_modules/
 dist/
 dist-demo/
 build/
+.gradle/
 .next/
 coverage/
 .cache/
