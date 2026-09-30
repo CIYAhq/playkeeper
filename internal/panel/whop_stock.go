@@ -43,11 +43,13 @@ type whopStock struct{ s *Server }
 // SalePlans lists every store's plans with an allowance that aren't
 // archived, hidden ones too, since they sell through their own links. A
 // store another dashboard took over is that dashboard's to sell, on its
-// own machines, so its plans take none of this one's room.
+// own machines, and a store that's suspended, left or closed sells
+// nothing, so their plans take none of this one's room.
 func (ws whopStock) SalePlans(ctx context.Context) ([]SalePlan, error) {
 	rows, err := ws.s.db.QueryContext(ctx, `SELECT p.store_id, p.plan_id, p.title, p.allowance_servers, p.allowance_memory_mb, p.disk_gb, p.free FROM whop_plans p
 		JOIN whop_stores st ON st.store_id = p.store_id
-		WHERE p.allowance_from != '' AND p.visibility != 'archived' AND st.taken_over_by = '' ORDER BY p.store_id, p.position`)
+		WHERE p.allowance_from != '' AND p.visibility != 'archived' AND st.taken_over_by = '' AND st.suspended_at = 0 AND st.left_at = 0
+		AND NOT EXISTS (SELECT 1 FROM whop_store_closures c WHERE c.store_id = st.store_id) ORDER BY p.store_id, p.position`)
 	if err != nil {
 		return nil, err
 	}

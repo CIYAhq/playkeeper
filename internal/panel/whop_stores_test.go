@@ -71,7 +71,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	}
 	switch {
-	case route == "GET /permissions" && f.permissionsDown:
+	case route == "GET /permissions" && f.permissionsDown, route == "GET /memberships" && f.membershipsDown:
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
 	case route == "GET /permissions":
@@ -188,6 +188,9 @@ func twoStores(t *testing.T) (*fakeWhop, *env, member) {
 	}
 	if added, err := e.srv.addWhopStore(context.Background(), whop.Account{ID: "biz_other", Title: "Other Hosting", Route: "other-hosting"}); err != nil || !added {
 		t.Fatalf("adding Other Hosting: %v, %v", added, err)
+	}
+	if open, err := e.srv.openWhopStore(context.Background(), "biz_other", whopNotOpenYet); err != nil || !open {
+		t.Fatalf("opening Other Hosting: %v, %v", open, err)
 	}
 	return f, e, own
 }
@@ -649,9 +652,9 @@ func TestTheMigrationMakesTheStoreTheKeyStore(t *testing.T) {
 				return
 			}
 			var st whopStore
-			var connected, synced, polled, taken int64
+			var connected, synced, polled, taken, suspended, left int64
 			if err := db.QueryRow(`SELECT `+whopStoreColumns+` FROM whop_stores`).Scan(&st.ID, &st.Via, &st.Title, &st.Route, &st.Key, &st.ConnectedBy, &connected, &synced,
-				&st.Problem, &st.WebhookID, &st.WebhookURL, &st.WebhookSecret, &polled, &st.MarkedAs, &st.TakenOverBy, &taken); err != nil {
+				&st.Problem, &st.WebhookID, &st.WebhookURL, &st.WebhookSecret, &polled, &st.MarkedAs, &st.TakenOverBy, &taken, &suspended, &st.SuspendReason, &left, &st.LeftWhy, &st.ClosedWhy); err != nil {
 				t.Fatal(err)
 			}
 			if stores != 1 || st.ID != "biz_pip" || st.Via != whopViaKey || st.Title != "Pip Hosting" || st.Route != "pip-hosting" || st.Key != "apik_pip" || st.ConnectedBy != "siya" ||
