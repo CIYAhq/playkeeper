@@ -60,16 +60,17 @@ type fakeWhop struct {
 	mu      sync.Mutex
 	srv     *httptest.Server
 	missing map[string]bool
-	// permissionsDown makes Whop's permission check fail, patchDown its
-	// product updates, refuseProduct those of one product, and revoked
-	// refuses the test key. lostReply is a product whose next update Whop
-	// makes but answers with an error, as when its answer is lost.
-	permissionsDown, patchDown, revoked bool
-	refuseProduct, lostReply            string
-	products                            map[string]whop.Metadata
-	plans                               []map[string]any
-	patches                             []string
-	keysSeen                            map[string]bool
+	// permissionsDown makes Whop's permission check fail, membershipsDown
+	// an installed business's list of memberships, patchDown its product
+	// updates, refuseProduct those of one product, and revoked refuses the
+	// test key. lostReply is a product whose next update Whop makes but
+	// answers with an error, as when its answer is lost.
+	permissionsDown, membershipsDown, patchDown, revoked bool
+	refuseProduct, lostReply                             string
+	products                                             map[string]whop.Metadata
+	plans                                                []map[string]any
+	patches                                              []string
+	keysSeen                                             map[string]bool
 	// webhooks are the endpoints the dashboard added, by id; hooksDown
 	// makes adding one fail.
 	webhooks  map[string]map[string]any

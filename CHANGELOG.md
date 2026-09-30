@@ -6,6 +6,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 - **Selling on Whop without its webhook:** when Whop won't add or keep the webhook, the dashboard now reads the store's memberships every minute instead of every 10, so a buyer is started and messaged within about a minute. With the webhook it still reads them every 10 minutes, as a backstop.
 - **A customer's account belongs to the store they bought from:** the "your server is ready" message now links to that store's sign-in, so someone who buys from two stores on one dashboard gets two separate accounts and signs in to the right one. With one store, nothing else changes.
+- **Suspend a customer:** in **Settings › Team**, the owner can suspend a customer's account, with a reason, and lift it again. Their servers stop, their API tokens stop working and they're signed out, and nothing their plan does lifts it. If their plan ends meanwhile, lifting it gives them 14 days to renew. A business selling through your app can be suspended too, in **Settings › Sell on Whop**: it stops selling, and every customer of it is suspended with it.
 
 ## 0.4.10
 
