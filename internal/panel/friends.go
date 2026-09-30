@@ -124,10 +124,11 @@ func (s *Server) immediate(ctx context.Context, fn func(c *sql.Conn) error) erro
 	return nil
 }
 
-// linkBase is where invite links start: the dashboard's own address name
-// when it has one, otherwise the host the signed-in admin used, with the
-// panel's port (so a link copied over an SSH tunnel still names the port
-// friends use).
+// linkBase is where invite links start: the dashboard's address under the
+// machine's name once it has one with a certificate, without a port while
+// the dashboard answers there on port 443, otherwise the host the signed-in
+// admin used, with the panel's port (so a link copied over an SSH tunnel
+// still names the port friends use).
 type linkBase struct {
 	Base string `json:"base"`
 	// Friendly is false until the dashboard has an address name, when the
@@ -136,6 +137,9 @@ type linkBase struct {
 }
 
 func (s *Server) linkBase(r *http.Request) linkBase {
+	if dash, err := s.dashboardURL(r.Context()); err == nil && dash != "" {
+		return linkBase{Base: dash, Friendly: true}
+	}
 	host := s.joinHost(r)
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"

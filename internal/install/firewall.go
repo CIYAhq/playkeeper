@@ -3,9 +3,12 @@ package install
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/CIYAhq/playkeeper/internal/config"
 )
 
 // hostFirewall is a firewall on this machine that the installer opens
@@ -34,6 +37,53 @@ type hostFirewall interface {
 	// tidy, once the install's rules are removed, removes what the firewall
 	// kept of them.
 	tidy(sys System, m Manifest) error
+}
+
+// httpsRuleDue is the firewall an upgrade allows port 443 in, as a new
+// install does: the one that filters this machine's traffic, while the
+// install doesn't have the rule and runs a dashboard, and only the one its
+// other rules are in. nil when there's nothing to do.
+func httpsRuleDue(sys System, cfg config.Config, m Manifest) hostFirewall {
+	if cfg.NoPanel || contains(m.FirewallRules, httpsRule) {
+		return nil
+	}
+	fw := activeFirewall(sys)
+	if fw == nil || len(m.FirewallRules) > 0 && fw.kind() != firewallOf(m).kind() {
+		return nil
+	}
+	return fw
+}
+
+// allowHTTPSPort allows port 443 after an upgrade from a version that did
+// not use it, in the firewall httpsRuleDue names, and records the rule for
+// uninstall if that added it. The upgrade has succeeded either way, so a
+// failure is reported, not returned.
+func allowHTTPSPort(sys System, cfg config.Config, out io.Writer) {
+	path := sys.P(cfg.ManifestPath())
+	var m Manifest
+	if err := readJSONFile(path, &m); err != nil {
+		return
+	}
+	fw := httpsRuleDue(sys, cfg, m)
+	if fw == nil {
+		return
+	}
+	fmt.Fprintf(out, "  • allow port 443 in %s%s, for the dashboard without a port and the public server page\n", fw.short(), fw.where())
+	if len(m.FirewallRules) == 0 {
+		fw.record(sys, &m)
+	}
+	added, err := fw.allow(sys, httpsRule)
+	if err != nil {
+		fmt.Fprintf(out, "  ! could not allow port 443 in %s (%v). To serve the dashboard without a port, allow %s there\n", fw.short(), err, httpsRule)
+		return
+	}
+	if !added {
+		return
+	}
+	m.FirewallRules = append(m.FirewallRules, httpsRule)
+	if err := writeJSONFile(path, m); err != nil {
+		fmt.Fprintf(out, "  ! port 443 is allowed in %s, but the install manifest could not record it (%v), so uninstall will leave the rule\n", fw.short(), err)
+	}
 }
 
 // activeFirewall is the firewall that filters this machine's traffic, if

@@ -443,6 +443,9 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 		fmt.Fprintf(w, "  3. Your worlds and backups were kept; the server starts again if it was running before.\n\n")
 	}
 	fmt.Fprintf(w, "If %s is not your public address, use your VPS's public IP instead.\n", strings.TrimPrefix(res.URL, "https://"))
+	if res.Dashboard443 {
+		fmt.Fprintf(w, "Once you give it an address, the dashboard opens there without a port: allow TCP 443 in your provider's firewall too.\n")
+	}
 	if res.SetupCode != "" {
 		fmt.Fprintf(w, "Lost the setup code? sudo playkeeper setup-code\n")
 	} else {

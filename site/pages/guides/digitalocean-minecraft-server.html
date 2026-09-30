@@ -50,7 +50,7 @@ schema: article
   {{template "h2n" (dict "ID" "ports" "N" 3 "Text" "Open the ports")}}
   <p>A Droplet has no Cloud Firewall until you add one, and a Cloud Firewall blocks everything you haven't allowed. <strong>Networking › Firewalls › Create Firewall</strong>: keep its SSH rule, add these as inbound rules for All IPv4 and All IPv6, then apply it to your Droplet.</p>
   {{template "provider-ports"}}
-  <p>If ufw or firewalld runs on the Droplet itself, the installer allows 8443, 25565 and 80 there for you.</p>
+  <p>If ufw or firewalld runs on the Droplet itself, the installer allows 8443, 25565, 443 and 80 there for you.</p>
 </section>
 
 <section aria-labelledby="run">
