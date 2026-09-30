@@ -8312,6 +8312,55 @@ webcontrol "closing: the owner's list says a store isn't open yet" web/src/pages
   "if (s.closedWhy) return t('whop.stores.closed', { why: s.closedWhy })" \
   '' \
   src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
+
+# A seller's view of their store (internal/panel/sellerview.go, the hosted
+# blueprint's 3.1): its plans, customers and earnings are its own store's
+# alone; a payment is kept once, for its store, with amounts that add up;
+# a suspension's reason stays the owner's.
+control "seller view: a store's plans are its own" internal/panel/sellerview.go \
+  'FROM whop_plans p WHERE p.store_id = ? AND' \
+  'FROM whop_plans p WHERE (p.store_id = ? OR 1) AND' \
+  ./internal/panel '^TestASellersViewShowsTheirStoreAlone$'
+control "seller view: a plan's customers are its store's" internal/panel/sellerview.go \
+  'WHERE m.store_id = p.store_id AND m.plan_id = p.plan_id' \
+  'WHERE m.plan_id = p.plan_id' \
+  ./internal/panel '^TestASellersViewShowsTheirStoreAlone$'
+control "seller view: a customer's account is the store's" internal/panel/sellerview.go \
+  'FROM customers WHERE provider = ? AND store = ? AND subject = ?' \
+  'FROM customers WHERE provider = ? AND (store = ? OR 1) AND subject = ?' \
+  ./internal/panel '^TestASellersViewShowsTheirStoreAlone$'
+control "seller view: a suspended customer shows as suspended" internal/panel/sellerview.go \
+  'if state == CustomerSuspended {' \
+  'if false {' \
+  ./internal/panel '^TestASellersViewShowsTheirStoreAlone$'
+control "seller view: a store's earnings are its own" internal/panel/sellerview.go \
+  'FROM whop_payments WHERE store_id = ?' \
+  'FROM whop_payments WHERE (store_id = ? OR 1)' \
+  ./internal/panel '^TestAStoresEarningsAddUpByMonth$'
+control "seller view: refunds come off the sales" internal/panel/sellerview.go \
+  'm.Sales += amount - refunded' \
+  'm.Sales += amount' \
+  ./internal/panel '^TestAStoresEarningsAddUpByMonth$'
+control "seller view: a payment never moves to another store" internal/panel/sellerview.go \
+  'refunded = excluded.refunded, updated_at = excluded.updated_at WHERE whop_payments.store_id = excluded.store_id' \
+  'refunded = excluded.refunded, updated_at = excluded.updated_at' \
+  ./internal/panel '^TestKeepWhopPaymentKeepsEachPaymentOnceForItsStore$'
+control "seller view: a payment for a store the dashboard doesn't sell for isn't kept" internal/panel/sellerview.go \
+  'FROM whop_stores WHERE store_id = ?' \
+  'FROM whop_stores WHERE store_id = ? OR 1' \
+  ./internal/panel '^TestKeepWhopPaymentKeepsEachPaymentOnceForItsStore$'
+control "seller view: a payment's amounts add up" internal/panel/sellerview.go \
+  'p.Refunded > p.Amount || p.Share > p.Amount' \
+  'false' \
+  ./internal/panel '^TestKeepWhopPaymentKeepsEachPaymentOnceForItsStore$'
+control "seller view: a suspension's reason stays the owner's" internal/panel/sellerview.go \
+  'v.Store.State = "suspended"' \
+  'v.Store.State, v.Store.Why = "suspended", st.SuspendReason' \
+  ./internal/panel '^TestASellersViewSaysHowTheStoreStands$'
+control "seller view: the dashboard's own store has none" internal/panel/sellerview.go \
+  'case !ok || st.Via != whopViaApp:' \
+  'case !ok:' \
+  ./internal/panel '^TestASellersViewSaysHowTheStoreStands$'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
