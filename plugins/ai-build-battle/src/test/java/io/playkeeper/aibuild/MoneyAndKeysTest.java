@@ -93,7 +93,10 @@ class MoneyAndKeysTest {
         assertEquals(0.25, l.spentToday(), 1e-9);
         assertEquals(0.65, l.committedExcept("b"), 1e-9);
         assertEquals(0.25, l.committedExcept("a"), 1e-9);
-        l.settleAllAtWorst();
+        l.close();
+        // The answer to the request counted at its worst arrives after the stop: it isn't counted twice.
+        l.settle("a", 0.30);
+        assertEquals(0.65, l.spentToday(), 1e-9);
         assertEquals(0.65, new Ledger(f, Clock.fixed(Instant.parse("2026-09-30T23:30:00Z"), ZoneOffset.UTC), Logger.getAnonymousLogger()).spentToday(), 1e-9);
         assertEquals(0, new Ledger(f, Clock.fixed(Instant.parse("2026-10-01T00:00:01Z"), ZoneOffset.UTC), Logger.getAnonymousLogger()).spentToday(), 1e-9);
     }
