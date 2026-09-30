@@ -9697,7 +9697,7 @@ webcontrol "removing a machine: Home tells a customer who lost theirs there's no
   "t('home.settingUpTitle')" \
   src/pages/pages.test.tsx 'lost their machine'
 control "moving customers: a customer whose servers are apart gets their disk once between the machines" internal/panel/disklimits.go \
-  '		if in.apart[uid] {' \
+  '		if in.split[uid] {' \
   '		if false {' \
   ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
 control "moving customers: a copy a move is making isn't its customer's on the machine making it" internal/panel/disklimits.go \
