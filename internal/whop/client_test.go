@@ -268,6 +268,84 @@ func TestMessagesGoOutAsTheOwnerWithATokenThatMaySendThemAlone(t *testing.T) {
 	}
 }
 
+func TestOwnerOfReadsAnAccountByID(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /accounts/biz_seller": answer(map[string]any{"id": "biz_seller", "owner": map[string]any{"id": "user_seller", "username": "sellerjoe", "name": "Joe"}}),
+		"GET /accounts/biz_nobody": answer(map[string]any{"id": "biz_nobody"}),
+	})
+	u, err := c.OwnerOf(context.Background(), "biz_seller")
+	if err != nil || u != (User{ID: "user_seller", Username: "sellerjoe", Name: "Joe"}) {
+		t.Fatalf("OwnerOf = %+v, %v", u, err)
+	}
+	if _, err := c.OwnerOf(context.Background(), "biz_nobody"); err == nil {
+		t.Fatal("an account Whop names no owner of")
+	}
+}
+
+// A hosted store's fee is Playkeeper's revenue share: a flat amount of every
+// payment on each product, after Whop's fees, with no referral link.
+func TestRevenueSharesAreAFlatAmountPerPaymentOnAProduct(t *testing.T) {
+	var sent []string
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"POST /affiliates": func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			sent = append(sent, string(b))
+			answer(map[string]any{"id": "aff_pk", "status": "active"})(w, r)
+		},
+		"POST /affiliates/aff_pk/overrides": func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			sent = append(sent, string(b))
+			answer(map[string]any{"id": "affov_1", "override_type": "rev_share", "product_id": "prod_4gb", "commission_type": "flat_fee",
+				"commission_value": 8.5, "revenue_basis": "post_fees", "applies_to_payments": nil, "plan_id": nil})(w, r)
+		},
+		"GET /affiliates/aff_pk/overrides": answer(map[string]any{"data": []map[string]any{
+			{"id": "affov_1", "override_type": "rev_share", "product_id": "prod_4gb", "commission_type": "flat_fee", "commission_value": 8.5, "revenue_basis": "post_fees"},
+			{"id": "affov_2", "override_type": "standard", "plan_id": "plan_x", "commission_type": "percentage", "commission_value": 30},
+		}, "page_info": map[string]any{"has_next_page": false}}),
+	})
+	ctx := context.Background()
+	partner, err := c.Partner(ctx, "biz_seller", "playkeeper")
+	if err != nil || partner != "aff_pk" {
+		t.Fatalf("Partner = %q, %v", partner, err)
+	}
+	share, err := c.AddRevShare(ctx, partner, "prod_4gb", 8.5)
+	want := RevShare{ID: "affov_1", ProductID: "prod_4gb", Kind: "flat_fee", Value: 8.5, Basis: "post_fees", Type: "rev_share"}
+	if err != nil || share != want {
+		t.Fatalf("AddRevShare = %+v, %v", share, err)
+	}
+	if got := strings.Join(sent, "\n"); got != `{"account_id":"biz_seller","user_identifier":"playkeeper"}`+"\n"+
+		`{"commission_type":"flat_fee","commission_value":8.5,"override_type":"rev_share","product_id":"prod_4gb","revenue_basis":"post_fees"}` {
+		t.Fatalf("requests:\n%s", got)
+	}
+	shares, err := c.RevShares(ctx, partner)
+	if err != nil || len(shares) != 1 || shares[0] != want {
+		t.Fatalf("RevShares = %+v, %v", shares, err)
+	}
+	for _, bad := range []struct {
+		product string
+		dollars float64
+	}{{"", 8.5}, {"prod_4gb", 0}} {
+		if _, err := c.AddRevShare(ctx, partner, bad.product, bad.dollars); err == nil {
+			t.Fatalf("a share of %v on %q", bad.dollars, bad.product)
+		}
+	}
+}
+
+func TestPaymentFeesListEveryLine(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /payments/pay_1/fees": answer(map[string]any{"data": []map[string]any{
+			{"type": "whop_fee", "origin": "whop_processing_fee", "label": "Whop fee", "amount": map[string]any{"amount": "0.45", "currency": "usd"},
+				"settlement_amount": map[string]any{"amount": "0.45", "currency": "usd"}},
+			{"type": "affiliate_program_fee", "origin": "affiliate_fee", "label": "Revenue share", "amount": map[string]any{"amount": "8.50", "currency": "usd"},
+				"settlement_amount": map[string]any{"amount": "8.50", "currency": "usd"}},
+		}}),
+	})
+	fees, err := c.PaymentFees(context.Background(), "pay_1")
+	if err != nil || len(fees) != 2 || fees[1] != (PaymentFee{Type: "affiliate_program_fee", Origin: "affiliate_fee", Label: "Revenue share", Settled: Money{Amount: "8.50", Currency: "usd"}}) {
+		t.Fatalf("PaymentFees = %+v, %v", fees, err)
+	}
+}
+
 func TestRedirectsAreNotFollowed(t *testing.T) {
 	var leaked atomic.Bool
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { leaked.Store(true) }))

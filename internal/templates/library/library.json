@@ -3,7 +3,6 @@
     "id": "ai-build-battle",
     "name": "AI Build Battle",
     "art": "play-creative.svg",
-    "opensFrom": "0.4.10",
     "checked": "2026-09-30",
     "release": "0.4.10",
     "file": {

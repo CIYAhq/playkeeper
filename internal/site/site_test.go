@@ -667,8 +667,8 @@ func TestStartPage(t *testing.T) {
 
 // The AI build battle's page, for people who saw the videos, most on a phone
 // from a reply on X: indexed and in the sitemap, under Templates, with the
-// release the template needs. The template opens only from Playkeeper 0.4.9,
-// so the page opens nothing of it yet. It names no hosted option and says
+// release the template needs, and Open in my dashboard opens the template
+// itself, once, counted as the template's page. It names no hosted option and says
 // nothing is coming until its hosted setting says where one is; then "Or get
 // it hosted" goes there, under the install command.
 func TestTheAIBuildBattlePage(t *testing.T) {
@@ -687,8 +687,9 @@ func TestTheAIBuildBattlePage(t *testing.T) {
 	main := between(html, "<main", "</main>")
 	for _, want := range []string{
 		`<h1 id="page-title" class="aibb-h1 hero-rise">The AI build battle, on your own server</h1>`,
-		"Needs Playkeeper 0.4.9 or newer.",
+		"Needs Playkeeper 0.4.10 or newer.",
 		"<code>/aibuild a castle on a cliff</code>",
+		"<code>/aibattle claude gpt a castle on a cliff</code>",
 		`<div class="install install-shares aibb-install" id="install" data-install>`,
 		`href="/sizing"`,
 		"$0.15 with GPT-6.1 Sol, $0.30 with Claude Sonnet 5.5 and $0.75 with Claude Opus 5.5",
@@ -697,8 +698,15 @@ func TestTheAIBuildBattlePage(t *testing.T) {
 			t.Errorf("%s doesn't say %s", p, want)
 		}
 	}
+	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := cards["ai-build-battle"]; c == nil || strings.Count(main, `href="`+c.Link+`" data-template-open="ai-build-battle"`) != 1 || strings.Count(main, `data-template-open=`) != 1 {
+		t.Errorf("%s doesn't open the AI Build Battle template once, with Open in my dashboard", p)
+	}
 	lower := strings.ToLower(html)
-	for _, bad := range []string{`href="/t#`, `href="/t/`, `href="/cloud`, "playkeeper cloud", "coming soon", "get it hosted", "bedrock"} {
+	for _, bad := range []string{`href="/t/`, `href="/cloud`, "playkeeper cloud", "coming soon", "get it hosted", "bedrock"} {
 		if strings.Contains(lower, bad) {
 			t.Errorf("%s says %s", p, bad)
 		}
