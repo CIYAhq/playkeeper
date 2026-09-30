@@ -10060,11 +10060,19 @@ control "moving customers: a server that isn't stopped is never taken for a copy
   '	if sv["phase"] != string(api.PhaseStopped) || err != nil {' \
   '	if err != nil {' \
   ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
-control "moving customers: a failed move's copy is taken only while the server's own machine runs it" internal/panel/moves.go \
-  '	if isNoRows(err) && ownerActive {' \
+control "moving customers: a listing is taken for a copy whatever it says only while the server's own machine is online" internal/panel/moves.go \
+  '	if isNoRows(err) && ownerOnline {' \
   '	if isNoRows(err) {' \
-  ./internal/panel '^TestAFailedMovesCopyNeverGetsTheServerItselfDeleted$'
-control "moving customers: a listing that can't be told from a failed move's copy is disputed, not taken over" internal/panel/machines.go \
+  ./internal/panel '^(TestAFailedMovesCopyNeverGetsTheServerItselfDeleted|TestEachCopyLeftOnARemovedMachineIsTakenOnce)$'
+control "moving customers: while the server's own machine is online, a copy a move left is taken for one whatever it says" internal/panel/machines.go \
+  '				ownerOnline := ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  '				ownerOnline := false && ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "moving customers: a disconnected machine's server isn't taken for a copy by what a listing doesn't say" internal/panel/machines.go \
+  '				ownerOnline := ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  '				ownerOnline := ownerActive' \
+  ./internal/panel '^TestEachCopyLeftOnARemovedMachineIsTakenOnce$'
+control "moving customers: a listing that can't surely be told from a copy a move left is disputed, not taken over" internal/panel/machines.go \
   '				if !ownerActive && !unsure {' \
   '				if !ownerActive {' \
   ./internal/panel '^(TestAFailedMovesCopyNeverGetsTheServerItselfDeleted|TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs)$'
