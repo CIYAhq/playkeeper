@@ -7848,7 +7848,7 @@ control "stores: Sign in with Whop stays while a store sells" internal/panel/who
   ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
 control "stores: a business selling through the app takes no key" internal/panel/whop.go \
   'case ok && app.Via != whopViaKey:' \
-  'case false:' \
+  'case ok && app.Via != whopViaKey && false:' \
   ./internal/panel '^TestDisconnectingTheKeyStoreLeavesTheOtherStores$'
 control "stores: one key store at most" internal/panel/auth.go \
   "CREATE UNIQUE INDEX whop_stores_one_key ON whop_stores(via) WHERE via = 'key';" \
