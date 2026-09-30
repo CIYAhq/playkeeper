@@ -9601,6 +9601,10 @@ control "moving customers: a customer whose servers are apart gives none more me
   '(!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID)' \
   '(!ok || memoryMB > cur) && false' \
   ./internal/panel '^TestServersApartAreBroughtTogether$'
+control "moving customers: the backups a move keeps aren't a deleted server's" internal/panel/moves.go \
+  'req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)' \
+  'req.KeepFinalBackupDays, req.KeptFor = days, keptFor(userID)' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 
 if [ "$bad" != 0 ]; then
   echo

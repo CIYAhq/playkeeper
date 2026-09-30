@@ -1077,11 +1077,16 @@ func stopOn(ctx context.Context, m machine, id string) error {
 func deleteOn(ctx context.Context, m machine, id, name string, days int, userID int64) error {
 	req := api.DeleteServerRequest{Confirm: name, Actor: placementActor, ForgetKey: true}
 	if days > 0 {
-		req.KeepFinalBackupDays, req.KeptFor = days, keptFor(userID)
+		req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)
 	}
 	_, err := agentOp(ctx, m, "/v1/servers/"+id+"/delete", req)
 	return err
 }
+
+// movedKeptFor labels the final backups of the copies an account's moved
+// servers left, apart from the final backups of its deleted servers
+// (keptFor), which its dashboard lists.
+func movedKeptFor(userID int64) string { return "moved-" + keptFor(userID) }
 
 // agentOp starts an operation on m, posting body to path as the dashboard,
 // and waits until it ends: an error unless it succeeded.
