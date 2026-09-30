@@ -2219,6 +2219,8 @@ export interface SuspendableStore {
   /** Set once the business uninstalled the app or removed Playkeeper's share: when, and why. */
   leftAt?: string
   leftWhy?: string
+  /** Set while the store sells nothing and starts nobody, such as "Not open yet": why. */
+  closedWhy?: string
 }
 
 export interface StoresResponse {

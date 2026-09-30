@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,7 +21,9 @@ import (
 // deletion (see pausing.go and deletion.go). They're told in the store's
 // support chat while the app can still post there; otherwise the message
 // waits, and their dashboard says their plan ended. Added again, the store
-// is back, and its customers with a plan start again, as a renewal does.
+// is back, closed as not open yet (see closing.go): its customers with a
+// plan start again once its seller opens it, as a renewal does, and their
+// 14 days go on meanwhile.
 
 // maxLeftWhy bounds why a store left.
 const maxLeftWhy = 200
@@ -55,23 +58,36 @@ func (s *Server) whopStoreLeft(ctx context.Context, storeID, why string) error {
 	return nil
 }
 
-// bringBackWhopStore has an app store that left sell again, and says
-// whether it had left. Its next pass reads the store and every membership
-// again, so its customers with a plan start again.
+// bringBackWhopStore has an app store that left be a store again, closed as
+// not open yet, and says whether it had left. Its next pass reads the store
+// and every membership again, and once it's open, its customers with a plan
+// start again.
 func (s *Server) bringBackWhopStore(ctx context.Context, a whop.Account) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE whop_stores SET left_at = 0, left_why = '', synced_at = 0, polled_at = 0,
-		title = COALESCE(NULLIF(?, ''), title), route = COALESCE(NULLIF(?, ''), route) WHERE store_id = ? AND via = ? AND left_at != 0`,
-		a.Title, a.Route, a.ID, whopViaApp)
+	back := false
+	err := s.immediate(ctx, func(conn *sql.Conn) error {
+		res, err := conn.ExecContext(ctx, `UPDATE whop_stores SET left_at = 0, left_why = '', synced_at = 0, polled_at = 0,
+			title = COALESCE(NULLIF(?, ''), title), route = COALESCE(NULLIF(?, ''), route) WHERE store_id = ? AND via = ? AND left_at != 0`,
+			a.Title, a.Route, a.ID, whopViaApp)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return nil
+		}
+		back = true
+		_, err = conn.ExecContext(ctx, `INSERT INTO whop_store_closures(store_id, closed_by, why, closed_at) VALUES(?,?,?,?) ON CONFLICT(store_id, closed_by) DO NOTHING`,
+			a.ID, whopNotOpenYet, whopNotOpenYetWhy, s.now().UnixMilli())
+		return err
+	})
 	if err != nil {
 		return false, err
 	}
-	n, _ := res.RowsAffected()
-	if n > 0 {
-		s.audit("system", "whop.store_back", a.ID, "succeeded", "installed the Playkeeper Cloud app again: "+whopName(a))
+	if back {
+		s.audit("system", "whop.store_back", a.ID, "succeeded", "installed the Playkeeper Cloud app again: "+whopName(a)+"; not open yet")
 		s.kickSaleRoom()
 		s.kickWhopStore(a.ID)
 	}
-	return n > 0, nil
+	return back, nil
 }
 
 // endLeftStorePlans sends every customer of the store that left who was
