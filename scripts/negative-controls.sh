@@ -8382,8 +8382,8 @@ control "share paid: the membership's latest payment" internal/panel/whop_share.
   'pay := pays[len(pays)-1]' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "share paid: Whop is asked for the newest payments" internal/whop/payments.go \
-  '"order": {"paid_at"}, "direction": {"desc"}, ' \
-  '' \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(paymentsRead)}}' \
+  '"first": {strconv.Itoa(paymentsRead)}}' \
   ./internal/whop '^TestPaidPaymentsAreAMembershipsNewestFirst$'
 control "share paid: the newest payment comes first whatever order Whop answers in" internal/whop/payments.go \
   'return b.paidAt().Compare(a.paidAt())' \
@@ -8462,6 +8462,10 @@ control "payments: only the hosting products' payments are kept" internal/panel/
   'if _, ok := hosting[pay.ProductID]; !ok {' \
   'if _, ok := hosting[pay.ProductID]; !ok && false {' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: Whop is asked for a store's payments newest paid first" internal/whop/payments.go \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
+  '"first": {strconv.Itoa(100)}}' \
+  ./internal/whop '^TestPaymentsAndRefundsSinceATime$'
 control "payments: one paid since the last read is read, however long ago it was made" internal/whop/payments.go \
   '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
   '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}, "created_after": {since.UTC().Format(time.RFC3339)}}' \
