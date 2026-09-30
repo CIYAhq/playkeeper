@@ -175,8 +175,8 @@ func TestAProductsShareCoversEachOfItsPlans(t *testing.T) {
 
 // A share the seller removes, lowers below what the price needs, or
 // changes from a percentage of the full price is a problem, and stays as
-// they left it until Open the store sets it again. One they raise stays.
-// A plan that can't carry the share is a problem too.
+// they left it until Open the store sets it right. One they raise stays,
+// even then. A plan that can't carry the share is a problem too.
 func TestAShareTheSellerRemovesOrLowersIsAProblem(t *testing.T) {
 	f, e, _, st := shareEnv(t)
 	e.syncShares(t, st, true)
@@ -196,15 +196,23 @@ func TestAShareTheSellerRemovesOrLowersIsAProblem(t *testing.T) {
 	if problem := e.syncShares(t, st, false); problem != "Playkeeper's share on Minecraft server is 50%, under the 70.84% its price needs." {
 		t.Fatalf("a lowered share: %q", problem)
 	}
+	if problem := e.syncShares(t, st, true); problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 70.84 {
+		t.Fatalf("Open the store after the share was lowered: %q, %v", problem, f.share("biz_other", "prod_other"))
+	}
 	edit(func(b *fakeBusiness) { b.shares[0]["commission_value"] = 80 })
-	if problem := e.syncShares(t, st, false); problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 80 {
-		t.Fatalf("a raised share: %q", problem)
+	for _, force := range []bool{false, true} {
+		if problem := e.syncShares(t, st, force); problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 80 {
+			t.Fatalf("a raised share, with force %v: %q, %v", force, problem, f.share("biz_other", "prod_other"))
+		}
 	}
 	edit(func(b *fakeBusiness) {
 		b.shares[0]["commission_value"], b.shares[0]["revenue_basis"] = 70.84, "post_fees"
 	})
 	if problem := e.syncShares(t, st, false); !strings.Contains(problem, "isn't a percentage of the full price") {
 		t.Fatalf("a share of what's left after Whop's fees: %q", problem)
+	}
+	if problem := e.syncShares(t, st, true); problem != "" || f.share("biz_other", "prod_other")["revenue_basis"] != "pre_fees" || f.share("biz_other", "prod_other")["commission_value"] != 70.84 {
+		t.Fatalf("Open the store after the share was changed: %q, %v", problem, f.share("biz_other", "prod_other"))
 	}
 	edit(func(b *fakeBusiness) { b.shares[0]["revenue_basis"], b.plans[0]["renewal_price"] = "pre_fees", 8 })
 	if problem := e.syncShares(t, st, false); !strings.Contains(problem, "Other charges") || !strings.Contains(problem, "can't carry Playkeeper's share of $8.50") {

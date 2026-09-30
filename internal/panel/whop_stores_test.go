@@ -142,7 +142,11 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(route, "PATCH /affiliates/aff_"+biz+"/overrides/"):
 		for _, share := range b.shares {
 			if share["id"] == id {
-				share["commission_value"] = body["commission_value"]
+				for _, k := range []string{"commission_type", "commission_value", "revenue_basis"} {
+					if v, ok := body[k]; ok {
+						share[k] = v
+					}
+				}
 				f.shareWrites = append(f.shareWrites, fmt.Sprintf("set %s %v", id, body["commission_value"]))
 				json.NewEncoder(w).Encode(share)
 				return

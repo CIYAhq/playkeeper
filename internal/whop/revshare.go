@@ -74,15 +74,16 @@ func (c *Client) AddRevShare(ctx context.Context, partnerID, productID string, p
 	return r, err
 }
 
-// UpdateRevShare sets a partner's share to percent, as when its product's
-// price changed.
+// UpdateRevShare sets a partner's share to percent of the full price before
+// Whop's fees, as when its product's price changed, or the seller changed
+// how it's taken.
 func (c *Client) UpdateRevShare(ctx context.Context, partnerID, shareID string, percent float64) (RevShare, error) {
 	if err := checkSharePercent(percent); err != nil {
 		return RevShare{}, err
 	}
 	var r RevShare
 	err := c.do(ctx, http.MethodPatch, "/affiliates/"+url.PathEscape(partnerID)+"/overrides/"+url.PathEscape(shareID), nil,
-		map[string]any{"commission_value": percent}, &r)
+		map[string]any{"commission_type": "percentage", "commission_value": percent, "revenue_basis": "pre_fees"}, &r)
 	return r, err
 }
 

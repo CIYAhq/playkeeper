@@ -8006,12 +8006,20 @@ control "share: a lowered share is a problem" internal/panel/whop_share.go \
   'case false:' \
   ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
 control "share: only a share the dashboard set follows the price" internal/panel/whop_share.go \
-  'case force || (ours && was.ShareID == r.ID && was.BasisPoints == bp):' \
+  'case full && untouched, force && (!full || bp < w.BasisPoints):' \
   'case true:' \
   ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: Open the store leaves a share the seller raised" internal/panel/whop_share.go \
+  'force && (!full || bp < w.BasisPoints)' \
+  'force' \
+  ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
 control "share: only a percentage of the full price" internal/panel/whop_share.go \
-  'case r.Kind != "percentage" || r.Basis != "pre_fees":' \
+  'case !full:' \
   'case false:' \
+  ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: setting it again takes it as a percentage of the full price" internal/whop/revshare.go \
+  'map[string]any{"commission_type": "percentage", "commission_value": percent, "revenue_basis": "pre_fees"}' \
+  'map[string]any{"commission_value": percent}' \
   ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
 control "share paid: only Playkeeper's share line counts" internal/panel/whop_share.go \
   'if l.Origin != whopShareOrigin || l.Settled.Currency != "usd" {' \

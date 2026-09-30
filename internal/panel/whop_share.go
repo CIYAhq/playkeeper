@@ -227,8 +227,9 @@ func (s *Server) keepWhopShare(ctx context.Context, storeID, product string, r w
 //   - A share the dashboard set follows its product's price, up or down.
 //   - A share the seller removed, lowered below what the price needs, or
 //     made other than a percentage of the full price is a problem. Only
-//     force, as Open the store does, sets it again.
-//   - A share the seller raised stays, since it pays at least Playkeeper's.
+//     force, as Open the store does, sets it right.
+//   - A share the seller raised stays, even with force, since it pays at
+//     least Playkeeper's.
 //
 // An error is Whop or the dashboard failing, which says nothing about the
 // shares.
@@ -268,6 +269,10 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 		r, there := onWhop[w.Product]
 		was, ours := set[w.Product]
 		bp := int64(math.Round(r.Percent * 100))
+		// full is a share taken as the dashboard sets it, and untouched one
+		// the seller left as the dashboard last set it.
+		full := r.Kind == "percentage" && r.Basis == "pre_fees"
+		untouched := ours && was.ShareID == r.ID && was.BasisPoints == bp
 		switch {
 		case !there && ours && !force:
 			problems = append(problems, "Playkeeper's share on "+name+" was removed")
@@ -280,15 +285,13 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 			if err != nil {
 				return "", err
 			}
-		case r.Kind != "percentage" || r.Basis != "pre_fees":
-			problems = append(problems, "Playkeeper's share on "+name+" isn't a percentage of the full price")
-		case bp == w.BasisPoints:
-			if !ours || was.ShareID != r.ID || was.BasisPoints != bp {
+		case full && bp == w.BasisPoints:
+			if !untouched {
 				if err := s.keepWhopShare(ctx, st.ID, w.Product, r, bp); err != nil {
 					return "", err
 				}
 			}
-		case force || (ours && was.ShareID == r.ID && was.BasisPoints == bp):
+		case full && untouched, force && (!full || bp < w.BasisPoints):
 			updated, err := c.UpdateRevShare(ctx, partner, r.ID, float64(w.BasisPoints)/100)
 			if err != nil {
 				return "", err
@@ -297,6 +300,8 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 			if err := s.keepWhopShare(ctx, st.ID, w.Product, updated, w.BasisPoints); err != nil {
 				return "", err
 			}
+		case !full:
+			problems = append(problems, "Playkeeper's share on "+name+" isn't a percentage of the full price")
 		case bp < w.BasisPoints:
 			problems = append(problems, fmt.Sprintf("Playkeeper's share on %s is %s, under the %s its price needs", name, percentOf(bp), percentOf(w.BasisPoints)))
 		}

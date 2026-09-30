@@ -386,7 +386,7 @@ func TestRevenueSharesAreAPercentageOfEachPaymentBeforeFees(t *testing.T) {
 	}
 	if got := strings.Join(sent, "\n"); got != `POST {"account_id":"biz_seller","user_identifier":"playkeeper"}`+"\n"+
 		`POST {"commission_type":"percentage","commission_value":70.84,"override_type":"rev_share","product_id":"prod_4gb","revenue_basis":"pre_fees"}`+"\n"+
-		`PATCH {"commission_value":56.67}` {
+		`PATCH {"commission_type":"percentage","commission_value":56.67,"revenue_basis":"pre_fees"}` {
 		t.Fatalf("requests:\n%s", got)
 	}
 	for _, bad := range []struct {
