@@ -42,6 +42,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/portshare"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
+	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
 type Options struct {
@@ -142,6 +143,9 @@ type Server struct {
 	whopKickMu  sync.Mutex
 	whopKicked  map[string]bool
 	whopKickAll bool
+	// whopTokens checks the tokens Whop's proxy adds to a seller's page and
+	// its calls (see whop_sellerpage.go).
+	whopTokens *whop.UserTokens
 	// hosting is the hosting core billing providers call, and notifier what
 	// the core calls to tell customers something (see hosting.go). sales is
 	// what the fleet tells how many more of each plan fit (see whop_stock.go).
@@ -251,6 +255,8 @@ func New(opts Options) (*Server, error) {
 		saleRoomKick: make(chan struct{}, 1),
 	}
 	s.movesCtx, s.movesCancel = context.WithCancel(context.Background())
+	jwks, _ := whop.JWKSURL(opts.Config.WhopAPIURL)
+	s.whopTokens = &whop.UserTokens{URL: jwks}
 	s.hosting = customerCore{s: s}
 	s.notifier = billingNotifier{s: s}
 	s.sales = whopStock{s: s}
@@ -784,12 +790,24 @@ func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 }
 
+// uiCSP is the dashboard's Content-Security-Policy, which no other site may
+// frame, and whopSellerCSP a seller's page's, which Whop shows inside its
+// own frames (see whop_sellerpage.go).
+const (
+	uiCSP         = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	whopSellerCSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors https://whop.com https://*.whop.com; base-uri 'none'; form-action 'self'"
+)
+
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		if strings.HasPrefix(r.URL.Path, whopSellerPage) {
+			h.Set("Content-Security-Policy", whopSellerCSP)
+		} else {
+			h.Set("Content-Security-Policy", uiCSP)
+			h.Set("X-Frame-Options", "DENY")
+		}
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")

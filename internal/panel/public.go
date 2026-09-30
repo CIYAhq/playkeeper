@@ -46,6 +46,9 @@ func (s *Server) publicRoutes() []publicRoute {
 		{prefix: whopAppWebhookPath, limits: whopWebhookLimits, ownRefusals: true, handler: s.whopAppWebhook()},
 		// Sign in with Whop: leaving for Whop, and coming back.
 		{prefix: whopSignInPrefix, limits: whopSignInLimits, handler: s.whopSignIn()},
+		// A seller's page inside their Whop dashboard, which says who's
+		// looking with Whop's token rather than a session.
+		{prefix: whopSellerPrefix, limits: whopSellerLimits, ownRefusals: true, handler: s.whopSeller()},
 	}
 }
 

@@ -102,6 +102,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		var data []map[string]any
 		for _, m := range b.memberships {
 			if plan == "" || m["plan_id"] == plan {
+				m = maps.Clone(m)
+				m["account"] = map[string]any{"id": biz, "title": b.account["title"], "route": b.account["route"]}
 				data = append(data, m)
 			}
 		}
