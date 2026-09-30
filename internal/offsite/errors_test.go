@@ -299,12 +299,6 @@ func TestTransportErrors(t *testing.T) {
 	hanging.fail = answer("", fakeFailure{hang: true})
 	plain := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(plain.Close)
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	refusedAddr := closed.Addr().String()
-	closed.Close()
 	to := func(addr string) func(context.Context, string, string) (net.Conn, error) {
 		return func(ctx context.Context, network, _ string) (net.Conn, error) {
 			var d net.Dialer
@@ -330,7 +324,7 @@ func TestTransportErrors(t *testing.T) {
 		field    string
 		timesOut bool
 	}{
-		{name: "connection refused", dial: to(refusedAddr), kind: KindNetwork, field: "endpoint",
+		{name: "connection refused", dial: refused(), kind: KindNetwork, field: "endpoint",
 			msg: "Nothing accepted the connection at the endpoint (connection refused)."},
 		{name: "host not found, virtual-hosted", mod: func(c *S3Config) { c.PathStyle = false }, dial: dnsFails(true), kind: KindNetwork, field: "endpoint",
 			msg: "The host name backups.s3.test could not be found.", hint: "turn on path-style addressing"},

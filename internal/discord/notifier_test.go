@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
-	"net/http/httptest"
+	"os"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -602,6 +604,53 @@ func TestMachinesInStockArePostedWhateverTheSwitches(t *testing.T) {
 	}
 }
 
+// The fleet's room and health, which the dashboard watches, go out whatever
+// the switches say: the watch is the dashboard's, and a machine off it or
+// out of room concerns every server.
+func TestFleetAlertsArePostedWhateverTheSwitches(t *testing.T) {
+	h := newHarness(t, Settings{Webhook: testWebhook(t, ""), Alerts: Alerts{}})
+	h.Notify(MachineOff("home-server", 5))
+	h.Notify(MachineBack("home-server", 12))
+	h.Notify(MachineBack("home-server", 1))
+	h.Notify(LowRoom(1, 4096, 0))
+	h.Notify(LowRoom(0, 4096, 2))
+	h.Notify(LowRoom(0, 6144, 1))
+	h.Notify(DiskFilling("home-server", 78))
+	h.Notify(BusyCPU("home-server", 82, 3))
+	h.Notify(SlowTicks("Survival", "home-server", 63, 12, 10))
+	h.Notify(MachineOff("*m2*", 5))
+	h.Notify(SlowTicks("*Sky*", "m2", 70, 3, 11))
+	h.sendDue()
+	var got []string
+	for _, r := range h.fake.take() {
+		for _, e := range r.Msg.Embeds {
+			got = append(got, e.Title+": "+strings.TrimSuffix(e.Description, dashboardLine))
+		}
+	}
+	const buy = " Buy a machine when your provider has one in stock: the stock alert posts here when it does."
+	want := []string{
+		`Machine off the dashboard: **home\-server** hasn't been connected to the dashboard for 5 minutes, so the dashboard can't reach its servers.`,
+		`Machine back: **home\-server** is connected to the dashboard again, after 12 minutes off.`,
+		`Machine back: **home\-server** is connected to the dashboard again, after 1 minute off.`,
+		"Room running out: The machines have room for 1 more 4 GB server, across every store." + buy,
+		"Room running out: The machines have no room for another 4 GB server, across every store. 2 customers wait for room." + buy,
+		"Room running out: The machines have no room for another 6 GB server, across every store. 1 customer waits for room." + buy,
+		`Disk filling up: **home\-server**'s disk is 78% full. Delete old backups there, or add a machine for new customers, before it fills.`,
+		`Machine busy at peak: **home\-server** used more than 70% of its CPU in its busiest hour 3 days running, 82% the last. Add a machine and move some customers to it.`,
+		`Server lagging: **Survival** on **home\-server** took 63 ms a tick on average for 10 minutes, with 12 playing. At 50 ms it keeps full speed, so its machine may be too busy.`,
+		`Machine off the dashboard: **\*m2\*** hasn't been connected to the dashboard for 5 minutes, so the dashboard can't reach its servers.`,
+		`Server lagging: **\*Sky\*** on **m2** took 70 ms a tick on average for 11 minutes, with 3 playing. At 50 ms it keeps full speed, so its machine may be too busy.`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("with every switch off, the fleet's alerts still go out, each one:\n%q\nwant\n%q", got, want)
+	}
+	for _, k := range []Kind{KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks} {
+		if k.Valid() || ParseAlerts(string(k)).Has(k) {
+			t.Errorf("%s must not be a switch: the fleet watch is", k)
+		}
+	}
+}
+
 func TestSendTestPostsAConfirmation(t *testing.T) {
 	f := newFakeDiscord(t)
 	ctx := context.Background()
@@ -686,11 +735,14 @@ func TestTokenNeverLeaksIntoErrorsOrLogs(t *testing.T) {
 		t.Errorf("Discord's explanation is shown with the token redacted: %+v", h.deliveries)
 	}
 
-	closed := httptest.NewServer(http.NotFoundHandler())
-	addr := closed.Listener.Addr().String()
-	closed.Close()
+	// Discord refuses the connection. A server's port dialed after closing it
+	// won't do: another program can take the port in between and answer.
+	refused := &http.Transport{DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
+		raddr, _ := net.ResolveTCPAddr(network, addr)
+		return nil, &net.OpError{Op: "dial", Net: network, Addr: raddr, Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	}}
 	errs := []error{
-		SendTest(context.Background(), &http.Client{Transport: toFake{t: t, addr: addr}}, w, survival),
+		SendTest(context.Background(), &http.Client{Transport: toFake{t: t, addr: "127.0.0.1:443", base: refused}}, w, survival),
 		SendTest(context.Background(), &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("proxy refused %s", r.URL)
 		})}, w, survival),

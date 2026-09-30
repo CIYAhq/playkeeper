@@ -173,6 +173,9 @@ type Server struct {
 	placeMu      sync.Mutex
 	roomKick     chan struct{}
 	saleRoomKick chan struct{}
+	// fleet is what watching the fleet's room and health keeps between looks
+	// (see fleetwatch.go).
+	fleet fleetWatch
 	// zoneAddrs are the addresses without a port of joined machines'
 	// servers, and joinedZone lists those servers for the dashboard's zone
 	// (see fleetdns.go); tests stand in for it.
@@ -1826,6 +1829,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runCustomers(ctx)
 	go s.runRoom(ctx)
 	go s.runSaleRoom(ctx)
+	go s.runFleetWatch(ctx)
 	go s.runLapsedCustomers(ctx)
 	go s.runMoves(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)

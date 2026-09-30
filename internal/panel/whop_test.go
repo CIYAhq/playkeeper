@@ -99,6 +99,14 @@ type fakeWhop struct {
 	stockSets []string
 	stockDown bool
 	listDown  bool
+	// priceSets are the monthly prices sellers set, as plan=price, and
+	// priceDown makes Whop refuse setting one. marksDown makes an installed
+	// business refuse a product's new metadata, and showDown a plan's
+	// visibility.
+	priceSets []string
+	priceDown bool
+	marksDown bool
+	showDown  bool
 	// shareWrites are the revenue shares the app added or set, as
 	// "add <product> <percent>" or "set <share> <percent>".
 	shareWrites []string
