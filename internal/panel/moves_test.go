@@ -634,6 +634,9 @@ func TestAMoveChecksEveryServerBeforeAnyStops(t *testing.T) {
 	if r := f.move(t, f.local); r.status != http.StatusConflict || r.body["error"] != why {
 		t.Errorf("moving alex, whose server a move can't carry: %d %v", r.status, r.body)
 	}
+	if r := f.move(t, ""); r.status != http.StatusConflict || r.body["error"] != why {
+		t.Errorf("moving alex to the fullest machine with room, whose server a move can't carry: %d %v", r.status, r.body)
+	}
 	if _, stopped := f.ra.saw("POST /v1/servers/" + movedServer + "/stop"); stopped || f.rows(t, `SELECT COUNT(*) FROM customer_moves`) != 0 || f.e.srv.customerMoving(context.Background(), f.alex.id) {
 		t.Errorf("a move refused for a server it can't carry stopped it (%v) or left alex moving", stopped)
 	}
@@ -663,6 +666,37 @@ func TestAMoveGoesOnlyWhereTheirServersFitOnDisk(t *testing.T) {
 	f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 31<<30))
 	if r := f.move(t, f.local); r.status != http.StatusAccepted {
 		t.Errorf("moving alex to a machine with room on its disk: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
+// A server of a customer's already on the machine they go to isn't carried
+// there, so one a move couldn't carry now, as its folder grew since it
+// arrived, doesn't keep the rest of theirs from following, as when a
+// stopped move is tried again. One that has to go still refuses the move.
+func TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing(t *testing.T) {
+	f := newMoveFleet(t)
+	for _, q := range []string{
+		fmt.Sprintf(`INSERT INTO creator_servers(server_id, user_id, created_at) VALUES('arrivsrv23', %d, 0)`, f.alex.id),
+		fmt.Sprintf(`INSERT INTO server_machines(server_id, machine_id, slug, seen_at) VALUES('arrivsrv23', '%s', '', 0)`, f.local),
+	} {
+		if _, err := f.e.srv.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const why = "arrived can't be moved: its folder has more than 200000 files."
+	f.e.answer("GET /v1/servers/arrivsrv23/move-check", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"`+why+`","code":"conflict"}`)
+	})
+	if r := f.move(t, f.rid); r.status != http.StatusConflict || r.body["error"] != why {
+		t.Errorf("moving alex to home-server, which the server a move can't carry would have to go to: %d %v", r.status, r.body)
+	}
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex to the machine the server a move can't carry is on: %d %v", r.status, r.body)
 	}
 	if why := f.moved(t); why != "" {
 		t.Fatalf("the move stopped: %s", why)

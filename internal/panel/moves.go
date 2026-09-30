@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -357,6 +358,9 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 			if target, ok = chooseMachine(others, planMB); !ok {
 				return "", errMoveNowhere
 			}
+			if refused := carryRefusal(sizes, target.ID); refused != nil {
+				return "", refused
+			}
 			err := guardOn(ctx, target, actor)
 			if err == nil {
 				break
@@ -379,6 +383,9 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 		case target.FreeMB < planMB:
 			return "", &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
 				Msg: fmt.Sprintf("That machine can set aside %s, and their plan needs %s.", gbText(max(target.FreeMB, 0)), gbText(planMB))}
+		}
+		if refused := carryRefusal(sizes, target.ID); refused != nil {
+			return "", refused
 		}
 		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {
 			return "", diskRefusal(target, name, need)
@@ -418,18 +425,19 @@ const moveDiskReserve = 512 << 20
 
 // serverSize is what one of a customer's servers takes where it moves
 // (api.MoveCheck), the machine it's on, and the machines a move left a copy
-// of it on that isn't deleted yet.
+// of it on that isn't deleted yet; or, for one a move can't carry or its
+// machine couldn't check, why (refused).
 type serverSize struct {
 	api.MoveCheck
 	machineID string
 	copiesOn  []string
+	refused   *invites.Error
 }
 
-// moveSizes has each of customer name's servers that a move would carry
-// checked by its machine (the agent's move-check) and returns what each
-// takes where it goes. A server on a removed machine stays there, out of
-// reach. The move is refused, naming why, for a server a move can't carry,
-// or whose machine can't check it, before any of their servers stops.
+// moveSizes has each of customer name's servers checked by its machine
+// (the agent's move-check) and returns what each takes where it goes, or
+// why a move can't carry it. A server on a removed machine stays there, out
+// of reach.
 func (s *Server) moveSizes(ctx context.Context, userID int64, name string) (map[string]serverSize, error) {
 	ids, err := s.creatorServers(userID)
 	if err != nil {
@@ -452,7 +460,8 @@ func (s *Server) moveSizes(ctx context.Context, userID int64, name string) (map[
 		err = askAgent(ctx, m, http.MethodGet, "/v1/servers/"+id+"/move-check", nil, &check)
 		if refused := moveCheckRefusal(m, name, err); refused != nil {
 			s.log.Warn("a server wasn't checked for its move", "machine", m.ID, "server", id, "err", err)
-			return nil, refused
+			out[id] = serverSize{machineID: at, refused: refused}
+			continue
 		}
 		copies, err := s.copiesLeftOf(ctx, id)
 		if err != nil {
@@ -483,6 +492,18 @@ func (s *Server) copiesLeftOf(ctx context.Context, id string) ([]string, error) 
 		return nil, errDB
 	}
 	return out, nil
+}
+
+// carryRefusal is why a move of the servers sizes names to machine id can't
+// go, naming the first server that would go there and that a move can't
+// carry or its machine couldn't check, or nil. One already there stays.
+func carryRefusal(sizes map[string]serverSize, id string) *invites.Error {
+	for _, sid := range slices.Sorted(maps.Keys(sizes)) {
+		if sz := sizes[sid]; sz.refused != nil && sz.machineID != id {
+			return sz.refused
+		}
+	}
+	return nil
 }
 
 // moveCheckRefusal refuses to move customer name for a server machine m
