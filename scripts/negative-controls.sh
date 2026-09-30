@@ -6693,11 +6693,11 @@ control "a look at the page doesn't undo what changed while it asked the agent" 
   ./internal/panel '^TestALookDoesntUndoWhatChangedWhileItAsked$'
 control "a visit noted while a look asks the agent outlasts the look" internal/panel/dashboard443.go \
   'p.reached, p.gen = true, p.gen+1' \
-  'p.reached, p.gen = true, p.gen' \
+  'p.reached, p.gen = true, p.gen+0' \
   ./internal/panel '^TestALookDoesntUndoWhatChangedWhileItAsked$'
 control "turning the dashboard's port off while a look asks the agent stays off" internal/panel/dashboard443.go \
   'p.dashboard, p.reached, p.gen = false, false, p.gen+1' \
-  'p.dashboard, p.reached, p.gen = false, false, p.gen' \
+  'p.dashboard, p.reached, p.gen = false, false, p.gen+0' \
   ./internal/panel '^TestALookDoesntUndoWhatChangedWhileItAsked$'
 control "the dashboard's pages may connect only to a DNS name on port 443" internal/panel/dashboard443.go \
   'if !reDomainName.MatchString(host) {' \
