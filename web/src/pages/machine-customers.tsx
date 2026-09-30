@@ -105,15 +105,20 @@ export function CustomerList({ machine: m, card = false }: { machine: MachineVie
 /** The move dialog's choice of the fullest machine with room, the dashboard's pick. */
 const fullest = 'fullest'
 
-/** Moving a customer off a machine: to the fullest other machine with room for their plan, or one the owner picks. */
+/**
+ * Moving a customer off a machine: to the fullest other machine with room for their plan, or one the owner picks.
+ * One whose servers go on another machine goes back there by default, which brings theirs together, whether or not
+ * it takes new customers.
+ */
 function MoveDialog({ customer, from, onClose, onMoved }: { customer?: MachineCustomer; from: MachineView; onClose: () => void; onMoved: () => void }) {
   const ws = useWorkspace()
   const [to, setTo] = useState(fullest)
   const [busy, setBusy] = useState(false)
+  const home = customer?.machineId && customer.machineId !== from.id ? customer.machineId : ''
   useEffect(() => {
-    if (customer) setTo(fullest)
-  }, [customer])
-  const targets = ws.machines.filter((x) => x.id !== from.id && (x.kind === 'local' || x.takesCustomers))
+    if (customer) setTo(home || fullest)
+  }, [customer, home])
+  const targets = ws.machines.filter((x) => x.id !== from.id && (x.kind === 'local' || x.takesCustomers || x.id === home))
   const who = customer?.name ?? ''
   async function move() {
     if (!customer) return
@@ -147,7 +152,7 @@ function MoveDialog({ customer, from, onClose, onMoved }: { customer?: MachineCu
             {targets.map((x) => (
               <label key={x.id} className="flex items-center gap-2.5 text-[13px] max-sm:text-[15px]">
                 <Radio value={x.id} />
-                {nameOf(ws, x)}
+                {x.id === home ? t('machines.customers.moveHome', { name: nameOf(ws, x) }) : nameOf(ws, x)}
               </label>
             ))}
           </RadioGroupPrimitive>

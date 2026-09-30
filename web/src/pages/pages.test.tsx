@@ -4181,6 +4181,22 @@ describe('Machines and AI agents', () => {
       expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', {})
     })
 
+    it('moves a customer with servers left on a machine to their own machine by default, though it takes no new customers', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 1 }
+      const attic: MachineView = { ...home, id: 'a2345abcde', name: 'attic' }
+      const cellar: MachineView = { ...taking, id: 'c2345abcde', name: 'cellar' }
+      answer({ '/api/machines/h2345abcde/customers': [{ id: 7, name: 'alex', state: 'active', memoryMB: 8192, servers: 2, machineId: 'a2345abcde', here: 1 }] })
+      answerPosts({ '/api/customers/7/move': { machineId: 'a2345abcde' } })
+      await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, taking, attic, cellar], me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } }))
+      expect(page()).toContain('1 still here, their servers go on attic')
+      await click('Move…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('attic, their machine')
+      expect(dialog).toContain('cellar')
+      await click('Move alex')
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/7/move', { machineId: 'a2345abcde' })
+    })
+
     it('warns before removing a machine customers are on', async () => {
       await render(<MachineDetailsSection id={home.id} />, owner({ ...home, customers: 2 }))
       await click('Remove home-server…')

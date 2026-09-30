@@ -2009,6 +2009,7 @@ export const en = {
   'machines.customers.moveBody': 'Their plan’s memory is set aside there at once, and their new servers go there. Each of their servers then stops for a few minutes while its folder and settings go over, and starts again there if it was running or asleep. The machine each one leaves keeps its final backup for 7 days.',
   'machines.customers.moveTo': 'Move them to',
   'machines.customers.moveFullest': 'The fullest machine with room for their plan',
+  'machines.customers.moveHome': '{name}, their machine',
   'machines.customers.moveConfirm': 'Move {customer}',
   'machines.customers.moveStarted': 'Moving {customer} to {name}',
   'machines.remove.title': 'Remove {name}',
