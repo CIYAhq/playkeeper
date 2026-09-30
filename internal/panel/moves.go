@@ -386,8 +386,8 @@ func (s *Server) moveServers(ctx context.Context, userID int64) (int, error) {
 			// A move a restart stopped, to where they aren't going now.
 			if from, err := s.machineByID(mv.from); err == nil {
 				s.abandonMove(ctx, mv, from)
-			} else if _, err := s.db.ExecContext(ctx, `DELETE FROM server_moves WHERE server_id = ?`, id); err != nil {
-				return moved, errDB
+			} else {
+				s.dropMove(ctx, mv)
 			}
 			moving = false
 		}
@@ -397,8 +397,16 @@ func (s *Server) moveServers(ctx context.Context, userID int64) (int, error) {
 			continue
 		}
 		from, err := s.machineByID(at)
-		if err != nil {
-			return moved, fmt.Errorf("server %s is on a machine that was removed", id)
+		switch {
+		case errors.Is(err, errNotFound):
+			// A server on a removed machine stays there, out of reach, and
+			// a copy a move was making of it goes.
+			if moving {
+				s.dropMove(ctx, mv)
+			}
+			continue
+		case err != nil:
+			return moved, err
 		}
 		did, err := s.moveServer(ctx, userID, id, from, to, mv, moving)
 		if err != nil {
@@ -657,6 +665,30 @@ func leftCopy(ctx context.Context, q querier, id, machineID string, userID int64
 // went to the machine it was going to: they go where it is again, it
 // starts there again if it ran, and that machine deletes the copy it made.
 func (s *Server) abandonMove(ctx context.Context, mv serverMove, from machine) {
+	if !s.endMove(ctx, mv) {
+		return
+	}
+	if mv.ran {
+		var op api.Operation
+		if _, err := from.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/servers/"+mv.serverID+"/start", nil, api.ActionRequest{Actor: placementActor}, &op); err != nil {
+			s.log.Warn("a server whose move failed didn't start again where it is", "server", mv.serverID, "err", err)
+		}
+	}
+	s.leaveMoveCopy(ctx, mv)
+}
+
+// dropMove ends mv, a move from a machine that was removed, and the machine
+// it was going to deletes the copy it made.
+func (s *Server) dropMove(ctx context.Context, mv serverMove) {
+	if s.endMove(ctx, mv) {
+		s.leaveMoveCopy(ctx, mv)
+	}
+}
+
+// endMove ends mv before its server's requests went to the machine it was
+// going to: the copy that machine made is a copy left there. It reports
+// whether it could.
+func (s *Server) endMove(ctx context.Context, mv serverMove) bool {
 	err := s.immediate(ctx, func(c *sql.Conn) error {
 		if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {
 			return err
@@ -666,14 +698,12 @@ func (s *Server) abandonMove(ctx context.Context, mv serverMove, from machine) {
 	})
 	if err != nil {
 		s.log.Error("could not undo a server's move", "server", mv.serverID, "err", err)
-		return
 	}
-	if mv.ran {
-		var op api.Operation
-		if _, err := from.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/servers/"+mv.serverID+"/start", nil, api.ActionRequest{Actor: placementActor}, &op); err != nil {
-			s.log.Warn("a server whose move failed didn't start again where it is", "server", mv.serverID, "err", err)
-		}
-	}
+	return err == nil
+}
+
+// leaveMoveCopy has the machine mv was going to delete the copy it made.
+func (s *Server) leaveMoveCopy(ctx context.Context, mv serverMove) {
 	if err := s.leaveCopy(ctx, mv.serverID, mv.to); err != nil {
 		s.log.Warn("the machine a failed move was going to couldn't delete its copy yet", "server", mv.serverID, "err", err)
 	}
@@ -824,10 +854,12 @@ func whyStopped(err error) string {
 	return msg
 }
 
-// runMoves carries on the moves a restart of the dashboard stopped, then
-// every moveRetry asks machines that were away to delete the copies moves
-// left on them, until ctx ends.
+// runMoves places again the customers whose machine was removed while the
+// dashboard was stopped or before it did that, carries on the moves a
+// restart stopped, then every moveRetry asks machines that were away to
+// delete the copies moves left on them, until ctx ends.
 func (s *Server) runMoves(ctx context.Context) {
+	s.rehomeStranded(ctx)
 	s.resumeMoves(ctx)
 	t := time.NewTicker(moveRetry)
 	defer t.Stop()

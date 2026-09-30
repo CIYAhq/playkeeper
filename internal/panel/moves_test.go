@@ -700,6 +700,52 @@ func TestAMoveCarriesOnAfterARestart(t *testing.T) {
 	}
 }
 
+// Removing a machine places its customers again, as new customers are:
+// each gets the fullest other machine with room for their plan, or waits
+// for room, and their servers stay on the removed machine. A move of theirs
+// that stopped then finishes without the servers left there, so nothing
+// keeps them from making new ones. Customers whose machine was removed
+// before are placed again too.
+func TestARemovedMachinesCustomersGetRoomElsewhere(t *testing.T) {
+	f := newMoveFleet(t)
+	ctx := context.Background()
+	if r := f.e.do(t, "DELETE", "/api/machines/"+f.rid, "", f.own.auth()); r.status != http.StatusNoContent {
+		t.Fatalf("removing home-server: %d %v", r.status, r.body)
+	}
+	if home, placed, _ := f.e.srv.homeMachine(ctx, f.alex.id); placed || home != "" {
+		t.Fatalf("alex's machine once home-server is removed: %q", home)
+	}
+	f.e.srv.startWaitingCustomers(ctx)
+	if home, _, _ := f.e.srv.homeMachine(ctx, f.alex.id); home != f.local {
+		t.Fatalf("alex's machine once placed again: %q", home)
+	}
+	rows := f.e.auditRows(t, "customer.place")
+	if n := len(rows); n < 2 || !strings.Contains(rows[n-2], "waiting the machine they were on was removed") || !strings.Contains(rows[n-1], "placed on") {
+		t.Errorf("audit: %v", rows)
+	}
+
+	if _, err := f.e.srv.db.Exec(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by, error) VALUES(?, ?, 0, 'admin', 'It stopped.')`, f.alex.id, f.local); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex again: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped on the server left on the removed machine: %s", why)
+	}
+	if r := f.e.do(t, "POST", "/api/machines/"+f.local+"/servers", `{"name":"alex 2","acceptEula":true,"memoryMB":2048}`, f.alex.auth()); r.status == http.StatusConflict {
+		t.Errorf("alex makes a server once their move finished: %d %v", r.status, r.body)
+	}
+
+	if _, err := f.e.srv.db.Exec(`UPDATE customer_homes SET machine_id = ? WHERE user_id = ?`, f.rid, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	f.e.srv.rehomeStranded(ctx)
+	if home, placed, _ := f.e.srv.homeMachine(ctx, f.alex.id); placed || home != "" {
+		t.Errorf("a customer whose machine was removed before keeps it: %q", home)
+	}
+}
+
 // A customer whose servers are being moved, or whose move stopped, isn't
 // deleted once their grace period ends until their servers are all on
 // their machine: the deletion looks there.
