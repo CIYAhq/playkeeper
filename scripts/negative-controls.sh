@@ -8840,6 +8840,18 @@ webcontrol "seller view: the seller's page shows the view once the store is open
   '<SellerStoreView store={store} />' \
   '' \
   src/pages/whop-seller.test.tsx 'read through a relative address'
+
+# Seller terms (the hosted blueprint's 3.3): the seller's page links
+# Playkeeper Cloud's seller terms where it asks the business to approve the
+# app, and once its store is connected.
+webcontrol "seller terms: the seller's page links the terms where it asks for approval" web/src/pages/whop-seller.tsx \
+  "{rich('whopSeller.termsApprove', { link: termsLink })}" \
+  '' \
+  src/pages/whop-seller.test.tsx 'sends a business that'
+webcontrol "seller terms: the seller's page links the terms once the store is connected" web/src/pages/whop-seller.tsx \
+  "{rich('whopSeller.terms', { link: termsLink })}" \
+  '' \
+  src/pages/whop-seller.test.tsx 'opens the store through a relative address'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
