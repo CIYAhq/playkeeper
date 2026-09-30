@@ -56,6 +56,23 @@ func cardOf(page, path string) string {
 	return ""
 }
 
+// ownPages are the site's own pages under /templates, like the AI build
+// battle's, which are none of the directory's, by address.
+func ownPages(t *testing.T) map[string]bool {
+	t.Helper()
+	ps, err := loadPages(os.DirFS("../.."), "site/pages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := map[string]bool{}
+	for _, p := range ps {
+		if ownUnderTemplates(p) {
+			own[p.Path] = true
+		}
+	}
+	return own
+}
+
 // indexOf reads js/templates-index.js back.
 func indexOf(t *testing.T, o *Output) (idx struct {
 	Arts      []indexImage           `json:"arts"`
@@ -86,10 +103,12 @@ func indexOf(t *testing.T, o *Output) (idx struct {
 // nothing else: each has a card on /templates that opens it, a page with
 // its facts under its first category, a /t/<id> that sends the browser on to
 // the share page with it, and an entry in the index the directory's script
-// filters. Each category's page lists its templates.
+// filters. Each category's page lists its templates. The site's own pages
+// under /templates, like the AI build battle's, are none of these.
 func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 	o := build(t, Default)
 	built := pages(o)
+	own := ownPages(t)
 	sitemap := string(o.Files["sitemap.xml"])
 	root := os.DirFS("../..")
 	cards, err := loadTemplateCards(root, "site/data/templates")
@@ -180,7 +199,7 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 		}
 		unlisted++
 		for p := range built {
-			if (strings.HasPrefix(p, "/templates/") || strings.HasPrefix(p, "/t/")) && strings.HasSuffix(p, "/"+c.ID) {
+			if (strings.HasPrefix(p, "/templates/") || strings.HasPrefix(p, "/t/")) && strings.HasSuffix(p, "/"+c.ID) && !own[p] {
 				t.Errorf("%s is a page for %s, which %s", p, c.ID, why)
 			}
 		}
@@ -228,6 +247,7 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 		case len(parts) == 2 && parts[0] == "page", len(parts) == 3 && parts[1] == "page":
 		case len(parts) == 1 && slices.ContainsFunc(d.Categories, func(c *Category) bool { return c.ID == parts[0] }):
 		case len(parts) == 2 && slices.ContainsFunc(d.Templates, func(c *TemplateCard) bool { return c.Path() == p }):
+		case own[p]:
 		default:
 			t.Errorf("%s is no page of the directory: its pages, a category or a template", p)
 		}
