@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // A revenue share pays a partner a percentage of every payment on a
@@ -102,10 +104,32 @@ func (c *Client) RevShares(ctx context.Context, partnerID string) ([]RevShare, e
 	return slices.DeleteFunc(all, func(r RevShare) bool { return r.Type != "rev_share" }), nil
 }
 
-// Money is an amount as Whop writes it, such as "8.50" in usd.
+// Money is an amount as Whop writes it, such as "8.50" in usd: an exact
+// decimal in major units, carrying Decimals places.
 type Money struct {
 	Amount   string `json:"amount"`
 	Currency string `json:"currency"`
+	Decimals int    `json:"decimals"`
+}
+
+// Minor is the amount in the currency's smallest unit, such as cents, or an
+// error for an amount that isn't an exact decimal of at most Decimals
+// places.
+func (m Money) Minor() (int64, error) {
+	s := strings.TrimSpace(m.Amount)
+	neg := strings.HasPrefix(s, "-")
+	whole, frac, _ := strings.Cut(strings.TrimPrefix(s, "-"), ".")
+	if m.Decimals < 0 || m.Decimals > 8 || len(frac) > m.Decimals || whole == "" || strings.Trim(whole+frac, "0123456789") != "" || len(whole) > 12 {
+		return 0, fmt.Errorf("%q isn't an amount in %s", m.Amount, m.Currency)
+	}
+	n, err := strconv.ParseInt(whole+frac+strings.Repeat("0", m.Decimals-len(frac)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%q isn't an amount in %s", m.Amount, m.Currency)
+	}
+	if neg {
+		n = -n
+	}
+	return n, nil
 }
 
 // PaymentFee is one line of what came out of a payment besides the seller's
