@@ -22,6 +22,7 @@ import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { HetznerStockCard } from './hetzner-stock'
+import { CustomerList } from './machine-customers'
 import { SaleRoomCard } from './sale-room'
 
 type Dial = DialAddress['kind']
@@ -630,6 +631,7 @@ function CustomersCard({ machine: m, onChange }: { machine: MachineView; onChang
       <p className="mt-3 text-[13px] font-semibold">{takes ? t('machines.customers.on', { name }) : t('machines.customers.off', { name })}</p>
       <p className="text-xs text-muted-foreground">{takes ? onHint(takes) : t('machines.customers.offHint')}</p>
       {!!m.customers && <p className="mt-1 text-xs text-muted-foreground">{t('machines.customers.count', { count: m.customers })}</p>}
+      <CustomerList machine={m} />
       {takes ? (
         <Button variant="outline" size="sm" className="mt-3 self-start" loading={busy} onClick={() => void set(false)}>
           {t('machines.customers.stop')}
@@ -727,6 +729,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
   const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
   const name = machineLabel(m)
+  const ownerOnly = !!m.customers && !can(ws.me, 'machines.customers')
   async function remove() {
     setBusy(true)
     try {
@@ -754,7 +757,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
           {!!m.customers && (
             <>
               <p className="mt-3 font-semibold text-warning-foreground">{t('machines.remove.customers', { count: m.customers, name })}</p>
-              <p className="text-xs text-muted-foreground">{t('machines.remove.customersHint')}</p>
+              <p className="text-xs text-muted-foreground">{ownerOnly ? t('machines.remove.ownerOnly') : t('machines.remove.customersHint', { name })}</p>
             </>
           )}
         </div>
@@ -762,7 +765,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant="destructive" onClick={() => void remove()} loading={busy}>
+          <Button variant="destructive" onClick={() => void remove()} loading={busy} disabled={ownerOnly}>
             <Trash2Icon />
             {t('machines.remove.confirm', { name })}
           </Button>

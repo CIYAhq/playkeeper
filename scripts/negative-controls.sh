@@ -10648,6 +10648,66 @@ control "removing a machine: a server left on it doesn't stop its customer's mov
   'case errors.Is(err, errNotFound):' \
   'case false:' \
   ./internal/panel '^TestARemovedMachinesCustomersGetRoomElsewhere$'
+webcontrol "moving customers: nothing can be done to a server being moved" web/src/lib/phase.ts \
+  "if (st.moving) return t('reason.moving')" \
+  "if (false) return t('reason.moving')" \
+  src/lib/lib.test.ts 'why a control can'
+webcontrol "moving customers: a server being moved says so" web/src/lib/phase.ts \
+  "if (st.moving) return t('status.moving')" \
+  "if (false) return t('status.moving')" \
+  src/lib/lib.test.ts 'calls a server being moved one being moved'
+webcontrol "moving customers: the dashboard's machine's customers are the owner's alone" web/src/pages/machine.tsx \
+  "{can(ws.me, 'machines.customers') && <CustomerList machine={m} card />}" \
+  '<CustomerList machine={m} card />' \
+  src/pages/pages.test.tsx 'lists the customers on the dashboard'
+webcontrol "moving customers: a customer goes where the owner picks" web/src/pages/machine-customers.tsx \
+  'to === fullest ? {} : { machineId: to }' \
+  '{}' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: only machines that take customers are offered" web/src/pages/machine-customers.tsx \
+  "(x.kind === 'local' || x.takesCustomers || x.id === home)" \
+  'true' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: a customer with servers left on a machine goes to their own machine by default" web/src/pages/machine-customers.tsx \
+  'setTo(home || fullest)' \
+  'setTo(fullest)' \
+  src/pages/pages.test.tsx 'their own machine by default'
+webcontrol "moving customers: a customer's own machine is offered though it takes no new customers" web/src/pages/machine-customers.tsx \
+  ' || x.id === home))' \
+  '))' \
+  src/pages/pages.test.tsx 'their own machine by default'
+webcontrol "moving customers: the machine a customer is on isn't offered" web/src/pages/machine-customers.tsx \
+  'x.id !== from.id && ' \
+  '' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: a move that stopped is tried again to their own machine" web/src/pages/machine-customers.tsx \
+  'c.machineId ? { machineId: c.machineId } : {}' \
+  '{ machineId: m.id }' \
+  src/pages/pages.test.tsx 'tries their move again to their own machine'
+webcontrol "moving customers: a customer whose servers go on another machine has some still here" web/src/pages/machine-customers.tsx \
+  'const theirs = c.machineId === m.id' \
+  'const theirs = true' \
+  src/pages/pages.test.tsx 'lists customers a stopped move left servers with'
+webcontrol "removing a machine: only the owner removes one customers are on, on its page" web/src/pages/machines.tsx \
+  "const ownerOnly = !!m.customers && !can(ws.me, 'machines.customers')" \
+  'const ownerOnly = false' \
+  src/pages/pages.test.tsx 'leaves removing a machine customers are on to the owner'
+webcontrol "moving customers: a server being moved offers nothing to do to it" web/src/lib/phase.ts \
+  "const reachable = st.exists && !st.moving && st.phase !== 'docker_unavailable'" \
+  "const reachable = st.exists && st.phase !== 'docker_unavailable'" \
+  src/lib/lib.test.ts 'offers nothing to do to it'
+webcontrol "moving customers: a server's status pill says it's being moved" web/src/components/app/bits.tsx \
+  "return { tone, label: statusLabel(st), labelClass: 'text-info-foreground' }" \
+  "return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }" \
+  src/lib/lib.test.ts 'offers nothing to do to it'
+webcontrol "moving customers: the sidebar says a server is being moved" web/src/components/app/shell.tsx \
+  '<span className="text-xs text-info-foreground">{statusLabel(s)}</span>' \
+  '<span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>' \
+  src/pages/pages.test.tsx 'says a server being moved is being moved'
+webcontrol "moving customers: a server's card on Home says it's being moved" web/src/pages/home.tsx \
+  '{statusLabel(s)}' \
+  '{s.phase}' \
+  src/pages/pages.test.tsx 'says on its card that a server being moved is being moved'
 control "moving customers: a customer whose servers are apart gives none more memory" internal/panel/creators.go \
   '(!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID)' \
   '(!ok || memoryMB > cur) && false' \

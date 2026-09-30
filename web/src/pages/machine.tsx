@@ -19,6 +19,7 @@ import { statusLabel, statusTone } from '@/lib/phase'
 import { linkProps, navigate } from '@/lib/router'
 import { newerStable, softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
+import { CustomerList } from './machine-customers'
 import { certProblemText } from './machine-settings/parts'
 import { Group } from './more'
 
@@ -161,6 +162,7 @@ export function MachinePage({ id }: { id: string }) {
             </a>
           )}
         </Card>
+        {can(ws.me, 'machines.customers') && <CustomerList machine={m} card />}
       </PageBody>
     </>
   )

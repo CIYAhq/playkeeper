@@ -183,6 +183,8 @@ export interface ServerStatus {
   lastKnownAt?: string
   /** Two joined machines list this server, so the dashboard sends its requests to neither. */
   disputed?: boolean
+  /** The owner is moving the server's customer to another machine: no request reaches it until it's there. */
+  moving?: boolean
   /** A joined machine lists this server, but the dashboard couldn't save that yet, so its requests are refused with "try again" until it can. */
   unsaved?: boolean
   /** A joined machine's server's address without a port, under the dashboard's own domain, once public DNS finds the dashboard's zone. */
@@ -462,6 +464,32 @@ export interface MachineView {
 export interface TakesCustomers {
   since: string
   by: string
+}
+
+/** A customer whose servers go on a machine, or who still has servers there, as the owner sees them on its page. */
+export interface MachineCustomer {
+  id: number
+  name: string
+  handle?: string
+  state: 'active' | 'paused' | 'suspended'
+  planId?: string
+  memoryMB: number
+  servers: number
+  /** The machine their servers go on, or empty while they wait for room. */
+  machineId: string
+  /** How many of their servers are on the machine listing them. */
+  here: number
+  move?: CustomerMove
+}
+
+/** The owner moving a customer to the machine, under way or stopped. */
+export interface CustomerMove {
+  startedAt: string
+  startedBy: string
+  /** How many of their servers aren't on the machine yet. */
+  left: number
+  /** Why the move stopped; unset while it's under way. */
+  error?: string
 }
 
 /** An address another machine can dial to reach this dashboard. */
