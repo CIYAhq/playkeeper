@@ -9537,6 +9537,26 @@ control "moving customers: a server that no longer fits by its turn isn't stoppe
   '	if err := checkRoomFor(ctx, from, to, id); err != nil {' \
   '	if err := checkRoomFor(ctx, from, to, id); err != nil && false {' \
   ./internal/panel '^TestAServerThatNoLongerFitsIsntStopped$'
+control "kept backups: the copy a move left keeps its whole folder" internal/agent/keptbackups.go \
+  '		create, need = backup.CreateWhole, size.ArchiveBytes()' \
+  '		create, need = backup.Create, size.ArchiveBytes()' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: the copy a move left goes even when nothing of it can be kept" internal/agent/servers.go \
+  '		case err != nil && keep.whole:' \
+  '		case err != nil && keep.whole && false:' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: a whole folder is kept only with the days to keep it" internal/agent/keptbackups.go \
+  '	case req.KeepFinalBackupDays == 0 && req.KeptFor == "" && !req.KeepWhole:' \
+  '	case req.KeepFinalBackupDays == 0 && req.KeptFor == "":' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "moving customers: whoever starts or stops a server since its failed move decides whether it runs" internal/panel/moves.go \
+  '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { s.forgetRestart(id) })(w, r, sess)' \
+  '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { _ = id })(w, r, sess)' \
+  ./internal/panel '^TestAServerStoppedSinceItsFailedMoveStaysStopped$'
+control "moving customers: the copy a move left is deleted keeping its whole folder" internal/panel/moves.go \
+  '		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true' \
+  '		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), false' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving in: a server keeps Playkeeper's record of the add-ons it installed" internal/agent/movestate.go \
   '	{"addons", []string{' \
   '	// {"addons", []string{' \
