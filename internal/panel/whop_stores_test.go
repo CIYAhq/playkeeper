@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/whop"
@@ -25,6 +27,24 @@ func (b *fakeBusiness) plan(id string) map[string]any {
 		}
 	}
 	return nil
+}
+
+// fakeTime is a time the fake Whop keeps, zero when it has none.
+func fakeTime(v any) time.Time {
+	t, err := time.Parse(time.RFC3339Nano, fmt.Sprint(v))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// createdAfter says whether a payment or refund of the fake Whop is in a
+// list asking for those created after a time, as every one is when the
+// list asks for none or it has no time.
+func createdAfter(rec map[string]any, after string) bool {
+	a, err := time.Parse(time.RFC3339, after)
+	created := fakeTime(rec["created_at"])
+	return err != nil || created.IsZero() || created.After(a)
 }
 
 // serveInstalled answers a request made with the Playkeeper Cloud app's
@@ -65,6 +85,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		case (strings.HasPrefix(route, "GET /products/") || strings.HasPrefix(route, "PATCH /products/")) && fb.products[id] != nil:
 			biz = b
 		case len(parts) > 3 && parts[1] == "affiliates" && parts[2] == "aff_"+b && fb.partner != "":
+			biz = b
+		case len(parts) == 3 && parts[1] == "payments" && slices.ContainsFunc(fb.payments, func(p map[string]any) bool { return p["id"] == parts[2] }):
 			biz = b
 		case len(parts) == 4 && parts[1] == "payments" && parts[3] == "fees" && fb.fees[parts[2]] != nil:
 			biz = b
@@ -176,10 +198,34 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such override"}}`)
 	case route == "GET /payments":
+		q := r.URL.Query()
 		var data []map[string]any
 		for _, p := range b.payments {
-			if p["membership_id"] == r.URL.Query().Get("membership_id") && p["status"] == r.URL.Query().Get("status") {
+			if !createdAfter(p, q.Get("created_after")) {
+				continue
+			}
+			if (q.Get("membership_id") == "" || p["membership_id"] == q.Get("membership_id")) && p["status"] == q.Get("status") {
 				data = append(data, p)
+			}
+		}
+		if q.Get("order") == "paid_at" && q.Get("direction") == "desc" {
+			slices.SortStableFunc(data, func(a, b map[string]any) int { return fakeTime(b["paid_at"]).Compare(fakeTime(a["paid_at"])) })
+		}
+		page(data)
+	case len(parts) == 3 && parts[1] == "payments":
+		for _, p := range b.payments {
+			if p["id"] == parts[2] {
+				json.NewEncoder(w).Encode(p)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such payment"}}`)
+	case route == "GET /refunds":
+		var data []map[string]any
+		for _, rf := range b.refunds {
+			if createdAfter(rf, r.URL.Query().Get("created_after")) {
+				data = append(data, rf)
 			}
 		}
 		page(data)
@@ -228,12 +274,32 @@ func (f *fakeWhop) installOther() {
 	}
 }
 
-// buyAt is buy at a business that installed the app.
+// buyAt is buy at a business that installed the app: the membership, and
+// its payment, which carried Playkeeper's share for the plan.
 func (f *fakeWhop) buyAt(biz, id, user, plan, status string) map[string]any {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	m := map[string]any{"id": id, "status": status, "plan_id": plan, "product_id": "prod_other", "user_id": user, "cancel_at_period_end": false}
-	f.installed[biz].memberships[id] = m
+	b := f.installed[biz]
+	b.memberships[id] = m
+	memoryMB, product := 4096, "prod_other"
+	if p := b.plan(plan); p != nil {
+		meta, _ := p["metadata"].(map[string]any)
+		if gb, err := strconv.ParseFloat(fmt.Sprint(meta[whop.MetaMemoryGB]), 64); err == nil {
+			memoryMB = int(gb * 1024)
+		}
+		if prod, ok := p["product"].(map[string]any); ok {
+			product = fmt.Sprint(prod["id"])
+		}
+	}
+	pay := "pay_" + id
+	b.payments = append([]map[string]any{{"id": pay, "status": "paid", "membership_id": id, "plan_id": plan, "product_id": product, "paid_at": "2026-09-24T12:00:00.000Z",
+		"user": map[string]any{"id": user}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
+	if b.fees == nil {
+		b.fees = map[string][]map[string]any{}
+	}
+	b.fees[pay] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
+		"settlement_amount": map[string]any{"amount": strings.TrimPrefix(dollarsOf(whopShareFor(memoryMB)), "$"), "currency": "usd", "decimals": 2}}}
 	return m
 }
 
@@ -247,16 +313,32 @@ func (f *fakeWhop) sentIn(biz, user string) []string {
 
 // twoStores is a dashboard selling for Pip Hosting with its own key, and for
 // Other Hosting, which installed the Playkeeper Cloud app, with the app's
-// key.
+// key. Other Hosting is open, with Playkeeper's share on its product, paid
+// to the owner's own Whop account, as Open the store leaves it.
 func twoStores(t *testing.T) (*fakeWhop, *env, member) {
 	t.Helper()
 	f, e, own := connectedWhop(t)
 	f.installOther()
-	if _, err := e.srv.db.Exec(`INSERT INTO whop_app(id, api_key) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key`, whopTestAppKey); err != nil {
+	f.mu.Lock()
+	f.users["user_siya"] = "siyabuilt"
+	f.mu.Unlock()
+	if _, err := e.srv.db.Exec(`INSERT INTO whop_app(id, api_key, share_user, share_username) VALUES(1, ?, 'user_siya', 'siyabuilt')
+		ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key, share_user = excluded.share_user, share_username = excluded.share_username`, whopTestAppKey); err != nil {
 		t.Fatal(err)
 	}
 	if added, err := e.srv.addWhopStore(context.Background(), whop.Account{ID: "biz_other", Title: "Other Hosting", Route: "other-hosting"}); err != nil || !added {
 		t.Fatalf("adding Other Hosting: %v, %v", added, err)
+	}
+	st, _, err := e.srv.whopStoreByID(context.Background(), "biz_other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := e.srv.whopClientFor(context.Background(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problem, err := e.srv.syncWhopShares(context.Background(), c, st, true); err != nil || problem != "" {
+		t.Fatalf("setting Other Hosting's share: %q, %v", problem, err)
 	}
 	if open, err := e.srv.openWhopStore(context.Background(), "biz_other", whopNotOpenYet); err != nil || !open {
 		t.Fatalf("opening Other Hosting: %v, %v", open, err)

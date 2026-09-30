@@ -11,9 +11,16 @@ export interface Env {
   WHOP_API_ORIGIN?: string
   WHOP_ACCOUNT_ID?: string
   WHOP_API_KEY?: string
-  /** The Playkeeper Cloud app a hosted copy of the store connects, app_…; unset for a store that connects its own Playkeeper. */
+  /** The Playkeeper Cloud app a copy of the store connects, app_…, playkeeperCloudApp when unset, and `off` for a store that connects its own Playkeeper. */
   PLAYKEEPER_CLOUD_APP?: string
 }
+
+/**
+ * The Playkeeper Cloud app a copy of the blueprint connects. A copy runs
+ * this same build in the seller's business, so its settings don't come
+ * with it: the app it connects is here.
+ */
+export const playkeeperCloudApp = 'app_6oyNYgGluUMTx4'
 
 export interface Account {
   id: string
@@ -63,7 +70,7 @@ export interface StoreData {
   business: string
   products: Product[]
   plans: Plan[]
-  /** PLAYKEEPER_CLOUD_APP, as set. */
+  /** PLAYKEEPER_CLOUD_APP as set, else playkeeperCloudApp. */
   cloudApp?: string
 }
 
@@ -184,5 +191,5 @@ export async function readStore(env: Env, fetcher: typeof fetch = fetch): Promis
     list('/products', { account_id: accountID }, product),
     list('/variants', { account_id: accountID }, plan),
   ])
-  return { account: me, business: accountID, products, plans, cloudApp: setting(env, 'PLAYKEEPER_CLOUD_APP') }
+  return { account: me, business: accountID, products, plans, cloudApp: setting(env, 'PLAYKEEPER_CLOUD_APP') || playkeeperCloudApp }
 }

@@ -2,8 +2,10 @@ package panel
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -56,6 +58,47 @@ func newCreatorAgent(e *env, ids ...string) *creatorAgent {
 	}
 	e.agent.replies["GET /v1/catalog"] = `{"memoryOptionsMB":[2048,4096,8192],"recommendedMemoryMB":8192,"maxMemoryMB":24576,"memoryFreeMB":24576,"servers":[]}`
 	return c
+}
+
+// The dashboard names the account a new server is one of, whose names its
+// must differ from: a creator's own, whatever the browser sent, and none
+// for anyone else's server. So nobody puts a server among someone else's,
+// in any spelling of the field.
+func TestANewServerIsInItsCreatorsAccountAlone(t *testing.T) {
+	e := newJoinEnv(t)
+	own := owner(t, e.env)
+	newCreatorAgent(e.env, "cafebabe23", "deadbeef45")
+	alex := addCreator(t, e.env, "alex", invites.Allowance{Servers: 1, MemoryMB: 6144})
+	mid := machineID(t, e.env)
+	accounts := func() map[string]any {
+		t.Helper()
+		e.agent.mu.Lock()
+		raw := e.agent.lastBody["POST /v1/servers"]
+		e.agent.mu.Unlock()
+		body := map[string]any{}
+		if err := json.Unmarshal([]byte(raw), &body); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]any{}
+		for k, v := range body {
+			if strings.EqualFold(k, "account") {
+				out[k] = v
+			}
+		}
+		return out
+	}
+	if r := e.do(t, "POST", "/api/machines/"+mid+"/servers", `{"name":"alex","acceptEula":true,"memoryMB":4096,"account":"account-1","Account":"account-9"}`, alex.auth()); r.status != http.StatusOK {
+		t.Fatalf("alex creates a server: %d %v", r.status, r.body)
+	}
+	if got, want := accounts(), map[string]any{"account": accountLimit(alex.id)}; !maps.Equal(got, want) {
+		t.Fatalf("alex's new server's account: %v, want %v", got, want)
+	}
+	if r := e.do(t, "POST", "/api/machines/"+mid+"/servers", `{"name":"own","acceptEula":true,"memoryMB":2048,"ACCOUNT":"account-2","account":"account-3"}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("the owner creates a server: %d %v", r.status, r.body)
+	}
+	if got := accounts(); len(got) != 0 {
+		t.Fatalf("the owner's new server's account: %v, want none", got)
+	}
 }
 
 // A creator creates servers on the dashboard's machine inside their

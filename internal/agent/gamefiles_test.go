@@ -176,7 +176,12 @@ func TestAPlantedPipeStopsTheStartAndTheStatusSaysWhy(t *testing.T) {
 // explanation of the run, so the status explains the last start once, by
 // the file.
 func TestARefusedRestartReplacesTheCrash(t *testing.T) {
-	e := newAgentEnv(t)
+	// After the refused restart the next automatic start waits an hour, so
+	// once the file is gone the test's start is the one that starts the
+	// server, and it forgets the crashes. An automatic start that got there
+	// first would leave the crash and the refused restart counted, and the
+	// next case's crash, the third in the window, would be given up on.
+	e := newAgentEnvWith(t, func(e *agentEnv) { e.crashBackoff = []time.Duration{0, time.Hour} })
 	e.create()
 	config := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
 	for _, c := range []struct {
@@ -203,24 +208,10 @@ func TestARefusedRestartReplacesTheCrash(t *testing.T) {
 			t.Fatal(err)
 		}
 		// The refused restart lets go of the server just after its status
-		// shows no operation, and the automatic restart may try again once
-		// the file is gone: a start is told it's busy meanwhile, and finds
-		// the server running when the automatic restart got there first.
-		e.waitFor("the start once the "+c.code+" is gone", func() bool {
-			code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
-			switch {
-			case code == http.StatusConflict && out["code"] == api.CodeBusy:
-				return false
-			case code == http.StatusOK && out["noop"] == true:
-				return true
-			case code != http.StatusAccepted:
-				t.Fatalf("start once the %s is gone: %d %v", c.code, code, out)
-			}
-			if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
-				t.Fatalf("start once the %s is gone: %+v", c.code, op)
-			}
-			return true
-		})
+		// shows no operation, so the start may be told it's busy first.
+		if op := e.act("start"); op.Status != api.OpSucceeded {
+			t.Fatalf("start once the %s is gone: %+v", c.code, op)
+		}
 	}
 }
 

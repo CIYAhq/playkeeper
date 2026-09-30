@@ -480,7 +480,12 @@ type ServerConfig struct {
 
 type CreateServerRequest struct {
 	// Name is what Playkeeper calls the server; empty picks "My server".
-	Name       string `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Account is the disk limit of the account the server is one of, a
+	// customer's, whose servers' names its must differ from; empty for the
+	// machine's own servers, whose names differ from each other's. Only the
+	// dashboard sets it.
+	Account    string `json:"account,omitempty"`
 	Type       string `json:"type,omitempty"`
 	AcceptEULA bool   `json:"acceptEula"`
 	VersionID  string `json:"versionId"`
@@ -1043,7 +1048,10 @@ type MoveInRequest struct {
 	Name     string `json:"name"`
 	// Slug is the slug it had; one of this machine's servers having it
 	// gives it another.
-	Slug      string `json:"slug,omitempty"`
+	Slug string `json:"slug,omitempty"`
+	// Account is the disk limit of the customer's account it's one of, as
+	// in CreateServerRequest: its name must differ only from theirs.
+	Account   string `json:"account,omitempty"`
 	MemoryMB  int    `json:"memoryMB"`
 	PlayStyle string `json:"playStyle,omitempty"`
 	// Start starts it once its world is in place, as it ran there. One that

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup/retention"
@@ -131,13 +132,42 @@ func memoryField(w http.ResponseWriter, r *http.Request) (int, bool) {
 	return req.MemoryMB, true
 }
 
+// withAccount has a create's body name account as the one the new server
+// is one of (see api.CreateServerRequest), whatever the browser sent in any
+// spelling, which the agent would read too: a creator's own, or none.
+func withAccount(w http.ResponseWriter, r *http.Request, account string) bool {
+	b, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request body.", "")
+		return false
+	}
+	body := map[string]json.RawMessage{}
+	if len(bytes.TrimSpace(b)) > 0 && json.Unmarshal(b, &body) != nil {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Request body must be a JSON object.", "")
+		return false
+	}
+	for k := range body {
+		if strings.EqualFold(k, "account") {
+			delete(body, k)
+		}
+	}
+	if account != "" {
+		body["account"], _ = json.Marshal(account)
+	}
+	b, _ = json.Marshal(body)
+	r.Body = io.NopCloser(bytes.NewReader(b))
+	return true
+}
+
 // hCreateServer creates a server: as the route's forward for an admin of
 // every server, and for a creator on their machine only, inside their
 // allowance, the new server joining their servers.
 func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *session) {
 	a := sess.Access
 	if !a.creator() {
-		s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)(w, r, sess)
+		if withAccount(w, r, "") {
+			s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)(w, r, sess)
+		}
 		return
 	}
 	m, ok := s.machineFromPath(w, r)
@@ -145,7 +175,7 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 		return
 	}
 	mb, ok := memoryField(w, r)
-	if !ok {
+	if !ok || !withAccount(w, r, accountLimit(a.UserID)) {
 		return
 	}
 	if mb <= 0 {

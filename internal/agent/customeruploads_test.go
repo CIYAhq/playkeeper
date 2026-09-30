@@ -125,6 +125,9 @@ func TestAWorldForANewServerCountsAgainstItsDiskLimit(t *testing.T) {
 	if l := e.a.diskLimitOf(made); l == nil || l.ID != "account-6" {
 		t.Fatalf("the new server counts against %+v", l)
 	}
+	if account := e.a.accountOf(made); account != "account-6" {
+		t.Fatalf("the new server is one of %q's servers, not account-6's", account)
+	}
 	e.sid = made
 	if code, out := e.call("POST", e.sp("/world-imports"), map[string]any{"actor": "alex", "diskLimit": "account-6"}); code != 400 {
 		t.Fatalf("an upload into a server naming a limit: %d %v", code, out)
@@ -292,6 +295,36 @@ func TestARestoreKeepsTheUploadItApplies(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(e.a.stageDir(last["id"].(string)) + "*"); len(left) != 0 {
 		t.Fatalf("a discarded upload left %v", left)
+	}
+}
+
+// A server made from a customer's upload is one of their account's, the one
+// the upload names: the name its backup had is theirs beside a server of
+// that name that isn't theirs, with no number after it.
+func TestAServerFromACustomersUploadIsOneOfTheirs(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	_, raw := e.compressibleBackup()
+	e.sid = ""
+	e.setLimits(map[string]any{"id": "account-8", "limitBytes": 1 << 30, "servers": []string{}})
+	code, preview := e.uploadTo("/v1/restore/upload?diskLimit=account-8", raw)
+	if code != 200 {
+		t.Fatalf("upload: %d %v", code, preview)
+	}
+	code, out := e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "alex"})
+	if code != 202 {
+		t.Fatalf("apply: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("the restore: %+v", op)
+	}
+	e.sid = out["serverId"].(string)
+	row, err := e.srv().row()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account := e.a.accountOf(e.sid); row.Name != "My server" || account != "account-8" {
+		t.Fatalf("made from alex's upload beside the machine's own My server: %q in %q", row.Name, account)
 	}
 }
 

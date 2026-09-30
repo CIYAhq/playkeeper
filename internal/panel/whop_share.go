@@ -314,10 +314,11 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 }
 
 // whopSharePaid checks that a membership's latest paid payment carried
-// Playkeeper's share for a plan that allows memoryMB, before its buyer
-// starts. Every fee line it reads is kept. The error says why not: no paid
+// Playkeeper's share for a plan that allows memoryMB, before its buyer,
+// whopUserID, starts. Every fee line it reads is kept, and the payment for
+// the seller's view (keepCheckedPayment). The error says why not: no paid
 // payment yet, or no line of Playkeeper's share (whopSharePaidIn).
-func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore, membershipID string, memoryMB int) error {
+func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore, whopUserID, membershipID string, memoryMB int) error {
 	pays, err := c.PaidPayments(ctx, st.ID, membershipID)
 	if err != nil {
 		return err
@@ -336,6 +337,7 @@ func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore
 	if err := s.keepWhopFeeLines(ctx, st.ID, pay.ID, lines); err != nil {
 		return err
 	}
+	s.keepCheckedPayment(ctx, st, pay, lines, whopUserID)
 	if want := whopShareFor(memoryMB); !whopSharePaidIn(lines, want) {
 		return fmt.Errorf("its payment on Whop (%s) didn't carry Playkeeper's share of %s, so its server waits", pay.ID, dollarsOf(want))
 	}

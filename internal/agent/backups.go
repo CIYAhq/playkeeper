@@ -1626,10 +1626,10 @@ func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name,
 	}
 	if name == "" {
 		if n, err := validName(st.manifest.Settings["name"]); err == nil {
-			name = a.uniqueName(n)
+			name = a.uniqueName(n, st.limit)
 		}
 	}
-	return a.newFromStage(st, newServerSpec{name: name, actor: actor}, mem, nil, restore)
+	return a.newFromStage(st, newServerSpec{name: name, account: st.limit, actor: actor}, mem, nil, restore)
 }
 
 // newFromStage records the server a restore into a new server makes, as
@@ -1678,14 +1678,15 @@ func manifestMaxPlayers(m backup.Manifest) int {
 	return n
 }
 
-// uniqueName is name, or name with a number after it if another server has it.
-func (a *Agent) uniqueName(name string) string {
+// uniqueName is name, or name with a number after it if another server of
+// account has it. The number counts that account's servers alone.
+func (a *Agent) uniqueName(name, account string) string {
 	for i := 1; ; i++ {
 		n := name
 		if i > 1 {
 			n = fmt.Sprintf("%s %d", name, i)
 		}
-		if !a.nameTaken(n, "") {
+		if !a.nameTaken(n, "", account) {
 			return n
 		}
 	}

@@ -871,6 +871,16 @@ control "a start that goes ahead forgets the crash" internal/agent/lifecycle.go 
 		s.forgetCrashes()
 	}' \
   ./internal/agent '^TestAStartForgetsTheCrashOnlyOnceItGoesAhead$'
+control "an automatic start after a stop without a crash is owed while the server is busy" internal/agent/lifecycle.go \
+  '	s.mu.Lock()
+	s.startOwed = true
+	s.mu.Unlock()' \
+  '' \
+  ./internal/agent '^TestExternalCleanStopIsRestoredOnceTheServerIsFree$'
+control "an owed automatic start is tried again once the server is free" internal/agent/lifecycle.go \
+  '		owed := s.startOwed && !s.givenUp()' \
+  '		owed := false && s.startOwed && !s.givenUp()' \
+  ./internal/agent '^TestExternalCleanStopIsRestoredOnceTheServerIsFree$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \
@@ -2547,6 +2557,14 @@ control "NeoForge's Maven is asked again after a 5xx" internal/minecraft/softwar
   '	case http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:' \
   '	case http.StatusNotFound:' \
   ./internal/minecraft/software '^TestUpstreamAsksNeoForgeAgainAfterA404OrA5xx$'
+control "NeoForge's Maven is asked again when it doesn't answer in time" internal/minecraft/software/fetch.go \
+  ' || timedOut(ctx, err))' \
+  ')' \
+  ./internal/minecraft/software '^TestUpstreamAsksNeoForgeAgainWhenItDoesNotAnswerInTime$'
+control "another host that doesn't answer in time is asked once" internal/minecraft/software/fetch.go \
+  '	flaky := slices.Contains(flakyHosts, p.Hostname())' \
+  '	flaky := true || slices.Contains(flakyHosts, p.Hostname())' \
+  ./internal/minecraft/software '^TestUpstreamAsksNeoForgeAgainWhenItDoesNotAnswerInTime$'
 control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \
@@ -2993,6 +3011,20 @@ shcontrol "a shard runs the tests a panic kept from starting" scripts/go-test-sh
   'todo=$(grep -vxF -e "$started" <<<"$todo" || true)' \
   'todo=' \
   scripts/go-test-shard_test.sh
+shcontrol "a module download the proxy dropped is tried again" scripts/net-retry.sh \
+  "transient='stream error|" \
+  "transient='" \
+  scripts/net-retry_test.sh
+# shellcheck disable=SC2016
+shcontrol "only a network error is tried again" scripts/net-retry.sh \
+  ' || ! grep -Eq "$transient" "$log"; then' \
+  '; then' \
+  scripts/net-retry_test.sh
+# shellcheck disable=SC2016
+shcontrol "setup.sh tries the module download again after a network error" scripts/setup.sh \
+  '"$root/scripts/net-retry.sh" go mod download' \
+  'go mod download' \
+  scripts/setup_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
@@ -4876,6 +4908,14 @@ control "looking for copies in a missing folder doesn't say to create it" intern
   'if op == opList {' \
   'if false && op == opList {' \
   ./internal/offsite '^TestSFTPList$'
+control "a connection to the storage service that stalls says so" internal/offsite/errors.go \
+  '	case errors.Is(err, errStalled):' \
+  '	case false:' \
+  ./internal/offsite '^TestUploadStalled$'
+control "a storage service with no answer in time says so" internal/offsite/errors.go \
+  '	case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout():' \
+  '	case false && (errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout()):' \
+  ./internal/offsite '^TestTransportErrors$'
 control "a copy says the rules removed its backup only when they did" internal/agent/offsite.go \
   'case removedBy == retentionActor:' \
   'case false:' \
@@ -5260,10 +5300,106 @@ control "every server in the list has its own slug" internal/panel/workspace.go 
   's.stableSlugs(ctx, out, list)' \
   '' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
-control "a duplicate's number skips slugs another server has" internal/panel/workspace.go \
-  'if next := fmt.Sprintf("%s-%d", base, i); !taken[next] && !avoid[next] {' \
-  'if next := fmt.Sprintf("%s-%d", base, i); true {' \
+control "a duplicate's letters skip slugs another server has" internal/panel/workspace.go \
+  'if next := base + "-" + letters(try); !taken[next] && !avoid[next] {' \
+  'if next := base + "-" + letters(try); true {' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "names per customer: a duplicate slug the dashboard shows gets random letters, not a number" internal/panel/workspace.go \
+  'letters = func(int) string { return randomLetters(4) }' \
+  'letters = func(try int) string { return fmt.Sprint(try + 1) }' \
+  ./internal/panel '^TestADuplicateSlugGetsRandomLettersNotANumber$'
+control "names per customer: a creator's new server is in their account" internal/panel/creators.go \
+  'if !ok || !withAccount(w, r, accountLimit(a.UserID)) {' \
+  'if !ok || !withAccount(w, r, "") {' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: anyone else's new server is in no account, whatever the browser sent" internal/panel/creators.go \
+  '		if withAccount(w, r, "") {
+			s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)(w, r, sess)' \
+  '		if true {
+			s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)(w, r, sess)' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: the account the browser sent goes in any spelling" internal/panel/creators.go \
+  'if strings.EqualFold(k, "account") {' \
+  'if strings.EqualFold(k, "account") && k == "account" {' \
+  ./internal/panel '^TestANewServerIsInItsCreatorsAccountAlone$'
+control "names per customer: a server moved in is in its customer's account" internal/panel/moves.go \
+  'Account: accountLimit(mv.userID), ' \
+  '' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "names per customer: a server's name differs only from its account's" internal/agent/servers.go \
+  'WHERE lower(name) = lower(?) AND id != ? AND account = ?`, name, except, account)' \
+  'WHERE lower(name) = lower(?) AND id != ? AND ? = ?`, name, except, account, account)' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a customer is told the name is one of their own servers'" internal/agent/servers.go \
+  '	if account != "" {
+		return errConflict(fmt.Sprintf("You already have a server named %q.", name), "Pick another name.")' \
+  '	if false {
+		return errConflict(fmt.Sprintf("You already have a server named %q.", name), "Pick another name.")' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: an account is named by its disk limit" internal/agent/servers.go \
+  'if account != "" && !reDiskLimitID.MatchString(account) {' \
+  'if false {' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a new server keeps its account" internal/agent/servers.go \
+  'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, spec.account,' \
+  'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, "",' \
+  ./internal/agent '^(TestServerNamesAreUniqueForEachAccount|TestAWorldForANewServerCountsAgainstItsDiskLimit)$'
+control "names per customer: a server created is in the account its request names" internal/agent/handlers.go \
+  'newServerSpec{name: name, account: req.Account, typ: typ,' \
+  'newServerSpec{name: name, typ: typ,' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a rename's name differs only from its server's account's" internal/agent/handlers.go \
+  'if account := s.accountOf(s.id); s.nameTaken(name, s.id, account) {' \
+  'if account := ""; s.nameTaken(name, s.id, account) {' \
+  ./internal/agent '^TestServerNamesAreUniqueForEachAccount$'
+control "names per customer: a server restored from a customer's upload is in their account" internal/agent/backups.go \
+  'newServerSpec{name: name, account: st.limit, actor: actor}' \
+  'newServerSpec{name: name, actor: actor}' \
+  ./internal/agent '^TestAServerFromACustomersUploadIsOneOfTheirs$'
+control "names per customer: a restored server's backup name is numbered among its account's alone" internal/agent/backups.go \
+  'name = a.uniqueName(n, st.limit)' \
+  'name = a.uniqueName(n, "")' \
+  ./internal/agent '^TestAServerFromACustomersUploadIsOneOfTheirs$'
+control "names per customer: a server made from a customer's world is in their account" internal/agent/worldimports.go \
+  'newServerSpec{name: name, account: imp.limit,' \
+  'newServerSpec{name: name,' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "names per customer: a server moved in is in the account the move names" internal/agent/movein.go \
+  'name: name, account: req.Account, actor: actor, record: offThePage},' \
+  'name: name, actor: actor, record: offThePage},' \
+  ./internal/agent '^TestACustomersServerMovedInKeepsItsNameBesideAnothers$'
+control "names per customer: a server made before accounts takes its disk limit's" internal/agent/disklimits.go \
+  '	a.accountsFromLimits(limits)
+' \
+  '' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountFromItsDiskLimit$'
+control "names per customer: a server made in an account keeps it" internal/agent/disklimits.go \
+  'UPDATE servers SET account = ? WHERE id = ? AND account = '"''"'' \
+  'UPDATE servers SET account = ? WHERE id = ? AND '"''"' = '"''"'' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountFromItsDiskLimit$'
+control "names per customer: an older server takes its account as the agent starts" internal/agent/agent.go \
+  '	a.accountsFromLimits(a.diskLimits())
+' \
+  '' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountAsTheAgentStarts$'
+control "names per customer: an older server stays out of an account that has its name" internal/agent/disklimits.go \
+  'AND NOT EXISTS (SELECT 1 FROM servers o WHERE o.account = ? AND lower(o.name) = lower(servers.name))`' \
+  'AND ? != '"''"'`' \
+  ./internal/agent '^TestAnOlderServerJoinsItsAccountOnlyWithANameOfItsOwn$'
+control "names per customer: older servers take their accounts between creates" internal/agent/disklimits.go \
+  '	a.createMu.Lock()
+	defer a.createMu.Unlock()
+	for _, l := range limits {' \
+  '	for _, l := range limits {' \
+  ./internal/agent '^TestOlderServersTakeTheirAccountsBetweenCreates$'
+control "names per customer: a taken slug's letters skip slugs another server has" internal/agent/servers.go \
+  'if s := base + "-" + letters(try); free(s) {' \
+  'if s := base + "-" + letters(try); true {' \
+  ./internal/agent '^TestATakenSlugGetsLettersNotACount$'
+control "names per customer: a taken slug gets random letters, not a number" internal/agent/servers.go \
+  '		letters = randomSlugLetters' \
+  '		letters = func(try int) string { return fmt.Sprint(try + 1) }' \
+  ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 control "a joined machine that can't answer holds up no team change" internal/panel/join.go \
   'all, _, err := s.allServers(ctx)
 	if err != nil {
@@ -6035,8 +6171,8 @@ control "the dashboard's machine hears the slugs shown for other machines' serve
   'if list == s.toldSlugs.list || true {' \
   ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
 control "a new server gets none of the slugs shown for other machines' servers" internal/agent/servers.go \
-  'if elsewhere[s] {' \
-  'if false && elsewhere[s] {' \
+  'return !elsewhere[s] && a.db.QueryRow(' \
+  'return (!elsewhere[s] || true) && a.db.QueryRow(' \
   ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 control "the dashboard can only hold back slugs a server could have" internal/agent/servers.go \
   'if !reSlug.MatchString(s) {' \
@@ -8126,16 +8262,16 @@ control "stores: the key store's delivery kicks the key store alone" internal/pa
   's.kickWhop()' \
   ./internal/panel '^TestAKickHurriesItsOwnStoresPass$'
 control "stores: an app store whose grant is gone changes nothing" internal/panel/whop_customers.go \
-  'if problem := whopGrantProblem(ctx, c, st); problem != "" {' \
-  'if problem := whopGrantProblem(ctx, c, st); false && problem != "" {' \
+  'lost, problem := whopGrantProblem(ctx, c, st)' \
+  'lost, problem := whopGrantProblem(ctx, c, st); problem = ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a read the app's grant lacks is why a store changes nothing" internal/panel/whop_stores.go \
   'if slices.Contains(whopStoreReads, a) {' \
   'if false && slices.Contains(whopStoreReads, a) {' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a grant that can't be checked changes nothing" internal/panel/whop_stores.go \
-  "return \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
-  'return ""' \
+  "return nil, \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
+  'return nil, ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a store that needed a look is read again once it can be" internal/panel/whop_customers.go \
   'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
@@ -8401,6 +8537,79 @@ control "share user: stays while a store pays them" internal/panel/whop_share.go
   'SELECT user_id FROM whop_partners WHERE user_id != ? LIMIT 1' \
   'SELECT user_id FROM whop_partners WHERE user_id != ? AND 0 LIMIT 1' \
   ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
+
+# Where the store's pass meets Playkeeper's share (the hosted blueprint's
+# 2.2, internal/panel/whop_share_hooks.go): a bad share closes an open
+# store, at once for the rest of its pass, until it's right, when it opens
+# for that reason alone, and after three days the store leaves; a store not
+# open yet has no share checked; a week without the grant and the store
+# leaves, a grant back starting the week again and one Whop couldn't check
+# counting neither way; and a customer starts, or their plan grows, only on
+# payments that carried the share.
+control "share hooks: a bad share closes the store" internal/panel/whop_share_hooks.go \
+  'if err := s.closeWhopStore(ctx, st.ID, whopShareClosed, problem); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: the rest of the pass sees the store closed" internal/panel/whop_share_hooks.go \
+  'st.ClosedWhy = fresh.ClosedWhy' \
+  '_ = fresh' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: a share set right opens the store for that reason alone" internal/panel/whop_share_hooks.go \
+  's.openWhopStore(ctx, st.ID, whopShareClosed)' \
+  's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: three days of a bad share and the store leaves" internal/panel/whop_share_hooks.go \
+  's.now().Sub(since) >= whopShareGrace' \
+  's.now().Sub(since) >= 1000*whopShareGrace' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: a store not open yet has no share checked" internal/panel/whop_share_hooks.go \
+  'if err != nil || notOpen {' \
+  'if err != nil || (notOpen && false) {' \
+  ./internal/panel '^TestAStoreNotOpenYetHasNoShareChecked$'
+control "grant watch: a week without the grant and the store leaves" internal/panel/whop_share_hooks.go \
+  's.now().Sub(since) < whopGrantGrace' \
+  's.now().Sub(since) < 1000*whopGrantGrace' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "grant watch: a grant back starts the week again" internal/panel/whop_share_hooks.go \
+  'case problem == "":' \
+  'case false:' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "grant watch: a grant Whop couldn't check counts neither way" internal/panel/whop_share_hooks.go \
+  'case problem == "":' \
+  'default:' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "payment check: before a customer starts" internal/panel/whop_customers.go \
+  'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
+  's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
+  '_ = whopUserID' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "payments: renewals are read on the share check's schedule" internal/panel/whop_share_hooks.go \
+  's.whopReadPayments(ctx, c, *st)' \
+  '' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a refund keeps its payment again" internal/panel/whop_share_hooks.go \
+  'pays = append(pays, pay)' \
+  '_ = pay' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: only the hosting products' payments are kept" internal/panel/whop_share_hooks.go \
+  'if _, ok := hosting[pay.ProductID]; !ok {' \
+  'if _, ok := hosting[pay.ProductID]; !ok && false {' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: one paid since the last read is read, however long ago it was made" internal/whop/payments.go \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}, "created_after": {since.UTC().Format(time.RFC3339)}}' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a refund still unsettled is read again once it settles" internal/panel/whop_share_hooks.go \
+  'r.Unsettled() && !at.IsZero()' \
+  'false && r.Unsettled() && !at.IsZero()' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
+  'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.
@@ -10425,7 +10634,7 @@ control "moving in: it keeps the EULA acceptance, creation time and play style i
   'op, err := a.newFromStage(st, in.spec, in.mem, nil, func(' \
   ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
 control "moving in: a name a server here has gets a number" internal/agent/movein.go \
-  'name = a.uniqueName(name)' \
+  'name = a.uniqueName(name, req.Account)' \
   '_ = name' \
   ./internal/agent '^TestAServerMovedInThatRanThereStartsHere$'
 control "moving in: it keeps its slug" internal/agent/servers.go \
@@ -10755,8 +10964,8 @@ control "moving in: a server keeps Playkeeper's record of the add-ons it install
   '	// {"addons", []string{' \
   ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
 control "moving in: a server is off the public page until its settings arrive" internal/agent/movein.go \
-  'name: name, actor: actor, record: offThePage},' \
-  'name: name, actor: actor},' \
+  'name: name, account: req.Account, actor: actor, record: offThePage},' \
+  'name: name, account: req.Account, actor: actor},' \
   ./internal/agent '^TestAServerMovesWithItsWholeFolder$'
 control "moving out: a move takes the whole folder, not a backup's" internal/agent/moveout.go \
   'backup.CreateWhole(out,' \

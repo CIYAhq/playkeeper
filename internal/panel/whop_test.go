@@ -49,11 +49,12 @@ type fakeBusiness struct {
 	// partner is the user Playkeeper's share goes to, once the app made
 	// them the business's partner (aff_<business>), and shares their
 	// revenue shares. payments are the business's payments, newest first,
-	// and fees each one's fee lines.
+	// fees each one's fee lines, and refunds what it gave back.
 	partner  string
 	shares   []map[string]any
 	payments []map[string]any
 	fees     map[string][]map[string]any
+	refunds  []map[string]any
 }
 
 // fakeChat is an installed business's support chat with one customer.
