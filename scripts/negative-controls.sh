@@ -7818,6 +7818,10 @@ control "stores: a store's stock counts its own customers' purchases" internal/p
   "FROM whop_customers WHERE store_id = ? AND paused = 0 AND applied != ''" \
   "FROM whop_customers WHERE (store_id = ? OR 1) AND paused = 0 AND applied != ''" \
   ./internal/panel '^TestEachStoresStockIsItsOwn$'
+control "stores: a taken-over store's plans take no room" internal/panel/whop_stock.go \
+  "AND st.taken_over_by = '' ORDER BY" \
+  'ORDER BY' \
+  ./internal/panel '^TestATakenOverStoresPlansTakeNoRoom$'
 control "stores: disconnecting forgets the key store's plans alone" internal/panel/whop.go \
   'DELETE FROM whop_plans WHERE store_id = ?`' \
   'DELETE FROM whop_plans WHERE store_id = ? OR 1`' \
