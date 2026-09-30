@@ -44,7 +44,7 @@ import (
 // machine listing another's (see hiddenCopies). A move that fails before
 // the server's requests go to the other machine leaves it where it was. A
 // move a restart of the dashboard stopped carries on when it starts again
-// (see runMoves).
+// (see runMoves), or leaves it where it was when it can't.
 
 const (
 	// movedBackupDays is how long the machine a server left keeps its final
@@ -388,15 +388,21 @@ func (s *Server) moveCustomer(ctx context.Context, userID int64) {
 // machine there, and returns how many moved.
 func (s *Server) moveServers(ctx context.Context, userID int64) (int, error) {
 	home, placed, err := s.homeMachine(ctx, userID)
-	switch {
-	case err != nil:
+	if err != nil {
 		return 0, err
-	case !placed:
-		return 0, errors.New("they have no machine")
 	}
 	to, err := s.machineByID(home)
-	if err != nil {
+	if errors.Is(err, errNotFound) {
+		// With nowhere to go, the servers a restart left moving stay where
+		// they were, as when a move fails.
+		s.undoMoves(ctx, userID)
+		if !placed {
+			return 0, errors.New("they have no machine")
+		}
 		return 0, errors.New("the machine they're moving to was removed")
+	}
+	if err != nil {
+		return 0, err
 	}
 	ids, err := s.creatorServers(userID)
 	if err != nil {
@@ -414,11 +420,7 @@ func (s *Server) moveServers(ctx context.Context, userID int64) (int, error) {
 		}
 		if moving && mv.to != home {
 			// A move a restart stopped, to where they aren't going now.
-			if from, err := s.machineByID(mv.from); err == nil {
-				s.abandonMove(ctx, mv, from)
-			} else {
-				s.dropMove(ctx, mv)
-			}
+			s.undoMove(ctx, mv)
 			moving = false
 		}
 		if moving {
@@ -484,6 +486,7 @@ func (s *Server) recordedMachine(ctx context.Context, id string) (string, error)
 // moveServer moves server id of customer userID from one machine to
 // another, carrying on mv when moving says a restart of the dashboard
 // stopped it, and reports whether it moved: one deleted meanwhile doesn't.
+// Whatever fails before its requests go there leaves it where it was.
 // A server that ran starts where it goes, unless its customer is paused or
 // suspended; one that crashed there doesn't. Its copy there gets the backup
 // rules it had, a copy made before a restart too, and counts against the
@@ -492,13 +495,24 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 	var st api.ServerStatus
 	found, err := serverOn(ctx, from, id, &st)
 	switch {
+	case err == nil && !found:
+		if moving {
+			// Deleted meanwhile, so the copy this move made goes too.
+			s.dropMove(ctx, mv)
+		}
+		return false, nil
 	case err != nil:
-		return false, fmt.Errorf("%s didn't say how server %s is: %w", machineLabel(from), id, err)
-	case !found:
-		_, err := s.db.ExecContext(ctx, `DELETE FROM server_moves WHERE server_id = ?`, id)
-		return false, err
+		err = fmt.Errorf("%s didn't say how server %s is: %w", machineLabel(from), id, err)
 	case st.Config == nil:
-		return false, fmt.Errorf("%s didn't give %s's settings", machineLabel(from), st.Name)
+		err = fmt.Errorf("%s didn't give %s's settings", machineLabel(from), st.Name)
+	}
+	if err != nil {
+		// A move a restart stopped doesn't carry on: its server stays where
+		// it was.
+		if moving && ctx.Err() == nil {
+			s.abandonMove(ctx, mv, from)
+		}
+		return false, err
 	}
 	if !moving {
 		mv = serverMove{serverID: id, userID: userID, from: from.ID, to: to.ID, ran: st.Desired == api.DesiredRunning && st.Phase != api.PhaseCrashed}
@@ -710,25 +724,64 @@ func leftCopy(ctx context.Context, q querier, id, machineID string, userID int64
 // starts there again if it ran and its customer isn't paused or suspended,
 // and that machine deletes the copy it made. A customer paused while it
 // moved had it stopped already, and the hold on its machine may not be
-// there yet to refuse the start.
+// there yet to refuse the start, so pausing waits for this: coming first,
+// it keeps the server stopped, and after, it stops it where it is.
 func (s *Server) abandonMove(ctx context.Context, mv serverMove, from machine) {
 	if !s.endMove(ctx, mv) {
 		return
 	}
+	s.customersMu.Lock()
 	if mv.ran && !s.customerHeld(ctx, mv.userID) {
 		var op api.Operation
 		if _, err := from.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/servers/"+mv.serverID+"/start", nil, api.ActionRequest{Actor: placementActor}, &op); err != nil {
 			s.log.Warn("a server whose move failed didn't start again where it is", "server", mv.serverID, "err", err)
 		}
 	}
+	s.customersMu.Unlock()
 	s.leaveMoveCopy(ctx, mv)
 }
 
-// dropMove ends mv, a move from a machine that was removed, and the machine
-// it was going to deletes the copy it made.
+// dropMove ends mv, a move whose server is gone from the machine it was
+// on, removed with it or deleted, and the machine it was going to deletes
+// the copy it made.
 func (s *Server) dropMove(ctx context.Context, mv serverMove) {
 	if s.endMove(ctx, mv) {
 		s.leaveMoveCopy(ctx, mv)
+	}
+}
+
+// undoMove ends mv, a move that can't go on: its server stays where it was
+// (abandonMove), or out of reach on a removed machine (dropMove).
+func (s *Server) undoMove(ctx context.Context, mv serverMove) {
+	from, err := s.machineByID(mv.from)
+	switch {
+	case err == nil:
+		s.abandonMove(ctx, mv, from)
+	case errors.Is(err, errNotFound):
+		s.dropMove(ctx, mv)
+	default:
+		s.log.Error("could not undo a server's move", "server", mv.serverID, "err", err)
+	}
+}
+
+// undoMoves ends the moves of customer userID's servers, which can't go on
+// (undoMove).
+func (s *Server) undoMoves(ctx context.Context, userID int64) {
+	rows, err := s.db.QueryContext(ctx, `SELECT server_id, from_machine, to_machine, ran FROM server_moves WHERE user_id = ?`, userID)
+	if err != nil {
+		s.log.Error("could not read a customer's servers being moved", "user", userID, "err", err)
+		return
+	}
+	var list []serverMove
+	for rows.Next() {
+		mv := serverMove{userID: userID}
+		if rows.Scan(&mv.serverID, &mv.from, &mv.to, &mv.ran) == nil {
+			list = append(list, mv)
+		}
+	}
+	rows.Close()
+	for _, mv := range list {
+		s.undoMove(ctx, mv)
 	}
 }
 

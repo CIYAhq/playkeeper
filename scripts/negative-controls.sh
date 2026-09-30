@@ -9440,6 +9440,19 @@ control "removing a machine: its customers lose it as their machine" internal/pa
   '_, err = s.db.ExecContext(ctx, `UPDATE customer_homes SET machine_id = '"''"', placed_at = ? WHERE `+stranded, s.now().UnixMilli())' \
   '_ = stranded' \
   ./internal/panel '^TestARemovedMachinesCustomersGetRoomElsewhere$'
+control "moving customers: a move with nowhere to go leaves its servers where they were" internal/panel/moves.go \
+  's.undoMoves(ctx, userID)' \
+  '_ = userID' \
+  ./internal/panel '^TestAMoveThatCantGoOnLeavesItsServerWhereItWas$'
+control "moving customers: a move a restart stopped whose server's machine doesn't answer leaves it where it was" internal/panel/moves.go \
+  'if moving && ctx.Err() == nil {' \
+  'if false && ctx.Err() == nil {' \
+  ./internal/panel '^TestAMoveThatCantGoOnLeavesItsServerWhereItWas$'
+control "moving customers: the copy a move made of a server deleted meanwhile goes" internal/panel/moves.go \
+  '// Deleted meanwhile, so the copy this move made goes too.
+			s.dropMove(ctx, mv)' \
+  '// Deleted meanwhile, so the copy this move made goes too.' \
+  ./internal/panel '^TestAMoveThatCantGoOnLeavesItsServerWhereItWas$'
 control "removing a machine: a server left on it doesn't stop its customer's move" internal/panel/moves.go \
   'case errors.Is(err, errNotFound):' \
   'case false:' \

@@ -802,6 +802,89 @@ func TestAMoveCarriesOnAfterARestart(t *testing.T) {
 	}
 }
 
+// A move a restart of the dashboard stopped that can't go on leaves its
+// server where it was, as a failed move does: started again since it ran,
+// its requests going there, and the copy the move made deleted. So it is
+// when the machine it was going to was removed while the dashboard was
+// down, and when the machine it's on doesn't answer. One deleted meanwhile
+// has the copy deleted too.
+func TestAMoveThatCantGoOnLeavesItsServerWhereItWas(t *testing.T) {
+	// restarted is a move of alex's to the dashboard's machine, whose copy
+	// there is made, or with removed to a machine removed since, which
+	// leaves them no machine, stopped by a restart.
+	restarted := func(t *testing.T, removed, made bool) *moveFleet {
+		t.Helper()
+		f := newMoveFleet(t)
+		to, home := f.local, f.local
+		if removed {
+			to, home = "gonemach12", ""
+		}
+		f.mu.Lock()
+		f.madeHere = made
+		f.mu.Unlock()
+		for _, q := range []string{
+			fmt.Sprintf(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by) VALUES(%d, '%s', 0, 'admin')`, f.alex.id, to),
+			fmt.Sprintf(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran) VALUES('%s', %d, '%s', '%s', 1)`, movedServer, f.alex.id, f.rid, to),
+			fmt.Sprintf(`UPDATE customer_homes SET machine_id = '%s' WHERE user_id = %d`, home, f.alex.id),
+		} {
+			if _, err := f.e.srv.db.Exec(q); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+			f.mu.Lock()
+			f.madeHere = false
+			f.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			io.WriteString(w, `{"id":"op-undo","status":"running"}`)
+		})
+		f.e.reply("GET", "/v1/operations/op-undo", `{"id":"op-undo","status":"succeeded"}`)
+		return f
+	}
+	ctx := context.Background()
+
+	f := restarted(t, true, false)
+	f.e.srv.resumeMoves(ctx)
+	if why := f.moved(t); why != "they have no machine." {
+		t.Errorf("why the move whose machine was removed stopped: %q", why)
+	}
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); !ok || f.rows(t, `SELECT COUNT(*) FROM server_moves`) != 0 {
+		t.Errorf("the server moving to a removed machine didn't stay where it was: started %v", ok)
+	}
+	if m, err := f.e.srv.machineForServer(movedServer); err != nil || m.ID != f.rid {
+		t.Errorf("its requests go to %q, %v", m.ID, err)
+	}
+
+	f = restarted(t, false, true)
+	f.ra.handle("GET /v1/servers/"+movedServer, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		io.WriteString(w, `{"error":"The machine is busy.","code":"unavailable"}`)
+	})
+	f.e.srv.resumeMoves(ctx)
+	if why := f.moved(t); !strings.Contains(why, "didn't say how server "+movedServer+" is") {
+		t.Errorf("why the move whose machine didn't answer stopped: %q", why)
+	}
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); !ok || f.made() || f.rows(t, `SELECT COUNT(*) FROM server_moves`) != 0 {
+		t.Errorf("the server on a machine that didn't answer didn't stay where it was: started %v, copy still made %v", ok, f.made())
+	}
+
+	f = restarted(t, false, true)
+	f.ra.handle("GET /v1/servers/"+movedServer, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":"Server not found.","code":"not_found"}`)
+	})
+	f.e.srv.resumeMoves(ctx)
+	if why := f.moved(t); why != "" {
+		t.Errorf("the move of a server deleted meanwhile stopped: %q", why)
+	}
+	if f.made() || f.rows(t, `SELECT COUNT(*) FROM server_moves`) != 0 {
+		t.Errorf("the copy of a server deleted meanwhile stayed: %v", f.made())
+	}
+}
+
 // Removing a machine places its customers again, as new customers are:
 // each gets the fullest other machine with room for their plan, or waits
 // for room, and their servers stay on the removed machine. A move of theirs
