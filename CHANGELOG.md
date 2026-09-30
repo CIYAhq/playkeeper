@@ -4,9 +4,10 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.10
 
-- **Two models side by side:** in the AI Build Battle template, `/aibattle <model A> <model B> <prompt>` has two models build it side by side.
-- Fixed: customers who bought on Whop never got their messages, like the one saying their server is ready, because Whop refuses messages sent with the store's API key. They now go out in the store's support chat as the store's owner, and any still waiting go out as soon as the dashboard updates. A message that can't go out shows on its customer in **Settings › Sell on Whop**, with Whop's reason, and the store shows **Needs a look**.
-- Fixed: Sign in with Whop could be turned on with an app Whop refuses, and then every customer's sign-in ended with "Whop couldn't confirm who you are". **Turn on** now asks Whop first and says what it refused. Whop needs the `oauth:token_exchange` permission on the app's own Permissions tab, not on an API key, and the setup text now says so.
+- **Customers get their "your server is ready" message on Whop:** messages now go out as the store's owner, since Whop doesn't accept them from a store key. They go out in the store's support chat, and any still waiting go out as soon as the dashboard updates. A message that can't go out shows on its customer in **Settings › Sell on Whop**, with Whop's reason, and the store shows **Needs a look**.
+- **Sign in with Whop checks the app when you turn it on,** and says exactly what's missing, such as the `oauth:token_exchange` permission on the app's Permissions tab. Before, it could be turned on with an app Whop refuses, and then every customer's sign-in ended with "Whop couldn't confirm who you are". Whop needs that permission on the app's own Permissions tab, not on an API key, and the setup text now says so.
+- **`/aibattle`:** two AI models build side by side in the AI Build Battle template. Type `/aibattle <model A> <model B> <prompt>`.
+- Tests: two agent tests that raced their timers under load, one of a long delete and one of a restore that 0.3.0 undid, now wait for what they check, and when a test panics, its shard still runs the tests the panic kept from starting.
 
 ## 0.4.9
 
