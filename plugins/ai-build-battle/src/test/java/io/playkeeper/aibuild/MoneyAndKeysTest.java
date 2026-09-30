@@ -39,6 +39,16 @@ class MoneyAndKeysTest {
     }
 
     @Test
+    void theNextRequestIsEstimatedFromTheLastOnesCount() {
+        JsonArray messages = JsonParser.parseString("[{\"role\":\"system\",\"content\":\"" + "x".repeat(25000) + "\"},"
+                + "{\"role\":\"assistant\",\"content\":\"" + "y".repeat(25000) + "\"},"
+                + "{\"role\":\"tool\",\"content\":\"" + "z".repeat(250) + "\"},"
+                + "{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:\"}}]}]").getAsJsonArray();
+        // 9,000 prompt tokens counted last time, 3,000 answered, then a tool report and a picture.
+        assertEquals(9000 + 3000 + 100 + 1600 + 1000, Budget.nextInputTokensHigh(9000, 3000, messages, 1));
+    }
+
+    @Test
     void theDearestTierAppliesToLongPrompts() {
         OpenRouter.Model m = OpenRouter.parseModels(JsonParser.parseString(MODELS).getAsJsonObject()).get("openai/gpt-6.1-sol");
         assertEquals("GPT-6.1 Sol", m.name());
@@ -95,6 +105,7 @@ class MoneyAndKeysTest {
         assertTrue(p.contains("x and z from -30 to 30, y from 0 to 80"));
         assertTrue(p.contains("at most 10 build calls, 6000 blocks placed in total, and 45 minutes in all"));
         assertTrue(p.contains("a picture of your plot"));
+        assertTrue(p.contains("The camera films your plot from the south-east and a little above, so the south (+z) and east (+x) sides face the viewer."));
         assertFalse(Prompts.system("26.2", s, false).contains("a picture of your plot"));
         JsonArray tools = Prompts.tools();
         assertEquals(List.of("build", "finish"), List.of(name(tools, 0), name(tools, 1)));

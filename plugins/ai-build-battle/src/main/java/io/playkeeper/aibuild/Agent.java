@@ -91,6 +91,8 @@ final class Agent {
         messages.add(message("user", prompt));
         Totals totals = new Totals();
         int builds = 0, idle = 0, lost = 0, placedTotal = 0;
+        long lastPrompt = 0, lastCompletion = 0;
+        int lastSize = 0;
         String finished = null, summary = null;
         while (finished == null) {
             if (hooks.stopped()) {
@@ -101,7 +103,9 @@ final class Agent {
                 finished = "time budget used up";
                 break;
             }
-            long tokensIn = Budget.inputTokensHigh(messages);
+            long tokensIn = lastPrompt > 0
+                    ? Budget.nextInputTokensHigh(lastPrompt, lastCompletion, messages, lastSize)
+                    : Budget.inputTokensHigh(messages);
             OpenRouter.Price price = model.priceFor(tokensIn);
             double inputCost = tokensIn * price.inputHigh();
             long room = Budget.room(capUSD, totals.cost + totals.unaccounted, inputCost, price.out());
@@ -131,6 +135,7 @@ final class Agent {
                 body.add("reasoning", reasoning);
             }
             hooks.thinking(totals.requests + 1);
+            int sizeAtRequest = messages.size();
             Future<OpenRouter.Answer> call = calls.submit(() -> api.complete(body, apiKey, deadline));
             OpenRouter.Answer answer = null;
             OpenRouter.ApiException failure = null;
@@ -175,6 +180,9 @@ final class Agent {
             JsonObject u = json.has("usage") && json.get("usage").isJsonObject() ? json.getAsJsonObject("usage") : new JsonObject();
             long promptTokens = longOf(u, "prompt_tokens"), completionTokens = longOf(u, "completion_tokens");
             totals.requests++;
+            lastPrompt = promptTokens;
+            lastCompletion = completionTokens;
+            lastSize = sizeAtRequest;
             totals.promptTokens += promptTokens;
             totals.completionTokens += completionTokens;
             totals.reasoningTokens += nested(u, "completion_tokens_details", "reasoning_tokens");

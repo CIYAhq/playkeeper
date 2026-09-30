@@ -58,6 +58,22 @@ final class Budget {
         return (long) Math.ceil(chars / 2.5) + pictures * 1600 + 4000;
     }
 
+    /**
+     * The next request's input, from the last one's as OpenRouter counted it:
+     * its prompt, all it answered (the answer goes back in, reasoning
+     * included), and a high estimate of what was added since.
+     */
+    static long nextInputTokensHigh(long lastPrompt, long lastCompletion, JsonArray messages, int from) {
+        JsonArray added = new JsonArray();
+        for (int i = from; i < messages.size(); i++) {
+            JsonObject m = messages.get(i).getAsJsonObject();
+            if (!m.has("role") || !m.get("role").getAsString().equals("assistant")) {
+                added.add(m);
+            }
+        }
+        return lastPrompt + lastCompletion + inputTokensHigh(added) - 4000 + 1000;
+    }
+
     /** What the cheapest possible request costs at most: the input estimate plus the fewest output tokens. */
     static double smallestRequestUSD(OpenRouter.Model model, long promptTokens) {
         OpenRouter.Price p = model.priceFor(promptTokens);

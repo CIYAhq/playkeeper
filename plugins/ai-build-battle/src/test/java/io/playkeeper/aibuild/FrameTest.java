@@ -9,17 +9,25 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FrameTest {
+    /** Ahead of the player, turned so the model's south-east diagonal points back at them. */
     @Test
-    void yawToTheWayThePlayerLooks() {
-        assertEquals(BlockFace.SOUTH, Frame.cardinal(0));
-        assertEquals(BlockFace.WEST, Frame.cardinal(90));
-        assertEquals(BlockFace.NORTH, Frame.cardinal(180));
-        assertEquals(BlockFace.NORTH, Frame.cardinal(-180));
-        assertEquals(BlockFace.EAST, Frame.cardinal(-90));
-        assertEquals(BlockFace.EAST, Frame.cardinal(270));
+    void thePlotIsAheadAndSeenFromItsSouthEast() {
+        Frame nw = Frame.inFrontOf(0.5, 0.5, 135, 42, 64, 30, 80);
+        assertTrue(nw.ox() < -20 && nw.oz() < -20, "looking north-west puts it north-west");
+        assertEquals(BlockFace.NORTH, nw.facing());
+        assertEquals(BlockFace.SOUTH, Frame.inFrontOf(0.5, 0.5, 315, 42, 64, 30, 80).facing());
+        assertEquals(BlockFace.EAST, Frame.inFrontOf(0.5, 0.5, 225, 42, 64, 30, 80).facing());
+        assertEquals(BlockFace.WEST, Frame.inFrontOf(0.5, 0.5, 45, 42, 64, 30, 80).facing());
+        for (float yaw = 0; yaw < 360; yaw += 7.5f) {
+            Frame f = Frame.inFrontOf(10.5, -3.5, yaw, 42, 64, 30, 80);
+            int dx = f.worldX(1, 1) - f.ox(), dz = f.worldZ(1, 1) - f.oz();
+            double toPlayerX = 10.5 - (f.ox() + 0.5), toPlayerZ = -3.5 - (f.oz() + 0.5);
+            assertTrue(dx * toPlayerX >= 0 && dz * toPlayerZ >= 0, "yaw " + yaw);
+            assertEquals(42, Math.hypot(toPlayerX, toPlayerZ), 1.5);
+        }
     }
 
-    /** The model's south (+z) points back at the player, and its east (+x) is on the player's right. */
+    /** Each turn maps the model's axes and block states onto the world. */
     @Test
     void theModelsSouthFacesThePlayer() {
         // Player looks east: the plot is east of them, so the model's +z is west and +x is south.

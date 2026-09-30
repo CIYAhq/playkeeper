@@ -247,8 +247,8 @@ final class Session {
         String head = switch (reason) {
             case "called finish" -> model.name() + " called it done";
             case "stopped" -> "Stopped by " + (stoppedBy == null ? "an operator" : stoppedBy);
-            case "spend cap reached" -> model.name() + " stopped at this build's " + Text.money(capUSD) + " cap";
-            case "daily cap reached" -> model.name() + " stopped at today's " + Text.money(settings.perDayUSD()) + " cap";
+            case "spend cap reached" -> model.name() + " stopped: its next step could pass this build's " + Text.money(capUSD) + " cap";
+            case "daily cap reached" -> model.name() + " stopped: its next step could pass today's " + Text.money(settings.perDayUSD()) + " cap";
             case "time budget used up" -> model.name() + " ran out of its " + settings.minutes() + " minutes";
             case "block budget used up" -> model.name() + " used all " + Text.count(settings.blocks()) + " blocks";
             default -> model.name() + " stopped (" + reason + ")";

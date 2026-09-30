@@ -19,8 +19,8 @@ final class Prompts {
                 + "You can't run commands.\n\n"
                 + "Your plot: x and z from -" + half + " to " + half + ", y from 0 to " + s.height() + ". "
                 + "(0, 0, 0) is the centre of the plot at ground level: y = 0 is the first layer above the ground and y = -1 is the ground, which you may replace. "
-                + "Players watch from the south (+z) side" + (pictures ? ", and the pictures you get are taken from the south-east and a little above," : " and a little to the east,")
-                + " so the south (+z) and east (+x) sides face the viewer. Nobody else builds on your plot.\n\n"
+                + (pictures ? "The camera films" : "Players watch") + " your plot from the south-east and a little above, so the south (+z) and east (+x) sides face the viewer. "
+                + "Nobody else builds on your plot.\n\n"
                 + "Use the build tool to place blocks, in order:\n"
                 + "- {\"op\": \"fill\", \"from\": [x, y, z], \"to\": [x, y, z], \"block\": \"stone_bricks\"}: every block in the box, corners included\n"
                 + "- the same with \"hollow\": true: only the box's outer shell (walls, floor and ceiling)\n"

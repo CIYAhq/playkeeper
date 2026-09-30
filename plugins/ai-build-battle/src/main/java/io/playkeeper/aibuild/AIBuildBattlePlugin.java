@@ -9,7 +9,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.HeightMap;
 import org.bukkit.Location;
 import org.bukkit.World;
-import org.bukkit.block.BlockFace;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
@@ -355,14 +354,10 @@ public final class AIBuildBattlePlugin extends JavaPlugin implements TabExecutor
         s.start(key.get());
     }
 
-    /** The plot in front of the player: its centre a little past half its width away, its ground level with theirs. */
+    /** The plot in front of the player, its ground level with theirs. */
     private Frame plotFor(Location loc) {
         Settings s = settings;
         World w = loc.getWorld();
-        BlockFace facing = Frame.cardinal(loc.getYaw());
-        int dist = s.half() + 10;
-        int cx = loc.getBlockX() + facing.getModX() * dist;
-        int cz = loc.getBlockZ() + facing.getModZ() * dist;
         int ground = w.getHighestBlockYAt(loc.getBlockX(), loc.getBlockZ(), HeightMap.MOTION_BLOCKING_NO_LEAVES);
         ground = Math.min(ground, loc.getBlockY() - 1);
         int oy = ground + 1;
@@ -373,7 +368,7 @@ public final class AIBuildBattlePlugin extends JavaPlugin implements TabExecutor
         if (height < 16) {
             throw new IllegalStateException("Too close to the top of the world to build here.");
         }
-        return new Frame(cx, oy, cz, facing, s.half(), height);
+        return Frame.inFrontOf(loc.getX(), loc.getZ(), loc.getYaw(), s.half() + 12, oy, s.half(), height);
     }
 
     private static int blocksInTheWay(World w, Frame f) {

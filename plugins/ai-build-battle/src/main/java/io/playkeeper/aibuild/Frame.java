@@ -5,10 +5,10 @@ import org.bukkit.block.structure.StructureRotation;
 
 /**
  * A plot's coordinates, as the model sees them, on the world. The plot sits
- * in front of the player who asked, and its south (+z) side faces them, so
- * the model's "south and east face the viewer" holds whichever way they
- * looked: {@code facing} is the way from the player to the plot, and the
- * model's north points that way.
+ * in front of the player who asked, turned so that they look at it from its
+ * south-east, as the models' camera does in the videos: the model's "south
+ * and east face the viewer" holds whichever way they looked. {@code facing}
+ * is where the model's north points on the world.
  */
 record Frame(int ox, int oy, int oz, BlockFace facing, int half, int height) {
 
@@ -18,19 +18,14 @@ record Frame(int ox, int oy, int oz, BlockFace facing, int half, int height) {
         }
     }
 
-    /** The cardinal direction a player with this yaw looks towards. */
-    static BlockFace cardinal(float yaw) {
-        float y = ((yaw % 360) + 360) % 360;
-        if (y >= 45 && y < 135) {
-            return BlockFace.WEST;
-        }
-        if (y >= 135 && y < 225) {
-            return BlockFace.NORTH;
-        }
-        if (y >= 225 && y < 315) {
-            return BlockFace.EAST;
-        }
-        return BlockFace.SOUTH;
+    /** The plot {@code dist} blocks ahead of a player at x, z looking along yaw, turned so they see it from its south-east. */
+    static Frame inFrontOf(double px, double pz, float yaw, int dist, int oy, int half, int height) {
+        double a = Math.toRadians(yaw);
+        int cx = (int) Math.floor(px - Math.sin(a) * dist);
+        int cz = (int) Math.floor(pz + Math.cos(a) * dist);
+        double vx = px - (cx + 0.5), vz = pz - (cz + 0.5);
+        BlockFace north = vx >= 0 ? (vz >= 0 ? BlockFace.NORTH : BlockFace.WEST) : (vz >= 0 ? BlockFace.EAST : BlockFace.SOUTH);
+        return new Frame(cx, oy, cz, north, half, height);
     }
 
     boolean inPlot(int x, int y, int z) {
