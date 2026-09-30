@@ -35,6 +35,17 @@ const (
 	// their cloud provider. Watching is its own switch, so it is always
 	// posted.
 	KindInStock Kind = "in_stock"
+	// The fleet's room and health, which a dashboard with joined machines or
+	// a store watches: a machine off the dashboard and back, room running
+	// out across every store, a disk filling up, a machine busy at its
+	// busiest hour, and a server lagging. The watch is the dashboard's, so
+	// they are always posted.
+	KindMachineOff  Kind = "machine_off"
+	KindMachineBack Kind = "machine_back"
+	KindLowRoom     Kind = "low_room"
+	KindDiskFilling Kind = "disk_filling"
+	KindBusyCPU     Kind = "busy_cpu"
+	KindSlowTicks   Kind = "slow_ticks"
 )
 
 // kindInfo is what Playkeeper knows about each kind, in the order the
@@ -83,7 +94,13 @@ func (k Kind) DefaultOn() bool {
 
 // always reports whether alerts of kind k are posted whatever the switches
 // say.
-func (k Kind) always() bool { return k == KindTwoFactor || k == KindAdminConfirmed || k == KindInStock }
+func (k Kind) always() bool {
+	switch k {
+	case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks:
+		return true
+	}
+	return false
+}
 
 func (k Kind) quiet() time.Duration {
 	if k.always() {
@@ -186,9 +203,25 @@ type Event struct {
 	By     string
 	// Provider and Machine say which machines came into stock, such as
 	// "Hetzner" and "CX53", and Places where, each with its link to buy one.
+	// For the fleet's alerts, Machine is the machine's name on the
+	// dashboard.
 	Provider string
 	Machine  string
 	Places   []Place
+	// The fleet's alerts: Minutes a machine has been off, or was, or a
+	// server lagged; Percent a disk's share full or a machine's CPU at its
+	// busiest hour, Days running; Room more servers of MemoryMB each and
+	// Waiting customers waiting for room; ServerName, MSPT milliseconds a
+	// tick and Players playing.
+	Minutes    int
+	Percent    int
+	Days       int
+	Room       int
+	MemoryMB   int
+	Waiting    int
+	ServerName string
+	MSPT       int
+	Players    int
 	// Server is the server the event is about, for a Notifier that posts
 	// about several; zero means the Notifier's own server.
 	Server ServerInfo
@@ -203,6 +236,41 @@ type Place struct {
 // InStock is machines coming into stock at the owner's cloud provider.
 func InStock(provider, machine string, places []Place) Event {
 	return Event{Kind: KindInStock, Provider: provider, Machine: machine, Places: places}
+}
+
+// MachineOff is machine, joined to the dashboard, not connected to it for
+// minutes.
+func MachineOff(machine string, minutes int) Event {
+	return Event{Kind: KindMachineOff, Machine: machine, Minutes: minutes}
+}
+
+// MachineBack is machine connected to the dashboard again after minutes off.
+func MachineBack(machine string, minutes int) Event {
+	return Event{Kind: KindMachineBack, Machine: machine, Minutes: minutes}
+}
+
+// LowRoom is the machines having room for only room more servers of the
+// smallest plan on sale, of memoryMB each, across every store, while
+// waiting customers wait for room.
+func LowRoom(room, memoryMB, waiting int) Event {
+	return Event{Kind: KindLowRoom, Room: room, MemoryMB: memoryMB, Waiting: waiting}
+}
+
+// DiskFilling is machine's disk passing percent full.
+func DiskFilling(machine string, percent int) Event {
+	return Event{Kind: KindDiskFilling, Machine: machine, Percent: percent}
+}
+
+// BusyCPU is machine using more than 70% of its CPU in its busiest hour
+// days running, percent at the last.
+func BusyCPU(machine string, percent, days int) Event {
+	return Event{Kind: KindBusyCPU, Machine: machine, Percent: percent, Days: days}
+}
+
+// SlowTicks is server, on machine, taking mspt milliseconds a tick on
+// average for minutes while players played.
+func SlowTicks(server, machine string, mspt, players, minutes int) Event {
+	return Event{Kind: KindSlowTicks, ServerName: server, Machine: machine, MSPT: mspt, Players: players, Minutes: minutes}
 }
 
 // JoinRequested is a player asking to join through an invite link that needs
@@ -407,6 +475,34 @@ func (e Event) embed(info ServerInfo) embed {
 		title, text = "Admin rights confirmed", member(e.By)+" gave "+member(e.Member)+" Admin rights after they turned on two-factor sign-in."
 	case KindInStock:
 		title, text = "Machines in stock", inStockText(e)
+	case KindMachineOff:
+		title, text = "Machine off the dashboard", machineName(e.Machine)+" hasn't been connected to the dashboard for "+count(e.Minutes, "minute")+", so the dashboard can't reach its servers."
+	case KindMachineBack:
+		title, text = "Machine back", machineName(e.Machine)+" is connected to the dashboard again, after "+count(e.Minutes, "minute")+" off."
+	case KindLowRoom:
+		size := memorySize(e.MemoryMB)
+		if e.Room > 0 {
+			text = "The machines have room for " + count(e.Room, "more "+size+" server") + ", across every store."
+		} else {
+			text = "The machines have no room for another " + size + " server, across every store."
+		}
+		switch {
+		case e.Waiting == 1:
+			text += " 1 customer waits for room."
+		case e.Waiting > 1:
+			text += fmt.Sprintf(" %d customers wait for room.", e.Waiting)
+		}
+		title, text = "Room running out", text+" Buy a machine when your provider has one in stock: the stock alert posts here when it does."
+	case KindDiskFilling:
+		title, text = "Disk filling up", machineName(e.Machine)+fmt.Sprintf("'s disk is %d%% full. Delete old backups there, or add a machine for new customers, before it fills.", e.Percent)
+	case KindBusyCPU:
+		title, text = "Machine busy at peak", machineName(e.Machine)+fmt.Sprintf(" used more than 70%% of its CPU in its busiest hour %d days running, %d%% the last. Add a machine and move some customers to it.", e.Days, e.Percent)
+	case KindSlowTicks:
+		server := "A server"
+		if s := userText(e.ServerName, 64); s != "" {
+			server = "**" + s + "**"
+		}
+		title, text = "Server lagging", server+" on "+machineName(e.Machine)+fmt.Sprintf(" took %d ms a tick on average for %s, with %d playing. At 50 ms it keeps full speed, so its machine may be too busy.", e.MSPT, count(e.Minutes, "minute"), e.Players)
 	default:
 		title, text = "Server alert", name+"."
 	}
@@ -509,6 +605,29 @@ func member(name string) string {
 		return "A team member"
 	}
 	return "**" + name + "**"
+}
+
+func machineName(name string) string {
+	if name = userText(name, 64); name == "" {
+		return "A machine"
+	}
+	return "**" + name + "**"
+}
+
+// memorySize is a plan's memory as its store names it: "4 GB", "1.5 GB".
+func memorySize(mb int) string {
+	if mb%1024 == 0 {
+		return fmt.Sprintf("%d GB", mb/1024)
+	}
+	return fmt.Sprintf("%.1f GB", float64(mb)/1024)
+}
+
+// count is "1 minute" or "12 minutes": n of what, in the plural past one.
+func count(n int, what string) string {
+	if n == 1 {
+		return "1 " + what
+	}
+	return fmt.Sprintf("%d %ss", n, what)
 }
 
 // formatBytes matches the dashboard's formatBytes: powers of 1024, one

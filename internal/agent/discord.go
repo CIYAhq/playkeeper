@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/discord"
@@ -594,8 +595,19 @@ func (a *Agent) hDiscordNotify(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return
+	case api.DiscordMachineOff, api.DiscordMachineBack, api.DiscordLowRoom, api.DiscordDiskFilling, api.DiscordBusyCPU, api.DiscordSlowTicks:
+		ev, ok := fleetEvent(req)
+		if !ok {
+			writeError(w, errInvalid("A fleet alert needs its machine's name, and numbers that fit what it says."))
+			return
+		}
+		if a.discordConnected() {
+			a.disc.n.Notify(ev)
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
 	default:
-		writeError(w, errInvalid("Only join requests, two-factor changes, Admin confirmations and machines in stock can be reported."))
+		writeError(w, errInvalid("Only join requests, two-factor changes, Admin confirmations, machines in stock and the fleet's room and health can be reported."))
 		return
 	}
 	if !minecraft.ValidPlayerName(req.Player) {
@@ -620,6 +632,37 @@ func (a *Agent) hDiscordNotify(w http.ResponseWriter, r *http.Request) {
 		a.disc.n.Notify(e)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Bounds of what a fleet alert may say.
+const (
+	maxFleetCount  = 100_000
+	maxFleetMemory = 1 << 20
+)
+
+// fleetEvent is the fleet alert req reports, and whether it names what its
+// kind needs: a machine, but for room; and numbers that fit what it says.
+func fleetEvent(req api.DiscordNotifyRequest) (discord.Event, bool) {
+	in := func(n, lo, hi int) bool { return n >= lo && n <= hi }
+	machine := strings.TrimSpace(req.Machine)
+	named := machine != "" && len(machine) <= 64 && !strings.ContainsFunc(machine, func(r rune) bool { return !unicode.IsPrint(r) })
+	switch req.Kind {
+	case api.DiscordMachineOff:
+		return discord.MachineOff(machine, req.Minutes), named && in(req.Minutes, 1, maxFleetCount)
+	case api.DiscordMachineBack:
+		return discord.MachineBack(machine, req.Minutes), named && in(req.Minutes, 0, maxFleetCount)
+	case api.DiscordLowRoom:
+		return discord.LowRoom(req.Room, req.MemoryMB, req.Waiting), in(req.Room, 0, maxFleetCount) && in(req.MemoryMB, 1, maxFleetMemory) && in(req.Waiting, 0, maxFleetCount)
+	case api.DiscordDiskFilling:
+		return discord.DiskFilling(machine, req.Percent), named && in(req.Percent, 0, 100)
+	case api.DiscordBusyCPU:
+		return discord.BusyCPU(machine, req.Percent, req.Days), named && in(req.Percent, 0, 100) && in(req.Days, 1, 366)
+	case api.DiscordSlowTicks:
+		name, err := validName(req.ServerName)
+		return discord.SlowTicks(name, machine, req.MSPT, req.Players, req.Minutes),
+			err == nil && named && in(req.MSPT, 1, maxFleetCount) && in(req.Players, 0, maxFleetCount) && in(req.Minutes, 1, maxFleetCount)
+	}
+	return discord.Event{}, false
 }
 
 // stockPlaces words where machines of serverType came into stock, each
