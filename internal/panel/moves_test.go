@@ -1191,6 +1191,23 @@ func TestServersApartAreBroughtTogether(t *testing.T) {
 	}
 }
 
+// A machine still has a customer whose move stopped with a server on it: it
+// counts them, and lists them with their machine and the servers left
+// there, so it isn't taken for empty and removed with those servers on it.
+func TestAMachineAMoveLeftServersOnCountsTheirCustomer(t *testing.T) {
+	f := newMoveFleet(t)
+	f.stopped(t, f.local, f.local)
+	var view struct {
+		Customers int `json:"customers"`
+	}
+	f.e.get(t, "/api/machines/"+f.rid, f.own.cookie, &view)
+	var list []machineCustomer
+	f.e.get(t, "/api/machines/"+f.rid+"/customers", f.own.cookie, &list)
+	if view.Customers != 1 || len(list) != 1 || list[0].Name != "alex" || list[0].MachineID != f.local || list[0].Here != 1 || list[0].Move == nil || list[0].Move.Left != 1 {
+		t.Errorf("home-server, which alex's stopped move left a server on, has %d customers: %+v", view.Customers, list)
+	}
+}
+
 // Removing a machine places its customers again, as new customers are:
 // each gets the fullest other machine with room for their plan, or waits
 // for room, and their servers stay on the removed machine. A move of theirs

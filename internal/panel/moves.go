@@ -1279,17 +1279,21 @@ func (s *Server) leaveLeftovers(ctx context.Context) {
 	}
 }
 
-// machineCustomer is a customer whose servers go on a machine, as the owner
-// sees them on its page.
+// machineCustomer is a customer a machine has, as the owner sees them on its
+// page: its own, or one with servers there still (customersOnMachine).
 type machineCustomer struct {
-	ID       int64             `json:"id"`
-	Name     string            `json:"name"`
-	Handle   string            `json:"handle,omitempty"`
-	State    string            `json:"state"`
-	PlanID   string            `json:"planId,omitempty"`
-	MemoryMB int               `json:"memoryMB"`
-	Servers  int               `json:"servers"`
-	Move     *customerMoveView `json:"move,omitempty"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Handle   string `json:"handle,omitempty"`
+	State    string `json:"state"`
+	PlanID   string `json:"planId,omitempty"`
+	MemoryMB int    `json:"memoryMB"`
+	Servers  int    `json:"servers"`
+	// MachineID is their machine, "" while they wait for one, and Here how
+	// many of their servers are on the machine listing them.
+	MachineID string            `json:"machineId"`
+	Here      int               `json:"here"`
+	Move      *customerMoveView `json:"move,omitempty"`
 }
 
 // customerMoveView is a customer's move under way, or one that stopped.
@@ -1301,8 +1305,9 @@ type customerMoveView struct {
 	Error string `json:"error,omitempty"`
 }
 
-// hMachineCustomerList lists the customers whose servers go on a machine,
-// with their moves there.
+// hMachineCustomerList lists the customers a machine has: its own, with
+// their moves there, and those with servers there still, as a move that
+// stopped leaves them, so a machine isn't taken for empty while it has any.
 func (s *Server) hMachineCustomerList(w http.ResponseWriter, r *http.Request, _ *session) {
 	m, ok := s.machineFromPath(w, r)
 	if !ok {
@@ -1311,11 +1316,13 @@ func (s *Server) hMachineCustomerList(w http.ResponseWriter, r *http.Request, _ 
 	rows, err := s.db.QueryContext(r.Context(), `SELECT c.user_id, u.username, c.handle, c.state, c.plan_id,
 		COALESCE((SELECT MAX(allowance_memory_mb) FROM project_members WHERE user_id = c.user_id), 0),
 		(SELECT COUNT(*) FROM creator_servers WHERE user_id = c.user_id),
-		(SELECT COUNT(*) FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id WHERE cs.user_id = c.user_id AND sm.machine_id != h.machine_id),
+		COALESCE(h.machine_id, ''),
+		(SELECT COUNT(*) FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id WHERE cs.user_id = c.user_id AND sm.machine_id = ?),
+		(SELECT COUNT(*) FROM creator_servers cs JOIN server_machines sm ON sm.server_id = cs.server_id WHERE cs.user_id = c.user_id AND sm.machine_id != COALESCE(h.machine_id, '')),
 		mv.user_id IS NOT NULL, COALESCE(mv.started_at, 0), COALESCE(mv.started_by, ''), COALESCE(mv.error, '')
-		FROM customers c JOIN users u ON u.id = c.user_id JOIN customer_homes h ON h.user_id = c.user_id
+		FROM customers c JOIN users u ON u.id = c.user_id LEFT JOIN customer_homes h ON h.user_id = c.user_id
 		LEFT JOIN customer_moves mv ON mv.user_id = c.user_id
-		WHERE h.machine_id = ? ORDER BY u.username`, m.ID)
+		WHERE c.user_id IN (`+customersOnMachine+`) ORDER BY u.username`, m.ID, m.ID, m.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -1327,7 +1334,7 @@ func (s *Server) hMachineCustomerList(w http.ResponseWriter, r *http.Request, _ 
 		var moving bool
 		var mv customerMoveView
 		var started int64
-		if err := rows.Scan(&c.ID, &c.Name, &c.Handle, &c.State, &c.PlanID, &c.MemoryMB, &c.Servers, &mv.Left, &moving, &started, &mv.StartedBy, &mv.Error); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Handle, &c.State, &c.PlanID, &c.MemoryMB, &c.Servers, &c.MachineID, &c.Here, &mv.Left, &moving, &started, &mv.StartedBy, &mv.Error); err != nil {
 			writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 			return
 		}

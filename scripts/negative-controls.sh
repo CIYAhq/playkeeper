@@ -9432,6 +9432,10 @@ control "moving customers: a server its machine no longer has loses its record t
   'DELETE FROM server_machines WHERE server_id = ? AND machine_id = ?' \
   'DELETE FROM server_machines WHERE server_id = ? AND machine_id = ? AND 0' \
   ./internal/panel '^TestAMoveThatCantGoOnLeavesItsServerWhereItWas$'
+control "moving customers: a machine a move left servers on still has their customer" internal/panel/machinecustomers.go \
+  'JOIN customers c ON c.user_id = cs.user_id WHERE sm.machine_id = ?' \
+  'JOIN customers c ON c.user_id = cs.user_id WHERE sm.machine_id = ? AND 0' \
+  ./internal/panel '^TestAMachineAMoveLeftServersOnCountsTheirCustomer$'
 control "moving customers: a moved server keeps what its agent kept about it" internal/panel/moves.go \
   'err = s.copyMoveState(ctx, id, from, to)' \
   'err = nil' \
