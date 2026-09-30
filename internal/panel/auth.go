@@ -692,6 +692,12 @@ UPDATE customers SET suspended_self = 1 WHERE state = 'suspended';
 ALTER TABLE whop_stores ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE whop_stores ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
 `,
+	// A store that left (see leaving.go): when the Whop side found it gone,
+	// and why.
+	`
+ALTER TABLE whop_stores ADD COLUMN left_at  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_stores ADD COLUMN left_why TEXT    NOT NULL DEFAULT '';
+`,
 }
 
 const (
