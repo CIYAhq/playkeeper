@@ -550,7 +550,8 @@ func (s *Server) recordedMachine(ctx context.Context, id string) (string, error)
 // moveServer moves server id of customer userID from one machine to
 // another, carrying on mv when moving says a restart of the dashboard
 // stopped it, and reports whether it moved: one deleted meanwhile doesn't.
-// Whatever fails before its requests go there leaves it where it was.
+// Whatever fails until its requests go there, sending them there included,
+// leaves it where it was.
 // A server that ran starts where it goes, unless its customer is paused or
 // suspended; one that crashed there doesn't. Its copy there gets the backup
 // rules it had, a copy made before a restart too, and counts against the
@@ -612,7 +613,10 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 		return false, fmt.Errorf("%s: %w", st.Name, err)
 	}
 	if err := s.switchServer(ctx, mv, to, slug); err != nil {
-		return false, err
+		if ctx.Err() == nil {
+			s.abandonMove(ctx, mv, from)
+		}
+		return false, fmt.Errorf("%s: its requests couldn't go to %s: %w", st.Name, machineLabel(to), err)
 	}
 	// Pausing a customer while it moved stopped it where its requests went
 	// then, not here, where its copy may have started, before a restart of

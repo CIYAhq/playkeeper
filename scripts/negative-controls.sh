@@ -9654,6 +9654,12 @@ control "removing a machine: only the owner removes one customers are on" intern
   '} else if n > 0 && !sess.Access.owner() {' \
   '} else if n > 0 && false {' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
+control "moving customers: a move whose switch fails leaves its server where it was" internal/panel/moves.go \
+  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+		if ctx.Err() == nil {' \
+  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+		if false {' \
+  ./internal/panel '^TestAMoveWhoseSwitchFailsLeavesTheServerWhereItWas$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside
