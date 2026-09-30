@@ -24,18 +24,21 @@ import (
 )
 
 // Moving customers (step 8 of the fleet plan). The owner moves a customer to
-// another machine that takes customers and has room for their plan, which
-// is set aside there at once: their new servers go there from then on, and
-// their servers follow, one at a time. Each one stops, its machine backs it
-// up, and the backup goes to the other machine as an upload for a new
-// server. That machine makes the server from it with the same id (the
-// agent's move-in), starting it if it ran and its customer isn't paused or
-// suspended, and it counts against the customer's disk limit there before
-// its requests go there. The upload itself doesn't, so a customer near
-// their limit moves as they are. The machine it left then deletes it,
-// keeping its final backup movedBackupDays. It keeps its id, so its
-// members, invites, slug, address and links stay as they are: the customer
-// sees it stopped for a few minutes, and never a machine.
+// another machine that takes customers, has room for their plan, which is
+// set aside there at once, and has room on its disk for their servers'
+// folders: their new servers go there from then on, and their servers
+// follow, one at a time. Every server is checked before any stops, so one
+// whose folder a move can't carry refuses the move, saying why. Each one
+// stops, and its machine streams its whole folder (the agent's move-out) to
+// the other machine as an upload for a new server. That machine makes the
+// server from it with the same id (the agent's move-in), starting it if it
+// ran and its customer isn't paused or suspended, gets what the agent kept
+// about it (its move state), and counts it against the customer's disk
+// limit there before its requests go there. The upload itself doesn't, so a
+// customer near their limit moves as they are. The machine it left then
+// deletes it, keeping its whole folder movedBackupDays. It keeps its id, so
+// its members, invites, slug, address and links stay as they are: the
+// customer sees it stopped for a few minutes, and never a machine.
 //
 // A server being moved has a server_moves row, and no request reaches it
 // (see machineForServer). The copy the machine it goes to makes isn't the
