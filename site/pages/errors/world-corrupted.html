@@ -18,9 +18,9 @@ schema: article
 {{define "short"}}A Minecraft world is a folder of files. When level.dat, which holds its settings, can't be read, the server uses its spare copy, level.dat_old; with both damaged, it won't start. A chunk it can't read comes back as new land, and what was built there is gone once the server saves. Stop the server, copy the world, then restore from a backup.{{end}}
 
 {{define "closing-title"}}Worlds backed up before they break.{{end}}
-{{define "closing-sub"}}Free and open source. Playkeeper backs up each world on a schedule, and keeps the old world when it restores one.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper backs up each world on a schedule, and from 0.4.8 makes a new level.dat for a damaged one, keeping every build.{{end}}
 
-{{define "side-text"}}Playkeeper backs up each world on a schedule, and keeps the old world when it restores one.{{end}}
+{{define "side-text"}}From 0.4.8, Playkeeper makes a new level.dat for a damaged one and keeps every build, after a backup.{{end}}
 
 {{define "article"}}
 <section aria-labelledby="meaning">
@@ -32,7 +32,12 @@ schema: article
 [15:24:20] [ServerMain/ERROR]: Failed to load world data from ./world/level.dat_old
 [15:24:20] [ServerMain/ERROR]: Failed to load world data from ./world/level.dat and ./world/level.dat_old. World files may be corrupted. Shutting down.</code>
   </div>
-  <p>A world is a folder of files, and each kind of damage shows differently. <code>level.dat</code> holds the world's settings, like its seed and game rules, and <code>level.dat_old</code> is the copy from the save before. The land is in the <code>region</code> folder, 32 by 32 chunks to a file, and mobs, animals and item frames are in <code>entities</code>, in files of the same shape.</p>
+  <div class="error-card reveal">
+    <h3>The same on Minecraft 26.3, with a shorter last line</h3>
+    <code class="err">[20:17:16] [ServerMain/INFO]: Attempting to use fallback ./world/level.dat_old
+[20:17:16] [ServerMain/ERROR]: Failed to load world data. World files may be corrupted. Shutting down.</code>
+  </div>
+  <p>A world is a folder of files, and each kind of damage shows differently. <code>level.dat</code> holds the world's settings, like its spawn point, and <code>level.dat_old</code> is the copy from the save before. On 1.21 it holds the seed and the game rules too; 26.3 keeps those in files of their own. The land is in the <code>region</code> folder, 32 by 32 chunks to a file, and mobs, animals and item frames are in <code>entities</code>, in files of the same shape.</p>
 </section>
 
 <section aria-labelledby="tests">
@@ -79,7 +84,7 @@ java.io.IOException: No space left on device
   <ul>
     <li><strong>Stop the server and copy the world folder first.</strong> The next save makes a damaged chunk's loss permanent.</li>
     <li><strong>Only level.dat damaged: nothing to do.</strong> Minecraft used level.dat_old by itself, with every build in place.</li>
-    <li><strong>Both level.dat files: restore a backup, or let the server make a new one.</strong> We deleted both, and the server said <code>No existing world data, creating new world</code>. Every build, the chest and the cow were still there, but the seed was new, so new land wouldn't match the old, and game rules and the time started over. With the old seed in <code>level-seed</code> in server.properties first, ours came back as -7710755848644571073. A crash report's World Seed line, or the output of <code>/seed</code> in an old log, gives yours.</li>
+    <li><strong>Both level.dat files: restore a backup, or let the server make a new one.</strong> We deleted both, and the server said <code>No existing world data, creating new world</code>. Every build, the chest and the cow were still there, but the seed was new, so new land wouldn't match the old, and game rules and the time started over. With the old seed in <code>level-seed</code> in server.properties first, ours came back as -7710755848644571073. A crash report's World Seed line, or the output of <code>/seed</code> in an old log, gives yours. That was 1.21.1; on 26.3 the game rules and the world border stayed, but the seed changed the same way until we set <code>level-seed</code>. On Playkeeper 0.4.8 or newer, Make a new level.dat on the Overview does this for you, and keeps the seed when it finds one.</li>
     <li><strong>Damaged chunks: restore the backup, or just its region file.</strong> With the server stopped, copying <code>region/r.0.0.mca</code> back from our copy of the world brought the gold block back. Everything else in that 512 by 512 block area goes back to the backup's time too.</li>
     <li><strong>No backup: start it, and rebuild what's missing.</strong> The server keeps every chunk it can read, and makes new land for the rest.</li>
     <li><strong>Keep free space on the disk.</strong> A full disk didn't damage our world, but saves failed until there was room again.</li>
@@ -105,7 +110,8 @@ cp backup/world/region/r.0.0.mca world/region/r.0.0.mca   <span class="c"># from
 <section aria-labelledby="playkeeper">
   {{template "h2n" (dict "ID" "playkeeper" "N" 6 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
   <ul>
-    <li><strong>When both level.dat files are damaged,</strong> the Overview says The world's level.dat file is damaged, and offers to restore the latest backup, if there is one.</li>
+    <li><strong>When both level.dat files are damaged,</strong> the Overview says The world's level.dat file is damaged, and offers to restore the latest backup, if there is one. Before 0.4.8 it didn't recognise 26.3's shorter line.</li>
+    <li><strong>From Playkeeper 0.4.8, Make a new level.dat sits next to the restore.</strong> It says what starts over for that world. On 26.1 and newer that's only the spawn point, so it reads Keeps every build. Resets the spawn point. On 1.21 the game rules and the time of day go too, and before 1.21.9 the world border. It backs up the world first, makes the new file and starts the server. It keeps the seed only when it finds it, in the world or in a backup of it, and checks the started server kept it; without one it warns New terrain won't match the old. It shows all this after the first failed start, without trying to start the server again first.</li>
     <li><strong>A damaged chunk doesn't stop the server.</strong> The Console shows the Failed to read chunk lines. If the server stops later with them in its log, the Overview says Part of the world may be damaged, and offers to start it again or restore a backup.</li>
     <li><strong>When it stops with the disk full,</strong> the Overview says The disk is full, with how much is free.</li>
     <li><strong>Schedules in Settings back up each server,</strong> and the World tab restores a backup. It saves the current world as a rollback archive first, and puts it back by itself if the restored world doesn't start: <a href="/docs/recovery">how to recover a world</a>.</li>
@@ -120,6 +126,7 @@ cp backup/world/region/r.0.0.mca world/region/r.0.0.mca   <span class="c"># from
     (qa "What is level.dat_old?" "The level.dat from the save before. Minecraft uses it when level.dat can't be read, and keeps the damaged file as level.dat_corrupted with the date.")
     (qa "Why is part of my world new land?" "The server couldn't read those chunks, so it made them again. Once it saves, the old ones are gone from the file; only a backup has them.")
     (qa "Does a full disk corrupt a Minecraft world?" "Not in our test. Saves failed with No space left on device, and once there was room, the world started with everything in it.")
+    (qa "Can Playkeeper repair a damaged level.dat?" "From 0.4.8, yes. Make a new level.dat on the Overview backs up the world and keeps every build. It keeps the seed only when it finds it; otherwise it says new terrain won't match the old.")
   ))}}
 </div>
 {{end}}

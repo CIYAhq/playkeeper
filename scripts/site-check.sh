@@ -16,8 +16,10 @@
 # curl) and /install/<code> with its code filled in, the install log they go
 # to (the visitor's address, 30 days), the channels' links under /go/, /ai
 # with its query string, the policy that lets the AI build battle's film in,
-# cache and security headers, and the
-# container's own health check. With Chrome or
+# cache and security headers, the latest release's signed manifest and
+# signature that installs check at /releases/latest/ (kept by release-mirror,
+# cached, answered 304 when unchanged and not logged), and the container's
+# own health check. With Chrome or
 # Chromium installed, it also opens /sizing in headless Chrome with an answer
 # in its address, and with one it can't read, and checks the answer the page
 # shows; and it opens /t with the template links in
@@ -238,6 +240,39 @@ asset=$(grep -oE '/assets/css/site\.[0-9a-f]{8}\.css' <(curl -sS "$base/") | hea
 headers=$(curl -sS -D - -o /dev/null "$base$asset")
 grep -qi '^cache-control: max-age=31536000' <<<"$headers" || fail "$asset is not cached for a year"
 
+# The latest release's signed manifest and its signature, which installs
+# check for a new release: release-mirror copies them from GitHub's latest
+# release before nginx starts, then keeps them current in the background.
+# Each answers with its type, an ETag and a Last-Modified, and how long
+# caches may keep it; a check naming either validator gets a 304 with no
+# body; nothing else is served there, and no check is logged.
+docker top "$name" | grep -q '[r]elease-mirror -dir' || fail "release-mirror is not running in the container"
+cache='cache-control: public, max-age=300, stale-while-revalidate=300, stale-if-error=86400'
+for f in playkeeper-release.json playkeeper-release.json.sig; do
+  url=$base/releases/latest/$f
+  headers=$(curl -sS -D - -o "$work/$f" "$url")
+  grep -q '^HTTP/[0-9.]* 200' <<<"$headers" || fail "/releases/latest/$f answered $(head -1 <<<"$headers"), not 200: $(docker logs "$name" 2>&1 | grep release-mirror | tail -1)"
+  case $f in
+    *.json) want_type=application/json ;;
+    *) want_type=text/plain ;;
+  esac
+  grep -qi "^content-type: $want_type" <<<"$headers" || fail "/releases/latest/$f is not served as $want_type"
+  grep -qiF "$cache" <<<"$headers" || fail "/releases/latest/$f does not send '$cache'"
+  headers_ok "/releases/latest/$f" "$headers"
+  etag=$(sed -n 's/^[Ee][Tt][Aa][Gg]: *\("[^"]*"\).*/\1/p' <<<"$headers")
+  modified=$(sed -n 's/^[Ll]ast-[Mm]odified: *\(.*[^[:space:]]\)[[:space:]]*$/\1/p' <<<"$headers")
+  [ -n "$etag" ] || fail "/releases/latest/$f has no strong ETag"
+  [ -n "$modified" ] || fail "/releases/latest/$f has no Last-Modified"
+  for ask in "If-None-Match: $etag" "If-Modified-Since: $modified"; do
+    read -r code size < <(curl -sS -o /dev/null -w '%{http_code} %{size_download}\n' -H "$ask" "$url")
+    if [ "$code" != 304 ] || [ "$size" != 0 ]; then fail "/releases/latest/$f asked with '$ask' answered $code with $size bytes, not 304 with none"; fi
+  done
+done
+grep -q '"schema": 1' "$work/playkeeper-release.json" || fail "/releases/latest/playkeeper-release.json is not a release manifest"
+grep -q '^ed25519 [0-9a-f]\{16\} ' "$work/playkeeper-release.json.sig" || fail "/releases/latest/playkeeper-release.json.sig is not a signature"
+[ "$(curl -sS -o /dev/null -w '%{http_code}' "$base/releases/latest/get.sh")" = 404 ] || fail "/releases/latest/ serves more than the manifest and its signature"
+if docker logs "$name" 2>&1 | grep -q 'GET /releases/latest/playkeeper-release'; then fail "checks of /releases/latest/ are logged"; fi
+
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/pricing/")
 [ "$code" = 301 ] || fail "/pricing/ answered $code, not 301"
 [ "$location" = "$base/pricing" ] || fail "/pricing/ redirects to '$location', not /pricing"
@@ -457,4 +492,4 @@ for _ in $(seq 30); do
 done
 [ "$status" = healthy ] || fail "the container's health check reports '$status'"
 
-echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install and /install/<code> (a script that hands over to get.sh with how the install came, in the install log with the visitor's address for 30 days), /go/<code> and /healthz answer; cache and security headers set; container healthy. $browser."
+echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install and /install/<code> (a script that hands over to get.sh with how the install came, in the install log with the visitor's address for 30 days), /go/<code> and /healthz answer; the latest release's manifest and signature are served from GitHub's copy, cached for 5 minutes, answered 304 when unchanged and not logged; cache and security headers set; container healthy. $browser."
