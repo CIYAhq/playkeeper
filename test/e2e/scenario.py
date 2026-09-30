@@ -16,6 +16,7 @@ host-b: on a fresh second host, restore the downloaded archive through the
 Bots are mineflayer protocol clients, not official Minecraft clients.
 """
 import argparse
+import contextlib
 import hashlib
 import io
 import json
@@ -31,6 +32,7 @@ import urllib.parse
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import region  # noqa: E402
 from pkclient import Client  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -84,17 +86,61 @@ def block_is(c, pos, block):
     return console(c, f"execute if block {pos[0]} {pos[1]} {pos[2]} minecraft:{block}").strip()
 
 
+@contextlib.contextmanager
+def loaded(c, pos):
+    """Keeps pos's chunk loaded inside the block. A chunk already force-loaded,
+    as bot.js place leaves the marker's, stays that way afterwards."""
+    x, _, z = pos
+    held = "is marked for force loading" in console(c, f"forceload query {x} {z}")
+    if not held:
+        console(c, f"forceload add {x} {z}")
+        time.sleep(2)
+    try:
+        yield
+    finally:
+        if not held:
+            console(c, f"forceload remove {x} {z}")
+
+
+def which_block(c, pos, *blocks):
+    """The first of blocks that is at pos, or "something else"."""
+    return next((b for b in blocks if block_is(c, pos, b) == "Test passed"), "something else")
+
+
 def check_marker_console(c, marker):
     gx, gy, gz = marker["gold"]
     sx, sy, sz = marker["sign"]
-    console(c, f"forceload add {gx} {gz}")
-    time.sleep(2)
-    gold = block_is(c, marker["gold"], "gold_block")
-    sign = console(c, f"data get block {sx} {sy} {sz} front_text.messages")
-    console(c, f"forceload remove {gx} {gz}")
-    check(gold == "Test passed", f"console: gold block at {gx} {gy} {gz} ({gold})")
+    seen = ""
+    with loaded(c, marker["gold"]):
+        gold = block_is(c, marker["gold"], "gold_block")
+        sign = console(c, f"data get block {sx} {sy} {sz} front_text.messages")
+        if gold != "Test passed":
+            # An explosion leaves air where the stone floor was; a chunk read
+            # again from an older save has the ground from before the build.
+            seen = f"; in its place {which_block(c, marker['gold'], 'air')}, under it {which_block(c, [gx, gy - 1, gz], 'stone', 'air')}"
+    check(gold == "Test passed", f"console: gold block at {gx} {gy} {gz} ({gold}{seen})")
     check(marker["nonce"] in sign, f"console: sign at {sx} {sy} {sz} carries nonce {marker['nonce']} ({sign.strip()})")
     return {"gold": gold, "sign": sign.strip()}
+
+
+def marker_in_archive(path, marker):
+    """The marker as the archive holds it, read from its region file the way
+    the game saved it: the block at the gold block's place, and the sign's
+    text above it (None for either that isn't there)."""
+    gx, gy, gz = marker["gold"]
+    sx, sy, sz = marker["sign"]
+    with tarfile.open(path, "r:gz") as tf:
+        level = json.load(tf.extractfile("playkeeper-backup/manifest.json"))["levelName"]
+        try:
+            data = tf.extractfile(f"playkeeper-backup/data/{level}/dimensions/minecraft/overworld/region/{region.region_name(gx, gz)}").read()
+        except KeyError:
+            return None, None
+    nbt = region.chunk(data, gx, gz)
+    if nbt is None:
+        return None, None
+    gold, _ = region.block(nbt, gx, gy, gz)
+    _, sign = region.block(nbt, sx, sy, sz)
+    return gold, sign and sign.get("front_text", {}).get("messages")
 
 
 def sha256_file(path):
@@ -323,6 +369,9 @@ def host_a_play(a, c, anon):
     manifest, bad = verify_archive_independently(path)
     check(not bad and len(manifest["files"]) == b["fileCount"],
           f"all {len(manifest['files'])} files match the manifest's SHA-256 values (recomputed with Python hashlib, not Playkeeper)")
+    gold, text = marker_in_archive(path, marker)
+    check(gold == "minecraft:gold_block" and marker["nonce"] in str(text),
+          f"the archive's world holds the marker: {gold} at {' '.join(map(str, marker['gold']))} and a sign reading {text} (read from its region file with Python, not asked of a server)")
     st = c.wait_online(timeout=300)
     results.update({"marker": marker, "markerConsole": marker_before, "backup": b, "onlineBackup": online, "stoppedBackup": stopped,
                     "downtimeMs": downtime, "logStopToReadySeconds": log_span, "archive": path})
@@ -330,24 +379,25 @@ def host_a_play(a, c, anon):
     step("Restore on the same host: preview, typed confirmation, rollback archive, and rolling back")
     gx, gy, gz = marker["gold"]
     diamond = [gx + 1, gy, gz]
-    console(c, f"forceload add {gx} {gz}")
-    time.sleep(2)
-    console(c, f"setblock {diamond[0]} {diamond[1]} {diamond[2]} minecraft:diamond_block")
-    check(block_is(c, diamond, "diamond_block") == "Test passed", f"a later change: diamond block placed at {diamond[0]} {diamond[1]} {diamond[2]} after the backup")
-    console(c, f"forceload remove {gx} {gz}")
+    with loaded(c, marker["gold"]):
+        console(c, f"setblock {diamond[0]} {diamond[1]} {diamond[2]} minecraft:diamond_block")
+        there = block_is(c, diamond, "diamond_block")
+    check(there == "Test passed", f"a later change: diamond block placed at {diamond[0]} {diamond[1]} {diamond[2]} after the backup")
     preview, op, secs = restore_backup(c, b["id"], "restore the backup")
     rollback_id = op["detail"].get("rollbackBackupId")
     check(rollback_id, f"a rollback archive of the replaced world was saved first ({rollback_id})")
     check_marker_console(c, marker)
-    console(c, f"forceload add {gx} {gz}")
-    time.sleep(2)
-    check(block_is(c, diamond, "diamond_block") == "Test failed", "the diamond block placed after the backup is gone")
-    console(c, f"forceload remove {gx} {gz}")
+    with loaded(c, marker["gold"]):
+        there = block_is(c, diamond, "diamond_block")
+    check(there == "Test failed", "the diamond block placed after the backup is gone")
     _, op2, secs2 = restore_backup(c, rollback_id, "restore the rollback archive")
-    console(c, f"forceload add {gx} {gz}")
-    time.sleep(2)
-    check(block_is(c, diamond, "diamond_block") == "Test passed", "restoring the rollback archive brought the diamond block back")
+    with loaded(c, marker["gold"]):
+        there = block_is(c, diamond, "diamond_block")
+    check(there == "Test passed", "restoring the rollback archive brought the diamond block back")
+    # bot.js place held the marker's chunk and stopped mob griefing only for
+    # the marker's checks on this host.
     console(c, f"forceload remove {gx} {gz}")
+    console(c, "gamerule mob_griefing true")
     results["sameHostRestore"] = {"previewNotRestored": preview.get("notRestored"), "restoreSeconds": secs, "rollbackRestoreSeconds": secs2, "rollbackBackupId": rollback_id}
 
     step("Controls are idempotent, serialized and state-aware")
