@@ -154,7 +154,7 @@ func TestUpstreamAsksNeoForgeAgainWhenItDoesNotAnswerInTime(t *testing.T) {
 	var slow atomic.Int32
 	f.handle(metadata, func(w http.ResponseWriter, r *http.Request) {
 		if slow.Add(-1) >= 0 {
-			<-r.Context().Done()
+			noAnswer(w, r)
 			return
 		}
 		_, _ = w.Write([]byte(`<metadata><versioning><versions><version>26.2.0.88</version></versions></versioning></metadata>`))
@@ -190,7 +190,7 @@ func TestUpstreamAsksNeoForgeAgainWhenItDoesNotAnswerInTime(t *testing.T) {
 		t.Errorf("the caller's deadline: asked %d times, want once", n)
 	}
 
-	f.handle(mojangManifestURL, func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
+	f.handle(mojangManifestURL, noAnswer)
 	_, err = mojangManifest(context.Background(), hc)
 	wantKind(t, err, KindUnreachable)
 	if n := f.hitCount(mojangManifestURL); n != 1 {
