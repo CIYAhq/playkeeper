@@ -9557,6 +9557,14 @@ control "moving customers: whoever starts or stops a server since its failed mov
   '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { s.forgetRestart(id) })(w, r, sess)' \
   '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { _ = id })(w, r, sess)' \
   ./internal/panel '^TestAServerStoppedSinceItsFailedMoveStaysStopped$'
+control "moving customers: an AI agent's start or stop since a failed move decides whether the server runs" internal/panel/mcp.go \
+  '	if server != nil && runTools[tool] {' \
+  '	if server != nil && runTools[tool] && false {' \
+  ./internal/panel '^TestAServerStoppedSinceItsFailedMoveStaysStopped$'
+control "moving customers: a copy a failed move left on the machine counts as the room it frees" internal/panel/moves.go \
+  '		if !slices.Contains(sz.copiesOn, id) {' \
+  '		if true {' \
+  ./internal/panel '^TestACopyAMoveLeftCountsAsTheRoomItFrees$'
 control "moving customers: the copy a move left is deleted keeping its whole folder" internal/panel/moves.go \
   '		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true' \
   '		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), false' \
