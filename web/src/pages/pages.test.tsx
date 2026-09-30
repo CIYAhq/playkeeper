@@ -2897,6 +2897,13 @@ describe('Command palette', () => {
     expect(await tab(search, true)).toBe(shortcuts)
   })
 
+  it('offers nothing to do to a server being moved, a backup neither', async () => {
+    const palette = (moving: boolean) => render(<CommandPalette open onOpenChange={() => {}} route={{ name: 'home' }} onShortcuts={() => {}} />, workspace({ servers: [server({ phase: 'online', moving })] }))
+    expect(await palette(false)).toContain('Back up Survival now')
+    const text = await palette(true)
+    for (const action of ['Back up Survival now', 'Restart Survival', 'Stop Survival']) expect(text).not.toContain(action)
+  })
+
   it('offers each server the tabs its tab bar shows', async () => {
     const servers = [server(), server({ id: 'bcdefghjkm', name: 'Modded', slug: 'modded', type: 'fabric' })]
     const palette = (who: Me) => render(<CommandPalette open onOpenChange={() => {}} route={{ name: 'home' }} onShortcuts={() => {}} />, workspace({ me: who, servers }))
