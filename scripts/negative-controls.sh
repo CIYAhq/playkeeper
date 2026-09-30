@@ -21,11 +21,13 @@ if [ -d "$root/web/node_modules" ]; then
 fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
+bad=0
 problems=()
 # problem prints what went wrong with a control and keeps it for the end.
 problem() { # LINE
   echo "$1"
   problems+=("$1")
+  bad=1
 }
 # mutate removes a control's guard: it replaces the first FROM in FILE with
 # TO. When FILE is gone or has no FROM, the code moved under the control, so
@@ -9264,7 +9266,7 @@ control "moving in: an agent that dies before its journal keeps it stopped" inte
   '' \
   ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
 
-if [ "${#problems[@]}" != 0 ]; then
+if [ "$bad" != 0 ]; then
   echo
   echo "problems: ${#problems[@]} (a STALE control's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run)"
   printf '%s\n' "${problems[@]}"
