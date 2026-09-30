@@ -184,6 +184,26 @@ func TestAReadyMessageThatFailedAfterPlacingIsSentLater(t *testing.T) {
 	if k := n.kinds(); !slices.Equal(k, []string{messageSettingUp, messageReady}) {
 		t.Fatalf("what alex was told: %v", k)
 	}
+
+	n.mu.Lock()
+	n.fail = errors.New("the provider is away")
+	n.mu.Unlock()
+	sam := Customer{Provider: whopProvider, Store: testStore, Subject: "user_sam", Handle: "sam"}
+	_, _ = core.StartCustomer(ctx, sam, starter)
+	samInfo, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_sam")
+	if _, ok, _ := e.srv.homeMachine(ctx, samInfo.UserID); !ok {
+		t.Fatal("sam, with room at once, wasn't placed")
+	}
+	n.mu.Lock()
+	n.fail = nil
+	n.mu.Unlock()
+	e.srv.startWaitingCustomers(ctx)
+	n.mu.Lock()
+	last, lastTo := n.sent[len(n.sent)-1], n.to[len(n.to)-1]
+	n.mu.Unlock()
+	if last.Kind != messageReady || lastTo.Subject != "user_sam" {
+		t.Errorf("sam, placed at once and never told it was being set up, was last told %q (%s)", last.Kind, lastTo.Subject)
+	}
 }
 
 // A customer paused while waiting gets no server and no ready message when
