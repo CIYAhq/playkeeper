@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -403,6 +404,27 @@ func (a *Agent) nameTaken(name, except string) bool {
 	return n > 0
 }
 
+// idTaken reports whether a server moved in may not have id here: one of
+// this machine's servers has it, or files of one are where its would go.
+// When that can't be told, it's taken.
+func (a *Agent) idTaken(id string) bool {
+	if a.serverByID(id) != nil {
+		return true
+	}
+	var n int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE id = ?`, id).Scan(&n); err != nil || n > 0 {
+		return true
+	}
+	_, err := os.Lstat(filepath.Join(a.cfg.DataDir, "servers", id))
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+// slugTaken reports whether one of this machine's servers has slug.
+func (a *Agent) slugTaken(slug string) bool {
+	var n int
+	return a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE slug = ?`, slug).Scan(&n) != nil || n > 0
+}
+
 func (a *Agent) defaultName() string {
 	for i := 1; ; i++ {
 		n := "My server"
@@ -475,6 +497,9 @@ func (a *Agent) nextGamePort() (int, error) {
 }
 
 type newServerSpec struct {
+	// id and slug are those of a server moved in (see movein.go); empty
+	// gives a new id, and a slug from the name.
+	id, slug string
 	name     string
 	typ      string
 	config   api.ServerConfig
@@ -513,8 +538,17 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 	if err != nil {
 		return nil, nil, err
 	}
-	id := newServerID()
-	slug := a.uniqueSlug(slugFor(name))
+	id := spec.id
+	switch {
+	case id == "":
+		id = newServerID()
+	case a.idTaken(id):
+		return nil, nil, errConflict("This machine already has a server with that id, or its files.", "")
+	}
+	slug := spec.slug
+	if slug == "" || a.slugTaken(slug) {
+		slug = a.uniqueSlug(cmp.Or(slug, slugFor(name)))
+	}
 	cfgJSON, err := json.Marshal(spec.config)
 	if err != nil {
 		return nil, nil, err
