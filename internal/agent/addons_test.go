@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/addons/firstparty"
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
 
@@ -487,6 +488,7 @@ func TestAddonRoutesRejectBadInput(t *testing.T) {
 		{"traversal project", "GET", e.sp("/addons/project/modrinth/..%2F..%2Fetc"), nil, 400},
 		{"traversal removal", "GET", e.sp("/addons/project/modrinth/..%2Fx/removal"), nil, 400},
 		{"unknown project", "GET", e.sp("/addons/project/modrinth/nosuchthing"), nil, 404},
+		{"unknown plugin of Playkeeper's own", "GET", e.sp("/addons/project/playkeeper/nosuchthing"), nil, 404},
 		{"long search", "GET", e.sp("/addons/search?q=" + strings.Repeat("a", 101)), nil, 400},
 		{"control character in search", "GET", e.sp("/addons/search?q=a%00b"), nil, 400},
 		{"negative page", "GET", e.sp("/addons/search?page=-1"), nil, 400},
@@ -649,5 +651,81 @@ func TestAddonFixesStartTheStoppedServer(t *testing.T) {
 	}
 	if st := e.status(); st.StartedAt == nil || started == nil || !st.StartedAt.Equal(*started) {
 		t.Fatalf("the running server was restarted: started %v, was %v", st.StartedAt, started)
+	}
+}
+
+// Playkeeper's own plugins install, show an update and come out through the
+// routes every add-on uses, and a copy put in the folder by hand can be
+// handed over, all without asking a source.
+func TestPlaykeepersOwnPluginsNeedNoSource(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	e.addIdleServer()
+	j, err := firstparty.Lookup("ai-build-battle").Jar()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(j.Open())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := filepath.Join(e.dataDir(), "plugins")
+	if err := os.MkdirAll(e.dataDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project := e.sp("/addons/project/playkeeper/ai-build-battle")
+
+	var d api.AddonDetails
+	e.decode("GET", project, &d)
+	if d.Card.Source != "playkeeper" || d.Card.PageURL != "" || d.Card.IconURL != "" || d.Installed != nil ||
+		d.Latest == nil || d.Latest.VersionID != j.Version || d.Plan == nil || !d.Plan.Ready {
+		t.Fatalf("details before installing: %+v (plan error %v)", d, d.PlanError)
+	}
+	op := e.addonOp("/addons/install", map[string]any{"source": "playkeeper", "projectId": "ai-build-battle", "fingerprint": d.Plan.Fingerprint, "actor": "admin"})
+	if op.Status != api.OpSucceeded {
+		t.Fatalf("install: %+v", op)
+	}
+	if b, err := os.ReadFile(filepath.Join(plugins, j.FileName)); err != nil || !bytes.Equal(b, data) {
+		t.Fatalf("%s after the install: %v", j.FileName, err)
+	}
+
+	if _, err := e.a.db.Exec(`UPDATE addons SET version_id = '0.0.0-0', version_number = '0.0.0-0' WHERE server_id = ? AND source = 'playkeeper'`, e.sid); err != nil {
+		t.Fatal(err)
+	}
+	d = api.AddonDetails{}
+	e.decode("GET", project, &d)
+	if d.Installed == nil || d.Installed.VersionID != "0.0.0-0" || !d.UpdateAvailable {
+		t.Fatalf("details with an older build installed: %+v", d)
+	}
+	var checks api.AddonChecks
+	e.decode("GET", e.sp("/addons/checks"), &checks)
+	if len(checks.Updates) != 1 || !checks.Updates[0].Available || checks.Updates[0].Latest == nil || checks.Updates[0].Latest.VersionID != j.Version {
+		t.Fatalf("checks with an older build installed: %+v", checks)
+	}
+
+	var removal api.AddonRemoval
+	code, out := e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "playkeeper", "projectId": "ai-build-battle", "actor": "admin"})
+	if b, _ := json.Marshal(out); code != 200 || json.Unmarshal(b, &removal) != nil || !slices.Equal(removal.Removed, []string{"AI Build Battle"}) {
+		t.Fatalf("removing it: %d %v", code, out)
+	}
+	if left, _ := filepath.Glob(filepath.Join(plugins, "*.jar")); len(left) != 0 {
+		t.Fatalf("left in the plugins folder: %v", left)
+	}
+
+	writeTestFile(t, filepath.Join(plugins, "AIBuildBattle.jar"), data, time.Time{})
+	checks = api.AddonChecks{}
+	e.decode("GET", e.sp("/addons/checks"), &checks)
+	if len(checks.Identified) != 1 || checks.Identified[0].Addon == nil || checks.Identified[0].Addon.Source != "playkeeper" {
+		t.Fatalf("a copy added by hand: %+v", checks.Identified)
+	}
+	code, out = e.call("POST", e.sp("/addons/adopt"), map[string]any{"fileName": "AIBuildBattle.jar", "actor": "admin"})
+	if code != 200 || out["source"] != "playkeeper" || out["versionId"] != j.Version || out["fileName"] != "AIBuildBattle.jar" {
+		t.Fatalf("adopting it: %d %v", code, out)
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.hits) != 0 {
+		t.Errorf("the sources were asked: %v", f.hits)
 	}
 }
