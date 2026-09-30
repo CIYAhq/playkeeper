@@ -1,6 +1,9 @@
 package panel
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,13 +36,16 @@ const (
 
 // fakeBusiness is a business that installed the Playkeeper Cloud app: its
 // account, with its owner, and its store. revoked is a business that took
-// the app's grant back, which Whop still answers with empty lists.
+// the app's grant back, which Whop still answers with empty lists, and
+// declined the permissions it didn't grant, as when it approved an older
+// version of the app.
 type fakeBusiness struct {
 	account     map[string]any
 	products    map[string]whop.Metadata
 	plans       []map[string]any
 	memberships map[string]map[string]any
 	revoked     bool
+	declined    []string
 	// partner is the user Playkeeper's share goes to, once the app made
 	// them the business's partner (aff_<business>), and shares their
 	// revenue shares. payments are the business's payments, newest first,
@@ -111,6 +117,10 @@ type fakeWhop struct {
 	// by id, and chats their support chats, by id.
 	installed map[string]*fakeBusiness
 	chats     map[string]fakeChat
+	// tokenKey signs the tokens Whop's proxy adds to a seller's page, and
+	// team the users on each installed business's team besides its owner.
+	tokenKey *ecdsa.PrivateKey
+	team     map[string][]string
 	// redirects are the redirect URLs the sign-in app lists; nil lists the
 	// dashboard's address at the panel's port alone. unsure are those whose
 	// check Whop answers with neither a sign-in page nor a refusal.
@@ -230,7 +240,7 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 	t.Helper()
 	f := &fakeWhop{missing: map[string]bool{}, keysSeen: map[string]bool{}, webhooks: map[string]map[string]any{},
 		memberships: map[string]map[string]any{}, users: map[string]string{"user_alex": "alexplays"}, messages: map[string][]string{},
-		senders: map[string][]string{}, tokens: map[string]fakeToken{}, installed: map[string]*fakeBusiness{}, chats: map[string]fakeChat{},
+		senders: map[string][]string{}, tokens: map[string]fakeToken{}, installed: map[string]*fakeBusiness{}, chats: map[string]fakeChat{}, team: map[string][]string{},
 		products: map[string]whop.Metadata{"prod_mc": {"color": "green"}},
 		plans: []map[string]any{
 			{"id": "plan_starter", "title": "Starter", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "formatted_price": "$8.00 / month",
@@ -240,6 +250,11 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 				"product": map[string]any{"id": "prod_mc", "title": "Minecraft server"}, "metadata": map[string]any{}, "unlimited_stock": true},
 			{"id": "plan_old", "title": "Old", "visibility": "archived", "product": map[string]any{"id": "prod_mc"}},
 		}}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tokenKey = key
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -249,6 +264,10 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests++
+	if r.URL.Path == "/.well-known/jwks.json" {
+		w.Write(whop.UserTokenKeys(whopTestTokenKid, &f.tokenKey.PublicKey))
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/oauth/") {
 		f.serveOAuth(w, r)
 		return
@@ -258,6 +277,10 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if tok, ok := f.tokens[key]; ok {
 		f.serveAsUser(w, r, tok)
+		return
+	}
+	if key == whopTestAppKey && strings.HasPrefix(r.URL.Path, "/users/") && strings.Contains(r.URL.Path, "/access/") {
+		f.serveAccess(w, r)
 		return
 	}
 	if key == whopTestAppKey {

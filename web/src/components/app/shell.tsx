@@ -144,6 +144,8 @@ function pageKey(route: Route): string {
       return route.section ? `account/${route.section}` : route.name
     case 'pack':
       return `pack/${route.token}`
+    case 'whop-seller':
+      return `whop-seller/${route.store}`
     case 'home':
     case 'login':
     case 'setup':

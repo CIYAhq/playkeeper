@@ -89,7 +89,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 	case route == "GET /permissions":
 		var data []map[string]any
 		for _, a := range strings.Split(r.URL.Query().Get("actions"), ",") {
-			data = append(data, map[string]any{"action": a, "granted": !b.revoked})
+			data = append(data, map[string]any{"action": a, "granted": !b.revoked && !slices.Contains(b.declined, a)})
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data})
 	case b.revoked && strings.HasPrefix(route, "GET /memberships/"):
@@ -114,6 +114,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		var data []map[string]any
 		for _, m := range b.memberships {
 			if plan == "" || m["plan_id"] == plan {
+				m = maps.Clone(m)
+				m["account"] = map[string]any{"id": biz, "title": b.account["title"], "route": b.account["route"]}
 				data = append(data, m)
 			}
 		}

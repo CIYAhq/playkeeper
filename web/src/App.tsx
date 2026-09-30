@@ -31,6 +31,7 @@ const pages = {
   recover: () => import('@/pages/recover'),
   server: () => import('@/pages/server'),
   settings: () => import('@/pages/settings'),
+  whopSeller: () => import('@/pages/whop-seller'),
 }
 const AccountPage = lazy(() => pages.account().then((m) => ({ default: m.AccountPage })))
 const DiskPage = lazy(() => pages.disk().then((m) => ({ default: m.DiskPage })))
@@ -48,6 +49,7 @@ const PackPage = lazy(() => pages.pack().then((m) => ({ default: m.PackPage })))
 const RecoverPage = lazy(() => pages.recover().then((m) => ({ default: m.RecoverPage })))
 const ServerPage = lazy(() => pages.server().then((m) => ({ default: m.ServerPage })))
 const GlobalSettingsPage = lazy(() => pages.settings().then((m) => ({ default: m.GlobalSettingsPage })))
+const WhopSellerPage = lazy(() => pages.whopSeller().then((m) => ({ default: m.WhopSellerPage })))
 
 function preloadPages() {
   for (const load of [...Object.values(pages), loadPalette]) void load().catch(() => {})
@@ -91,8 +93,9 @@ export function App() {
     navigate(signInPath(window.location), true)
   }, [])
 
-  // The invite page works without an account, so it skips signing in.
-  const onJoin = route.name === 'join'
+  // The invite page works without an account, and a seller's page inside
+  // Whop with Whop's token instead, so both skip signing in.
+  const onJoin = route.name === 'join' || route.name === 'whop-seller'
 
   useEffect(() => {
     if (onJoin) return
@@ -122,6 +125,16 @@ export function App() {
       off()
     }
   }, [signedIn, signedOut, onJoin])
+
+  if (route.name === 'whop-seller') {
+    return (
+      <LoadBoundary>
+        <Suspense fallback={<Booting />}>
+          <WhopSellerPage store={route.store} />
+        </Suspense>
+      </LoadBoundary>
+    )
+  }
 
   if (route.name === 'join') {
     return (
@@ -255,6 +268,7 @@ function page(route: Route) {
     case 'welcome':
     case 'legacy':
     case 'join':
+    case 'whop-seller':
       return <HomePage />
     case 'new-server':
       return <NewServerPage key={route.machine ?? ''} machine={route.machine} />
