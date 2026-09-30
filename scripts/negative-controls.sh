@@ -8851,13 +8851,37 @@ control "deleting customers: a customer with a plan isn't deleted" internal/pane
   'case plan:' \
   'case plan && false:' \
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
-control "deleting customers: one who buys again before it runs keeps their account" internal/panel/erasure.go \
+control "deleting customers: nothing more of a customer who buys again is deleted" internal/panel/erasure.go \
   'if plan {' \
   'if plan && false {' \
+  ./internal/panel '^(TestACustomerWhoBuysAgainWhileBeingDeletedKeepsTheRest|TestOnlyTheOwnerDeletesACustomerWhosePlanEnded)$'
+control "deleting customers: each server's deletion starts only after another look" internal/panel/erasure.go \
+  'err := s.whileNoPlan(ctx, userID, func() error {' \
+  'err := func(start func() error) error { return start() }(func() error {' \
+  ./internal/panel '^TestACustomerWhoBuysAgainWhileBeingDeletedKeepsTheRest$'
+control "deleting customers: each kept backup's deletion starts only after another look" internal/panel/erasure.go \
+  'if err := s.whileNoPlan(ctx, userID, del); err != nil {' \
+  'if err := del(); err != nil {' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: a renewal Whop's API hasn't confirmed counts as a plan" internal/panel/erasure.go \
+  'FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND status IN' \
+  'FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND stale = 0 AND status IN' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: buying again cancels the request" internal/panel/erasure.go \
+  "SET erase_requested_at = 0, erase_actor = ''" \
+  'SET erase_actor = erase_actor' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: a deletion refused for a plan is in the audit log" internal/panel/erasure.go \
+  's.audit(actor, "customer.erase", c.username, "refused",' \
+  '_ = fmt.Sprint(actor, "customer.erase", c.username, "refused",' \
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
 control "deleting customers: the records transaction keeps one who bought again" internal/panel/erasure.go \
   'if plan, err := s.hasPlan(ctx, tx, c); err != nil || plan {' \
   'if _, err := s.hasPlan(ctx, tx, c); err != nil {' \
+  ./internal/panel '^TestACustomerWhoBuysAgainWhileBeingDeletedKeepsEverything$'
+control "deleting customers: the records transaction looks at the customer as they are now" internal/panel/erasure.go \
+  'SELECT state FROM customers WHERE user_id = ?' \
+  "SELECT 'paused' FROM customers WHERE user_id = ?" \
   ./internal/panel '^TestACustomerWhoBuysAgainWhileBeingDeletedKeepsEverything$'
 control "deleting customers: a customer is signed out when it's asked for" internal/panel/erasure.go \
   's.deleteUserSessions(uid)' \
@@ -8878,6 +8902,14 @@ control "deleting customers: a deletion is in the audit log" internal/panel/eras
 control "deleting customers: their servers are deleted" internal/panel/erasure.go \
   'for _, id := range here {' \
   'for _, id := range here[:0] {' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: a deleted server takes its records along at once" internal/panel/erasure.go \
+  'if err := s.forgetErasedServer(ctx, id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: a deletion that stops once servers went is in the audit log" internal/panel/erasure.go \
+  's.audit(actor, "customer.erase", c.username, "failed",' \
+  '_ = fmt.Sprint(actor, "customer.erase", c.username, "failed",' \
   ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
 control "deleting customers: no final backup of their servers is kept" internal/panel/erasure.go \
   'req := api.DeleteServerRequest{Confirm: st.Name, Actor: placementActor, ForgetKey: true}' \
