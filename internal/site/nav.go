@@ -46,6 +46,7 @@ func footerColumns(s Settings) []FooterColumn {
 		{"Product", []FooterLink{
 			{Label: "Features", Path: "/#features"},
 			{Label: "Templates", Path: "/templates", Else: "/#templates"},
+			{Label: "AI build battle", Path: "/templates/ai-build-battle"},
 			{Label: "Live demo", Path: "/demo/"},
 			{Label: "Pricing", Path: "/pricing"},
 			{Label: "Changelog", Path: "/changelog", Else: s.Repo + "/releases"},

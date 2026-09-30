@@ -10,6 +10,7 @@ This folder is the website at [playkeeper.io](https://playkeeper.io): the landin
 | `/demo/` | the live demo: the dashboard in `web/` built with its sample data (`web/src/demo`); any path under it that isn't a file is one of its pages |
 | `/docs`, `/docs/…` | the docs, built from the repository's own Markdown: `README.md`'s sections, `docs/RECOVERY.md`, `docs/TROUBLESHOOTING.md`, `CONTRIBUTING.md` and `SECURITY.md` |
 | `/templates`, `/templates/…` | the template directory: pages of templates, a page per category and per template, from `data/templates` (see Template directory below) |
+| `/templates/ai-build-battle` | the AI build battle template's page (`pages/ai-build-battle.html`), for people who saw the videos, most on a phone. Its clip plays like `/start`'s film, and its `film: true` setting gives it a location whose policy lets the clip in. The template opens only from Playkeeper 0.4.9, so the page doesn't link it yet. Its `hosted` setting, a path on the site or an `https` address, puts "Or get it hosted" under its install command |
 | `/t` | the share page for server templates (`pages/t.html`, `static/js/t.js`), kept out of search engines |
 | `/t/<id>` | a directory template's share page: sends the browser straight on to `/t` with the template, kept out of search engines |
 | `/sitemap.xml`, `/robots.txt`, `/blog/feed.xml` | for search engines and feed readers |
@@ -17,6 +18,7 @@ This folder is the website at [playkeeper.io](https://playkeeper.io): the landin
 | `/install` | `install.sh`, which runs the latest release's `get.sh` and tells it the install came through playkeeper.io |
 | `/install/<code>` | the same script with a channel's code filled in, for the usage stats and the install log (see Channels below) |
 | `/go/<code>` | `302` to the landing page with a channel's UTM tags (see Channels below) |
+| `/ai` | `302` to `/templates/ai-build-battle`, keeping the query string, so a link's UTM tags reach the page: a page's `short` setting gives it a short address like this one |
 | `/releases/latest/playkeeper-release.json`, `/releases/latest/playkeeper-release.json.sig` | the latest release's signed manifest and its signature, which installed Playkeepers check for a new release (see Release checks below) |
 | `/healthz` | `200` with `ok`, for health checks |
 
@@ -53,7 +55,7 @@ Funnels in the analytics are built from pages and these custom events. Each also
 | `github_clicked` | A link to the repository on GitHub, or to `/community` | `link`: `repo`, `releases`, `file`, `discussions`, `community` and so on |
 | `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`), or Get a … server on its guide; its Setup guide link stays on the site and counts nothing | `provider`, and the `plan` it showed |
 | `watch_releases_clicked` | Watch releases on GitHub on `/pricing`, which is also a `github_clicked` | `plan`: `storage` or `partner` |
-| `install_shared` | Send to my computer, beside Copy on the home page and `/start` on phones: the page's address shared, or copied where the phone can't share it | `spot`: `box` or `closing`; `how`: `share` (the phone's share sheet) or `copy` |
+| `install_shared` | Send to my computer, beside Copy on the home page, `/start` and `/templates/ai-build-battle` on phones: the page's address shared, or copied where the phone can't share it | `spot`: `box` or `closing`; `how`: `share` (the phone's share sheet) or `copy` |
 | `ai_agents_clicked` | Let Claude or GPT run your server, at the top of the home page. The analytics' script sends it itself, from the link's `data-oa-event`, so it has no `where` | none |
 | `demo_opened` | A link to the live demo | `spot`: `page`, `closing`, `header` or `menu` (the phone menu) |
 | `tool_used` | A free tool's result is taken: a file downloaded or a result copied (`static/js/tools.js`) | `tool`: the tool, such as `server-icon`; `action`: `download` or `copy` |
@@ -86,7 +88,7 @@ The release workflow's check of `/install` after each release counts as one ther
 - **Send to my computer:** the ads are seen on phones, where a command for a VPS is no use, so the page's `share: true` setting puts Send to my computer beside each Copy, on phones only. It opens the phone's share sheet with the page's address as it is, ad IDs included, so Whop can credit the ad when it's opened on a computer; where the browser can't share, it copies the address. Right under the hero's Copy, a line links to `/sizing` for anyone without a VPS.
 - **The film:** `static/film/launch.mp4` is a 10.8-second, 720-pixel cut of the launch film, stopping before its "0.4.0 is out" card. It plays muted while it's in view, and not with reduced motion.
 - **Whop's ad pixel:** `WhopPixel` in the settings names the Whop business. `js/start.js` loads the pixel with Whop's own snippet, on this page only. It sends a page view, then `install_copied`, `install_shared` and `demo_opened` whenever site.js counts one (the `playkeeper:count` event), each with the visit's one `event_id`, so Whop counts each once a visit. It doesn't load when the browser sends Global Privacy Control or Do Not Track.
-- **Content-Security-Policy:** only `/start`'s policy, set in its nginx location, lets in `https://t.whop.tw`, the pixel's `blob:` worker and the film. The page ends with a note that says plainly what the pixel stores and sends. Keep forms, iframes and links to whop.com off the page: the pixel reads forms, posts to frames and tags those links.
+- **Content-Security-Policy:** only `/start`'s policy, set in its nginx location, lets in `https://t.whop.tw` and the pixel's `blob:` worker. It lets in the film too, as the location of a page with `film: true` does. The page ends with a note that says plainly what the pixel stores and sends. Keep forms, iframes and links to whop.com off the page: the pixel reads forms, posts to frames and tags those links.
 
 ### Modpack pages
 
@@ -249,6 +251,6 @@ With Go (`./scripts/setup.sh` installs it) or Docker, from the repository root:
 ```bash
 make site                                     # builds the site into site/dist
 go run ./cmd/site -serve 127.0.0.1:8080       # serves it as nginx would, at http://127.0.0.1:8080
-scripts/site-check.sh                         # builds the image and checks every page, /sizing, /demo/, /t, /healthz, /install and its log, /go/ and the headers; with Chrome installed, opens /sizing and /t in it
+scripts/site-check.sh                         # builds the image and checks every page, /sizing, /demo/, /t, /healthz, /install and its log, /go/, /ai and the headers; with Chrome installed, opens /sizing and /t in it
 docker build -f site/Dockerfile -t playkeeper-site . && docker run --rm -p 8080:80 playkeeper-site   # then open http://localhost:8080 and http://localhost:8080/demo/
 ```

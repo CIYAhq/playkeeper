@@ -56,6 +56,23 @@ func cardOf(page, path string) string {
 	return ""
 }
 
+// ownPages are the site's own pages under /templates, like the AI build
+// battle's, which are none of the directory's, by address.
+func ownPages(t *testing.T) map[string]bool {
+	t.Helper()
+	ps, err := loadPages(os.DirFS("../.."), "site/pages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := map[string]bool{}
+	for _, p := range ps {
+		if ownUnderTemplates(p) {
+			own[p.Path] = true
+		}
+	}
+	return own
+}
+
 // indexOf reads js/templates-index.js back.
 func indexOf(t *testing.T, o *Output) (idx struct {
 	Arts      []indexImage           `json:"arts"`
@@ -86,10 +103,12 @@ func indexOf(t *testing.T, o *Output) (idx struct {
 // nothing else: each has a card on /templates that opens it, a page with
 // its facts under its first category, a /t/<id> that sends the browser on to
 // the share page with it, and an entry in the index the directory's script
-// filters. Each category's page lists its templates.
+// filters. Each category's page lists its templates. The site's own pages
+// under /templates, like the AI build battle's, are none of these.
 func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 	o := build(t, Default)
 	built := pages(o)
+	own := ownPages(t)
 	sitemap := string(o.Files["sitemap.xml"])
 	root := os.DirFS("../..")
 	cards, err := loadTemplateCards(root, "site/data/templates")
@@ -180,7 +199,7 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 		}
 		unlisted++
 		for p := range built {
-			if (strings.HasPrefix(p, "/templates/") || strings.HasPrefix(p, "/t/")) && strings.HasSuffix(p, "/"+c.ID) {
+			if (strings.HasPrefix(p, "/templates/") || strings.HasPrefix(p, "/t/")) && strings.HasSuffix(p, "/"+c.ID) && !own[p] {
 				t.Errorf("%s is a page for %s, which %s", p, c.ID, why)
 			}
 		}
@@ -228,9 +247,64 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 		case len(parts) == 2 && parts[0] == "page", len(parts) == 3 && parts[1] == "page":
 		case len(parts) == 1 && slices.ContainsFunc(d.Categories, func(c *Category) bool { return c.ID == parts[0] }):
 		case len(parts) == 2 && slices.ContainsFunc(d.Templates, func(c *TemplateCard) bool { return c.Path() == p }):
+		case own[p]:
 		default:
 			t.Errorf("%s is no page of the directory: its pages, a category or a template", p)
 		}
+	}
+}
+
+// A page of the site's own can go under /templates, like the AI build
+// battle's, as none of the directory's pages: one word under it, and neither
+// page, which the directory's pages use, nor a category's address, listed or
+// not. A page there with a directory's layout is still one of its pages.
+func TestOwnPagesUnderTemplates(t *testing.T) {
+	if !ownPages(t)["/templates/ai-build-battle"] {
+		t.Fatal("the AI build battle's page isn't a page of the site's own under /templates")
+	}
+	built := pages(build(t, Default))
+	b, err := os.ReadFile("../../" + taxonomyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tax map[string]any
+	if err := json.Unmarshal(b, &tax); err != nil {
+		t.Fatal(err)
+	}
+	categories := tax["categories"].(map[string]any)
+	// A listed category without a guide of its own, whose page the directory
+	// makes; and battles, a category with no template at all.
+	listed := ""
+	for _, id := range slices.Sorted(maps.Keys(categories)) {
+		if _, err := os.Stat("../../site/pages/templates/" + id + ".html"); err != nil && built["/templates/"+id] != "" {
+			listed = id
+			break
+		}
+	}
+	if listed == "" {
+		t.Fatal("every listed category has a guide; this test needs one without")
+	}
+	categories["battles"] = categories["smp"]
+	withBattles, _ := json.Marshal(tax)
+	for name, c := range map[string]struct {
+		edits map[string]func(string) string
+		says  string
+	}{
+		"page":                        {map[string]func(string) string{battlePage: set("path", "/templates/page")}, "one word under it"},
+		"two words under /templates":  {map[string]func(string) string{battlePage: set("path", "/templates/smp/battle")}, "one word under it"},
+		"a listed category's address": {map[string]func(string) string{battlePage: set("path", "/templates/"+listed)}, "category's page, with layout: category"},
+		"an unlisted category's address": {map[string]func(string) string{
+			battlePage:   set("path", "/templates/battles"),
+			taxonomyFile: func(string) string { return string(withBattles) },
+		}, "lists no template yet"},
+		"a directory's layout": {map[string]func(string) string{battlePage: set("layout", "category")}, "no category with a listed template"},
+	} {
+		if _, err := buildEdited(t, c.edits); err == nil || !strings.Contains(err.Error(), c.says) {
+			t.Errorf("a page of the site's own under /templates at %s: %v, want an error that says %q", name, err, c.says)
+		}
+	}
+	if _, err := buildEdited(t, map[string]func(string) string{taxonomyFile: func(string) string { return string(withBattles) }}); err != nil {
+		t.Errorf("with battles, a category with no template, the site doesn't build: %v", err)
 	}
 }
 

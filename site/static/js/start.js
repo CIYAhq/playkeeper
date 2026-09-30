@@ -1,19 +1,9 @@
-// /start, where the Meta ads land. The film plays while it's in view. Whop's
-// ad pixel, on this page alone (Settings.WhopPixel, in data-whop-pixel),
-// counts the visit, a copy of the install command, the page sent to a
-// computer and the live demo opened, from site.js's playkeeper:count events;
-// it doesn't load when the browser sends Global Privacy Control or Do Not
-// Track.
+// /start, where the Meta ads land (site.js plays its film). Whop's ad pixel,
+// on this page alone (Settings.WhopPixel, in data-whop-pixel), counts the
+// visit, a copy of the install command, the page sent to a computer and the
+// live demo opened, from site.js's playkeeper:count events; it doesn't load
+// when the browser sends Global Privacy Control or Do Not Track.
 (function () {
-  var film = document.querySelector('[data-film]');
-  if (film && 'IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    new IntersectionObserver(function (entries) {
-      if (!entries[entries.length - 1].isIntersecting) { film.pause(); return; }
-      var playing = film.play();
-      if (playing) playing.catch(function () { /* autoplay refused: its controls still play it */ });
-    }, { threshold: 0.5 }).observe(film);
-  }
-
   var holder = document.querySelector('[data-whop-pixel]');
   var account = holder && holder.getAttribute('data-whop-pixel');
   if (!account || navigator.globalPrivacyControl === true || navigator.doNotTrack === '1' || window.doNotTrack === '1') return;

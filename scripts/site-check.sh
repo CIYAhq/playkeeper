@@ -14,10 +14,12 @@
 # /healthz, /install (the script that runs the latest release's get.sh,
 # telling it the install came through playkeeper.io, run with a stand-in
 # curl) and /install/<code> with its code filled in, the install log they go
-# to (the visitor's address, 30 days), the channels' links under /go/, cache and security headers, the
-# latest release's signed manifest and signature that installs check at
-# /releases/latest/ (kept by release-mirror, cached, answered 304 when
-# unchanged and not logged), and the container's own health check. With Chrome or
+# to (the visitor's address, 30 days), the channels' links under /go/, /ai
+# with its query string, the policy that lets the AI build battle's film in,
+# cache and security headers, the latest release's signed manifest and
+# signature that installs check at /releases/latest/ (kept by release-mirror,
+# cached, answered 304 when unchanged and not logged), and the container's
+# own health check. With Chrome or
 # Chromium installed, it also opens /sizing in headless Chrome with an answer
 # in its address, and with one it can't read, and checks the answer the page
 # shows; and it opens /t with the template links in
@@ -172,6 +174,15 @@ if [ "$code" != 302 ] || [ "$location" != "$base/" ]; then fail "/go/nope answer
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/community")
 [ "$code" = 302 ] || fail "/community answered $code, not 302"
 [ "$location" = "$community" ] || fail "/community redirects to '$location', not $community"
+# /ai, the AI build battle page's short address, keeps the query string, so a
+# link's UTM tags reach the page, in any case and with a trailing slash.
+utm='utm_source=x&utm_medium=social'
+for p in "/ai?$utm" "/AI/?$utm"; do
+  read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base$p")
+  if [ "$code" != 302 ] || [ "$location" != "$base/templates/ai-build-battle?$utm" ]; then fail "$p answered $code to '$location', not 302 to /templates/ai-build-battle?$utm"; fi
+done
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/ai")
+if [ "$code" != 302 ] || [ "$location" != "$base/templates/ai-build-battle" ]; then fail "/ai answered $code to '$location', not 302 to /templates/ai-build-battle"; fi
 
 read -r code type < <(curl -sS -o "$work/robots.txt" -w '%{http_code} %{content_type}\n' "$base/robots.txt")
 [ "$code" = 200 ] || fail "/robots.txt answered $code"
@@ -367,6 +378,14 @@ if sed 's|<script type="application/ld+json">[^<]*</script>||g' "$start" | grep 
 fi
 if grep -vF "$analytics" "$start" | grep -qE '<script src="https?:'; then fail "/start loads a script from another site in its HTML"; fi
 check_files /start "$start"
+
+# The AI build battle's page plays its clip: its policy, set in its location,
+# lets the site's own media in, and nothing of /start's.
+headers=$(curl -sS -D - -o /dev/null "$base/templates/ai-build-battle?utm_source=x&utm_medium=social")
+headers_ok /templates/ai-build-battle "$headers"
+grep -qiF "img-src 'self'; media-src 'self'; connect-src" <<<"$headers" || fail "/templates/ai-build-battle's policy does not let its film in"
+grep -qi '^cache-control: no-cache' <<<"$headers" || fail "/templates/ai-build-battle can be cached, so a deploy would not reach visitors"
+if grep -qiE 't\.whop\.tw|worker-src|^x-robots-tag' <<<"$headers"; then fail "/templates/ai-build-battle lets in or says what only /start should"; fi
 
 for path in / /pricing /t /install /robots.txt /no-such-page "$asset"; do
   headers_ok "$path" "$(curl -sS -D - -o /dev/null "$base$path")"
