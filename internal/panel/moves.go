@@ -208,6 +208,15 @@ func (s *Server) customerMoving(ctx context.Context, userID int64) bool {
 	return err != nil || n > 0 || s.serversApart(ctx, userID)
 }
 
+// moveUnderWay reports whether customer userID's servers are being moved,
+// or a restart stopped their move before it ended, rather than it stopping
+// on an error.
+func (s *Server) moveUnderWay(ctx context.Context, userID int64) bool {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM customer_moves WHERE user_id = ? AND error = '') + (SELECT COUNT(*) FROM server_moves WHERE user_id = ?)`, userID, userID).Scan(&n)
+	return err == nil && n > 0
+}
+
 // serversApart reports whether any server customer userID created is on a
 // machine other than theirs that wasn't removed: their allowance counts only
 // the servers on their machine, and their final backups can be kept on one
@@ -440,6 +449,7 @@ func (s *Server) moveCustomer(ctx context.Context, userID int64) {
 			s.log.Error("could not record why a customer's move stopped", "user", userID, "err", dbErr)
 		}
 		s.audit(placementActor, "customer.move", name, "failed", err.Error())
+		s.recountDisk()
 		return
 	}
 	if _, err := s.db.Exec(`DELETE FROM customer_moves WHERE user_id = ?`, userID); err != nil {
@@ -447,7 +457,7 @@ func (s *Server) moveCustomer(ctx context.Context, userID int64) {
 		return
 	}
 	s.audit(placementActor, "customer.move", name, "succeeded", fmt.Sprintf("%d server(s) moved", moved))
-	s.kickDiskLimits()
+	s.recountDisk()
 	s.kickSaleRoom()
 }
 

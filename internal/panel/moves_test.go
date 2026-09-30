@@ -437,12 +437,19 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 		io.WriteString(w, `{"id":"op-undo","status":"running"}`)
 	})
 	f.e.reply("GET", "/v1/operations/op-undo", `{"id":"op-undo","status":"succeeded"}`)
+	f.e.srv.syncDiskLimits(context.Background())
 	if r := f.move(t, f.local); r.status != http.StatusAccepted {
 		t.Fatalf("moving alex: %d %v", r.status, r.body)
 	}
 	why := f.moved(t)
 	if why != "alex: the dashboard's machine couldn't make it from its folder: The restored world did not start." {
 		t.Fatalf("why the move stopped: %q", why)
+	}
+	f.e.srv.diskUse.Lock()
+	counted := f.e.srv.diskUse.at
+	f.e.srv.diskUse.Unlock()
+	if !counted.IsZero() {
+		t.Errorf("what alex's servers take isn't counted again once their move stopped (last counted %v)", counted)
 	}
 	if at := f.recorded(t); at != f.rid {
 		t.Errorf("after a failed move the server's requests go to %q", at)
@@ -1337,19 +1344,22 @@ func TestServersApartAreBroughtTogether(t *testing.T) {
 	}
 }
 
-// A customer whose servers are on two machines, as while a move of theirs
-// is stopped, gets their plan's disk once between them: each machine's
-// limit for them is what their servers on the others leave of it, as last
-// counted. A copy a move is making isn't theirs on the machine making it,
-// so it isn't counted twice. Together again, they get all of it.
+// A customer whose servers are on two machines while a move of theirs is
+// stopped gets their plan's disk once between them: each machine's limit
+// for them is what their servers on the others leave of it, as counted
+// once the move stopped. A copy the move left isn't theirs on its machine,
+// so it isn't counted twice. While a move is under way nothing is split,
+// as the last counts are from before servers switched machines. Together
+// again, they get all of it.
 func TestACustomerWhoseServersAreApartGetsTheirDiskOnce(t *testing.T) {
 	f := newMoveFleet(t)
 	ctx := context.Background()
 	s := f.e.srv
 	id := accountLimit(f.alex.id)
 	plan := int64(starter.MemoryMB) * 15 << 19
-	f.ra.reply("GET /v1/disk-limits", `[{"id":"`+id+`","limitBytes":1,"servers":["`+movedServer+`"],"usedBytes":`+strconv.FormatInt(12<<30, 10)+`}]`)
-	f.e.reply("GET", "/v1/disk-limits", `[{"id":"`+id+`","limitBytes":1,"servers":[],"usedBytes":`+strconv.FormatInt(5<<30, 10)+`}]`)
+	counted := func(n int64) string {
+		return `[{"id":"` + id + `","limitBytes":1,"servers":[],"usedBytes":` + strconv.FormatInt(n, 10) + `}]`
+	}
 	limitIn := func(body string) api.DiskLimit {
 		var req api.DiskLimitsRequest
 		json.Unmarshal([]byte(body), &req)
@@ -1358,14 +1368,44 @@ func TestACustomerWhoseServersAreApartGetsTheirDiskOnce(t *testing.T) {
 		}
 		return api.DiskLimit{}
 	}
-	f.stopped(t, f.local, f.local)
-	f.mu.Lock()
-	f.madeHere = true
-	f.mu.Unlock()
-	if _, err := s.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES(?, ?, ?, ?)`, movedServer, f.alex.id, f.rid, f.local); err != nil {
+	f.ra.reply("GET /v1/disk-limits", counted(3<<30))
+	f.e.reply("GET", "/v1/disk-limits", counted(0))
+	if _, err := s.db.Exec(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by) VALUES(?, ?, 0, 'admin')`, f.alex.id, f.local); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE customer_homes SET machine_id = ? WHERE user_id = ?`, f.local, f.alex.id); err != nil {
 		t.Fatal(err)
 	}
 	s.syncDiskLimits(ctx)
+	s.syncDiskLimits(ctx)
+	if there, here := limitIn(f.ra.body("PUT /v1/disk-limits")), limitIn(f.e.agentBody("PUT /v1/disk-limits")); there.LimitBytes != plan || here.LimitBytes != plan {
+		t.Errorf("alex's limits while their move is under way: home-server %+v, the dashboard's machine %+v", there, here)
+	}
+
+	// The move stops, leaving a copy on the dashboard's machine, and alex's
+	// server on home-server has grown since it was counted.
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	if err := leftCopy(ctx, s.db, movedServer, f.local, f.alex.id, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.ra.reply("GET /v1/disk-limits", counted(12<<30))
+	f.e.reply("GET", "/v1/disk-limits", counted(5<<30))
+	if _, err := s.db.Exec(`UPDATE customer_moves SET error = 'It stopped.'`); err != nil {
+		t.Fatal(err)
+	}
+	s.recountDisk()
+	select {
+	case <-s.diskKick:
+	default:
+	}
+	s.syncDiskLimits(ctx)
+	select {
+	case <-s.diskKick:
+	default:
+		t.Error("a sync that counted what alex's servers take didn't have their limits made from it at once")
+	}
 	s.syncDiskLimits(ctx)
 	if there := limitIn(f.ra.body("PUT /v1/disk-limits")); there.LimitBytes != plan-5<<30 {
 		t.Errorf("home-server's limit for alex, whose servers are apart: %+v", there)
@@ -1374,7 +1414,7 @@ func TestACustomerWhoseServersAreApartGetsTheirDiskOnce(t *testing.T) {
 		t.Errorf("the dashboard's machine's limit for alex, whose servers are apart: %+v", here)
 	}
 
-	for _, q := range []string{`DELETE FROM server_moves`, `DELETE FROM customer_moves`, `UPDATE customer_homes SET machine_id = '` + f.rid + `'`} {
+	for _, q := range []string{`DELETE FROM left_copies`, `DELETE FROM customer_moves`, `UPDATE customer_homes SET machine_id = '` + f.rid + `'`} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(err)
 		}

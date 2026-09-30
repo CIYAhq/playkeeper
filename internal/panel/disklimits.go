@@ -120,15 +120,23 @@ func (s *Server) customerHolds(ctx context.Context) (map[int64]string, error) {
 
 // diskInputs are what the limits are made from: each account's allowance
 // and hold, whose each server is, the customers' machines, the accounts
-// whose servers are on more than one machine, and what each account's
-// servers took on each machine when last counted.
+// whose allowance is split between machines (splitDisk), and what each
+// account's servers took on each machine when last counted.
 type diskInputs struct {
 	allowances map[int64]invites.Allowance
 	holds      map[int64]string
 	owners     map[string]int64
 	homes      map[int64]homeRow
-	apart      map[int64]bool
+	split      map[int64]bool
 	usedOn     map[string]map[int64]int64
+}
+
+// splitDisk reports whether account userID's allowance is split between the
+// machines its servers are on: they're on more than one while no move of
+// theirs is under way. During a move the last counts are from before its
+// servers switched machines, and the move counts them again once it ends.
+func (s *Server) splitDisk(ctx context.Context, userID int64) bool {
+	return s.serversApart(ctx, userID) && !s.moveUnderWay(ctx, userID)
 }
 
 // diskInputs reads what the limits for the machines in list are made from.
@@ -147,9 +155,9 @@ func (s *Server) diskInputs(ctx context.Context, list []machine) (diskInputs, er
 	if in.homes, err = s.customerHomes(ctx); err != nil {
 		return in, fmt.Errorf("the customers' machines: %w", err)
 	}
-	in.apart = map[int64]bool{}
+	in.split = map[int64]bool{}
 	for uid := range in.allowances {
-		in.apart[uid] = s.serversApart(ctx, uid)
+		in.split[uid] = s.splitDisk(ctx, uid)
 	}
 	in.usedOn = map[string]map[int64]int64{}
 	s.diskUse.Lock()
@@ -162,9 +170,20 @@ func (s *Server) diskInputs(ctx context.Context, list []machine) (diskInputs, er
 	return in, nil
 }
 
+// recountDisk has the limits sent now, counting what each account's
+// servers take first, as a move that ended changed which machine has them.
+func (s *Server) recountDisk() {
+	s.diskUse.Lock()
+	s.diskUse.at = time.Time{}
+	s.diskUse.Unlock()
+	s.kickDiskLimits()
+}
+
 // syncDiskLimits sends every machine that answers the limits of the
 // accounts whose servers it has, and every diskUseEvery keeps what those
-// servers take.
+// servers take. The limits of an account split between machines come from
+// the counts before a sync, so one that counts has another sync right after
+// it make them from its counts.
 func (s *Server) syncDiskLimits(ctx context.Context) {
 	list, err := s.machines()
 	if err != nil {
@@ -197,6 +216,12 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 		s.diskUse.Lock()
 		s.diskUse.at, s.diskUse.used, s.diskUse.usedOn = s.now(), used, on
 		s.diskUse.Unlock()
+		for _, split := range in.split {
+			if split {
+				s.kickDiskLimits()
+				break
+			}
+		}
 	}
 }
 
@@ -204,9 +229,9 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 // or whose home it is, and with count, returns what each one's servers take
 // there. An account's server on m counts against its limit only while m
 // still has it, and a copy a move makes or leaves there only once it's the
-// server, or when it's switching, about to be. An account whose servers are
-// on more than one machine gets on m what those on the others leave of its
-// allowance, as last counted, so it gets its allowance once between them.
+// server, or when it's switching, about to be. An account whose allowance
+// is split between machines gets on m what its servers on the others leave
+// of it, as last counted, so it gets its allowance once between them.
 func (s *Server) sendDiskLimits(ctx context.Context, m machine, in diskInputs, count bool, switching string) (map[int64]int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -243,7 +268,7 @@ func (s *Server) sendDiskLimits(ctx context.Context, m machine, in diskInputs, c
 	limits := make([]api.DiskLimit, 0, len(byAccount))
 	for uid, ids := range byAccount {
 		limit := in.allowances[uid].DiskBytes()
-		if in.apart[uid] {
+		if in.split[uid] {
 			for mid, used := range in.usedOn {
 				if mid != m.ID {
 					limit -= used[uid]

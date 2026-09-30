@@ -9708,6 +9708,23 @@ control "moving customers: the copy about to become the server counts against it
   'if sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
   'if copyHidden(copies, sv.ID, now) {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: a customer's disk isn't split while their move is under way" internal/panel/disklimits.go \
+  'return s.serversApart(ctx, userID) && !s.moveUnderWay(ctx, userID)' \
+  'return s.serversApart(ctx, userID)' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: a move that stops has what its customer's servers take counted again" internal/panel/moves.go \
+  's.audit(placementActor, "customer.move", name, "failed", err.Error())
+		s.recountDisk()' \
+  's.audit(placementActor, "customer.move", name, "failed", err.Error())' \
+  ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "disk limits: counting again means the next sync counts" internal/panel/disklimits.go \
+  '	s.diskUse.at = time.Time{}' \
+  '	_ = time.Time{}' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "disk limits: a sync that counts has a split made from its counts at once" internal/panel/disklimits.go \
+  '			if split {' \
+  '			if split && false {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside
