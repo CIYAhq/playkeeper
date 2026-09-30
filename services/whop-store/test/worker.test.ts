@@ -58,9 +58,12 @@ describe('the store’s pages', () => {
     expect(words).toContain('Not taking orders yet Joe’s Hosting opens here soon.')
     expect(page).toContain('<a class="btn btn-outline btn-sm" href="https://whop.com/apps/app_6oyNYgGluUMTx4/install">Connect Playkeeper Cloud</a>')
     expect(words).toContain('approve it for this business, picking it in Whop’s business picker.')
+    expect(words).toContain('By connecting, you accept Playkeeper Cloud’s seller terms')
+    expect(page).toContain('<a href="https://playkeeper.io/cloud/seller-terms">seller terms</a>')
     expect(words).not.toContain('Install Playkeeper on your server')
     const odd = await (await store(freshCopy, { env: { PLAYKEEPER_CLOUD_APP: 'app_x"><script>' } }).get('/')).text()
     expect(odd).not.toContain('Connect Playkeeper Cloud')
+    expect(odd).not.toContain('seller terms')
     expect(text(odd)).toContain('Install Playkeeper on your server')
   })
 
