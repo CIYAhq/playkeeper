@@ -1187,7 +1187,7 @@ control "playkeeper.io puts the manifest in place before its signature" cmd/rele
   ./cmd/release-mirror '^TestTheSiteServesOnlyReleasesThatVerify$'
 control "playkeeper.io leaves a release that didn't change alone" cmd/release-mirror/main.go \
   'if had && bytes.Equal(was.manifest, rel.Raw) && bytes.Equal(was.signature, rel.Signature) {' \
-  'if false {' \
+  'if false && bytes.Equal(was.manifest, rel.Raw) && bytes.Equal(was.signature, rel.Signature) {' \
   ./cmd/release-mirror '^TestTheSiteServesOnlyReleasesThatVerify$'
 webcontrol "only those who can install a release are told of it" web/src/components/app/update.tsx \
   "ws.prefsLoading || !can(ws.me, 'machine.manage') || ws.prefs[dismissedKey] === version" \
