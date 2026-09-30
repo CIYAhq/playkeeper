@@ -326,16 +326,11 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, a w
 }
 
 // refreshWhopPlans reads the store again every whopPollEvery, so a plan's
-// allowance changed on Whop reaches its customers, and sooner when a
-// membership is of a plan the dashboard hasn't read yet.
+// allowance changed on Whop reaches its customers, and sooner when the
+// store may be out of date (see whopStoreDue).
 func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, a whopAccount) {
-	since := s.now().Sub(a.SyncedAt)
-	if since < whopPollEvery {
-		var unknown int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m
-			WHERE m.stale = 0 AND NOT EXISTS (SELECT 1 FROM whop_plans p WHERE p.plan_id = m.plan_id)`).Scan(&unknown); err != nil || unknown == 0 || since < 2*time.Minute {
-			return
-		}
+	if !s.whopStoreDue(ctx, a) {
+		return
 	}
 	problem := ""
 	if err := s.readWhopStore(ctx, c, a.ID, false); err != nil {
@@ -345,6 +340,28 @@ func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, a whopAcc
 	if _, err := s.db.Exec(`UPDATE whop_account SET synced_at = ?, problem = ? WHERE id = 1`, s.now().UnixMilli(), problem); err != nil {
 		s.log.Error("could not record reading the store on Whop", "err", err)
 	}
+}
+
+// whopStoreDue says whether the reconciler reads the store this pass: every
+// whopPollEvery; a minute after the last read when the products name
+// another address than the dashboard's, since the store sends buyers there
+// and the old one may no longer answer (the dashboard losing port 443, say);
+// and two minutes after it when a membership is of a plan the dashboard
+// hasn't read yet.
+func (s *Server) whopStoreDue(ctx context.Context, a whopAccount) bool {
+	since := s.now().Sub(a.SyncedAt)
+	if since >= whopPollEvery {
+		return true
+	}
+	if since >= time.Minute {
+		if dash, err := s.dashboardURL(ctx); err == nil && dash != "" && dash != a.MarkedAs {
+			return true
+		}
+	}
+	var unknown int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m
+		WHERE m.stale = 0 AND NOT EXISTS (SELECT 1 FROM whop_plans p WHERE p.plan_id = m.plan_id)`).Scan(&unknown)
+	return err == nil && unknown > 0 && since >= 2*time.Minute
 }
 
 // whopCustomer is one customer as the reconciler sees them.

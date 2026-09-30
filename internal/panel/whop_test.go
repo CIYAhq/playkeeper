@@ -67,8 +67,9 @@ type fakeWhop struct {
 	// refuseFilter refuses listing memberships by plan, as a Whop that
 	// doesn't know the filter might.
 	refuseFilter bool
-	// requests counts what the dashboard asked.
-	requests int
+	// requests counts what the dashboard asked, and planReads its reads of
+	// the store's plans, which only reading the store does.
+	requests, planReads int
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
 	// the refresh tokens ended. noTokenExchange is an app without the
 	// oauth:token_exchange permission on Whop.
@@ -253,6 +254,7 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	case "GET /variants":
+		f.planReads++
 		json.NewEncoder(w).Encode(map[string]any{"data": f.plans, "page_info": map[string]any{"has_next_page": false}})
 	case "POST /webhooks":
 		var body map[string]any

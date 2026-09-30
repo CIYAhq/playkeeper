@@ -352,6 +352,67 @@ func TestTheDashboardsAddressFollowsItsPort(t *testing.T) {
 	}
 }
 
+// The store sends buyers to the address its products name, so the marks
+// follow the dashboard's port a minute after the last read of the store
+// rather than at the ten-minute one: losing port 443 closes the address
+// without a port. The webhook follows at once, and a Whop refusing the
+// marks is asked again a minute later, not at every pass.
+func TestTheStoreFollowsTheDashboardsPortWithinAMinute(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	const bare = "https://beta.playkeeper.me"
+	port := func(p int) {
+		after := e.clock.now().Add(60 * 24 * time.Hour).Format(time.RFC3339)
+		e.replyStatus("GET", "/v1/address", 200, `{"kind":"playkeeper","host":"beta.playkeeper.me","panelPort":8443,"base":"playkeeper.me","servers":[],"names":{},
+			"certificate":{"names":["beta.playkeeper.me"],"challenge":"dns-01","notAfter":"`+after+`"},
+			"dashboard":{"on":true,"state":"open","reached":true,"port":`+strconv.Itoa(p)+`}}`)
+	}
+	hook := func() any {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for _, h := range f.webhooks {
+			return h["url"]
+		}
+		return nil
+	}
+	reads := func() int {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.planReads
+	}
+
+	port(443)
+	e.clock.add(time.Minute)
+	e.reconcile()
+	if f.dashboardMeta() != bare || hook() != bare+whopWebhookPath {
+		t.Fatalf("on port 443: the store names %q, the webhook %v", f.dashboardMeta(), hook())
+	}
+	n := reads()
+	e.clock.add(time.Minute)
+	e.reconcile()
+	if reads() != n {
+		t.Fatal("the store was read again though nothing moved")
+	}
+
+	port(8443)
+	f.refuseMarks(true)
+	e.clock.add(time.Minute)
+	e.reconcile()
+	if hook() != whopDashboard+whopWebhookPath || f.dashboardMeta() != bare {
+		t.Fatalf("with Whop refusing the marks: the webhook %v, the store names %q", hook(), f.dashboardMeta())
+	}
+	n = reads()
+	e.reconcile()
+	if reads() != n {
+		t.Fatal("Whop was asked for the marks again within the minute")
+	}
+	f.refuseMarks(false)
+	e.clock.add(time.Minute)
+	e.reconcile()
+	if f.dashboardMeta() != whopDashboard {
+		t.Fatalf("a minute later the store names %q", f.dashboardMeta())
+	}
+}
+
 // Machine settings shows the switch with the changes it needs outside
 // Playkeeper, Whop's to the owner alone, and passes a refusal on with
 // what has port 443.

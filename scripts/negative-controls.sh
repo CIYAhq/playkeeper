@@ -6707,6 +6707,14 @@ control "Turn on refuses a Whop app that lists neither redirect URL" internal/pa
   'if accepted, known := s.whopAccepts(ctx, o, false); known && !accepted {' \
   'if accepted, known := s.whopAccepts(ctx, o, false); false && known && !accepted {' \
   ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
+control "the store's marks follow the dashboard's port within a minute" internal/panel/whop_customers.go \
+  'err == nil && dash != "" && dash != a.MarkedAs {' \
+  'err == nil && false && dash != a.MarkedAs {' \
+  ./internal/panel '^TestTheStoreFollowsTheDashboardsPortWithinAMinute$'
+control "a Whop refusing the marks is asked again a minute later, not every pass" internal/panel/whop_customers.go \
+  '	if since >= time.Minute {' \
+  '	if since >= 0 {' \
+  ./internal/panel '^TestTheStoreFollowsTheDashboardsPortWithinAMinute$'
 control "a new install leaves the dashboard on 8443 while something has port 443" internal/install/install.go \
   'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
   'return o.Join == "" && !f.ReuseData' \
