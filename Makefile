@@ -64,6 +64,7 @@ test-sh:
 	bash scripts/ci-parts_test.sh
 	bash scripts/ci-since_test.sh
 	bash scripts/discord-feed_test.sh
+	bash scripts/net-retry_test.sh
 	bash scripts/e2e/vm-rehearsal_test.sh
 
 # A production build into a folder of its own, so web/dist stays as it was:
