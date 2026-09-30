@@ -129,6 +129,11 @@ func (s *Server) keepMembership(storeID string, m whop.Membership, stale bool) e
 	if !reWhopID.MatchString(storeID) || !reWhopID.MatchString(m.ID) || !reWhopID.MatchString(m.UserID) || !reWhopID.MatchString(m.PlanID) {
 		return nil
 	}
+	// A customer the dashboard deleted stays deleted: a membership of theirs
+	// that no longer gives access isn't brought back (see erasure.go).
+	if !m.HasAccess() && s.forgotten(storeID, m.UserID) {
+		return nil
+	}
 	end := int64(0)
 	if !m.PeriodEnd.IsZero() {
 		end = m.PeriodEnd.UnixMilli()

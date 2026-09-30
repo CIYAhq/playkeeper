@@ -774,6 +774,20 @@ CREATE TABLE whop_fee_lines (
   PRIMARY KEY (payment_id, n)
 );
 `,
+	// Deleting a customer (see erasure.go): when the owner asked for it, and
+	// who; and, for each customer deleted, a hash of who they were at their
+	// store, so the store's next read doesn't bring back a membership of
+	// theirs that ended.
+	`
+ALTER TABLE customers ADD COLUMN erase_requested_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN erase_actor        TEXT    NOT NULL DEFAULT '';
+CREATE TABLE erased_customers (
+  store_id     TEXT    NOT NULL,
+  subject_hash TEXT    NOT NULL,
+  erased_at    INTEGER NOT NULL,
+  PRIMARY KEY (store_id, subject_hash)
+);
+`,
 }
 
 const (
