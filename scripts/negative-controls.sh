@@ -9410,6 +9410,10 @@ control "moving customers: a copy still there keeps its record" internal/panel/m
   'WHERE machine_id = ? AND left_at > 0 AND left_at < ?' \
   'WHERE machine_id = ? AND left_at >= 0 AND left_at < ?' \
   ./internal/panel '^TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer$'
+control "moving customers: a copy that went stays recorded a while, for listings that arrive late" internal/panel/moves.go \
+  'millis(listedAt.Add(-leftCopyKept)))' \
+  'millis(listedAt))' \
+  ./internal/panel '^TestALateListingStillLeavesOutACopyThatWent$'
 control "moving customers: a moved server counts against its customer's disk limit before its requests go there" internal/panel/moves.go \
   'if err = s.sendLimitsTo(ctx, to); err != nil {' \
   'if err = error(nil); err != nil {' \
