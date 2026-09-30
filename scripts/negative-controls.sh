@@ -9605,6 +9605,10 @@ control "moving customers: the backups a move keeps aren't a deleted server's" i
   'req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)' \
   'req.KeepFinalBackupDays, req.KeptFor = days, keptFor(userID)' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: a moved server is listed as it last was until its machine lists it" internal/panel/moves.go \
+  'seen_at = excluded.seen_at, disputed_by = '"''" \
+  'seen_at = excluded.seen_at, status = '"''"', disputed_by = '"''" \
+  ./internal/panel '^TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer$'
 
 if [ "$bad" != 0 ]; then
   echo

@@ -655,10 +655,12 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 	}
 
 	// Once movingsrv2's requests go to beta, a listing of beta's asked for
-	// before then, without it, doesn't drop its record.
+	// before then, without it, doesn't drop its record, and until beta lists
+	// it, it's listed as alpha last listed it.
 	if _, err := s.db.Exec(`UPDATE server_moves SET to_machine = ? WHERE server_id = 'movingsrv2'`, beta.ID); err != nil {
 		t.Fatal(err)
 	}
+	s.claimServers(alpha, serverList("movingsrv2"))
 	asked := e.clock.now()
 	e.clock.add(time.Second)
 	if err := s.switchServer(context.Background(), serverMove{serverID: "movingsrv2", userID: 7, from: alpha.ID, to: beta.ID}, beta, "movingsrv2"); err != nil {
@@ -667,6 +669,10 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 	s.claimListing(beta, nil, asked)
 	if m, _ := recordOf("movingsrv2"); m != beta.ID {
 		t.Errorf("a listing of beta's asked for before the server moved there dropped its record: %q", m)
+	}
+	known, err := s.lastKnownServers(beta)
+	if err != nil || !slices.ContainsFunc(known, func(sv map[string]any) bool { return sv["id"] == "movingsrv2" }) {
+		t.Errorf("while beta is away, the server moved there isn't listed as it last was: %v %v", known, err)
 	}
 
 	// The same for the dashboard's machine: a server moved to it keeps its

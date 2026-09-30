@@ -797,7 +797,8 @@ func (s *Server) copyBackupRules(ctx context.Context, id string, from, to machin
 // of it is complete, with the slug the dashboard showed for it, and ends its
 // move: the copy on the machine it left is a copy it left, its final backup
 // kept there movedBackupDays. Its links go with it. A listing of to's asked
-// for before now can't drop its record.
+// for before now can't drop its record, and its record keeps the server as
+// last listed, so it's still listed while to is away.
 func (s *Server) switchServer(ctx context.Context, mv serverMove, to machine, slug string) error {
 	kept := ""
 	if to.Kind == remoteKind {
@@ -806,7 +807,7 @@ func (s *Server) switchServer(ctx context.Context, mv serverMove, to machine, sl
 	now := millis(s.now())
 	err := s.immediate(ctx, func(c *sql.Conn) error {
 		if _, err := c.ExecContext(ctx, `INSERT INTO server_machines(server_id, machine_id, slug, seen_at) VALUES(?,?,?,?)
-			ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, slug = excluded.slug, seen_at = excluded.seen_at, status = '', disputed_by = ''`,
+			ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, slug = excluded.slug, seen_at = excluded.seen_at, disputed_by = ''`,
 			mv.serverID, to.ID, kept, now); err != nil {
 			return err
 		}
