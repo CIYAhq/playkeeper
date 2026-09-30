@@ -3011,6 +3011,20 @@ shcontrol "a shard runs the tests a panic kept from starting" scripts/go-test-sh
   'todo=$(grep -vxF -e "$started" <<<"$todo" || true)' \
   'todo=' \
   scripts/go-test-shard_test.sh
+shcontrol "a module download the proxy dropped is tried again" scripts/net-retry.sh \
+  "transient='stream error|" \
+  "transient='" \
+  scripts/net-retry_test.sh
+# shellcheck disable=SC2016
+shcontrol "only a network error is tried again" scripts/net-retry.sh \
+  ' || ! grep -Eq "$transient" "$log"; then' \
+  '; then' \
+  scripts/net-retry_test.sh
+# shellcheck disable=SC2016
+shcontrol "setup.sh tries the module download again after a network error" scripts/setup.sh \
+  '"$root/scripts/net-retry.sh" go mod download' \
+  'go mod download' \
+  scripts/setup_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
