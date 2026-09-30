@@ -9982,8 +9982,8 @@ control "moving customers: a copy left on a removed machine stays recorded" inte
   '	case busy > 0 || errors.Is(err, errNotFound):' \
   ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
 control "moving customers: a removed machine's host joining again lists its copy as one, not the server" internal/panel/machines.go \
-  'if adopted, err := adoptLeftCopy(ctx, c, id, m.ID); err != nil {' \
-  'if adopted, err := false, error(nil); err != nil {' \
+  '				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerActive)' \
+  '				adopted, err := false, error(nil)' \
   ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
 control "removing a machine: a customer who lost theirs is told there's no room for their servers" internal/panel/readyserver.go \
   '	case toldReady != 0 && !placed && toldWaiting == 0:' \
@@ -10048,18 +10048,30 @@ control "moving customers: a sync of the disk limits during a switch doesn't lea
 		s.diskSending.Unlock()' \
   '		got, err := s.sendDiskLimits(ctx, m, in, count, "")' \
   ./internal/panel '^TestASyncDuringASwitchLeavesTheServerInItsLimit$'
-control "moving customers: a copy left on a removed machine, stopped before its server moved, isn't taken over" internal/panel/machines.go \
-  '				if adopted, err := adoptStaleCopy(ctx, c, id, m.ID, sv); err != nil {' \
-  '				if adopted, err := adoptStaleCopy(ctx, c, id, m.ID, sv); err != nil || true {' \
+control "moving customers: a copy left on a removed machine, stopped before its server moved, isn't taken over" internal/panel/moves.go \
+  ' AND switched_at > ? ORDER BY switched_at, machine_id LIMIT 1' \
+  ' AND switched_at > ? AND 0 = 1 ORDER BY switched_at, machine_id LIMIT 1' \
   ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
 control "moving customers: the server where it moved, stopped since, isn't taken for its copy" internal/panel/moves.go \
-  '	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
-  '	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched && false {' \
-  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+  ' AND switched_at > ? ORDER BY' \
+  ' AND switched_at > 0 AND ? > 0 ORDER BY' \
+  ./internal/panel '^(TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs|TestEachCopyLeftOnARemovedMachineIsTakenOnce)$'
 control "moving customers: a server that isn't stopped is never taken for a copy a move left" internal/panel/moves.go \
-  '	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
-  '	if perr != nil || millis(stopped) >= switched {' \
+  '	if sv["phase"] != string(api.PhaseStopped) || err != nil {' \
+  '	if err != nil {' \
   ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+control "moving customers: a failed move's copy is taken only while the server's own machine runs it" internal/panel/moves.go \
+  '	if isNoRows(err) && ownerActive {' \
+  '	if isNoRows(err) {' \
+  ./internal/panel '^TestAFailedMovesCopyNeverGetsTheServerItselfDeleted$'
+control "moving customers: a listing that can't be told from a failed move's copy is disputed, not taken over" internal/panel/machines.go \
+  '				if !ownerActive && !unsure {' \
+  '				if !ownerActive {' \
+  ./internal/panel '^(TestAFailedMovesCopyNeverGetsTheServerItselfDeleted|TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs)$'
+control "moving customers: each copy left on a removed machine is taken once, the others kept" internal/panel/moves.go \
+  '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, from)' \
+  '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE `+leftOnRemoved+` OR machine_id = ?`, id, from)' \
+  ./internal/panel '^TestEachCopyLeftOnARemovedMachineIsTakenOnce$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside
