@@ -678,6 +678,7 @@ const routes: [string, RegExp, Handler][] = [
   ],
   ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], webhook: false, customers: [], needs: whopNeeds } })],
   ['PUT', /^\/api\/whop\/signin$/, () => ({ status: 200, body: whopConnected({}) })],
+  ['PUT', /^\/api\/whop\/app$/, () => ({ status: 200, body: whopConnected({}) })],
   ['DELETE', /^\/api\/whop\/signin$/, () => ({ status: 200, body: { ...whopConnected({}), signIn: { redirectUri: whopSignInRedirect } } })],
   // Hetzner stock never reaches Hetzner: a token typed here isn't one Hetzner knows, so it's refused as the real check would.
   ['PUT', /^\/api\/hetzner$/, () => ({ status: 400, body: { error: 'Hetzner didn’t take that token.', code: 'hetzner_token_refused' }, expected: true })],
@@ -1819,6 +1820,7 @@ function whopConnected(body: Json): Json {
     plans: [plan('plan_fakestarter', 'Starter', '$8.00 / month', { trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }), plan('plan_fakebig', 'Big', '$16.00 / month', {})],
     webhook: true,
     signIn: { clientId: 'app_fakecloud', redirectUri: whopSignInRedirect },
+    app: { stores: 0, webhook: false },
     customers: [
       { whopUserId: 'user_fakealex', handle: 'alexplays', status: 'active', plan: 'Starter', account: 'alexplays', allowance: { servers: 1, memoryMB: 4096 } },
       { whopUserId: 'user_fakesam', handle: 'samcrafts', status: 'paused', plan: 'Starter', allowance: { servers: 1, memoryMB: 4096 } },

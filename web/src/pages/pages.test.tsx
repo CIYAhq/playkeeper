@@ -1997,6 +1997,35 @@ describe('Sell on Whop', () => {
     expect(document.body.textContent).toContain(`Redirect URL: ${redirect}`)
   })
 
+  it('saves the app’s key and webhook secret, so businesses that install the app sell here', async () => {
+    const redirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
+    const webhookUrl = 'https://my-vps.playkeeper.me:8443/api/public/whop/app-webhook'
+    const signIn = { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: redirect }
+    answer({ '/api/whop': { ...open, signIn, app: { stores: 0, webhook: false, webhookUrl } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Other businesses on Whop can sell servers from this dashboard by installing app_pipcloud, the app customers sign in through.')
+    expect(text).toContain('The app’s API key isn’t set, so businesses that install it wait.No business that installed it sells here yet.Without the app’s webhook, their purchases are read every minute.')
+    expect(text).toContain(`membership.cancel_at_period_end_changed, then paste its secret here. Its URL: ${webhookUrl}`)
+    for (const label of ['App’s API key', 'App webhook’s secret']) expect(document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.type).toBe('password')
+    expect(button('Save').disabled).toBe(true)
+    await typeInto('input[aria-label="App’s API key"]', ' apik_cloud_0123456789abcdef ')
+    await typeInto('input[aria-label="App webhook’s secret"]', 'ws_0123456789abcdef0123')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { keyEnding: 'cdef', stores: 2, webhook: true, webhookUrl } })
+    await act(async () => button('Save').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/app', { key: 'apik_cloud_0123456789abcdef', webhookSecret: 'ws_0123456789abcdef0123' })
+    const after = document.body.textContent ?? ''
+    expect(after).toContain('The app’s API key ends cdef.2 businesses that installed it sell here.Whop tells this dashboard of their purchases through the app’s webhook.')
+    expect(after).not.toContain('Its URL:')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { stores: 2, webhook: false, webhookUrl } })
+    await click('Remove the key and webhook secret')
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/app', { key: '', webhookSecret: '' })
+  })
+
+  it('shows the businesses that install the app only once Sign in with Whop is on', async () => {
+    answer({ '/api/whop': { ...open, signIn: { redirectUri: 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback' }, app: { stores: 0, webhook: false } } })
+    expect(await render(<SellOnWhopSection />, owner)).not.toContain('Businesses that install your app')
+  })
+
   it('says why a message to a customer hasn’t gone out, as the store needing a look', async () => {
     answer({ '/api/whop': { ...open, customers: [{ ...open.customers[0], messageProblem: 'Whop said: Something went wrong' }] } })
     const text = await render(<SellOnWhopSection />, owner)
