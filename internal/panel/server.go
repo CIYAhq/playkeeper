@@ -72,6 +72,10 @@ type Options struct {
 	// dashboard was opened at a loopback address (default: HostIPs). The
 	// installed panel's unit leaves out AF_NETLINK, so there it finds none.
 	HostIPs func() []net.IP
+	// SlugLetters is what the slug of a server new to the dashboard gets
+	// after it when another server shows that slug, on the try'th go
+	// (default: a few random letters and digits; see stableSlugs).
+	SlugLetters func(try int) string
 }
 
 type Server struct {

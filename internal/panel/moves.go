@@ -900,7 +900,7 @@ func (s *Server) copyServer(ctx context.Context, mv serverMove, from, to machine
 		return fmt.Errorf("its folder couldn't be copied to %s: %w", machineLabel(to), err)
 	}
 	cfg := st.Config
-	in := api.MoveInRequest{ServerID: id, Name: st.Name, Slug: slug, MemoryMB: cfg.MemoryMB, PlayStyle: cfg.PlayStyle, Start: start,
+	in := api.MoveInRequest{ServerID: id, Name: st.Name, Slug: slug, Account: accountLimit(mv.userID), MemoryMB: cfg.MemoryMB, PlayStyle: cfg.PlayStyle, Start: start,
 		CreatedAt: cfg.CreatedAt, EULAAcceptedAt: cfg.EULAAcceptedAt, EULAAcceptedBy: cfg.EULAAcceptedBy, Actor: placementActor}
 	if err := s.moveIn(ctx, mv, to, rid, in); err != nil {
 		discardUpload(ctx, to, rid)

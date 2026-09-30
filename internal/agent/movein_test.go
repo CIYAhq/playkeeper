@@ -159,6 +159,32 @@ func TestAServerMovedInThatRanThereStartsHere(t *testing.T) {
 	}
 }
 
+// A customer's server moved in keeps its name beside a server of the same
+// name that isn't theirs, since names are unique for each account: a number
+// after it would tell them another has that name. The slug another server
+// has gets a few random letters after it.
+func TestACustomersServerMovedInKeepsItsNameBesideAnothers(t *testing.T) {
+	e := newAgentEnv(t)
+	had, row, _, rid := e.movingIn("")
+	body := moveInBody("mvdserver3", row.Slug, had, false)
+	body["account"] = "account-7"
+	code, out := e.moveIn(rid, body)
+	if code != http.StatusAccepted {
+		t.Fatalf("move-in: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("move-in: %+v", op)
+	}
+	e.sid = "mvdserver3"
+	got, err := e.srv().row()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account := e.a.accountOf(e.sid); got.Name != "Survival" || !reRandomSlug(row.Slug).MatchString(got.Slug) || account != "account-7" {
+		t.Errorf("moved in as %q at %q in %q, beside the machine's own Survival at %q", got.Name, got.Slug, account, row.Slug)
+	}
+}
+
 // A move-in takes only what the dashboard sends: an id of a server's shape,
 // the EULA acceptance the server had, a play style Playkeeper knows, memory
 // that fits, and an upload for a new server whose world fits the disk limit

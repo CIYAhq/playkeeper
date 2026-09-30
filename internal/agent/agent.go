@@ -225,6 +225,9 @@ type Options struct {
 	// RestoreStarting is called with the stage a restore's operation puts
 	// in place as the operation starts, before it names the stage (tests).
 	RestoreStarting func(stage string)
+	// SlugLetters is what a slug another server has gets after it, on the
+	// try'th go (default: a few random letters and digits; tests pick them).
+	SlugLetters func(try int) string
 }
 
 // Retention bounds stored analytics and audit data.
@@ -621,6 +624,7 @@ func New(opts Options) (*Agent, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate the existing server: %w", err)
 	}
+	a.accountsFromLimits(a.diskLimits())
 	if err := a.loadServers(); err != nil {
 		db.Close()
 		return nil, err
