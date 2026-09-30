@@ -53,6 +53,8 @@ interface FakeState {
   discord: Record<string, unknown>
   /** Usage stats as the real panel last showed them; the switch answers with them. */
   usage: Record<string, unknown>
+  /** Serve the dashboard on the standard HTTPS port as the real panel last showed it; the switch answers with it. */
+  dashboardPort: Record<string, unknown>
   opSeq: number
   inviteSeq: number
   /** Each machine's address as the real panel last showed it; address changes answer with it. */
@@ -684,6 +686,19 @@ const routes: [string, RegExp, Handler][] = [
   ['DELETE', /^\/api\/hetzner$/, () => ({ status: 200, body: { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: false } })],
   // The usage stats switch never changes the machine the crawl runs on.
   ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
+  // Serve the dashboard on the standard HTTPS port never takes the runner's port 443: turned on, it waits for a browser from outside.
+  [
+    'PUT',
+    /^\/api\/dashboard-port$/,
+    (r, state) => {
+      const b = r.body as Record<string, unknown> | null
+      if (!b || typeof b !== 'object' || typeof b.on !== 'boolean' || Object.keys(b).some((k) => k !== 'on')) return invalid('Invalid request.')
+      const v = state.dashboardPort
+      const panelPort = typeof v.panelPort === 'number' ? v.panelPort : 8443
+      return { status: 200, body: { outside: [], ...v, on: b.on, default: false, state: !b.on ? 'off' : v.url ? 'open' : 'no_address', reached: false, holder: undefined, port: panelPort, panelPort } }
+    },
+  ],
+  ['POST', /^\/api\/dashboard-port\/retry$/, () => ({ status: 200, body: { ok: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
   // Wave 1: the World tab's pre-generation and packs, and the Plugins and Mods tabs.
   [
@@ -2180,6 +2195,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     origin,
     discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] },
     usage: {},
+    dashboardPort: {},
     inviteSeq: 0,
     maps: new Map(),
     imports: new Map(),
@@ -2360,6 +2376,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         if (path === '/api/discord') state.discord = await res.json().catch(() => state.discord)
         if (path === '/api/usage-stats') state.usage = await res.json().catch(() => state.usage)
+        if (path === '/api/dashboard-port') state.dashboardPort = await res.json().catch(() => state.dashboardPort)
         if (path === '/api/machines/link') state.link = await res.json().catch(() => ({}))
         if (path === '/api/machines') state.machines = await res.json().catch(() => [])
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
