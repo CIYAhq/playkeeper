@@ -62,7 +62,9 @@ func TestStatusStates(t *testing.T) {
 		{name: "squaremap down", typ: "paper", check: running, tiles: 3, setup: func(f *fakeSquaremap, m *Map) { m.Client = refusing() },
 			state: StateNotAnswering, params: kv("reason", "not_answering"), msg: "The map is not answering."},
 		{name: "squaremap slow", typ: "neoforge", check: running, tiles: 3, setup: func(f *fakeSquaremap, m *Map) {
-			m.Timeout = 50 * time.Millisecond
+			// The timeout also covers connecting and sending, which took up
+			// to 52 ms under load before the request reached squaremap.
+			m.Timeout = time.Second
 			f.setHandler(wait)
 		}, state: StateNotAnswering, params: kv("reason", "too_slow"), asks: true},
 		{name: "squaremap answers a web page", typ: "paper", check: running, setup: func(f *fakeSquaremap, m *Map) { f.setHandler(webPage) },
