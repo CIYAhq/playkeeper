@@ -44,6 +44,7 @@ import type {
   SignInNotice,
   StoresResponse,
   TeamInvite,
+  TeamMember,
   TeamResponse,
   TemplateContents,
   TemplateExport,
