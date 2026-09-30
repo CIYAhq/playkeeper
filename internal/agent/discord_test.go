@@ -968,6 +968,8 @@ func TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff(t *testing.T) {
 		{"a busy machine with no days", alert("busy_cpu", map[string]any{"machine": "alpha", "percent": 82})},
 		{"a lagging server with no name", alert("slow_ticks", map[string]any{"machine": "alpha", "mspt": 63, "players": 12, "minutes": 10})},
 		{"a lagging server with no tick time", alert("slow_ticks", map[string]any{"serverName": "Survival", "machine": "alpha", "players": 12, "minutes": 10})},
+		{"an overbooked machine with no name", alert("overbooked", map[string]any{"memoryMB": 2048})},
+		{"an overbooked machine short of nothing", alert("overbooked", map[string]any{"machine": "alpha"})},
 		{"no actor", map[string]any{"kind": "machine_off", "machine": "alpha", "minutes": 5}},
 	} {
 		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != 400 {
@@ -985,6 +987,7 @@ func TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff(t *testing.T) {
 		{alert("disk_filling", map[string]any{"machine": "alpha", "percent": 78}), "Disk filling up", "disk is 78% full."},
 		{alert("busy_cpu", map[string]any{"machine": "alpha", "percent": 82, "days": 3}), "Machine busy at peak", "in its busiest hour 3 days running, 82% the last."},
 		{alert("slow_ticks", map[string]any{"serverName": "Survival", "machine": "alpha", "mspt": 63, "players": 12, "minutes": 10}), "Server lagging", "**Survival** on **alpha** took 63 ms a tick"},
+		{alert("overbooked", map[string]any{"machine": "alpha", "memoryMB": 2048}), "Machine overbooked", "The customers on **alpha** have plans that set aside 2 GB more memory than it has."},
 	} {
 		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != 204 {
 			t.Fatalf("%v: %d %v", c.body, code, out)

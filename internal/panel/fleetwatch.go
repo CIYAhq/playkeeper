@@ -19,9 +19,11 @@ import (
 // back; when the machines have room for fewer than fleetRoomLow servers of
 // the smallest paid plan on sale, counted once across every store; when a
 // machine's disk passes fleetDiskFull; when a machine's busiest hour used
-// more than fleetCPUBusy of its CPU fleetCPUDays days running; and when a
+// more than fleetCPUBusy of its CPU fleetCPUDays days running; when a
 // server's ticks took more than fleetSlowMSPT for fleetSlowFor while players
-// were on. The dashboard only says so: buying a machine stays the owner's.
+// were on; and when a machine's customers' plans set aside more memory than
+// it has, as when a plan grew past what it can hold. The dashboard only says
+// so: buying a machine stays the owner's.
 
 const (
 	fleetWatchEvery = time.Minute
@@ -62,6 +64,8 @@ type fleetWatch struct {
 	// slowPosted when it was last posted.
 	slow       map[string]slowRun
 	slowPosted map[string]time.Time
+	// over says which machines were posted as overbooked.
+	over map[string]bool
 }
 
 // cpuHour is a machine's CPU samples over one hour.
@@ -157,8 +161,16 @@ func (s *Server) watchFleet(ctx context.Context) {
 	for _, h := range ended {
 		posts = append(posts, s.keepBusiestHour(ctx, h)...)
 	}
-	if len(plans) > 0 {
-		posts = append(posts, s.watchRoom(ctx, plans)...)
+	rctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)
+	rooms, waiting, err := s.roomsNow(rctx)
+	cancel()
+	if err != nil {
+		s.log.Warn("could not work out the machines' room to watch it", "err", err)
+	} else {
+		posts = append(posts, s.watchOverbooked(rooms)...)
+		if len(plans) > 0 {
+			posts = append(posts, s.watchRoom(plans, rooms, waiting)...)
+		}
 	}
 	for _, p := range posts {
 		s.postFleet(ctx, p)
@@ -171,7 +183,7 @@ func (s *Server) forgetFleet() {
 	f := &s.fleet
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.off, f.offPosted, f.low, f.full, f.hours, f.slow, f.slowPosted = nil, nil, false, nil, nil, nil, nil
+	f.off, f.offPosted, f.low, f.full, f.hours, f.slow, f.slowPosted, f.over = nil, nil, false, nil, nil, nil, nil, nil
 }
 
 // watchOnline posts joined machine m off the dashboard once it's been off
@@ -359,7 +371,7 @@ func (s *Server) watchTicks(m machine, servers []api.ServerStatus, now time.Time
 // servers of the smallest paid plan on sale, counted once across every
 // store after the customers waiting for room get theirs, and again only
 // after there was room for fleetRoomLow.
-func (s *Server) watchRoom(ctx context.Context, plans []SalePlan) []api.DiscordNotifyRequest {
+func (s *Server) watchRoom(plans []SalePlan, rooms []machineRoom, waiting []int) []api.DiscordNotifyRequest {
 	size := 0
 	for _, p := range plans {
 		if !p.Free && p.MemoryMB > 0 && (size == 0 || p.MemoryMB < size) {
@@ -367,17 +379,6 @@ func (s *Server) watchRoom(ctx context.Context, plans []SalePlan) []api.DiscordN
 		}
 	}
 	if size == 0 {
-		return nil
-	}
-	s.placeMu.Lock()
-	rooms, err := s.fleetRooms(ctx, 0)
-	var waiting []int
-	if err == nil {
-		waiting, err = s.waitingMemory(ctx)
-	}
-	s.placeMu.Unlock()
-	if err != nil {
-		s.log.Warn("could not work out the machines' room to watch it", "err", err)
 		return nil
 	}
 	free := slices.Clone(rooms)
@@ -404,6 +405,41 @@ func (s *Server) watchRoom(ctx context.Context, plans []SalePlan) []api.DiscordN
 		f.low = false
 	}
 	return nil
+}
+
+// roomsNow is the machines as placement sees them, and the memory each
+// customer waiting for room needs, with no customer placed meanwhile.
+func (s *Server) roomsNow(ctx context.Context) ([]machineRoom, []int, error) {
+	s.placeMu.Lock()
+	defer s.placeMu.Unlock()
+	rooms, err := s.fleetRooms(ctx, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	waiting, err := s.waitingMemory(ctx)
+	return rooms, waiting, err
+}
+
+// watchOverbooked posts each machine whose customers' plans set aside more
+// memory than it has, as when a plan grew past what it can hold, once, and
+// again only after it had room for them. A machine that didn't answer says
+// nothing either way.
+func (s *Server) watchOverbooked(rooms []machineRoom) []api.DiscordNotifyRequest {
+	f := &s.fleet
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []api.DiscordNotifyRequest
+	for _, r := range rooms {
+		switch {
+		case !r.Answered:
+		case r.FreeMB < 0 && !f.over[r.ID]:
+			setIn(&f.over, r.ID, true)
+			out = append(out, api.DiscordNotifyRequest{Kind: api.DiscordOverbooked, Machine: machineLabel(r.machine), MemoryMB: -r.FreeMB})
+		case r.FreeMB >= 0:
+			delete(f.over, r.ID)
+		}
+	}
+	return out
 }
 
 // postFleet has the dashboard's own agent, which holds the Discord settings
