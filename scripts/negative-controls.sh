@@ -8768,11 +8768,11 @@ control "deleting customers: the account's name is typed to confirm" internal/pa
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
 control "deleting customers: a customer with a plan isn't deleted" internal/panel/erasure.go \
   'case plan:' \
-  'case false:' \
+  'case plan && false:' \
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
 control "deleting customers: one who buys again before it runs keeps their account" internal/panel/erasure.go \
   'if plan {' \
-  'if false {' \
+  'if plan && false {' \
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
 control "deleting customers: the records transaction keeps one who bought again" internal/panel/erasure.go \
   'if plan, err := s.hasPlan(ctx, tx, c); err != nil || plan {' \
@@ -8884,7 +8884,7 @@ control "deleting customers: the deletion waits for the copies their moves left"
   ./internal/panel '^TestACustomersDeletionWaitsForTheirMoves$'
 control "deleting customers: a customer is deleted the owner's days after their servers" internal/panel/erasure.go \
   'cutoff := s.now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()' \
-  'cutoff := s.now().UnixMilli()' \
+  'cutoff := s.now().Add(-time.Duration(days) * 0).UnixMilli()' \
   ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
 control "deleting customers: the owner's days start at their final backups' days" internal/panel/erasure.go \
   'req.Days < minCustomerRetention' \
