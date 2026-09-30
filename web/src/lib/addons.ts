@@ -19,7 +19,7 @@ export function addonTab(serverType: string | undefined): 'plugins' | 'mods' | u
 }
 
 /** The libraries' own names, which aren't translated. */
-export const sourceNames: Record<AddonSource, string> = { modrinth: 'Modrinth', hangar: 'Hangar' }
+export const sourceNames: Record<AddonSource, string> = { modrinth: 'Modrinth', hangar: 'Hangar', playkeeper: 'Playkeeper' }
 
 /** Simple Voice Chat on Modrinth, whose install also opens its UDP port. */
 export const voiceChatProject: AddonKey = { source: 'modrinth', projectId: '9eGKb6K1' }

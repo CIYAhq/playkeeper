@@ -939,7 +939,7 @@ describe('Plugins tab', () => {
 })
 
 describe('AI Build Battle’s key on the Plugins tab', () => {
-  const battle = addon('AI Build Battle', { source: 'playkeeper' as string as Addon['source'], projectId: 'ai-build-battle', slug: 'ai-build-battle', versionNumber: '0.4.9' })
+  const battle = addon('AI Build Battle', { source: 'playkeeper', projectId: 'ai-build-battle', slug: 'ai-build-battle', versionNumber: '0.1.0' })
   const withBattle: Addons = { ...installed, files: [...installed.files, { fileName: battle.fileName, size: 1, status: 'managed', addon: battle }] }
   const filesEdit = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'files.view', 'files.edit'] } } })
   const keys = (set: boolean) => ({ keys: { openrouter: { set } }, pending: false, available: true })
@@ -984,6 +984,8 @@ describe('AI Build Battle’s key on the Plugins tab', () => {
     let text = await render(server(), 'plugins', undefined, filesEdit)
     expect(text).toContain('AI Build Battle')
     expect(text).not.toContain('Needs your key')
+    // It comes with Playkeeper, and its row says so as others name Modrinth or Hangar.
+    expect(text).toMatch(/AI Build Battle[^]{0,40}Playkeeper/)
 
     await act(async () => root?.unmount())
     vi.mocked(client.get).mockClear()

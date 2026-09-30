@@ -1176,7 +1176,8 @@ export interface RestoreUnsettled {
 
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.
 
-export type AddonSource = 'modrinth' | 'hangar'
+/** Where an add-on comes from; playkeeper is a plugin that ships inside Playkeeper, for its templates. */
+export type AddonSource = 'modrinth' | 'hangar' | 'playkeeper'
 
 export interface AddonTarget {
   kind: 'plugin' | 'mod'
