@@ -270,7 +270,11 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if st.Via == whopViaApp {
-		if problem := whopGrantProblem(ctx, c, st); problem != "" {
+		lost, problem := whopGrantProblem(ctx, c, st)
+		if !left && s.whopGrantWatch(ctx, st, lost, problem) {
+			return
+		}
+		if problem != "" {
 			s.whopStoreNeedsALook(st.ID, problem)
 			return
 		}
@@ -313,7 +317,10 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	if read != nil {
 		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", read)
 	}
-	s.refreshWhopPlans(ctx, c, st)
+	plansRead := s.refreshWhopPlans(ctx, c, st)
+	if st.Via == whopViaApp && plansRead && s.whopShareStep(ctx, c, &st) {
+		return
+	}
 	if s.whopTakenOver(st.ID) || !s.stillSellsFor(ctx, c, st) {
 		return
 	}
@@ -465,14 +472,15 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 
 // refreshWhopPlans reads the store again every whopPollEvery, so a plan's
 // allowance changed on Whop reaches its customers, and sooner when a
-// membership is of a plan the dashboard hasn't read yet.
-func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopStore) {
+// membership is of a plan the dashboard hasn't read yet. It says whether it
+// just read the store.
+func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopStore) bool {
 	since := s.now().Sub(st.SyncedAt)
 	if since < whopPollEvery {
 		var unknown int
 		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = ? AND m.stale = 0
 			AND NOT EXISTS (SELECT 1 FROM whop_plans p WHERE p.store_id = m.store_id AND p.plan_id = m.plan_id)`, st.ID).Scan(&unknown); err != nil || unknown == 0 || since < 2*time.Minute {
-			return
+			return false
 		}
 	}
 	problem := ""
@@ -483,6 +491,7 @@ func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopSt
 	if _, err := s.db.Exec(`UPDATE whop_stores SET synced_at = ?, problem = ? WHERE store_id = ?`, s.now().UnixMilli(), problem, st.ID); err != nil {
 		s.log.Error("could not record reading the store on Whop", "err", err)
 	}
+	return problem == ""
 }
 
 // whopCustomer is one customer as the reconciler sees them.
@@ -654,6 +663,11 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopSt
 	case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":
 		// A closed store starts nobody: they start once it opens.
 	case has && (wc.Applied == "" || wc.Paused):
+		if st.Via == whopViaApp {
+			if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {
+				return err
+			}
+		}
 		if cust.Handle == "" {
 			u, err := c.User(ctx, wc.WhopUserID)
 			if err != nil {
@@ -670,6 +684,11 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopSt
 		}
 		return s.recordWhopCustomer(cust, planKey(wc.Plan), false, at)
 	case has && wc.Applied != planKey(wc.Plan):
+		if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {
+			if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {
+				return err
+			}
+		}
 		if err := s.hosting.ChangeCustomerPlan(ctx, cust, wc.Plan); err != nil {
 			return err
 		}

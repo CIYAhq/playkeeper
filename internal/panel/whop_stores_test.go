@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -207,12 +208,29 @@ func (f *fakeWhop) installOther() {
 	}
 }
 
-// buyAt is buy at a business that installed the app.
+// buyAt is buy at a business that installed the app: the membership, and
+// its payment, which carried Playkeeper's share for the plan.
 func (f *fakeWhop) buyAt(biz, id, user, plan, status string) map[string]any {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	m := map[string]any{"id": id, "status": status, "plan_id": plan, "product_id": "prod_other", "user_id": user, "cancel_at_period_end": false}
-	f.installed[biz].memberships[id] = m
+	b := f.installed[biz]
+	b.memberships[id] = m
+	memoryMB := 4096
+	if p := b.plan(plan); p != nil {
+		meta, _ := p["metadata"].(map[string]any)
+		if gb, err := strconv.ParseFloat(fmt.Sprint(meta[whop.MetaMemoryGB]), 64); err == nil {
+			memoryMB = int(gb * 1024)
+		}
+	}
+	pay := "pay_" + id
+	b.payments = append([]map[string]any{{"id": pay, "status": "paid", "membership_id": id, "plan_id": plan,
+		"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
+	if b.fees == nil {
+		b.fees = map[string][]map[string]any{}
+	}
+	b.fees[pay] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
+		"settlement_amount": map[string]any{"amount": strings.TrimPrefix(dollarsOf(whopShareFor(memoryMB)), "$"), "currency": "usd", "decimals": 2}}}
 	return m
 }
 
@@ -226,16 +244,32 @@ func (f *fakeWhop) sentIn(biz, user string) []string {
 
 // twoStores is a dashboard selling for Pip Hosting with its own key, and for
 // Other Hosting, which installed the Playkeeper Cloud app, with the app's
-// key.
+// key. Other Hosting is open, with Playkeeper's share on its product, paid
+// to the owner's own Whop account, as Open the store leaves it.
 func twoStores(t *testing.T) (*fakeWhop, *env, member) {
 	t.Helper()
 	f, e, own := connectedWhop(t)
 	f.installOther()
-	if _, err := e.srv.db.Exec(`INSERT INTO whop_app(id, api_key) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key`, whopTestAppKey); err != nil {
+	f.mu.Lock()
+	f.users["user_siya"] = "siyabuilt"
+	f.mu.Unlock()
+	if _, err := e.srv.db.Exec(`INSERT INTO whop_app(id, api_key, share_user, share_username) VALUES(1, ?, 'user_siya', 'siyabuilt')
+		ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key, share_user = excluded.share_user, share_username = excluded.share_username`, whopTestAppKey); err != nil {
 		t.Fatal(err)
 	}
 	if added, err := e.srv.addWhopStore(context.Background(), whop.Account{ID: "biz_other", Title: "Other Hosting", Route: "other-hosting"}); err != nil || !added {
 		t.Fatalf("adding Other Hosting: %v, %v", added, err)
+	}
+	st, _, err := e.srv.whopStoreByID(context.Background(), "biz_other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := e.srv.whopClientFor(context.Background(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problem, err := e.srv.syncWhopShares(context.Background(), c, st, true); err != nil || problem != "" {
+		t.Fatalf("setting Other Hosting's share: %q, %v", problem, err)
 	}
 	if open, err := e.srv.openWhopStore(context.Background(), "biz_other", whopNotOpenYet); err != nil || !open {
 		t.Fatalf("opening Other Hosting: %v, %v", open, err)

@@ -114,7 +114,7 @@ func TestAClosedStoresCustomersGoOnButNobodyStarts(t *testing.T) {
 	f.mu.Unlock()
 	f.buyAt("biz_other", "mem_alex2", "user_alex", "plan_other", "active")
 	e.reconcile()
-	if err := e.srv.closeWhopStore(ctx, "biz_other", "share", "Playkeeper's share is gone from Other"); err != nil {
+	if err := e.srv.closeWhopStore(ctx, "biz_other", "held", "Other is held closed"); err != nil {
 		t.Fatal(err)
 	}
 	f.buyAt("biz_other", "mem_alex2", "user_alex", "plan_other", "expired")
@@ -128,7 +128,7 @@ func TestAClosedStoresCustomersGoOnButNobodyStarts(t *testing.T) {
 	if len(got) != 2 || !strings.HasPrefix(got[1], "pause (") || !strings.Contains(got[1], "whop/biz_other/user_alex") {
 		t.Fatalf("the core's calls while Other is closed: %q", got)
 	}
-	if open, err := e.srv.openWhopStore(ctx, "biz_other", "share"); err != nil || !open {
+	if open, err := e.srv.openWhopStore(ctx, "biz_other", "held"); err != nil || !open {
 		t.Fatalf("opening Other: %v, %v", open, err)
 	}
 	e.reconcile()

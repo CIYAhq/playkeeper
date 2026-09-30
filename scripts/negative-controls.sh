@@ -7871,16 +7871,16 @@ control "stores: the key store's delivery kicks the key store alone" internal/pa
   's.kickWhop()' \
   ./internal/panel '^TestAKickHurriesItsOwnStoresPass$'
 control "stores: an app store whose grant is gone changes nothing" internal/panel/whop_customers.go \
-  'if problem := whopGrantProblem(ctx, c, st); problem != "" {' \
-  'if problem := whopGrantProblem(ctx, c, st); false && problem != "" {' \
+  'lost, problem := whopGrantProblem(ctx, c, st)' \
+  'lost, problem := whopGrantProblem(ctx, c, st); problem = ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a read the app's grant lacks is why a store changes nothing" internal/panel/whop_stores.go \
   'if slices.Contains(whopStoreReads, a) {' \
   'if false && slices.Contains(whopStoreReads, a) {' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a grant that can't be checked changes nothing" internal/panel/whop_stores.go \
-  "return \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
-  'return ""' \
+  "return nil, \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
+  'return nil, ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a store that needed a look is read again once it can be" internal/panel/whop_customers.go \
   'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
