@@ -1018,6 +1018,28 @@ type RestoreApplyRequest struct {
 	Actor string `json:"actor"`
 }
 
+// MoveInRequest makes a server from a staged upload of a backup as a server
+// moved from another machine, as the dashboard does when it moves a
+// customer: it keeps its id, name, slug, memory, creation time and play
+// style, and the EULA acceptance it had there. A restore the dashboard's
+// pages apply always gets a new id, so only the dashboard picks one.
+type MoveInRequest struct {
+	ServerID string `json:"serverId"`
+	Name     string `json:"name"`
+	// Slug is the slug it had; one of this machine's servers having it
+	// gives it another.
+	Slug      string `json:"slug,omitempty"`
+	MemoryMB  int    `json:"memoryMB"`
+	PlayStyle string `json:"playStyle,omitempty"`
+	// Start starts it once its world is in place, as it ran there. One that
+	// didn't run stays stopped, and no start checks its world.
+	Start          bool      `json:"start,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	EULAAcceptedAt time.Time `json:"eulaAcceptedAt"`
+	EULAAcceptedBy string    `json:"eulaAcceptedBy"`
+	Actor          string    `json:"actor"`
+}
+
 type AuditEntry struct {
 	ID       int64     `json:"id"`
 	ServerID string    `json:"serverId,omitempty"`

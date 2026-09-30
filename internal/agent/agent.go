@@ -994,6 +994,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/restore/upload", a.hRestoreUploadNew},
 		{"GET", "/v1/restore/{id}", a.hRestorePreview},
 		{"POST", "/v1/restore/{id}/apply", a.hRestoreApply},
+		{"POST", "/v1/restore/{id}/move-in", a.hRestoreMoveIn},
 		{"DELETE", "/v1/restore/{id}", a.hRestoreDiscard},
 		{"GET", "/v1/operations/{id}", a.hOperation},
 		{"GET", "/v1/activity", a.hActivity},
