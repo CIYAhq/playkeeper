@@ -9725,6 +9725,28 @@ control "disk limits: a sync that counts has a split made from its counts at onc
   '			if split {' \
   '			if split && false {' \
   ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: a sync of the disk limits during a switch doesn't leave the server out of its limit" internal/panel/disklimits.go \
+  '		s.diskSending.Lock()
+		got, err := s.sendDiskLimits(ctx, m, in, count, "")
+		s.diskSending.Unlock()' \
+  '		got, err := s.sendDiskLimits(ctx, m, in, count, "")' \
+  ./internal/panel '^TestASyncDuringASwitchLeavesTheServerInItsLimit$'
+control "moving customers: a copy left on a removed machine, stopped before its server moved, isn't taken over" internal/panel/machines.go \
+  '				if adopted, err := adoptStaleCopy(ctx, c, id, m.ID, sv); err != nil {' \
+  '				if adopted, err := adoptStaleCopy(ctx, c, id, m.ID, sv); err != nil || true {' \
+  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+control "moving customers: the server where it moved, stopped since, isn't taken for its copy" internal/panel/moves.go \
+  '	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
+  '	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil {' \
+  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+control "moving customers: a server that isn't stopped is never taken for a copy a move left" internal/panel/moves.go \
+  '	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
+  '	if switched == 0 || perr != nil || millis(stopped) >= switched {' \
+  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+control "moving customers: a copy whose move isn't known to have finished isn't taken for the server's" internal/panel/moves.go \
+  '	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
+  '	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
+  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside
