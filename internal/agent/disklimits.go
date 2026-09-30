@@ -158,13 +158,20 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 }
 
 // accountsFromLimits gives each server made before servers had accounts the
-// account of the limit it's in (see nameTaken). Every set does, since the
-// first after an update names the same limits as before it. A server made
-// with its account keeps it.
+// account of the limit it's in (see nameTaken): as the agent starts, from
+// the limits it kept, before any request can make a server, and at every
+// set, since the first after an update names the same limits as before it.
+// It waits for a server being made, so neither misses the other. A server
+// made with its account keeps it, and one whose account has a server of its
+// name already stays out, so no account has a name twice, until it's
+// renamed.
 func (a *Agent) accountsFromLimits(limits []api.DiskLimit) {
+	a.createMu.Lock()
+	defer a.createMu.Unlock()
 	for _, l := range limits {
 		for _, id := range l.Servers {
-			if _, err := a.db.Exec(`UPDATE servers SET account = ? WHERE id = ? AND account = ''`, l.ID, id); err != nil {
+			if _, err := a.db.Exec(`UPDATE servers SET account = ? WHERE id = ? AND account = ''
+				AND NOT EXISTS (SELECT 1 FROM servers o WHERE o.account = ? AND lower(o.name) = lower(servers.name))`, l.ID, id, l.ID); err != nil {
 				a.log.Warn("could not record the account of a server in a disk limit", "server", id, "limit", l.ID, "err", err)
 			}
 		}

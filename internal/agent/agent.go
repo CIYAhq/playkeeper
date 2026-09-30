@@ -624,6 +624,7 @@ func New(opts Options) (*Agent, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate the existing server: %w", err)
 	}
+	a.accountsFromLimits(a.diskLimits())
 	if err := a.loadServers(); err != nil {
 		db.Close()
 		return nil, err

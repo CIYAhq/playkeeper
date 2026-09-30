@@ -5334,9 +5334,24 @@ control "names per customer: a server made before accounts takes its disk limit'
   '' \
   ./internal/agent '^TestAnOlderServerTakesItsAccountFromItsDiskLimit$'
 control "names per customer: a server made in an account keeps it" internal/agent/disklimits.go \
-  'UPDATE servers SET account = ? WHERE id = ? AND account = '"''"'`' \
-  'UPDATE servers SET account = ? WHERE id = ?`' \
+  'UPDATE servers SET account = ? WHERE id = ? AND account = '"''"'' \
+  'UPDATE servers SET account = ? WHERE id = ? AND '"''"' = '"''"'' \
   ./internal/agent '^TestAnOlderServerTakesItsAccountFromItsDiskLimit$'
+control "names per customer: an older server takes its account as the agent starts" internal/agent/agent.go \
+  '	a.accountsFromLimits(a.diskLimits())
+' \
+  '' \
+  ./internal/agent '^TestAnOlderServerTakesItsAccountAsTheAgentStarts$'
+control "names per customer: an older server stays out of an account that has its name" internal/agent/disklimits.go \
+  'AND NOT EXISTS (SELECT 1 FROM servers o WHERE o.account = ? AND lower(o.name) = lower(servers.name))`' \
+  'AND ? != '"''"'`' \
+  ./internal/agent '^TestAnOlderServerJoinsItsAccountOnlyWithANameOfItsOwn$'
+control "names per customer: older servers take their accounts between creates" internal/agent/disklimits.go \
+  '	a.createMu.Lock()
+	defer a.createMu.Unlock()
+	for _, l := range limits {' \
+  '	for _, l := range limits {' \
+  ./internal/agent '^TestOlderServersTakeTheirAccountsBetweenCreates$'
 control "names per customer: a taken slug's letters skip slugs another server has" internal/agent/servers.go \
   'if s := base + "-" + letters(try); free(s) {' \
   'if s := base + "-" + letters(try); true {' \

@@ -363,6 +363,84 @@ func TestAnOlderServerTakesItsAccountFromItsDiskLimit(t *testing.T) {
 	}
 }
 
+// An agent that starts gives the servers made before accounts theirs from
+// the disk limits it kept, before any request can make another server, so a
+// customer's new server can't take the name of an older one of theirs.
+func TestAnOlderServerTakesItsAccountAsTheAgentStarts(t *testing.T) {
+	e := roomyAgentEnv(t)
+	e.createWith(map[string]any{"name": "Survival"})
+	alex := e.sid
+	raw, _ := json.Marshal([]api.DiskLimit{{ID: "account-2", LimitBytes: 10 << 30, Servers: []string{alex}}})
+	if err := e.a.kvSet(kvDiskLimits, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	e.stop()
+	e.start()
+	if account := e.a.accountOf(alex); account != "account-2" {
+		t.Fatalf("alex's older server after the agent started is in %q", account)
+	}
+	if code, out := e.startCreate(map[string]any{"name": "Survival", "account": "account-2"}); code != http.StatusConflict {
+		t.Fatalf("a server named as alex's older one, in alex's account: %d %v", code, out)
+	}
+}
+
+// A server made before accounts stays out of an account that has a server
+// of its name already, so no account has a name twice, and joins it once
+// it's renamed.
+func TestAnOlderServerJoinsItsAccountOnlyWithANameOfItsOwn(t *testing.T) {
+	e := roomyAgentEnv(t)
+	e.createWith(map[string]any{"name": "Survival"})
+	older := e.sid
+	e.createWith(map[string]any{"name": "Survival", "account": "account-2"})
+	limits := map[string]any{"actor": "admin", "limits": []any{
+		map[string]any{"id": "account-2", "limitBytes": 10 << 30, "servers": []string{older, e.sid}},
+	}}
+	if code, out := e.call("PUT", "/v1/disk-limits", limits); code != http.StatusOK {
+		t.Fatalf("disk limits: %d %v", code, out)
+	}
+	if account := e.a.accountOf(older); account != "" {
+		t.Fatalf("the older Survival joined %q, which has a Survival", account)
+	}
+	if code, out := e.callWhenFree("POST", "/v1/servers/"+older+"/settings", map[string]any{"name": "Creative", "actor": "admin"}); code != http.StatusOK {
+		t.Fatalf("renaming the older Survival: %d %v", code, out)
+	}
+	if code, out := e.call("PUT", "/v1/disk-limits", limits); code != http.StatusOK {
+		t.Fatalf("disk limits: %d %v", code, out)
+	}
+	if account := e.a.accountOf(older); account != "account-2" {
+		t.Fatalf("the older server, renamed Creative, is in %q", account)
+	}
+}
+
+// The accounts disk limits give older servers wait for a server being
+// created, so neither can miss the other and leave an account a name twice.
+func TestOlderServersTakeTheirAccountsBetweenCreates(t *testing.T) {
+	e := roomyAgentEnv(t)
+	e.createWith(map[string]any{"name": "Survival"})
+	older := e.sid
+	limits := map[string]any{"actor": "admin", "limits": []any{
+		map[string]any{"id": "account-2", "limitBytes": 10 << 30, "servers": []string{older}},
+	}}
+	e.a.createMu.Lock()
+	done := make(chan int, 1)
+	go func() {
+		code, _ := e.call("PUT", "/v1/disk-limits", limits)
+		done <- code
+	}()
+	time.Sleep(500 * time.Millisecond)
+	account := e.a.accountOf(older)
+	e.a.createMu.Unlock()
+	if account != "" {
+		t.Fatalf("the older server took %q while a create held the lock", account)
+	}
+	if code := <-done; code != http.StatusOK {
+		t.Fatalf("disk limits: %d", code)
+	}
+	if account := e.a.accountOf(older); account != "account-2" {
+		t.Fatalf("the older server is in %q once the create let go", account)
+	}
+}
+
 func TestServersRunSideBySide(t *testing.T) {
 	e := newAgentEnv(t)
 	e.createWith(map[string]any{"name": "Survival", "playStyle": "friends"})
