@@ -32,12 +32,14 @@ const (
 )
 
 // fakeBusiness is a business that installed the Playkeeper Cloud app: its
-// account, with its owner, and its store.
+// account, with its owner, and its store. revoked is a business that took
+// the app's grant back, which Whop still answers with empty lists.
 type fakeBusiness struct {
 	account     map[string]any
 	products    map[string]whop.Metadata
 	plans       []map[string]any
 	memberships map[string]map[string]any
+	revoked     bool
 }
 
 // fakeChat is an installed business's support chat with one customer.

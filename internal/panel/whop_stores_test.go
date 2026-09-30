@@ -40,6 +40,9 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	biz := r.URL.Query().Get("account_id")
+	if named := r.URL.Query().Get("resource_id"); named != "" {
+		biz = named
+	}
 	if named, _ := body["account_id"].(string); named != "" {
 		biz = named
 	}
@@ -60,9 +63,24 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := func(data any) {
+		if b.revoked {
+			data = []map[string]any{}
+		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	}
 	switch {
+	case route == "GET /permissions" && f.permissionsDown:
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+	case route == "GET /permissions":
+		var data []map[string]any
+		for _, a := range strings.Split(r.URL.Query().Get("actions"), ",") {
+			data = append(data, map[string]any{"action": a, "granted": !b.revoked})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	case b.revoked && strings.HasPrefix(route, "GET /memberships/"):
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such membership"}}`)
 	case route == "GET /accounts/"+biz:
 		json.NewEncoder(w).Encode(b.account)
 	case route == "GET /products":
@@ -425,6 +443,73 @@ func TestAKickHurriesItsOwnStoresPass(t *testing.T) {
 	e.srv.reconcileWhop(ctx, e.srv.takeWhopKicks())
 	if got := core.got(); len(got) != 2 || !strings.Contains(got[1], "whop/biz_pip/user_alex") {
 		t.Fatalf("after a kick for every store: %q", got)
+	}
+}
+
+// A business that took the Playkeeper Cloud app's grant back is still
+// answered by Whop, with empty lists: its store's pass changes nothing,
+// not even for a membership it would read again, and says why, until the
+// grant is back. The other stores go on.
+func TestAStoreWhoseGrantIsGoneChangesNothing(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	ctx := context.Background()
+	f.buyAt("biz_other", "mem_alex2", "user_alex", "plan_other", "active")
+	e.reconcile()
+	if got := core.got(); len(got) != 1 {
+		t.Fatalf("the core's calls: %q", got)
+	}
+	f.mu.Lock()
+	f.installed["biz_other"].revoked = true
+	f.mu.Unlock()
+	if err := e.srv.keepMembership("biz_other", whop.Membership{ID: "mem_alex2", UserID: "user_alex", PlanID: "plan_other", Status: "active"}, true); err != nil {
+		t.Fatal(err)
+	}
+	f.buy("mem_sam1", "user_sam", "plan_starter", "active")
+	f.mu.Lock()
+	f.users["user_sam"] = "samcrafts"
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	e.reconcile()
+	var problem string
+	var memberships, plans int
+	e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = 'biz_other'`).Scan(&problem)
+	e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_memberships WHERE store_id = 'biz_other'`).Scan(&memberships)
+	e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_plans WHERE store_id = 'biz_other'`).Scan(&plans)
+	if got := core.got(); len(got) != 2 || !strings.Contains(got[1], "whop/biz_pip/user_sam") {
+		t.Fatalf("the core's calls with Other's grant gone: %q", got)
+	}
+	if memberships != 1 || plans != 1 || !strings.Contains(problem, "grant on this store lacks plan:basic:read, member:basic:read") {
+		t.Fatalf("Other with its grant gone: %d memberships, %d plans, problem %q", memberships, plans, problem)
+	}
+	if err := e.srv.notifier.Notify(ctx, Customer{Provider: whopProvider, Store: "biz_other", Subject: "user_alex", Handle: "alexplays"}, CustomerMessage{Kind: "ready", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	if sent := f.sentIn("biz_other", "user_alex"); len(sent) != 0 {
+		t.Fatalf("messages went out with the grant gone: %q", sent)
+	}
+
+	// A grant that can't be checked is no better.
+	f.mu.Lock()
+	f.installed["biz_other"].revoked, f.permissionsDown = false, true
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = 'biz_other'`).Scan(&problem)
+	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 2 || len(sent) != 0 || !strings.Contains(problem, "couldn't check") {
+		t.Fatalf("with the grant unchecked: calls %q, problem %q, messages %q", got, problem, sent)
+	}
+
+	f.mu.Lock()
+	f.permissionsDown = false
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	e.srv.db.QueryRow(`SELECT problem FROM whop_stores WHERE store_id = 'biz_other'`).Scan(&problem)
+	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 2 || problem != "" || len(sent) != 1 {
+		t.Fatalf("once the grant was back: calls %q, problem %q, messages %q", got, problem, sent)
 	}
 }
 
