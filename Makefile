@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-web test-sh web build package notices site dev e2e-vm clean template-check template-thumbnails plugins
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-web test-sh web-budget web build package notices site dev e2e-vm clean template-check template-thumbnails plugins
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -17,7 +17,7 @@ help: ## Show this help
 setup: ## Install pinned Go/Node into .tools/ and the web dependencies
 	./scripts/setup.sh
 
-check: lint typecheck test ## Everything CI's check job runs: lint, typecheck, unit tests
+check: lint typecheck test web-budget ## Everything CI's check job runs: lint, typecheck, unit tests, the first-load budget
 
 lint: lint-go lint-web lint-notices ## gofmt, go vet, ESLint (web UI and browser tests), THIRD_PARTY_NOTICES up to date
 
@@ -65,6 +65,11 @@ test-sh:
 	bash scripts/ci-since_test.sh
 	bash scripts/discord-feed_test.sh
 	bash scripts/e2e/vm-rehearsal_test.sh
+
+# A production build into a folder of its own, so web/dist stays as it was:
+# its first-load plugin (web/src/lib/first-load.ts) fails it over the budget.
+web-budget: ## Fail when a page loads more JavaScript than web/src/lib/first-load.ts allows
+	out=$$(mktemp -d) && trap 'rm -rf "$$out"' EXIT && cd web && npx vite build --outDir "$$out"
 
 web: ## Build the browser UI into web/dist
 	cd web && npm run build
