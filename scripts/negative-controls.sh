@@ -6737,8 +6737,8 @@ control "the keeper never asks for a port it holds" internal/panel/pageports.go 
   'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
 control "Let's Encrypt's check for a new address passes port 80 before the page follows it" internal/panel/serverpage.go \
-  'if !check && !s.page.answers(r.Host) {' \
-  'if !s.page.answers(r.Host) {' \
+  'if !check && !s.page.answers(r.Host) && !s.joinedPageOn(r.Context(), r.Host) {' \
+  'if !s.page.answers(r.Host) && !s.joinedPageOn(r.Context(), r.Host) {' \
   ./internal/panel '^TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp$'
 control "a changed address has the page's keeper look again" internal/panel/server.go \
   'if method != http.MethodGet {
@@ -7036,7 +7036,7 @@ control "joined page: players count only while the server is online" internal/pa
   ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
 control "joined page: the page lists only real players' names" internal/panel/joinedpage.go \
   'if minecraft.ValidPlayerName(n) && len(names) < maxPageNames {' \
-  'if len(names) < maxPageNames {' \
+  'if (minecraft.ValidPlayerName(n) || true) && len(names) < maxPageNames {' \
   ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
 control "joined page: a stream is only a channel's page" internal/panel/joinedpage.go \
   '		sv.Stream = nil
