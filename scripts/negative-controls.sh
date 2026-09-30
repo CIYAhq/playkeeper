@@ -9248,6 +9248,15 @@ control "moving customers: the machine a failed move was going to deletes its co
   'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+# shellcheck disable=SC2016
+control "moving customers: a listing of the dashboard's machine asked before a server moved there keeps its record" internal/panel/machines.go \
+  '`DELETE FROM server_machines WHERE server_id = ? AND machine_id = ? AND seen_at <= ?`, id, m.ID, millis(listedAt)' \
+  '`DELETE FROM server_machines WHERE server_id = ? AND machine_id = ? AND 0 <= ?`, id, m.ID, millis(listedAt)' \
+  ./internal/panel '^TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer$'
+control "moving customers: a copy a move left on the dashboard's machine gets no requests" internal/panel/machines.go \
+  's.listings.note(m.ID, shown)' \
+  's.listings.note(m.ID, all)' \
+  ./internal/panel '^TestACopyLeftOnTheDashboardsMachineIsNeverTheServer$'
 control "removing a machine: its customers are placed again once it's removed" internal/panel/machines.go \
   's.rehomeStranded(context.Background())' \
   '_ = context.Background()' \
