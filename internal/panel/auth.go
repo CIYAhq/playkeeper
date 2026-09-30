@@ -787,6 +787,18 @@ CREATE TABLE whop_share_watch (
   refunds_from     INTEGER NOT NULL DEFAULT 0
 );
 `,
+	// Each machine's busiest hour of each day, as the average share of its
+	// CPU it used (see fleetwatch.go), and whether the run of busy days it
+	// ended was posted.
+	`
+CREATE TABLE fleet_cpu_days (
+  machine_id TEXT    NOT NULL,
+  day        TEXT    NOT NULL,
+  peak       REAL    NOT NULL,
+  posted     INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (machine_id, day)
+);
+`,
 }
 
 const (
