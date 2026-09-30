@@ -1997,6 +1997,16 @@ describe('Sell on Whop', () => {
     expect(document.body.textContent).toContain(`Redirect URL: ${redirect}`)
   })
 
+  it('says when customers still come back through the dashboard’s old address', async () => {
+    const redirect = 'https://beta.playkeeper.me/api/public/whop/signin/callback'
+    const using = 'https://beta.playkeeper.me:8443/api/public/whop/signin/callback'
+    answer({ '/api/whop': { ...open, signIn: { clientId: 'app_pipcloud', redirectUri: redirect, using } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain(`Whop still sends customers back through ${using}. To move them to the dashboard’s address without a port, add this redirect URL on the app’s OAuth tab: ${redirect}`)
+    answer({ '/api/whop': { ...open, signIn: { clientId: 'app_pipcloud', redirectUri: redirect } } })
+    expect(await render(<SellOnWhopSection />, owner)).not.toContain('still sends customers back')
+  })
+
   it('says why a message to a customer hasn’t gone out, as the store needing a look', async () => {
     answer({ '/api/whop': { ...open, customers: [{ ...open.customers[0], messageProblem: 'Whop said: Something went wrong' }] } })
     const text = await render(<SellOnWhopSection />, owner)

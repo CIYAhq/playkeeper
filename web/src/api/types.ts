@@ -499,6 +499,8 @@ export interface JoinCommand extends JoinCode {
 /** What connecting a machine needs: where it dials, the smallest machine that works and the codes. */
 export interface MachineLinkInfo {
   addresses: DialAddress[]
+  /** The dashboard's address, without a port while it answers on port 443: where AI agents connect. Machines keep dialing `addresses`. */
+  dashboard?: string
   /** systems: each supported distribution with its oldest supported release; later ones work too. */
   minimum: { cores: number; memoryGB: number; freeDiskGB: number; systems: { name: string; version: string }[] }
   sizingUrl: string
@@ -1138,9 +1140,54 @@ export interface Address {
   /** Every server gets `label`.host through one wildcard record, *.host, in `records`. */
   serverAddresses?: boolean
   certificate?: CertificateStatus
+  /** Serve the dashboard on the standard HTTPS port (443), on the machine that runs the dashboard; a joined machine has none. */
+  dashboard?: Dashboard443
   names: NamesService
   termsAccepted?: string
   operation?: Operation
+}
+
+/**
+ * Serve the dashboard on the standard HTTPS port (443), from 0.4.11. state is
+ * port 443 for the dashboard: off with the switch, no_address until the
+ * machine's name works with a certificate, waiting for a few minutes after
+ * the machine starts, busy, claimed or denied while another program has it
+ * (holder names it), and open while the dashboard listens there.
+ */
+export interface Dashboard443 {
+  on: boolean
+  /** Nobody has changed the switch, so `on` is the install's choice. */
+  default?: boolean
+  state: PagePortState | 'no_address'
+  holder?: string
+  /** A browser from outside the machine has opened the dashboard on port 443; until then its address keeps its port. */
+  reached?: boolean
+  /** The port the dashboard's address has: 443, which shows as none, once reached and while nothing else has port 443, else the panel's port. */
+  port: number
+}
+
+/** Machine settings › Serve the dashboard on the standard HTTPS port (443). url is the dashboard's address without a port and old with the panel's; both missing without a name that works. */
+export interface DashboardPortView extends Dashboard443 {
+  url?: string
+  old?: string
+  panelPort: number
+  /** The places outside Playkeeper that keep the dashboard's address, each with the change it needs. */
+  outside: OutsideChange[]
+}
+
+/**
+ * A place outside Playkeeper that keeps the dashboard's address: the Whop
+ * app customers sign in through, which must list `add` beside `keep`; Whop's
+ * webhook, which Playkeeper moves to `add` itself; or AI agents set up with
+ * `keep`, which keeps working. done: Whop takes `add`, or the webhook is there.
+ */
+export interface OutsideChange {
+  kind: 'whop_signin' | 'whop_webhook' | 'mcp'
+  app?: string
+  add: string
+  keep?: string
+  automatic?: boolean
+  done: boolean
 }
 
 /** What a domain would need, before it is saved. */
@@ -1974,6 +2021,8 @@ export interface WhopSignIn {
   clientId?: string
   secretEnding?: string
   redirectUri?: string
+  /** The redirect URL sign-ins use instead while Whop lists only that one: the dashboard's address with the panel's port, from before it answered without one. */
+  using?: string
 }
 
 /** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */

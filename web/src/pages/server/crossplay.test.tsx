@@ -207,6 +207,21 @@ describe('the public page’s Bedrock line', () => {
   })
 })
 
+describe('the public page at the dashboard’s own address', () => {
+  const page = (): PublicPage => ({
+    address: 'alex.playkeeper.me',
+    servers: [{ slug: 'survival', name: 'Survival', motd: 'Hi', address: 'alex.playkeeper.me', state: 'online', minecraftVersion: '26.2', type: 'paper', inviteOnly: false, hasIcon: false }],
+  })
+
+  it('offers the dashboard’s sign-in, and only there', async () => {
+    await render(<PublicServerPage signIn />, undefined, { [serverPageApi]: page() })
+    const link = [...document.querySelectorAll('a')].find((a) => a.textContent === 'Sign in')
+    expect(link?.getAttribute('href')).toBe('/login')
+    await render(<PublicServerPage />, undefined, { [serverPageApi]: page() })
+    expect([...document.querySelectorAll('a')].some((a) => a.textContent === 'Sign in')).toBe(false)
+  })
+})
+
 describe('a Bedrock player’s face', () => {
   it('is their initial, without asking for a Java skin', async () => {
     await render(<PlayerFace name=".Notch" />)

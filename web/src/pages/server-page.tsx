@@ -29,9 +29,11 @@ const siteLink = 'https://playkeeper.io/?ref=server-page'
  * address into a browser: live status, how to join and the shared map, with
  * Playkeeper's footer. It needs no sign-in and loads none of the dashboard.
  * A page that is off and an address that isn't this machine's get the same
- * page, which names no server.
+ * page, which names no server. signIn, where the dashboard answers the same
+ * address (Serve the dashboard on the standard HTTPS port), offers its
+ * sign-in to the owner and their team.
  */
-export function ServerPage() {
+export function ServerPage({ signIn }: { signIn?: boolean }) {
   const poll = usePoll(() => get<PublicPage>(serverPageApi), 15_000)
   const [last, setLast] = useState<PublicPage>()
   useEffect(() => {
@@ -48,6 +50,13 @@ export function ServerPage() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">
+      {signIn && (
+        <div className="mx-auto flex w-full max-w-[920px] justify-end px-6 pt-5 max-sm:px-4 max-sm:pt-3">
+          <Button variant="outline" size="sm" render={<a href="/login" />}>
+            {t('serverPage.signIn')}
+          </Button>
+        </div>
+      )}
       <main className="mx-auto flex w-full max-w-[920px] flex-1 flex-col justify-center px-6 py-14 max-sm:justify-start max-sm:px-4 max-sm:pt-4 max-sm:pb-8">
         {gone ? <Gone /> : shown ? <Servers page={shown} /> : <Loading />}
       </main>
