@@ -8151,7 +8151,7 @@ control "suspending: a lifted store's customers wait for its memberships to be r
   ./internal/panel '^TestALiftedStoresCustomersComeBackAsTheirPlansSay$'
 control "suspending: a customer whose last call failed waits to be lifted" internal/panel/suspension.go \
   'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || wc.NextTryAt > now' \
-  'pending[wc.WhopUserID] = wc.Unconfirmed > 0' \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || now < 0' \
   ./internal/panel '^TestALiftedStoresCustomersComeBackAsTheirPlansSay$'
 control "suspending: a customer whose new membership isn't confirmed waits to be lifted" internal/panel/suspension.go \
   'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || wc.NextTryAt > now' \
