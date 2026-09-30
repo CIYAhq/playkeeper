@@ -8751,6 +8751,170 @@ webcontrol "suspending: a store's suspension says why" web/src/pages/whop-stores
   'await post(path, { reason })' \
   src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
 
+# Deleting a customer (internal/panel/erasure.go, the privacy policy's
+# deletion): only the owner deletes one, on request with the account's name
+# typed, or some days after their servers were deleted, never sooner than
+# their final backups are kept; a customer with a plan isn't deleted, and one
+# who buys again keeps everything; their servers, backups, sign-ins and
+# records go at their store alone, their payments stay without who paid, and
+# the store's reads don't bring them back.
+control "deleting customers: only the owner deletes a customer" internal/panel/workspace.go \
+  'actManageTeam:       invites.RoleAdmin,' \
+  'actManageTeam:       invites.RoleAdmin, actDeleteCustomers: invites.RoleAdmin,' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: the account's name is typed to confirm" internal/panel/erasure.go \
+  'case req.Confirm != c.username:' \
+  'case false:' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: a customer with a plan isn't deleted" internal/panel/erasure.go \
+  'case plan:' \
+  'case false:' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: one who buys again before it runs keeps their account" internal/panel/erasure.go \
+  'if plan {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: the records transaction keeps one who bought again" internal/panel/erasure.go \
+  'if plan, err := s.hasPlan(ctx, tx, c); err != nil || plan {' \
+  'if _, err := s.hasPlan(ctx, tx, c); err != nil {' \
+  ./internal/panel '^TestACustomerWhoBuysAgainWhileBeingDeletedKeepsEverything$'
+control "deleting customers: a customer is signed out when it's asked for" internal/panel/erasure.go \
+  's.deleteUserSessions(uid)' \
+  '_ = uid' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: a customer's tokens stop when it's asked for" internal/panel/erasure.go \
+  's.revokeAccountTokens(uid, actor, "their account is being deleted")' \
+  '_ = actor' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: asking for it is in the audit log" internal/panel/erasure.go \
+  's.audit(actor, "customer.erase", c.username, "requested",' \
+  '_ = fmt.Sprint(actor, "customer.erase", c.username, "requested",' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: a deletion is in the audit log" internal/panel/erasure.go \
+  's.audit(actor, "customer.erase", c.username, "succeeded",' \
+  '_ = fmt.Sprint(actor, "customer.erase", c.username, "succeeded",' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their servers are deleted" internal/panel/erasure.go \
+  'for _, id := range here {' \
+  'for _, id := range here[:0] {' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: no final backup of their servers is kept" internal/panel/erasure.go \
+  'req := api.DeleteServerRequest{Confirm: st.Name, Actor: placementActor, ForgetKey: true}' \
+  'req := api.DeleteServerRequest{Confirm: st.Name, Actor: placementActor, ForgetKey: true, KeepFinalBackupDays: finalBackupDays, KeptFor: keptFor(0)}' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: the backups machines keep for them are deleted" internal/panel/erasure.go \
+  'http.MethodDelete, "/v1/kept-backups/"' \
+  'http.MethodGet, "/v1/kept-backups/"' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: the backups kept for another account stay" internal/panel/erasure.go \
+  'if k.KeptFor != label {' \
+  'if false {' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their account goes" internal/panel/erasure.go \
+  'DELETE FROM users WHERE id = ?' \
+  'DELETE FROM users WHERE id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their invites go" internal/panel/erasure.go \
+  'DELETE FROM invites WHERE created_by = ?' \
+  'DELETE FROM invites WHERE created_by = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: the copies their moves left go from the records" internal/panel/erasure.go \
+  'DELETE FROM left_copies WHERE user_id = ?' \
+  'DELETE FROM left_copies WHERE user_id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their servers' join requests go" internal/panel/erasure.go \
+  'DELETE FROM join_requests WHERE server_id = ?' \
+  'DELETE FROM join_requests WHERE server_id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their servers' players' origins go" internal/panel/erasure.go \
+  'DELETE FROM player_origins WHERE server_id = ?' \
+  'DELETE FROM player_origins WHERE server_id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their servers' shared links go" internal/panel/erasure.go \
+  'DELETE FROM public_links WHERE server_id = ?' \
+  'DELETE FROM public_links WHERE server_id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: only their memberships at their store go" internal/panel/erasure.go \
+  'DELETE FROM whop_memberships WHERE store_id = ? AND whop_user_id = ?' \
+  'DELETE FROM whop_memberships WHERE (store_id = ? OR 1) AND whop_user_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: only their Whop row at their store goes" internal/panel/erasure.go \
+  'DELETE FROM whop_customers WHERE store_id = ? AND whop_user_id = ?' \
+  'DELETE FROM whop_customers WHERE (store_id = ? OR 1) AND whop_user_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: only their messages at their store go" internal/panel/erasure.go \
+  'DELETE FROM whop_messages WHERE store_id = ? AND whop_user_id = ?' \
+  'DELETE FROM whop_messages WHERE (store_id = ? OR 1) AND whop_user_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: only their payments at their store lose who paid" internal/panel/erasure.go \
+  "UPDATE whop_payments SET whop_user_id = '' WHERE store_id = ? AND whop_user_id = ?" \
+  "UPDATE whop_payments SET whop_user_id = '' WHERE (store_id = ? OR 1) AND whop_user_id = ?" \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their payments stay for the store's accounts" internal/panel/erasure.go \
+  "UPDATE whop_payments SET whop_user_id = '' WHERE store_id = ? AND whop_user_id = ?" \
+  'DELETE FROM whop_payments WHERE store_id = ? AND whop_user_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their payments lose who paid" internal/panel/erasure.go \
+  "SET whop_user_id = '' WHERE store_id = ?" \
+  'SET whop_user_id = whop_user_id WHERE store_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: the store remembers who it deleted" internal/panel/erasure.go \
+  'c.store, erasedSubject(c.store, c.subject), s.now().UnixMilli()' \
+  'c.store, erasedSubject(c.store, c.subject+"x"), s.now().UnixMilli()' \
+  ./internal/panel '^TestDeletingACustomerLeavesTheirOtherStoreAlone$'
+control "deleting customers: the store's reads leave out their ended memberships" internal/panel/whop_customers.go \
+  'if !m.HasAccess() && s.forgotten(storeID, m.UserID) {' \
+  'if false {' \
+  ./internal/panel '^TestADeletedCustomersEndedMembershipIsntKeptAgain$'
+control "deleting customers: a membership that gives access is kept" internal/panel/whop_customers.go \
+  'if !m.HasAccess() && s.forgotten(storeID, m.UserID) {' \
+  'if s.forgotten(storeID, m.UserID) {' \
+  ./internal/panel '^TestADeletedCustomersEndedMembershipIsntKeptAgain$'
+control "deleting customers: one who came back has their ended memberships kept" internal/panel/erasure.go \
+  'AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ?)' \
+  'AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ? AND 0)' \
+  ./internal/panel '^TestDeletingACustomerLeavesTheirOtherStoreAlone$'
+control "deleting customers: the deletion waits while their servers move" internal/panel/erasure.go \
+  'if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  'if s.leftCopiesPending(ctx, userID) {' \
+  ./internal/panel '^TestACustomersDeletionWaitsForTheirMoves$'
+control "deleting customers: the deletion waits for the copies their moves left" internal/panel/erasure.go \
+  'if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  'if s.customerMoving(ctx, userID) {' \
+  ./internal/panel '^TestACustomersDeletionWaitsForTheirMoves$'
+control "deleting customers: a customer is deleted the owner's days after their servers" internal/panel/erasure.go \
+  'cutoff := s.now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()' \
+  'cutoff := s.now().UnixMilli()' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+control "deleting customers: the owner's days start at their final backups' days" internal/panel/erasure.go \
+  'req.Days < minCustomerRetention' \
+  'req.Days < 1' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+control "deleting customers: the owner's days have a most" internal/panel/erasure.go \
+  'req.Days > maxCustomerRetention' \
+  'req.Days > 1<<20' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+control "deleting customers: days stored under the floor count as the default" internal/panel/erasure.go \
+  'n < minCustomerRetention' \
+  'n < 1' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+control "deleting customers: the owner's days are in the audit log" internal/panel/erasure.go \
+  's.audit(sess.User.Username, "customer.retention",' \
+  '_ = fmt.Sprint(sess.User.Username, "customer.retention",' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+webcontrol "deleting customers: the Team page asks for the account's name" web/src/pages/team.tsx \
+  "typed.trim() !== name ? t('team.deleteTypeFirst', { name }) : undefined" \
+  "false ? t('team.deleteTypeFirst', { name }) : undefined" \
+  src/pages/pages.test.tsx 'delete a customer whose plan ended once their name is typed'
+webcontrol "deleting customers: the Team page says a customer with a plan waits" web/src/pages/team.tsx \
+  "const hasPlan = m?.customerState === 'active'" \
+  'const hasPlan = false' \
+  src/pages/pages.test.tsx 'delete a customer whose plan ended once their name is typed'
+webcontrol "deleting customers: a customer being deleted isn't offered it again" web/src/pages/team.tsx \
+  'const deletable = !!m.canDelete && !m.deleting' \
+  'const deletable = !!m.canDelete' \
+  src/pages/pages.test.tsx 'delete a customer whose plan ended once their name is typed'
+
 # A store leaving (internal/panel/leaving.go, task 3.2 of the hosted
 # blueprint): only the Whop side's call makes a store leave; a store that
 # left ends its own customers' plans from what the dashboard kept, whether
