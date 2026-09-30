@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
@@ -15,18 +16,32 @@ import (
 // customerDeletePath is where the owner asks for the account uid's deletion.
 func customerDeletePath(uid int64) string { return "/api/customers/" + strconv.FormatInt(uid, 10) }
 
-// keptBackupAt has the machine keep one backup under label, id kid.
-func keptBackupAt(e *env, label, kid string) {
-	e.reply("GET", "/v1/kept-backups", `[{"id":"`+kid+`","serverId":"cafebabe23","serverName":"alex","keptFor":"`+label+`","fileName":"playkeeper-alex-`+kid+`.tar.gz","sizeBytes":5,"sha256":"","madeAt":"2026-10-13T12:00:00Z","expiresAt":"2026-11-12T12:00:00Z"}]`)
+// keptBackupsAt has the machine keep one backup under each label, with its
+// id, and list them all whichever label it's asked for.
+func keptBackupsAt(e *env, kept map[string]string) {
+	var list []string
+	for kid, label := range kept {
+		list = append(list, `{"id":"`+kid+`","serverId":"cafebabe23","serverName":"alex","keptFor":"`+label+`","fileName":"playkeeper-alex-`+kid+`.tar.gz","sizeBytes":5,"sha256":"","madeAt":"2026-10-13T12:00:00Z","expiresAt":"2026-11-12T12:00:00Z"}`)
+	}
+	e.reply("GET", "/v1/kept-backups", "["+strings.Join(list, ",")+"]")
+}
+
+// agentHit says whether the machine was asked for what, as "METHOD /path".
+func agentHit(e *env, what string) bool {
+	e.agent.mu.Lock()
+	defer e.agent.mu.Unlock()
+	return slices.Contains(e.agent.hits, what)
 }
 
 // A customer the owner deletes on request, once their plan ended, loses
 // their account and everything personal the dashboard keeps of them:
 // their server, with every backup and no final one kept, and the final
-// backups a machine keeps for them; their sign-ins and tokens; their
-// memberships, Whop row and messages at their store. A payment of theirs
-// keeps its amounts for the store's accounts without who paid, and nothing
-// of another store changes.
+// backups a machine keeps for them; their sign-ins and tokens, at once;
+// their memberships, Whop row and messages at their store; their invites,
+// the copies their moves left, and their server's join requests, players'
+// origins and shared links. A payment of theirs keeps its amounts for the
+// store's accounts without who paid, and nothing of another store or
+// another account changes.
 func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 	p := newPausable(t)
 	e, ctx := p.e, context.Background()
@@ -34,14 +49,27 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
 		t.Fatal(err)
 	}
-	keptBackupAt(e.env, keptFor(p.alex.id), "20261013-120000-abc123")
+	keptBackupsAt(e.env, map[string]string{"20261013-120000-abc123": keptFor(p.alex.id), "20261013-120000-def456": keptFor(p.alex.id + 1)})
+	var project string
+	if err := e.srv.db.QueryRow(`SELECT id FROM projects LIMIT 1`).Scan(&project); err != nil {
+		t.Fatal(err)
+	}
+	alexID, ownID := strconv.FormatInt(p.alex.id, 10), strconv.FormatInt(p.own.id, 10)
 	for _, q := range []string{
 		`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at) VALUES('` + testStore + `', 'mem_alex1', 'user_alex', 'plan_starter', 'expired', 1)`,
 		`INSERT INTO whop_customers(store_id, whop_user_id, handle, updated_at) VALUES('` + testStore + `', 'user_alex', 'alex', 1)`,
 		`INSERT INTO whop_messages(store_id, whop_user_id, kind, text, created_at) VALUES('` + testStore + `', 'user_alex', 'paused', 'Your plan ended.', 1)`,
 		`INSERT INTO whop_payments(payment_id, store_id, whop_user_id, plan_id, currency, amount, share, refunded, paid_at, updated_at) VALUES('pay_alex1', '` + testStore + `', 'user_alex', 'plan_starter', 'usd', 1000, 0, 0, 1, 1)`,
+		`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at) VALUES('biz_other', 'mem_alex9', 'user_alex', 'plan_other', 'active', 1)`,
+		`INSERT INTO whop_customers(store_id, whop_user_id, handle, updated_at) VALUES('biz_other', 'user_alex', 'alex', 1)`,
 		`INSERT INTO whop_messages(store_id, whop_user_id, kind, text, created_at) VALUES('biz_other', 'user_alex', 'ready', 'Your server is ready.', 1)`,
 		`INSERT INTO whop_payments(payment_id, store_id, whop_user_id, plan_id, currency, amount, share, refunded, paid_at, updated_at) VALUES('pay_alex2', 'biz_other', 'user_alex', 'plan_other', 'usd', 1500, 850, 0, 1, 1)`,
+		`INSERT INTO invites(id, kind, code_hash, project_id, server_id, created_by, created_at, expires_at, max_uses) VALUES('inv_alex', 'player', 'hash_alex', '` + project + `', '` + p.serverID + `', ` + alexID + `, 1, 0, 10)`,
+		`INSERT INTO invites(id, kind, code_hash, project_id, server_id, created_by, created_at, expires_at, max_uses) VALUES('inv_own', 'player', 'hash_own', '` + project + `', '` + p.serverID + `', ` + ownID + `, 1, 0, 10)`,
+		`INSERT INTO join_requests(id, invite_id, server_id, player_uuid, player_name, state, created_at) VALUES('jr_steve', 'inv_own', '` + p.serverID + `', 'uuid-steve', 'Steve', 'pending', 1)`,
+		`INSERT INTO player_origins(server_id, player_uuid, player_name, invite_id, joined_at) VALUES('` + p.serverID + `', 'uuid-kai', 'Kai', 'inv_own', 1)`,
+		`INSERT INTO public_links(kind, token_hash, server_id, machine_id, created_at) VALUES('map', 'hash_map', '` + p.serverID + `', 'm_alex', 1)`,
+		`INSERT INTO left_copies(server_id, machine_id, user_id, keep_days, left_at) VALUES('` + p.serverID + `', 'm_old', ` + alexID + `, 7, 1)`,
 	} {
 		if _, err := e.srv.db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
@@ -53,43 +81,53 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 	if n := e.count(t, `SELECT COUNT(*) FROM sessions WHERE user_id = ?`, p.alex.id); n != 0 {
 		t.Fatalf("alex is still signed in %d times once their deletion was asked for", n)
 	}
+	if n := p.tokens(t); n != 0 {
+		t.Fatalf("%d of alex's tokens still work once their deletion was asked for", n)
+	}
 	e.srv.eraseDueCustomers(ctx)
 	if n := p.deletions(); n != 1 {
 		t.Fatalf("alex's server was asked to be deleted %d times", n)
 	}
 	e.agent.mu.Lock()
 	raw := e.agent.lastBody["POST /v1/servers/"+p.serverID+"/delete"]
-	deletedKept := slices.Contains(e.agent.hits, "DELETE /v1/kept-backups/20261013-120000-abc123")
 	e.agent.mu.Unlock()
 	if !strings.Contains(raw, `"forgetKey":true`) || strings.Contains(raw, "keepFinalBackupDays") || strings.Contains(raw, "keptFor") {
 		t.Fatalf("the deletion asked for %s", raw)
 	}
-	if !deletedKept {
+	if !agentHit(e.env, "DELETE /v1/kept-backups/20261013-120000-abc123") {
 		t.Fatal("the final backup kept for alex wasn't deleted")
+	}
+	if agentHit(e.env, "DELETE /v1/kept-backups/20261013-120000-def456") {
+		t.Fatal("a final backup kept for another account was deleted")
 	}
 	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); ok {
 		t.Fatal("alex still has an account")
 	}
 	for _, q := range []string{
 		`SELECT COUNT(*) FROM users WHERE id = ?`, `SELECT COUNT(*) FROM api_tokens WHERE user_id = ?`, `SELECT COUNT(*) FROM customer_homes WHERE user_id = ?`,
-		`SELECT COUNT(*) FROM creator_servers WHERE user_id = ?`,
+		`SELECT COUNT(*) FROM creator_servers WHERE user_id = ?`, `SELECT COUNT(*) FROM invites WHERE created_by = ?`, `SELECT COUNT(*) FROM left_copies WHERE user_id = ?`,
 	} {
 		if n := e.count(t, q, p.alex.id); n != 0 {
 			t.Errorf("%s: %d", q, n)
+		}
+	}
+	for _, table := range []string{"join_requests", "player_origins", "public_links"} {
+		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE server_id = ?`, p.serverID); n != 0 {
+			t.Errorf("%s still has alex's server: %d", table, n)
 		}
 	}
 	for _, table := range []string{"whop_memberships", "whop_customers", "whop_messages"} {
 		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE store_id = ? AND whop_user_id = 'user_alex'`, testStore); n != 0 {
 			t.Errorf("%s still has alex at their store: %d", table, n)
 		}
+		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`); n != 1 {
+			t.Errorf("%s lost alex at another store: %d", table, n)
+		}
 	}
 	var payer string
 	var amount int64
 	if err := e.srv.db.QueryRow(`SELECT whop_user_id, amount FROM whop_payments WHERE payment_id = 'pay_alex1'`).Scan(&payer, &amount); err != nil || payer != "" || amount != 1000 {
 		t.Fatalf("alex's payment at their store: %q, %d, %v", payer, amount, err)
-	}
-	if n := e.count(t, `SELECT COUNT(*) FROM whop_messages WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`); n != 1 {
-		t.Fatalf("alex's message at another store went: %d", n)
 	}
 	if n := e.count(t, `SELECT COUNT(*) FROM whop_payments WHERE payment_id = 'pay_alex2' AND whop_user_id = 'user_alex'`); n != 1 {
 		t.Fatalf("alex's payment at another store lost who paid: %d", n)
@@ -163,6 +201,14 @@ func TestDeletingACustomerLeavesTheirOtherStoreAlone(t *testing.T) {
 	e.reconcile()
 	if again := storeAccount(t, e, "biz_other", "user_alex"); again.State != CustomerActive {
 		t.Fatalf("alex buying at Other again: %+v", again)
+	}
+	f.mu.Lock()
+	f.installed["biz_other"].memberships["mem_alex3"]["status"] = "expired"
+	f.mu.Unlock()
+	e.srv.db.Exec(`UPDATE whop_stores SET polled_at = 0`)
+	e.reconcile()
+	if again := storeAccount(t, e, "biz_other", "user_alex"); again.State != CustomerPaused {
+		t.Fatalf("alex at Other once the plan they bought again ended: %+v", again)
 	}
 }
 
@@ -287,6 +333,74 @@ func TestACustomerIsDeletedSomeDaysAfterTheirServers(t *testing.T) {
 	}
 	if rows := e.auditRows(t, "customer.erase"); len(rows) != 1 || !strings.HasPrefix(rows[0], "playkeeper alex succeeded") || !strings.Contains(rows[0], "30 days after their servers were deleted") {
 		t.Fatalf("the audit log: %v", rows)
+	}
+	if rows := e.auditRows(t, "customer.retention"); len(rows) != 2 || !strings.HasSuffix(rows[0], "a customer is deleted 60 days after their servers") {
+		t.Fatalf("the audit log of the setting: %v", rows)
+	}
+}
+
+// A customer whose servers are being moved, or whose move left a copy on
+// its old machine that isn't deleted yet, is deleted once that's done, so
+// no copy of theirs is left behind.
+func TestACustomersDeletionWaitsForTheirMoves(t *testing.T) {
+	p := newPausable(t)
+	e, ctx := p.e, context.Background()
+	p.lapse("succeeded")
+	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	if _, err := e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES(?, ?, 'm_old', 'm_new')`, p.serverID, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "DELETE", customerDeletePath(p.alex.id), `{"confirm":"alex"}`, p.own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("asking for alex's deletion: %d %v", r.status, r.body)
+	}
+	kept := func() bool {
+		_, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
+		return ok && p.deletions() == 0
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if !kept() {
+		t.Fatal("alex was deleted while their server was being moved")
+	}
+	for _, q := range []string{`DELETE FROM server_moves WHERE user_id = ?`, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days) VALUES('cafebabe23', 'm_old', ?, 7)`} {
+		if _, err := e.srv.db.Exec(q, p.alex.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if !kept() {
+		t.Fatal("alex was deleted while a copy their move left waited to be deleted")
+	}
+	if _, err := e.srv.db.Exec(`UPDATE left_copies SET left_at = 1 WHERE user_id = ?`, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); ok || p.deletions() != 1 {
+		t.Fatalf("alex once their move was done: deleted %d times", p.deletions())
+	}
+}
+
+// The last look before a customer's records go, in the same transaction,
+// keeps everything of one who bought again since the deletion began.
+func TestACustomerWhoBuysAgainWhileBeingDeletedKeepsEverything(t *testing.T) {
+	_, e, _ := storesWithCustomers(t)
+	ctx := context.Background()
+	other := storeAccount(t, e, "biz_other", "user_alex")
+	c, ok, err := e.srv.erasableCustomer(ctx, other.UserID)
+	if err != nil || !ok {
+		t.Fatalf("alex at Other: %v %v", ok, err)
+	}
+	c.state = CustomerPaused
+	if _, err := e.srv.eraseCustomerRecords(ctx, c, nil); !errors.Is(err, errCustomerHasPlan) {
+		t.Fatalf("deleting the records of alex, who has a plan: %v", err)
+	}
+	if again := storeAccount(t, e, "biz_other", "user_alex"); again.UserID != other.UserID {
+		t.Fatalf("alex at Other: %+v", again)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM whop_memberships WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`); n != 1 {
+		t.Fatalf("alex's memberships at Other: %d", n)
 	}
 }
 
