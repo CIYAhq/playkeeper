@@ -230,7 +230,10 @@ func TestAMoveInFinishedAfterARestartStaysStopped(t *testing.T) {
 		t.Fatalf("the next agent process must finish the move-in: %+v", op)
 	}
 	s := e.a.serverByID("mvdserver2")
-	if s == nil || s.desired() != api.DesiredStopped || e.containerRuns("mvdserver2") {
-		t.Fatalf("the move-in finished after a restart left the server running or gone: %v", s)
+	if s == nil {
+		t.Fatal("the move-in finished after a restart left no server")
+	}
+	if s.desired() != api.DesiredStopped || e.containerRuns("mvdserver2") {
+		t.Fatalf("the move-in finished after a restart left the server %s, running %v", s.desired(), e.containerRuns("mvdserver2"))
 	}
 }
