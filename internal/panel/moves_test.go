@@ -767,8 +767,9 @@ func TestABackupThatArrivesChangedIsntMovedIn(t *testing.T) {
 }
 
 // A move a restart of the dashboard stopped carries on: a server the other
-// machine made before the restart isn't copied again, its requests go
-// there, and the machine it left deletes its copy.
+// machine made before the restart isn't copied again, but gets the backup
+// rules it had, its requests go there, and the machine it left deletes its
+// copy.
 func TestAMoveCarriesOnAfterARestart(t *testing.T) {
 	f := newMoveFleet(t)
 	f.mu.Lock()
@@ -792,6 +793,9 @@ func TestAMoveCarriesOnAfterARestart(t *testing.T) {
 	}
 	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/backups"); ok {
 		t.Error("the server was backed up again, though the other machine had made it")
+	}
+	if rules := f.e.agentBody("POST /v1/servers/" + movedServer + "/backup-rules"); !strings.Contains(rules, `"everyHours":24`) || !strings.Contains(rules, `"daily":5`) {
+		t.Errorf("the server whose move carried on got the backup rules %q", rules)
 	}
 	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/delete"); !ok {
 		t.Error("the machine it left kept its copy")
