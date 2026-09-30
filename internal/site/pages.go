@@ -51,6 +51,10 @@ type Page struct {
 	// Share puts Send to my computer next to each Copy on phones, for a page
 	// people mostly open on a phone, as /start's ad visitors do.
 	Share bool
+	// Film says the page plays a film of the site's own, a <video>: its
+	// location in nginx gets a Content-Security-Policy that lets the site's
+	// media in, which the site's own doesn't. /start's location does already.
+	Film bool
 	// Partner names the provider (providers) whose partner links a guide
 	// carries; its top then says so, while the provider has one.
 	Partner string
@@ -211,6 +215,12 @@ func parsePage(src string) (*Page, error) {
 				return nil, fmt.Errorf("share is true or false, not %q", value)
 			}
 			p.Share = b
+		case "film":
+			b, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, fmt.Errorf("film is true or false, not %q", value)
+			}
+			p.Film = b
 		case "partner":
 			p.Partner = value
 		case "scripts":
