@@ -350,16 +350,25 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 	}
 	var target machineRoom
 	if to == "" {
+		// A machine a server of theirs a move can't carry would have to go
+		// to is passed over; with none left, that's why they can't move.
+		var refused *invites.Error
 		others := slices.DeleteFunc(slices.Clone(rooms), func(r machineRoom) bool {
-			return r.ID == home || !diskFits(r, diskNeed(sizes, r.ID))
+			if r.ID == home {
+				return true
+			}
+			if why := carryRefusal(sizes, r.ID); why != nil {
+				refused = cmp.Or(refused, why)
+				return true
+			}
+			return !diskFits(r, diskNeed(sizes, r.ID))
 		})
 		for {
 			var ok bool
-			if target, ok = chooseMachine(others, planMB); !ok {
-				return "", errMoveNowhere
-			}
-			if refused := carryRefusal(sizes, target.ID); refused != nil {
+			if target, ok = chooseMachine(others, planMB); !ok && refused != nil {
 				return "", refused
+			} else if !ok {
+				return "", errMoveNowhere
 			}
 			err := guardOn(ctx, target, actor)
 			if err == nil {

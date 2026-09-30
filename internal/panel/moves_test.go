@@ -703,6 +703,42 @@ func TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing(t *testing.T) {
 	}
 }
 
+// When the dashboard picks where a customer goes, a machine that a server
+// of theirs a move can't carry would have to go to is passed over, rather
+// than refusing the whole move: the machine that server is on already can
+// still take the rest of theirs, fullest or not.
+func TestTheMachineAServerThatCantGoIsOnStillTakesTheRest(t *testing.T) {
+	f := newMoveFleet(t)
+	fuller := joinForCustomersAs(t, f.e, f.own)
+	fuller.ra.handle("GET /v1/machine", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, liveMachine(20000, true))
+	})
+	f.e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	if r := f.e.do(t, "PUT", "/api/machines/"+fuller.d.MachineID+"/customers", `{"on":true}`, f.own.auth()); r.status != http.StatusOK {
+		t.Fatalf("the owner confirms the fuller machine: %d %v", r.status, r.body)
+	}
+	for _, q := range []string{
+		fmt.Sprintf(`INSERT INTO creator_servers(server_id, user_id, created_at) VALUES('arrivsrv23', %d, 0)`, f.alex.id),
+		fmt.Sprintf(`INSERT INTO server_machines(server_id, machine_id, slug, seen_at) VALUES('arrivsrv23', '%s', '', 0)`, f.local),
+	} {
+		if _, err := f.e.srv.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.e.answer("GET /v1/servers/arrivsrv23/move-check", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"arrived can't be moved: its folder has more than 200000 files.","code":"conflict"}`)
+	})
+	if r := f.move(t, ""); r.status != http.StatusAccepted || r.body["machineId"] != f.local {
+		t.Fatalf("moving alex to the fullest machine that can take all of theirs: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
 // A copy a failed move left on the machine a customer goes to, not yet
 // deleted, goes before their server arrives, so moving them there again
 // counts the room it frees rather than refusing for want of it. The check
