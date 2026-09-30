@@ -5228,8 +5228,8 @@ control "a removed machine's server goes to no machine, not the dashboard's own"
 		return machine{}, errUnknownServer' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "a machine that lists a removed machine's server takes it over" internal/panel/machines.go \
-  'case owner != m.ID && !ownerActive:' \
-  'case false && owner != m.ID && !ownerActive:' \
+  '				if !ownerActive && !unsure {' \
+  '				if false && !ownerActive && !unsure {' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "every server in the list has its own slug" internal/panel/workspace.go \
   's.stableSlugs(ctx, out, list)' \
