@@ -369,6 +369,14 @@ describe('Home', () => {
     expect(text).not.toContain('Create your first server')
   })
 
+  it('tells a customer who lost their machine there’s no room for their servers, not that one is being set up', async () => {
+    const text = await render(<HomePage />, workspace({ servers: [], me: member('admin', ['view', 'servers.create_own'], { servers: {}, waitingForRoom: true, waitingAgain: true }) }))
+    expect(text).toContain('No room for your servers yet')
+    expect(text).toContain('There’s no room for your servers right now. We’ll message you as soon as there is.')
+    expect(text).not.toContain('being set up')
+    expect(text).not.toContain('Create your first server')
+  })
+
   it('shows a sleeping server, the memory it gave back, and wakes it', async () => {
     const asleep = server({ phase: 'asleep', desired: 'sleeping', sleep: { enabled: true, idleMinutes: 15, listening: true } })
     const sleeping = { ...machine, live: machine.live && { ...machine.live, sleepingMemoryMB: 4096 } }

@@ -1919,6 +1919,8 @@ export interface Access {
   awaitingConfirmation?: boolean
   /** A customer whose server is being set up, waiting for room on a machine. */
   waitingForRoom?: boolean
+  /** A customer waiting for room again, having lost the machine they had. */
+  waitingAgain?: boolean
   /** A creator's machine: the one their servers go on. */
   home?: string
   /** A customer whose plan ended: when their servers are deleted unless they renew. */

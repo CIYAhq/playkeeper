@@ -57,8 +57,9 @@ export function HomePage() {
   if (servers && servers.length === 0) {
     const deleted = !!ws.me.access.serversDeleted
     const paused = deleted || !!ws.me.access.pausedUntil
-    const title = paused ? t('home.pausedEmptyTitle') : waiting ? t('home.settingUpTitle') : t('home.emptyTitle')
-    const body = paused ? t('home.pausedEmptyBody') : waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
+    const again = !!ws.me.access.waitingAgain
+    const title = paused ? t('home.pausedEmptyTitle') : waiting ? t(again ? 'home.noRoomTitle' : 'home.settingUpTitle') : t('home.emptyTitle')
+    const body = paused ? t('home.pausedEmptyBody') : waiting ? t(again ? 'home.noRoomBody' : 'home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
     return (
       <>
         <PageHeader title={t('home.title')} subtitle={phone || !sees ? undefined : t('home.emptySubtitle', { machine: ws.machineName })} phoneAction={<PhoneMoreButton />} />
