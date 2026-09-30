@@ -339,8 +339,12 @@ type Agent struct {
 	dns dnsService
 	// unreadableSwaps is the error last logged for each stage whose swap
 	// journal can't be read, and under "" for the staging folder itself, so
-	// each is logged once.
+	// each is logged once. swapsMu makes one look at the staging folder at
+	// a time note what it found, so that a look that found the folder
+	// missing can't forget, after a later look logged it, that it can't be
+	// read.
 	unreadableSwaps sync.Map
+	swapsMu         sync.Mutex
 	// stages are the restore stages restores are applying.
 	stages stageClaims
 	// copyReads keeps the backup rules from deleting copies while one is

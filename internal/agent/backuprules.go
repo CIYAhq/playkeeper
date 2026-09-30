@@ -59,6 +59,8 @@ func (s *server) backupRules() (retention.Settings, *time.Location, bool, error)
 // So is a staging folder that can't be read: then any server's restore may
 // not be over, and the error says why. A missing one holds no stages.
 func (a *Agent) unsettledSwaps() (map[string]*swapJournal, error) {
+	a.swapsMu.Lock()
+	defer a.swapsMu.Unlock()
 	dir := a.cfg.StagingDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
