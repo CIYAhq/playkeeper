@@ -375,11 +375,11 @@ func TestProxyWhenSquaremapIsNotThere(t *testing.T) {
 		status int
 		kind   Kind
 	}{
-		{closedAddr(t), http.StatusBadGateway, KindNotAnswering},
+		{"192.0.2.1:25580", http.StatusBadGateway, KindNotAnswering},
 		{"", http.StatusServiceUnavailable, KindNotRunning},
 		{"localhost:25580", http.StatusServiceUnavailable, KindNotRunning},
 	} {
-		m := Map{Type: "paper", Addr: tc.addr, Client: NewClient()}
+		m := Map{Type: "paper", Addr: tc.addr, Client: refusing()}
 		for _, target := range []string{tileTarget, "/map/worlds", "/map/players"} {
 			w := serveMap(m, "GET", target, nil)
 			if e := apiErrorOf(t, w); w.Code != tc.status || e.Code != string(tc.kind) || e.Hint == "" {

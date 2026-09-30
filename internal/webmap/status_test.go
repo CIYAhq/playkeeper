@@ -28,7 +28,6 @@ func writeTile(t *testing.T, sq, world string, zoom, x, z int, at time.Time) int
 }
 
 func TestStatusStates(t *testing.T) {
-	down := closedAddr(t)
 	wait := func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
@@ -60,7 +59,7 @@ func TestStatusStates(t *testing.T) {
 			msg: "The map shows while the server is running."},
 		{name: "restart pending", typ: "paper", check: Check{Installed: true, Running: true, PendingRestart: true}, state: StateNeedsRestart,
 			msg: "The map starts when the server restarts."},
-		{name: "squaremap down", typ: "paper", check: running, tiles: 3, setup: func(f *fakeSquaremap, m *Map) { m.Addr = down },
+		{name: "squaremap down", typ: "paper", check: running, tiles: 3, setup: func(f *fakeSquaremap, m *Map) { m.Client = refusing() },
 			state: StateNotAnswering, params: kv("reason", "not_answering"), msg: "The map is not answering."},
 		{name: "squaremap slow", typ: "neoforge", check: running, tiles: 3, setup: func(f *fakeSquaremap, m *Map) {
 			m.Timeout = 50 * time.Millisecond
