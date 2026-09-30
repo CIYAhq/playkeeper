@@ -10115,6 +10115,7 @@ control "moving customers: a listing that can't surely be told from a copy a mov
   '				if !ownerActive && !unsure {' \
   '				if !ownerActive {' \
   ./internal/panel '^(TestAFailedMovesCopyNeverGetsTheServerItselfDeleted|TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs)$'
+# shellcheck disable=SC2016
 control "moving customers: each copy left on a removed machine is taken once, the others kept" internal/panel/moves.go \
   '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, from)' \
   '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE `+leftOnRemoved+` OR machine_id = ?`, id, from)' \
