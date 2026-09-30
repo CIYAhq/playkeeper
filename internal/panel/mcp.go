@@ -132,7 +132,14 @@ func (b mcpBackend) Agent(_ context.Context, serverID string) (mcptools.Agent, e
 // all the time, and they say nothing about a server.
 var quietTools = map[string]bool{"list_servers": true, "get_operation": true}
 
+// runTools start or stop a server, as the dashboard's routes that forget a
+// failed move's start (runProxy) do.
+var runTools = map[string]bool{"start_server": true, "stop_server": true, "restart_server": true}
+
 func (b mcpBackend) Done(_ context.Context, p mcp.Principal, tool string, server *mcptools.Server) {
+	if server != nil && runTools[tool] {
+		b.s.forgetRestart(server.ID)
+	}
 	id, ok := strings.CutPrefix(p.ID, tokenActorPrefix)
 	if !ok || quietTools[tool] {
 		return

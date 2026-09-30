@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,6 +87,7 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	})
 	ra.reply("GET /v1/servers/"+movedServer+"/move-state", movedState)
 	ra.reply("GET /v1/servers/"+movedServer+"/backup-rules", `{"automatic":{"enabled":true,"everyHours":24,"onlyIfPlayed":true},"rules":{"onHost":{"daily":5}},"custom":true}`)
+	ra.reply("GET /v1/servers/"+movedServer+"/move-check", `{"diskBytes":1048576,"archiveBytes":2097152}`)
 
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
 	e.answer("GET /v1/servers", func(w http.ResponseWriter, _ *http.Request) {
@@ -340,7 +342,7 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 		t.Fatalf("the delete's body: %q", f.ra.body("POST /v1/servers/"+movedServer+"/delete"))
 	}
 	json.Unmarshal([]byte(f.ra.body("POST /v1/servers/"+movedServer+"/delete")), &del)
-	if del["confirm"] != "alex" || del["keepFinalBackupDays"] != float64(movedBackupDays) || del["keptFor"] != movedKeptFor(f.alex.id) || del["forgetKey"] != true {
+	if del["confirm"] != "alex" || del["keepFinalBackupDays"] != float64(movedBackupDays) || del["keptFor"] != movedKeptFor(f.alex.id) || del["forgetKey"] != true || del["keepWhole"] != true {
 		t.Errorf("home-server deleted its copy with %v", del)
 	}
 	if rules := f.e.agentBody("POST /v1/servers/" + movedServer + "/backup-rules"); !strings.Contains(rules, `"everyHours":24`) || !strings.Contains(rules, `"daily":5`) {
@@ -615,6 +617,185 @@ func TestAMoveGoesOnlyWhereTheCustomerFits(t *testing.T) {
 	}
 	if why := f.moved(t); why != "" {
 		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
+// A customer with a server a move can't carry isn't moved at all: the
+// owner is told why before any of their servers stops, and nothing is left
+// moving. Neither is one whose machine doesn't answer for the check.
+func TestAMoveChecksEveryServerBeforeAnyStops(t *testing.T) {
+	f := newMoveFleet(t)
+	const why = "alex can't be moved: its folder has more than 200000 files."
+	f.ra.handle("GET /v1/servers/"+movedServer+"/move-check", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"`+why+`","code":"conflict","hint":"Delete what it doesn't need from its folder, then move it again."}`)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusConflict || r.body["error"] != why {
+		t.Errorf("moving alex, whose server a move can't carry: %d %v", r.status, r.body)
+	}
+	if r := f.move(t, ""); r.status != http.StatusConflict || r.body["error"] != why {
+		t.Errorf("moving alex to the fullest machine with room, whose server a move can't carry: %d %v", r.status, r.body)
+	}
+	if _, stopped := f.ra.saw("POST /v1/servers/" + movedServer + "/stop"); stopped || f.rows(t, `SELECT COUNT(*) FROM customer_moves`) != 0 || f.e.srv.customerMoving(context.Background(), f.alex.id) {
+		t.Errorf("a move refused for a server it can't carry stopped it (%v) or left alex moving", stopped)
+	}
+	f.disconnect(t)
+	if r := f.move(t, f.local); r.status != http.StatusConflict || !strings.Contains(fmt.Sprint(r.body["error"]), "home-server doesn't answer") {
+		t.Errorf("moving alex while home-server is away: %d %v", r.status, r.body)
+	}
+}
+
+// A move goes only to a machine with room on its disk for the customer's
+// servers as they arrive, sparse files and links in full, and for the
+// upload of the largest meanwhile, beside what the machine keeps free. The
+// fullest machine without that room is passed over.
+func TestAMoveGoesOnlyWhereTheirServersFitOnDisk(t *testing.T) {
+	f := newMoveFleet(t)
+	f.ra.reply("GET /v1/servers/"+movedServer+"/move-check", `{"diskBytes":`+strconv.FormatInt(20<<30, 10)+`,"archiveBytes":`+strconv.FormatInt(10<<30, 10)+`}`)
+	f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 30<<30))
+	if r := f.move(t, f.local); r.status != http.StatusConflict || r.body["error"] != "The dashboard's machine has 30 GB free on its disk, and alex's servers need 30.5 GB there." {
+		t.Errorf("moving alex to a machine without room on its disk: %d %v", r.status, r.body)
+	}
+	if r := f.move(t, ""); r.status != http.StatusConflict || r.body["error"] != errMoveNowhere.Msg {
+		t.Errorf("moving alex to the fullest machine with room, with none having room on its disk: %d %v", r.status, r.body)
+	}
+	if f.rows(t, `SELECT COUNT(*) FROM customer_moves`) != 0 {
+		t.Error("a move refused for want of disk started")
+	}
+	f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 31<<30))
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Errorf("moving alex to a machine with room on its disk: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
+// A server of a customer's already on the machine they go to isn't carried
+// there, so one a move couldn't carry now, as its folder grew since it
+// arrived, doesn't keep the rest of theirs from following, as when a
+// stopped move is tried again. One that has to go still refuses the move.
+func TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing(t *testing.T) {
+	f := newMoveFleet(t)
+	for _, q := range []string{
+		fmt.Sprintf(`INSERT INTO creator_servers(server_id, user_id, created_at) VALUES('arrivsrv23', %d, 0)`, f.alex.id),
+		fmt.Sprintf(`INSERT INTO server_machines(server_id, machine_id, slug, seen_at) VALUES('arrivsrv23', '%s', '', 0)`, f.local),
+	} {
+		if _, err := f.e.srv.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const why = "arrived can't be moved: its folder has more than 200000 files."
+	f.e.answer("GET /v1/servers/arrivsrv23/move-check", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"`+why+`","code":"conflict"}`)
+	})
+	if r := f.move(t, f.rid); r.status != http.StatusConflict || r.body["error"] != why {
+		t.Errorf("moving alex to home-server, which the server a move can't carry would have to go to: %d %v", r.status, r.body)
+	}
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex to the machine the server a move can't carry is on: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
+// When the dashboard picks where a customer goes, a machine that a server
+// of theirs a move can't carry would have to go to is passed over, rather
+// than refusing the whole move: the machine that server is on already can
+// still take the rest of theirs, fullest or not.
+func TestTheMachineAServerThatCantGoIsOnStillTakesTheRest(t *testing.T) {
+	f := newMoveFleet(t)
+	fuller := joinForCustomersAs(t, f.e, f.own)
+	fuller.ra.handle("GET /v1/machine", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, liveMachine(20000, true))
+	})
+	f.e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	if r := f.e.do(t, "PUT", "/api/machines/"+fuller.d.MachineID+"/customers", `{"on":true}`, f.own.auth()); r.status != http.StatusOK {
+		t.Fatalf("the owner confirms the fuller machine: %d %v", r.status, r.body)
+	}
+	for _, q := range []string{
+		fmt.Sprintf(`INSERT INTO creator_servers(server_id, user_id, created_at) VALUES('arrivsrv23', %d, 0)`, f.alex.id),
+		fmt.Sprintf(`INSERT INTO server_machines(server_id, machine_id, slug, seen_at) VALUES('arrivsrv23', '%s', '', 0)`, f.local),
+	} {
+		if _, err := f.e.srv.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.e.answer("GET /v1/servers/arrivsrv23/move-check", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"error":"arrived can't be moved: its folder has more than 200000 files.","code":"conflict"}`)
+	})
+	if r := f.move(t, ""); r.status != http.StatusAccepted || r.body["machineId"] != f.local {
+		t.Fatalf("moving alex to the fullest machine that can take all of theirs: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
+// A copy a failed move left on the machine a customer goes to, not yet
+// deleted, goes before their server arrives, so moving them there again
+// counts the room it frees rather than refusing for want of it. The check
+// as the server's turn comes sees the room that deleting it truly freed.
+func TestACopyAMoveLeftCountsAsTheRoomItFrees(t *testing.T) {
+	f := newMoveFleet(t)
+	f.ra.reply("GET /v1/servers/"+movedServer+"/move-check", `{"diskBytes":`+strconv.FormatInt(20<<30, 10)+`,"archiveBytes":`+strconv.FormatInt(10<<30, 10)+`}`)
+	f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 30<<30))
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	if err := leftCopy(context.Background(), f.e.srv.db, movedServer, f.local, f.alex.id, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 50<<30))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-old","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-old", `{"id":"op-old","status":"succeeded"}`)
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex again to the machine their failed move left a copy on: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
+// A server that no longer fits on the other machine's disk by its turn, as
+// when that disk filled meanwhile, isn't stopped: the move stops before it,
+// saying why, and it keeps running where it is.
+func TestAServerThatNoLongerFitsIsntStopped(t *testing.T) {
+	f := newMoveFleet(t)
+	var checks atomic.Int32
+	f.ra.handle("GET /v1/servers/"+movedServer+"/move-check", func(w http.ResponseWriter, _ *http.Request) {
+		size := int64(1 << 20)
+		if checks.Add(1) > 1 {
+			size = 200 << 30
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"diskBytes":%d,"archiveBytes":%d}`, size, size)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.Contains(why, "alex: there's no room for it on the dashboard's machine's disk") {
+		t.Errorf("why the move stopped: %q", why)
+	}
+	if _, stopped := f.ra.saw("POST /v1/servers/" + movedServer + "/stop"); stopped {
+		t.Error("the server that no longer fits was stopped")
+	}
+	if at := f.recorded(t); at != f.rid {
+		t.Errorf("the server that no longer fits went to %q", at)
 	}
 }
 
@@ -1152,6 +1333,53 @@ func TestAServerWhoseMoveFailedStartsAgainOnceItCan(t *testing.T) {
 	f.e.srv.retryRestarts(ctx, f.rid)
 	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); !ok || f.rows(t, `SELECT COUNT(*) FROM move_restarts`) != 0 {
 		t.Errorf("a server to start again didn't once its machine answered: started %v", ok)
+	}
+}
+
+// Whoever starts or stops a server a failed move left to start again
+// decides whether it runs: once alex has started it and stopped it again,
+// in the dashboard or with an AI agent's token, it isn't started where it
+// is, or where it moves next.
+func TestAServerStoppedSinceItsFailedMoveStaysStopped(t *testing.T) {
+	stoppedSince := func(byToken bool) *moveFleet {
+		f := newMoveFleet(t)
+		if _, err := f.e.srv.db.Exec(`INSERT INTO move_restarts(server_id, machine_id, user_id) VALUES(?, ?, ?)`, movedServer, f.rid, f.alex.id); err != nil {
+			t.Fatal(err)
+		}
+		startsOp(f.ra, "POST /v1/servers/"+movedServer+"/start", "op-start", "succeeded", "")
+		_, secret := f.e.newToken(t, f.alex.cookie, f.alex.csrf, `{"name":"alex's agent","role":"admin","servers":["`+movedServer+`"]}`)
+		for _, act := range []string{"start", "stop"} {
+			if byToken {
+				if a := f.e.callTool(t, secret, act+"_server", map[string]any{"server": movedServer}); a.isError {
+					t.Fatalf("alex's agent's %s: %+v", act, a)
+				}
+			} else if r := f.e.do(t, "POST", "/api/servers/"+movedServer+"/"+act, `{}`, f.alex.auth()); r.status != http.StatusAccepted {
+				t.Fatalf("alex's %s: %d %v", act, r.status, r.body)
+			}
+		}
+		f.ra.reply("GET /v1/servers/"+movedServer, strings.Replace(movedStatus, `"phase":"online","desired":"running"`, `"phase":"stopped","desired":"stopped"`, 1))
+		return f
+	}
+	for _, byToken := range []bool{false, true} {
+		f := stoppedSince(byToken)
+		f.e.srv.retryRestarts(context.Background(), "")
+		if actor, _ := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); actor == placementActor {
+			t.Errorf("the server alex stopped, with a token %v, was started again", byToken)
+		}
+	}
+
+	f := stoppedSince(false)
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex again: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if in["start"] == true {
+		t.Error("the server alex stopped was made started where it moved")
 	}
 }
 

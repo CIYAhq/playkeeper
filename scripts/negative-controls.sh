@@ -8083,12 +8083,12 @@ control "kept backups: a kept backup's label is checked" internal/agent/keptback
   'case false:' \
   ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
 control "kept backups: the final backup is a new one" internal/agent/keptbackups.go \
-  'if b, err = s.finalArchive(actor); err == nil {' \
-  'if err = errors.New("skipped"); err == nil {' \
+  '	b, err = s.finalArchive(actor, whole)' \
+  '	err = errors.New("skipped")' \
   ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
 control "kept backups: a new final backup needs the room for it" internal/agent/keptbackups.go \
-  'err == nil && free < allowlistedSize(s.dataDir())+minFreeAfterBackup {' \
-  'err == nil && free < 0 {' \
+  'err == nil && free < need+minFreeAfterBackup {' \
+  'err == nil && free < need*0 {' \
   ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
 control "kept backups: without room, the newest backup is kept" internal/agent/keptbackups.go \
   'for _, old := range list {' \
@@ -9703,6 +9703,105 @@ control "moving in: an own address that doesn't fit the machine is left out" int
   'if fit, err := s.validOwnAddress(name); err != nil || fit != name {' \
   'if false {' \
   ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server's sleep runs by the setting it had, not one read before it arrived" internal/agent/movestate.go \
+  '	s.reloadSleep()' \
+  '	// s.reloadSleep()' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving out: a folder a move can't carry is refused before its first byte" internal/agent/moveout.go \
+  '	if _, err := backup.MeasureWhole(s.dataDir(), archiveLimits()); err != nil {' \
+  '	if _, err := backup.MeasureWhole(s.dataDir(), archiveLimits()); err != nil && false {' \
+  ./internal/agent '^TestAFolderAMoveCantCarryIsRefusedBeforeItStreams$'
+control "moving out: the check before a move holds the folder to what a move carries" internal/agent/moveout.go \
+  '	size, err := backup.MeasureWhole(s.dataDir(), archiveLimits())' \
+  '	size, err := backup.MeasureWhole(s.dataDir(), backup.Limits{})' \
+  ./internal/agent '^TestAFolderAMoveCantCarryIsRefusedBeforeItStreams$'
+control "whole folders: measured as they arrive, every file a move carries" internal/backup/staging.go \
+  '	rels, err := wholeFiles(dataDir)' \
+  '	rels, err := archivedFiles(dataDir)' \
+  ./internal/backup '^TestAWholeFolderIsMeasuredAsItArrives$'
+control "moving customers: a server a move can't carry refuses the move, saying why" internal/panel/moves.go \
+  '	case errors.As(err, &ae) && ae.Status == http.StatusConflict:' \
+  '	case false && errors.As(err, &ae) && ae.Status == http.StatusConflict:' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a machine that doesn't answer for a server's check refuses the move" internal/panel/moves.go \
+  '	return uncheckedRefusal(m, name)' \
+  '	return nil' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a server already where they go doesn't keep the rest from following" internal/panel/moves.go \
+  '		if sz := sizes[sid]; sz.refused != nil && sz.machineID != id {' \
+  '		if sz := sizes[sid]; sz.refused != nil {' \
+  ./internal/panel '^TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing$'
+control "moving customers: a server that has to go and can't refuses a move to the machine named" internal/panel/moves.go \
+  '		if refused := carryRefusal(sizes, target.ID); refused != nil {
+			return "", refused
+		}
+		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  '		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  ./internal/panel '^TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing$'
+control "moving customers: the dashboard's pick passes over a machine a server that can't go would have to go to" internal/panel/moves.go \
+  '			if why := carryRefusal(sizes, r.ID); why != nil {' \
+  '			if why := carryRefusal(sizes, r.ID); why != nil && false {' \
+  ./internal/panel '^(TestTheMachineAServerThatCantGoIsOnStillTakesTheRest|TestAMoveChecksEveryServerBeforeAnyStops)$'
+control "moving customers: with no machine left for the dashboard's pick, a server that can't go says why" internal/panel/moves.go \
+  '			if target, ok = chooseMachine(others, planMB); !ok && refused != nil {' \
+  '			if target, ok = chooseMachine(others, planMB); !ok && refused != nil && false {' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a move goes only to a machine with room on its disk" internal/panel/moves.go \
+  '		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  '		if need := diskNeed(sizes, target.ID); false && !diskFits(target, need) {' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: the fullest machine without room on its disk is passed over" internal/panel/moves.go \
+  '			return !diskFits(r, diskNeed(sizes, r.ID))' \
+  '			return false' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a machine's disk keeps what it keeps free beside a move" internal/panel/moves.go \
+  '	return need == 0 || r.DiskFree != nil && *r.DiskFree >= need+moveDiskReserve' \
+  '	return need == 0 || r.DiskFree != nil && *r.DiskFree >= need' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a move's disk room counts the largest server's upload" internal/panel/moves.go \
+  '	return need + upload' \
+  '	return need' \
+  ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
+control "moving customers: a server that no longer fits by its turn isn't stopped" internal/panel/moves.go \
+  '	if err := checkRoomFor(ctx, from, to, id); err != nil {' \
+  '	if err := checkRoomFor(ctx, from, to, id); err != nil && false {' \
+  ./internal/panel '^TestAServerThatNoLongerFitsIsntStopped$'
+control "kept backups: the copy a move left keeps its whole folder" internal/agent/keptbackups.go \
+  '		create, need = backup.CreateWhole, size.ArchiveBytes()' \
+  '		create, need = backup.Create, size.ArchiveBytes()' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: the copy a move left goes even when nothing of it can be kept" internal/agent/servers.go \
+  '		case err != nil && keep.whole:' \
+  '		case err != nil && keep.whole && false:' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: the copy a move left keeps its whole folder or none of its backups" internal/agent/keptbackups.go \
+  '	case whole:' \
+  '	case whole && false:' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: a whole folder is kept only with the days to keep it" internal/agent/keptbackups.go \
+  '	case req.KeepFinalBackupDays == 0 && req.KeptFor == "" && !req.KeepWhole:' \
+  '	case req.KeepFinalBackupDays == 0 && req.KeptFor == "":' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "moving customers: whoever starts or stops a server since its failed move decides whether it runs" internal/panel/moves.go \
+  '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { s.forgetRestart(id) })(w, r, sess)' \
+  '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { _ = id })(w, r, sess)' \
+  ./internal/panel '^TestAServerStoppedSinceItsFailedMoveStaysStopped$'
+control "whole folders: a folder whose manifest a move can't carry is refused when measured" internal/backup/staging.go \
+  '	if _, err := marshalManifest(m, lim); err != nil {' \
+  '	if _, err := marshalManifest(m, lim); err != nil && false {' \
+  ./internal/backup '^TestAWholeFolderIsMeasuredAsItArrives$'
+control "moving customers: an AI agent's start or stop since a failed move decides whether the server runs" internal/panel/mcp.go \
+  '	if server != nil && runTools[tool] {' \
+  '	if server != nil && runTools[tool] && false {' \
+  ./internal/panel '^TestAServerStoppedSinceItsFailedMoveStaysStopped$'
+control "moving customers: a copy a failed move left on the machine counts as the room it frees" internal/panel/moves.go \
+  '		if !slices.Contains(sz.copiesOn, id) {' \
+  '		if true {' \
+  ./internal/panel '^TestACopyAMoveLeftCountsAsTheRoomItFrees$'
+control "moving customers: the copy a move left is deleted keeping its whole folder" internal/panel/moves.go \
+  '		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true' \
+  '		req.KeepFinalBackupDays, req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), false' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving in: a server keeps Playkeeper's record of the add-ons it installed" internal/agent/movestate.go \
   '	{"addons", []string{' \
   '	// {"addons", []string{' \
@@ -9857,8 +9956,8 @@ control "moving customers: a customer whose servers are apart gives none more me
   '(!ok || memoryMB > cur) && false' \
   ./internal/panel '^TestServersApartAreBroughtTogether$'
 control "moving customers: the backups a move keeps aren't a deleted server's" internal/panel/moves.go \
-  'req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)' \
-  'req.KeepFinalBackupDays, req.KeptFor = days, keptFor(userID)' \
+  'req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true' \
+  'req.KeptFor, req.KeepWhole = days, keptFor(userID), true' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: a moved server is listed as it last was until its machine lists it" internal/panel/moves.go \
   'seen_at = excluded.seen_at, disputed_by = '"''" \
