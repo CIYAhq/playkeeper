@@ -129,6 +129,11 @@ func (s *Server) onMachineEvent(e machinelink.Event) {
 		s.machineEvent(e.MachineID, e.At, string(e.Kind), e.Actor, e.Address, e.Code)
 	}
 	switch e.Kind {
+	case machinelink.EventConnected, machinelink.EventDisconnected, machinelink.EventRemoved, machinelink.EventLeft:
+		// A machine that comes or goes brings or takes its room.
+		s.kickSaleRoom()
+	}
+	switch e.Kind {
 	case machinelink.EventConnected:
 		go s.carryUsageOff(e.MachineID)
 	case machinelink.EventJoined:
@@ -242,7 +247,6 @@ func (s *Server) hMachineRemove(w http.ResponseWriter, r *http.Request, sess *se
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not remove the machine.", "")
 		return
 	}
-	s.kickSaleRoom()
 	w.WriteHeader(http.StatusNoContent)
 }
 
