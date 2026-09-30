@@ -337,12 +337,16 @@ public final class AIBuildBattlePlugin extends JavaPlugin implements TabExecutor
         int n = parts.size();
         double today = ledger.spentToday();
         // What requests still in flight may cost counts against today's cap too.
-        double left = s.perDayUSD() - ledger.committed();
+        double inFlight = Math.max(0, ledger.committed() - today);
+        double left = s.perDayUSD() - today - inFlight;
         double cap = Math.min(s.perBuildUSD(), left / n);
         for (Part p : parts) {
             double least = Budget.smallestRequestUSD(p.model(), Budget.inputTokensHigh(firstMessages(prompt, p.model(), s))) + Budget.margin(Math.max(cap, 0.01));
             if (cap <= 0 || cap < least) {
-                if (left / n < s.perBuildUSD()) {
+                if (left / n < s.perBuildUSD() && inFlight > 0) {
+                    tell(player, "Today's " + Text.money(s.perDayUSD()) + " is taken for now: " + Text.money(today) + " spent, and answers still on their way may cost up to "
+                            + Text.money(inFlight) + ". Try again in a minute.");
+                } else if (left / n < s.perBuildUSD()) {
                     tell(player, "Today's " + Text.money(s.perDayUSD()) + " is used up (" + Text.money(today) + " spent). It starts again at midnight UTC.");
                 } else {
                     tell(player, p.model().name() + " needs at least " + Text.money(least) + " for one step at its prices, and a build may spend "
