@@ -1,6 +1,7 @@
 # playkeeper.io, served by nginx on port 80: the pages in site/ built by
-# cmd/site, with the docs from the repository's own Markdown, and the live
-# demo. Build it from the repository root, since the site reads the product's
+# cmd/site, with the docs from the repository's own Markdown, the live demo,
+# and the latest release's signed manifest that installs check, kept by
+# cmd/release-mirror. Build it from the repository root, since the site reads the product's
 # code and docs and the demo is the dashboard in web/: docker build -f
 # site/Dockerfile . (Coolify does the same, see README.md;
 # Dockerfile.dockerignore keeps the context small). The tags are for humans;
@@ -21,12 +22,16 @@ ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 COPY go.mod go.sum ./
 RUN go mod download github.com/yuin/goldmark golang.org/x/image
 COPY cmd/site/ cmd/site/
+COPY cmd/release-mirror/ cmd/release-mirror/
 COPY internal/ internal/
 COPY site/ site/
 COPY web/src/assets/ web/src/assets/
 COPY README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md ./
 COPY docs/ docs/
 RUN go run ./cmd/site -root . -out /out
+# The copy of the latest release's signed manifest that installs check
+# (/releases/latest/ in nginx.conf).
+RUN go build -o /out/release-mirror ./cmd/release-mirror
 
 FROM nginx:1.30.5-alpine-slim@sha256:32463212baf0e7d91aded2e9b843a4f2b9e017804b8c9d5bae7b51dcef64389c
 
@@ -37,6 +42,10 @@ COPY site/install.sh /usr/share/nginx/playkeeper/install.sh
 # The install log's folder, /var/log/playkeeper: nginx's workers own it and
 # files older than 30 days go (the image's entrypoint runs this first).
 COPY site/install-logs.sh /docker-entrypoint.d/40-install-logs.sh
+# The latest release's signed manifest and its signature, fetched from GitHub
+# and verified before nginx starts, then kept current every minute.
+COPY --from=site /out/release-mirror /usr/local/bin/release-mirror
+COPY site/release-mirror.sh /docker-entrypoint.d/50-release-mirror.sh
 COPY --from=site /out/nginx/site.conf /etc/nginx/playkeeper-site.conf
 COPY --from=site /out/html/ /usr/share/nginx/html/
 COPY --from=demo /web/dist-demo/ /usr/share/nginx/html/demo/

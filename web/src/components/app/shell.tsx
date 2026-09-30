@@ -8,7 +8,7 @@ import { GetStartedCard } from '@/components/app/checklist'
 import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { StickyHeader } from '@/components/app/sticky-header'
-import { UpdateRow } from '@/components/app/update'
+import { UpdateNotice, UpdateRow, useUpdateNotice } from '@/components/app/update'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can, canCreate, inSettings, roleName, settingsHome } from '@/lib/access'
@@ -348,6 +348,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
       </nav>
       <div className="flex flex-col gap-0.5 pt-2">
         {canCreate(ws.me) && <GetStartedCard route={route} className="mb-2" />}
+        <UpdateNotice className="mb-2" />
         {can(ws.me, 'machine.manage') && <UpdateRow />}
         <SideItem to={settingsHome(ws.me)} active={inSettings(route)} icon={<SettingsIcon />}>
           {t('nav.settings')}
@@ -415,7 +416,8 @@ function PhoneShell({ route, overlays, children }: { route: Route; overlays: Rea
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug
   const current: ServerTab | 'more' | undefined =
     route.name === 'server' ? (route.tab === 'settings' || route.tab === 'map' || route.tab === 'plugins' || route.tab === 'mods' || route.tab === 'files' ? 'more' : route.tab) : route.name === 'player' ? 'players' : underMore ? 'more' : undefined
-  const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating
+  const notice = useUpdateNotice()
+  const updateDot = !!notice || (!!ws.updating && can(ws.me, 'machine.manage'))
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">
       <a href="#main" className="skip-link rounded-lg bg-white px-3 py-2 text-sm font-medium shadow-popup">

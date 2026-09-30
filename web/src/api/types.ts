@@ -601,6 +601,8 @@ export interface UpdateInfo {
   checkError?: string
   installing?: string
   lastResult?: UpdateResult
+  /** Check for updates automatically: when Playkeeper starts and about every 30 minutes (0.4.9). */
+  autoCheck?: boolean
 }
 
 /** What a machine's heartbeat to the stats service says, field for field (internal/usage). */

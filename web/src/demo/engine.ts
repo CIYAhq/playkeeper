@@ -691,7 +691,12 @@ const writes: Routes = {
     if (srv) srv.worldBytes = worldBytes
     return op
   },
-  'POST /api/machines/:machine/update/check': (_, r) => update(r.now),
+  'POST /api/machines/:machine/update/check': (s, r) => update(s, r.now),
+  'PUT /api/machines/:machine/update/auto': (s, r) => {
+    s.updateAuto = (r.body as { on?: boolean } | undefined)?.on === true
+    audit(s, r.now, s.updateAuto ? 'update_checks.on' : 'update_checks.off')
+    return update(s, r.now)
+  },
   'PUT /api/usage-stats': (s, r) => {
     s.usageOn = (r.body as { on?: boolean } | undefined)?.on === true
     audit(s, r.now, s.usageOn ? 'usage_stats.on' : 'usage_stats.off')
