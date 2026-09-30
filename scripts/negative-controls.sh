@@ -8942,11 +8942,16 @@ control "room for sale: confirming or stopping a machine changes the room" inter
 	s.kickSaleRoom()' \
   'cmp.Or(m.Name, m.ID), result, detail)' \
   ./internal/panel '^TestAJoinedMachinesCustomersChangeTheRoom$'
-control "room for sale: removing a machine changes the room" internal/panel/machines.go \
-  's.kickSaleRoom()
-	w.WriteHeader(http.StatusNoContent)' \
-  'w.WriteHeader(http.StatusNoContent)' \
+control "room for sale: a machine connecting, going away or removed changes the room" internal/panel/machines.go \
+  '// A machine that comes or goes brings or takes its room.
+		s.kickSaleRoom()' \
+  '// A machine that comes or goes brings or takes its room.' \
   ./internal/panel '^TestAJoinedMachinesCustomersChangeTheRoom$'
+control "room for sale: a creator joining changes the room" internal/panel/join.go \
+  '// A creator'"'"'s allowance is set aside on the dashboard'"'"'s machine.
+		s.kickSaleRoom()' \
+  '// A creator'"'"'s allowance is set aside on the dashboard'"'"'s machine.' \
+  ./internal/panel '^TestACreatorJoiningChangesTheRoom$'
 control "room for sale: the room for customers is the owner's" internal/panel/server.go \
   '{"GET", "/api/machines/room", needSession, actTakeCustomers, s.hSaleRoom},' \
   '{"GET", "/api/machines/room", needSession, actView, s.hSaleRoom},' \

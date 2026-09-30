@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
 // kicked reports whether the plans' room was asked to be worked out again
@@ -152,18 +155,18 @@ func TestTheRoomIsWorkedOutAgainWhenItChanges(t *testing.T) {
 	}
 }
 
-// Confirming a joined machine, or stopping it taking customers, changes
-// the room, and so does removing it.
+// A joined machine connecting, confirmed or stopped taking customers, going
+// away and being removed each change the room.
 func TestAJoinedMachinesCustomersChangeTheRoom(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	own := owner(t, e)
-	rid, _, _, _ := joinForCustomers(t, e, own)
+	rid, _, _, link := joinForCustomers(t, e, own)
+	eventually(t, "the machine connecting has the room worked out again", e.kicked)
 	for _, c := range []struct {
 		what, method, path, body string
 	}{
 		{"confirming it", "PUT", "/api/machines/" + rid + "/customers", `{"on":true}`},
 		{"stopping it", "PUT", "/api/machines/" + rid + "/customers", `{"on":false}`},
-		{"removing it", "DELETE", "/api/machines/" + rid, ""},
 	} {
 		e.kicked()
 		if r := e.do(t, c.method, c.path, c.body, own.auth()); r.status >= 300 {
@@ -172,6 +175,32 @@ func TestAJoinedMachinesCustomersChangeTheRoom(t *testing.T) {
 		if !e.kicked() {
 			t.Errorf("%s didn't have the room worked out again", c.what)
 		}
+	}
+	e.kicked()
+	link.stop()
+	eventually(t, "the machine going away has the room worked out again", e.kicked)
+	if r := e.do(t, "DELETE", "/api/machines/"+rid, "", own.auth()); r.status >= 300 {
+		t.Fatalf("removing it: %d %v", r.status, r.body)
+	}
+	eventually(t, "removing the machine has the room worked out again", e.kicked)
+}
+
+// A creator joining with an invite has their allowance set aside on the
+// dashboard's machine, which changes the room.
+func TestACreatorJoiningChangesTheRoom(t *testing.T) {
+	e := newJoinEnv(t)
+	own := owner(t, e.env)
+	r := e.do(t, "POST", "/api/team/invites", creatorInviteBody, own.auth())
+	code, _ := strings.CutPrefix(r.body["path"].(string), invites.JoinPath+"/")
+	if r.status != http.StatusCreated {
+		t.Fatalf("the owner's creator invite: %d %v", r.status, r.body)
+	}
+	e.kicked()
+	if r := e.public(t, "accept", codeBody(code, "username", "alex", "password", "member password 1")); r.status != http.StatusOK {
+		t.Fatalf("alex joins: %d %v", r.status, r.body)
+	}
+	if !e.kicked() {
+		t.Fatal("a creator joining didn't have the room worked out again")
 	}
 }
 

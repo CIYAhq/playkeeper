@@ -18,8 +18,14 @@ import (
 // (chooseMachine). The customers waiting for room get theirs before any
 // plan does.
 
-// saleRoomEvery is how often the plans' room is worked out again anyway.
-const saleRoomEvery = 5 * time.Minute
+// saleRoomEvery is how often the plans' room is worked out again anyway,
+// and saleRoomSettle how long after the dashboard starts it's first worked
+// out: joined machines connect again by then, and until they do they'd
+// look like they have no room.
+const (
+	saleRoomEvery  = 5 * time.Minute
+	saleRoomSettle = time.Minute
+)
 
 // roomForPlans is how many more of each plan fit in rooms at once, after
 // the customers waiting for room, needing waiting's memory in turn, get
@@ -151,19 +157,21 @@ func (s *Server) kickSaleRoom() {
 // machine's servers take.
 func (s *Server) roomChanged(machine, *session, json.RawMessage) { s.kickSaleRoom() }
 
-// runSaleRoom keeps the plans' stock following the room until ctx ends: at
-// once, when kicked, and every saleRoomEvery.
+// runSaleRoom keeps the plans' stock following the room until ctx ends:
+// saleRoomSettle after it starts, when kicked, and every saleRoomEvery.
 func (s *Server) runSaleRoom(ctx context.Context) {
 	t := time.NewTicker(saleRoomEvery)
 	defer t.Stop()
+	settled := time.After(saleRoomSettle)
 	for {
-		s.syncSaleRoom(ctx)
 		select {
 		case <-ctx.Done():
 			return
+		case <-settled:
 		case <-s.saleRoomKick:
 		case <-t.C:
 		}
+		s.syncSaleRoom(ctx)
 	}
 }
 
