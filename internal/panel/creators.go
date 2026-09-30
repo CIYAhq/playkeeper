@@ -284,7 +284,7 @@ func (s *Server) claimForCreator(a access, id string) {
 // hDeleteServer deletes a server: for an admin of every server as the
 // route's forward, and for a creator only a server they created.
 func (s *Server) hDeleteServer(w http.ResponseWriter, r *http.Request, sess *session) {
-	forward := s.serverProxy("POST", "/v1/servers/{id}/delete")
+	forward := s.forwardThen("POST", "/v1/servers/{id}/delete", s.roomChanged)
 	if !sess.Access.creator() {
 		forward(w, r, sess)
 		return
@@ -306,7 +306,7 @@ func (s *Server) hDeleteServer(w http.ResponseWriter, r *http.Request, sess *ses
 // hServerSettings changes a server's settings. A creator's new memory must
 // fit (see memoryRefusal).
 func (s *Server) hServerSettings(w http.ResponseWriter, r *http.Request, sess *session) {
-	forward := s.serverProxy("POST", "/v1/servers/{id}/settings")
+	forward := s.forwardThen("POST", "/v1/servers/{id}/settings", s.roomChanged)
 	if !sess.Access.creator() {
 		forward(w, r, sess)
 		return

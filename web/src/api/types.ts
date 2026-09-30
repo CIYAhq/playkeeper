@@ -1998,6 +1998,12 @@ export interface WhopPlan {
   allowanceFrom?: 'store' | 'owner'
 }
 
+/** Settings › Machines › Room for customers, the owner's: how many more of each plan the store sells fit at once, and what each machine can still set aside for customers, or why it takes none. */
+export interface SaleRoom {
+  plans: { id: string; name: string; memoryMB: number; free: boolean; left: number }[]
+  machines: { id: string; freeMB: number; takes: boolean; why?: string }[]
+}
+
 /** Settings › Machines › Hetzner stock: the server type the owner watches, and where Hetzner has it now. checkedAt is when Hetzner last answered; discord says whether the dashboard's Discord, where the watch posts, is connected. */
 export interface HetznerStock {
   connected: boolean

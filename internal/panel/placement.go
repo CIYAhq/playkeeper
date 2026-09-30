@@ -263,6 +263,7 @@ func (s *Server) placeCustomer(ctx context.Context, userID int64, plan CustomerP
 			if err := s.setHome(ctx, userID, ""); err != nil {
 				return "", err
 			}
+			s.kickSaleRoom()
 			if !waiting {
 				s.audit(placementActor, "customer.place", fmt.Sprint(userID), "waiting", fmt.Sprintf("no machine has %s free for %s", gbText(plan.MemoryMB), cmp.Or(plan.Name, plan.ID)))
 			}
@@ -279,6 +280,7 @@ func (s *Server) placeCustomer(ctx context.Context, userID int64, plan CustomerP
 			return "", err
 		}
 		s.kickDiskLimits()
+		s.kickSaleRoom()
 		s.audit(placementActor, "customer.place", fmt.Sprint(userID), "placed", fmt.Sprintf("on %s, with %s set aside for %s", cmp.Or(m.Name, m.ID), gbText(plan.MemoryMB), cmp.Or(plan.Name, plan.ID)))
 		return m.ID, nil
 	}

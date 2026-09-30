@@ -208,6 +208,7 @@ func (s *Server) applyCustomerPlan(ctx context.Context, cust Customer, info Cust
 	if n, _ := res.RowsAffected(); n > 0 {
 		s.audit(cust.Provider, "customer.plan", info.Username, "succeeded", allowanceText(al))
 		s.kickDiskLimits()
+		s.kickSaleRoom()
 	}
 	return nil
 }

@@ -38,6 +38,7 @@ import type {
   RestorePreview,
   RetentionEstimate,
   Running,
+  SaleRoom,
   ServerConfig,
   ServerStatus,
   SignInNotice,
@@ -66,6 +67,7 @@ import { parse } from '@/lib/router'
 import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { HetznerStockCard } from './hetzner-stock'
+import { SaleRoomCard } from './sale-room'
 import { HomePage } from './home'
 import { JoinPage } from './join'
 import { DashboardMachineOnly, MachinePage } from './machine'
@@ -2224,6 +2226,38 @@ describe('Hetzner stock', () => {
     await click('Stop watching')
     expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/hetzner')
     expect(tokenField()).not.toBeNull()
+  })
+})
+
+describe('Room for customers', () => {
+  const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } })
+  const home: MachineView = { id: 'h2345abcde', projectId: machine.projectId, name: 'home-server', kind: 'remote' }
+  const room: SaleRoom = {
+    plans: [
+      { id: 'plan_starter', name: 'Starter', memoryMB: 4096, free: false, left: 3 },
+      { id: 'plan_big', name: 'Big', memoryMB: 8192, free: false, left: 0 },
+      { id: 'plan_creator', name: 'Creator', memoryMB: 4096, free: true, left: 1 },
+    ],
+    machines: [
+      { id: machine.id, freeMB: 20480, takes: true },
+      { id: home.id, freeMB: 30000, takes: false, why: 'Joined machines take customers once you confirm them.' },
+    ],
+  }
+  const machineLink = { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }] }, sizingUrl: '', available: false, codes: [] }
+
+  it('is on the Machines page for the owner alone, and only while plans are on sale', async () => {
+    answer({ '/api/machines/link': machineLink, '/api/machines/room': room })
+    expect(await render(<MachinesSection />, owner)).toContain('Room for customers')
+    expect(await render(<MachinesSection />)).not.toContain('Room for customers')
+    answer({ '/api/machines/link': machineLink, '/api/machines/room': { plans: [], machines: room.machines } })
+    expect(await render(<MachinesSection />, owner)).not.toContain('Room for customers')
+  })
+
+  it('says how many more of each plan fit, and what each machine can still set aside', async () => {
+    answer({ '/api/machines/room': room })
+    await render(<SaleRoomCard />, { ...owner, machines: [machine, home] })
+    const rows = [...document.querySelectorAll('li')].map((li) => li.textContent)
+    expect(rows).toEqual(['Starter 4 GB3 more', 'Big 8 GBSold out', 'Creator 4 GB · free1 more', 'my-vps20 GB free for customers', 'home-serverJoined machines take customers once you confirm them.'])
   })
 })
 
