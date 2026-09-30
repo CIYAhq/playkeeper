@@ -336,7 +336,8 @@ public final class AIBuildBattlePlugin extends JavaPlugin implements TabExecutor
     private void offer(Player player, String prompt, World world, List<Part> parts, OpenRouter.KeyStatus key, Settings s) {
         int n = parts.size();
         double today = ledger.spentToday();
-        double left = s.perDayUSD() - today;
+        // What requests still in flight may cost counts against today's cap too.
+        double left = s.perDayUSD() - ledger.committed();
         double cap = Math.min(s.perBuildUSD(), left / n);
         for (Part p : parts) {
             double least = Budget.smallestRequestUSD(p.model(), Budget.inputTokensHigh(firstMessages(prompt, p.model(), s))) + Budget.margin(Math.max(cap, 0.01));

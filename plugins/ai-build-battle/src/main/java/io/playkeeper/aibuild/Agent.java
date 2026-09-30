@@ -109,17 +109,20 @@ final class Agent {
             OpenRouter.Price price = model.priceFor(tokensIn);
             double inputCost = tokensIn * price.inputHigh();
             long room = Budget.room(capUSD, totals.cost + totals.unaccounted, inputCost, price.out());
-            long dayRoom = Budget.room(settings.perDayUSD(), ledger.committedExcept(ledgerKey), inputCost, price.out());
-            long maxTokens = Math.min(settings.maxTokens(), Math.min(room, dayRoom));
+            long wanted = Math.min(settings.maxTokens(), room);
             if (model.maxOutput() > 0) {
-                maxTokens = Math.min(maxTokens, model.maxOutput());
+                wanted = Math.min(wanted, model.maxOutput());
             }
-            if (maxTokens < Settings.MIN_OUTPUT_TOKENS) {
-                finished = dayRoom < room ? "daily cap reached" : "spend cap reached";
+            if (wanted < Settings.MIN_OUTPUT_TOKENS) {
+                finished = "spend cap reached";
+                break;
+            }
+            long maxTokens = ledger.reserveWithin(ledgerKey, settings.perDayUSD(), inputCost, price.out(), wanted, Settings.MIN_OUTPUT_TOKENS);
+            if (maxTokens < 0) {
+                finished = "daily cap reached";
                 break;
             }
             double worst = inputCost + maxTokens * price.out();
-            ledger.reserve(ledgerKey, worst);
             JsonObject body = new JsonObject();
             body.addProperty("model", model.id());
             body.add("messages", withCacheMarks(messages));

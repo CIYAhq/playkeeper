@@ -74,6 +74,34 @@ final class Ledger {
         reserved.put(key, Math.max(0, worstUSD));
     }
 
+    /**
+     * Checks a request against the daily cap and reserves its worst case in
+     * one step, so builds asking at the same moment can't both pass it: the
+     * most output tokens, up to {@code wanted}, that fit with today's spend
+     * and what others have in flight, or -1 (and nothing reserved) when fewer
+     * than {@code minimum} do.
+     */
+    synchronized long reserveWithin(String key, double dayCapUSD, double inputCostUSD, double outPerToken, long wanted, long minimum) {
+        roll();
+        double others = 0;
+        for (Map.Entry<String, Double> e : reserved.entrySet()) {
+            if (!e.getKey().equals(key)) {
+                others += e.getValue();
+            }
+        }
+        long tokens = Math.min(wanted, Budget.room(dayCapUSD, spent + others, inputCostUSD, outPerToken));
+        if (tokens < minimum) {
+            return -1;
+        }
+        reserved.put(key, inputCostUSD + tokens * outPerToken);
+        return tokens;
+    }
+
+    /** Today's spend plus the worst case of every request in flight. */
+    synchronized double committed() {
+        return committedExcept("");
+    }
+
     /** A request's answer came (or was lost): count what it cost and free its reservation. */
     synchronized void settle(String key, double chargedUSD) {
         if (closed) {

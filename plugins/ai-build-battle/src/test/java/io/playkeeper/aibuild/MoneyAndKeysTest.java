@@ -102,6 +102,19 @@ class MoneyAndKeysTest {
     }
 
     @Test
+    void twoBuildsAskingTogetherCantPassTheDailyCap(@TempDir Path dir) {
+        Ledger l = new Ledger(dir.resolve("spend.yml").toFile(), Clock.fixed(Instant.parse("2026-09-30T12:00:00Z"), ZoneOffset.UTC), Logger.getAnonymousLogger());
+        // $1.00 a day ($0.05 kept free), $0.10 of input each, $10 per million output tokens.
+        long a = l.reserveWithin("a", 1.00, 0.10, 0.00001, 48_000, 8000);
+        long b = l.reserveWithin("b", 1.00, 0.10, 0.00001, 48_000, 8000);
+        assertEquals(48_000, a);
+        assertTrue(b >= 8000 && b < 48_000, "b gets only what's left: " + b);
+        assertTrue(0.10 + a * 0.00001 + 0.10 + b * 0.00001 <= 0.95 + 1e-9, "both at their worst stay under the cap");
+        assertEquals(-1, l.reserveWithin("c", 1.00, 0.10, 0.00001, 48_000, 8000));
+        assertEquals(0.10 + a * 0.00001 + 0.10 + b * 0.00001, l.committed(), 1e-9);
+    }
+
+    @Test
     void thePromptStatesTheVideosLimits() {
         Settings s = new Settings("m", 1, 5, 10, 6000, 45, 30, 80, 20, true, "high", 48000, false, Map.of("claude", "anthropic/claude-sonnet-5.5"));
         assertEquals("anthropic/claude-sonnet-5.5", s.modelFor("Claude"));
