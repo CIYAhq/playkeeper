@@ -722,6 +722,24 @@ ALTER TABLE whop_signins ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
 	`
 ALTER TABLE left_copies ADD COLUMN switched_at INTEGER NOT NULL DEFAULT 0;
 `,
+	// A store's payments, as 2.2 checked them (see sellerview.go): each once,
+	// by its id, for its store, with what was paid, what was refunded and
+	// Playkeeper's share, in the currency's smallest unit.
+	`
+CREATE TABLE whop_payments (
+  payment_id   TEXT    PRIMARY KEY,
+  store_id     TEXT    NOT NULL,
+  whop_user_id TEXT    NOT NULL,
+  plan_id      TEXT    NOT NULL DEFAULT '',
+  currency     TEXT    NOT NULL,
+  amount       INTEGER NOT NULL,
+  share        INTEGER NOT NULL,
+  refunded     INTEGER NOT NULL DEFAULT 0,
+  paid_at      INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX whop_payments_store ON whop_payments(store_id, paid_at);
+`,
 }
 
 const (

@@ -2263,6 +2263,52 @@ export interface StoresResponse {
   stores: SuspendableStore[]
 }
 
+/** A seller's view of their store on Playkeeper Cloud, for their page inside their Whop dashboard. */
+export interface SellerView {
+  store: SellerStore
+  plans: SellerPlan[]
+  customers: SellerCustomer[]
+  earnings: SellerMonth[]
+}
+
+/** How a seller's store stands, with words for a store that's closed, needs a look or left. */
+export interface SellerStore {
+  id: string
+  title: string
+  route?: string
+  state: 'selling' | 'closed' | 'needsLook' | 'suspended' | 'left'
+  why?: string
+}
+
+/** One of the store's plans that grants servers, with how many customers have it now. */
+export interface SellerPlan {
+  id: string
+  title: string
+  price: string
+  servers: number
+  memoryMB: number
+  stock: number
+  unlimitedStock: boolean
+  customers: number
+}
+
+/** One of the store's customers, as their seller sees them. */
+export interface SellerCustomer {
+  handle: string
+  plan?: string
+  since?: string
+  status: 'active' | 'starting' | 'paused' | 'suspended' | 'ended'
+}
+
+/** What a store earned in one month (UTC) in one currency, each amount in the currency's smallest unit. */
+export interface SellerMonth {
+  month: string
+  currency: string
+  sales: number
+  share: number
+  kept: number
+}
+
 export interface TeamInvite extends Invite {
   canEdit: boolean
 }
