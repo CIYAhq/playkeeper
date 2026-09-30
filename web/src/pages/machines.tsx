@@ -16,7 +16,7 @@ import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatClock, formatDate, formatList, formatWhen, relativeTime } from '@/lib/format'
-import { agentSilent, byMachine, countdown, groupFingerprint, isAway, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
+import { agentSilent, byMachine, countdown, groupFingerprint, hetznerServer, isAway, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
@@ -596,6 +596,13 @@ export function MachineDetailsSection({ id }: { id: string }) {
   )
 }
 
+/** Who confirmed a joined machine takes customers, and when: the owner, or the dashboard itself on finding it in their Hetzner project. */
+function onHint(takes: NonNullable<MachineView['takesCustomers']>): string {
+  const date = formatDate(takes.since)
+  const found = hetznerServer(takes.by)
+  return found ? t('machines.customers.foundHint', { server: found, date }) : t('machines.customers.onHint', { actor: takes.by, date })
+}
+
 /** Whether a joined machine takes customers, for the owner, who confirms it's theirs or stops it. */
 function CustomersCard({ machine: m, onChange }: { machine: MachineView; onChange: () => void }) {
   const ws = useWorkspace()
@@ -621,7 +628,7 @@ function CustomersCard({ machine: m, onChange }: { machine: MachineView; onChang
     <Card aria-labelledby="machine-customers">
       <CardTitle id="machine-customers">{t('machines.customers.title')}</CardTitle>
       <p className="mt-3 text-[13px] font-semibold">{takes ? t('machines.customers.on', { name }) : t('machines.customers.off', { name })}</p>
-      <p className="text-xs text-muted-foreground">{takes ? t('machines.customers.onHint', { actor: takes.by, date: formatDate(takes.since) }) : t('machines.customers.offHint')}</p>
+      <p className="text-xs text-muted-foreground">{takes ? onHint(takes) : t('machines.customers.offHint')}</p>
       {!!m.customers && <p className="mt-1 text-xs text-muted-foreground">{t('machines.customers.count', { count: m.customers })}</p>}
       {takes ? (
         <Button variant="outline" size="sm" className="mt-3 self-start" loading={busy} onClick={() => void set(false)}>

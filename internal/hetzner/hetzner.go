@@ -1,7 +1,9 @@
 // Package hetzner reads Hetzner Cloud's stock of the machines the owner
-// watches, so they hear when one can be bought and added to the dashboard.
-// It only reads (GET /server_types), with a read-only API token from the
-// owner's project, which never appears in logs or errors.
+// watches, so they hear when one can be bought and added to the dashboard,
+// and the servers in the owner's project, so a machine that joins from one
+// of them is known to be theirs. It only reads (GET /server_types and GET
+// /servers), with a read-only API token from the owner's project, which
+// never appears in logs or errors.
 package hetzner
 
 import (
@@ -12,8 +14,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -213,6 +217,77 @@ func (c *Client) Stock(ctx context.Context, serverType string) (Stock, error) {
 		return s, nil
 	}
 	return Stock{}, ErrNoSuchType
+}
+
+// Server is one server in the token's project, and its public addresses.
+type Server struct {
+	ID   int64
+	Name string
+	// IPv4 is its public IPv4 address, if it has one, and IPv6 its public
+	// IPv6 network, such as 2a01:4f8:c17:1234::/64, which is its alone.
+	IPv4 netip.Addr
+	IPv6 netip.Prefix
+}
+
+// Has reports whether addr is one of s's public addresses.
+func (s Server) Has(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return s.IPv4.IsValid() && s.IPv4 == addr || s.IPv6.IsValid() && s.IPv6.Contains(addr)
+}
+
+// maxServerPages bounds how many pages of serversPerPage Servers reads,
+// far more servers than a Playkeeper fleet has.
+const (
+	serversPerPage = 25
+	maxServerPages = 40
+)
+
+// Servers lists the project's servers: GET /servers, page by page.
+func (c *Client) Servers(ctx context.Context) ([]Server, error) {
+	var out []Server
+	for page := 1; ; {
+		var body struct {
+			Servers []struct {
+				ID        int64  `json:"id"`
+				Name      string `json:"name"`
+				PublicNet struct {
+					IPv4 *struct {
+						IP string `json:"ip"`
+					} `json:"ipv4"`
+					IPv6 *struct {
+						IP string `json:"ip"`
+					} `json:"ipv6"`
+				} `json:"public_net"`
+			} `json:"servers"`
+			Meta struct {
+				Pagination struct {
+					NextPage *int `json:"next_page"`
+				} `json:"pagination"`
+			} `json:"meta"`
+		}
+		q := url.Values{"page": {strconv.Itoa(page)}, "per_page": {strconv.Itoa(serversPerPage)}}
+		if err := c.get(ctx, "/servers", q, &body); err != nil {
+			return nil, err
+		}
+		for _, s := range body.Servers {
+			v := Server{ID: s.ID, Name: s.Name}
+			if n := s.PublicNet.IPv4; n != nil {
+				v.IPv4, _ = netip.ParseAddr(n.IP)
+			}
+			if n := s.PublicNet.IPv6; n != nil {
+				v.IPv6, _ = netip.ParsePrefix(n.IP)
+			}
+			out = append(out, v)
+		}
+		next := body.Meta.Pagination.NextPage
+		switch {
+		case next == nil || *next <= page:
+			return out, nil
+		case *next > maxServerPages:
+			return nil, errors.New("the Hetzner project has more servers than Playkeeper reads")
+		}
+		page = *next
+	}
 }
 
 var noRedirects = &http.Client{

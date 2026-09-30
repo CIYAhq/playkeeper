@@ -4008,7 +4008,7 @@ describe('Machines and AI agents', () => {
       const refresh = vi.fn(async () => {})
       await render(<MachineDetailsSection id={home.id} />, { ...owner(home), refresh })
       expect(page()).toContain('home-server takes no customers')
-      expect(page()).toContain('New customers go on the dashboard’s machine, and on joined machines you confirm are yours.')
+      expect(page()).toContain('New customers go on the dashboard’s machine, and on joined machines you confirm are yours or that your Hetzner token finds in your project.')
       await click('Take customers…')
       expect(vi.mocked(client.put)).not.toHaveBeenCalled()
       const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
@@ -4039,6 +4039,14 @@ describe('Machines and AI agents', () => {
       expect(page()).toContain('takes customers')
       await render(<MachinesSection />, owner(taking, everything))
       expect(page()).not.toContain('takes customers')
+    })
+
+    it('says when the dashboard confirmed a joined machine itself, on finding it in the owner’s Hetzner project', async () => {
+      const found = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'hetzner:fleet-1' } }
+      await render(<MachineDetailsSection id={home.id} />, owner(found))
+      expect(page()).toContain('home-server takes customers')
+      expect(page()).toContain('Found in your Hetzner project as fleet-1 on Sep 29.')
+      expect(page()).not.toContain('Confirmed by hetzner')
     })
 
     it('is the owner’s alone, and waits for a machine that’s away', async () => {

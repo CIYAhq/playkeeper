@@ -243,6 +243,11 @@ export function olderMachine(p: LinkProblem | undefined): boolean {
   return p?.code === 'version_mismatch' && p.params?.older === 'machine'
 }
 
+/** The Hetzner server a joined machine was found as, when the dashboard confirmed it by itself, from its actor "hetzner:NAME". */
+export function hetznerServer(actor: string | undefined): string | undefined {
+  return actor?.startsWith('hetzner:') ? actor.slice('hetzner:'.length) || undefined : undefined
+}
+
 /**
  * What a machine event says. Events come newest first, so a lost connection
  * can say how long it lasted when a newer event is the reconnection.
@@ -274,8 +279,11 @@ export function machineEventText(events: MachineEvent[], i: number): string {
       return t('machines.event.left')
     case 'machine.server_disputed':
       return t('machines.event.disputed')
-    case 'machine.customers_on':
+    case 'machine.customers_on': {
+      const found = hetznerServer(e.actor)
+      if (found) return t('machines.event.customersFound', { server: found })
       return e.actor ? t('machines.event.customersOnBy', { actor: e.actor }) : t('machines.event.customersOn')
+    }
     case 'machine.customers_off':
       return e.actor ? t('machines.event.customersOffBy', { actor: e.actor }) : t('machines.event.customersOff')
     default:

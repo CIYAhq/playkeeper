@@ -20,8 +20,10 @@ import (
 // token of their Hetzner project and picks a server type, and the dashboard
 // asks Hetzner once a minute where that type can be bought. When it comes
 // into stock somewhere, the dashboard's Discord hears of it with a link
-// that buys one there, so another machine can join while there's stock.
-// Only the owner may, since the token reads their Hetzner project.
+// that buys one there, so another machine can join while there's stock,
+// and once it joins, the same token finds it in the project and confirms
+// it (see autoconfirm.go). Only the owner may, since the token reads their
+// Hetzner project.
 const actWatchStock action = "machines.stock"
 
 const (
@@ -332,8 +334,9 @@ func (s *Server) runStock(ctx context.Context) {
 	}
 }
 
-// checkStock asks Hetzner once, keeps what it found and posts places that
-// came into stock. It returns when to ask next.
+// checkStock asks Hetzner once, keeps what it found, posts places that came
+// into stock and confirms the joined machines found in the project. It
+// returns when to ask next.
 func (s *Server) checkStock(ctx context.Context) time.Duration {
 	s.hetznerMu.Lock()
 	defer s.hetznerMu.Unlock()
@@ -361,6 +364,11 @@ func (s *Server) checkStock(ctx context.Context) time.Duration {
 	switch limited, until := hetzner.RateLimited(err); {
 	case err == nil:
 		s.noteStock(w, stock, now)
+		qctx, cancel := context.WithTimeout(ctx, stockTimeout)
+		if err := s.confirmFromHetzner(qctx, c); err != nil {
+			s.log.Info("could not look for joined machines in the Hetzner project", "err", err)
+		}
+		cancel()
 		return stockEvery
 	case hetzner.TokenRefused(err):
 		w.Refused, w.Problem = true, "Hetzner no longer takes the token, so the watch stopped. Paste a new read-only token."
