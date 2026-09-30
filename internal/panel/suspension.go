@@ -246,10 +246,10 @@ func (s *Server) suspendWhopStore(ctx context.Context, storeID, actor, reason st
 	return changed || with > 0, nil
 }
 
-// liftWhopStore lifts the suspension of the store storeID, and of the
-// customers suspended with it but not those the owner suspended on their
-// own, and reports whether that changed anything. Its next pass reads the
-// store and every membership again, then sells as the room allows.
+// liftWhopStore lifts the suspension of the store storeID, and reports
+// whether that changed anything. Its next pass reads the store and every
+// membership again, sells as the room allows, and lifts the customers
+// suspended with it once their plans are applied (see liftWithStore).
 func (s *Server) liftWhopStore(ctx context.Context, storeID, actor string) (bool, error) {
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
@@ -265,27 +265,56 @@ func (s *Server) liftWhopStore(ctx context.Context, storeID, actor string) (bool
 		return false, errDB
 	}
 	n, _ := res.RowsAffected()
-	changed := n > 0
-	ids, err := s.storeCustomers(ctx, whopProvider, storeID)
-	if err != nil {
-		return changed, err
-	}
-	with := 0
-	for _, id := range ids {
-		did, err := s.liftSuspension(ctx, id, true, actor)
-		if err != nil {
-			return changed, err
-		}
-		if did {
-			with++
-		}
-	}
-	if changed || with > 0 {
-		s.audit(actor, "whop.store_unsuspend", storeID, "succeeded", fmt.Sprintf("%s; %d customer(s) lifted with it", whopName(st.Account), with))
+	if n > 0 {
+		s.audit(actor, "whop.store_unsuspend", storeID, "succeeded", whopName(st.Account)+"; its customers are lifted once the store is read again")
 		s.kickSaleRoom()
 		s.kickWhopStore(storeID)
 	}
-	return changed || with > 0, nil
+	return n > 0, nil
+}
+
+// liftWithStore lifts the suspension of the customers suspended with the
+// store, whose own suspension was lifted, now that its pass read every
+// membership and applied each plan: one whose plan ended meanwhile is left
+// paused. A customer whose membership Whop hasn't confirmed yet, or whose
+// last call failed, waits for a later pass. The owner's own suspension of a
+// customer stays.
+func (s *Server) liftWithStore(ctx context.Context, st whopStore) {
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id, subject FROM customers WHERE provider = ? AND store = ? AND suspended_store = 1`, whopProvider, st.ID)
+	if err != nil {
+		s.log.Error("could not list the customers suspended with a store", "store", st.ID, "err", err)
+		return
+	}
+	waiting := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var subject string
+		if rows.Scan(&id, &subject) == nil {
+			waiting[id] = subject
+		}
+	}
+	rows.Close()
+	if len(waiting) == 0 {
+		return
+	}
+	custs, err := s.whopCustomers(ctx, st.ID)
+	if err != nil {
+		s.log.Error("could not list a store's customers", "store", st.ID, "err", err)
+		return
+	}
+	pending := map[string]bool{}
+	now := s.now().UnixMilli()
+	for _, wc := range custs {
+		pending[wc.WhopUserID] = wc.Unconfirmed > 0 || wc.NextTryAt > now
+	}
+	for id, subject := range waiting {
+		if pending[subject] {
+			continue
+		}
+		if _, err := s.liftSuspension(ctx, id, true, "system"); err != nil {
+			s.log.Warn("could not lift the suspension of a store's customer", "store", st.ID, "user", id, "err", err)
+		}
+	}
 }
 
 // stopWhopSales has each plan of the store sell none: its stock is 0 from

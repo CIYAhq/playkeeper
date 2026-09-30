@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/store"
+	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
 // suspensionPath is where the owner suspends the account id, or lifts it.
@@ -216,6 +217,7 @@ func TestSuspendingAStoreSuspendsItsOwnCustomersAlone(t *testing.T) {
 	if r := e.do(t, "DELETE", "/api/whop/stores/biz_other/suspension", "", own.auth()); r.status != http.StatusOK {
 		t.Fatalf("lifting Other Hosting's suspension: %d %v", r.status, r.body)
 	}
+	e.reconcile()
 	for _, c := range [][2]string{{testStore, "user_alex"}, {"biz_other", "user_alex"}, {"biz_other", "user_sam"}} {
 		if info := storeAccount(t, e, c[0], c[1]); info.State != CustomerActive {
 			t.Fatalf("%s at %s once Other Hosting's suspension is lifted: %+v", c[1], c[0], info)
@@ -241,11 +243,69 @@ func TestTwoSuspensionsAreLiftedApart(t *testing.T) {
 	if r := e.do(t, "DELETE", "/api/whop/stores/biz_other/suspension", "", own.auth()); r.status != http.StatusOK {
 		t.Fatalf("lifting Other Hosting's suspension: %d %v", r.status, r.body)
 	}
+	e.reconcile()
 	if a, s := storeAccount(t, e, "biz_other", "user_alex"), storeAccount(t, e, "biz_other", "user_sam"); a.State != CustomerSuspended || s.State != CustomerActive {
 		t.Fatalf("once Other Hosting's suspension is lifted: alex %+v, sam %+v", a, s)
 	}
 	if r := e.do(t, "DELETE", suspensionPath(alex.UserID), "", own.auth()); r.status != http.StatusOK || r.body["state"] != "active" {
 		t.Fatalf("lifting alex's own suspension: %d %v", r.status, r.body)
+	}
+}
+
+// Lifting a store's suspension lifts its customers only once its pass has
+// read every membership and applied each plan: while Whop can't be read,
+// they stay suspended, and so does a customer whose last call failed or
+// whose membership Whop hasn't confirmed yet. Then one whose plan ended
+// meanwhile comes back paused, and is told until when, while the others
+// come back active.
+func TestALiftedStoresCustomersComeBackAsTheirPlansSay(t *testing.T) {
+	f, e, own := storesWithCustomers(t)
+	if r := e.do(t, "POST", "/api/whop/stores/biz_other/suspension", `{"reason":"selling to cheaters"}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("suspending Other Hosting: %d %v", r.status, r.body)
+	}
+	f.mu.Lock()
+	f.installed["biz_other"].memberships["mem_alex2"]["status"] = "expired"
+	f.installed["biz_other"].revoked = true
+	f.mu.Unlock()
+	if r := e.do(t, "DELETE", "/api/whop/stores/biz_other/suspension", "", own.auth()); r.status != http.StatusOK {
+		t.Fatalf("lifting Other Hosting's suspension: %d %v", r.status, r.body)
+	}
+	still := func(when string) {
+		t.Helper()
+		e.reconcile()
+		for _, subject := range []string{"user_alex", "user_sam"} {
+			if info := storeAccount(t, e, "biz_other", subject); info.State != CustomerSuspended {
+				t.Fatalf("%s at Other %s: %+v", subject, when, info)
+			}
+		}
+	}
+	still("with Other's grant gone")
+	f.mu.Lock()
+	f.installed["biz_other"].revoked, f.membershipsDown = false, true
+	f.mu.Unlock()
+	still("while Other's memberships can't be read")
+	f.mu.Lock()
+	f.membershipsDown = false
+	f.mu.Unlock()
+	if _, err := e.srv.db.Exec(`UPDATE whop_customers SET next_try_at = ? WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`, e.clock.now().Add(time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.keepMembership("biz_other", whop.Membership{ID: "mem_sam9", UserID: "user_sam", PlanID: "plan_other", Status: "active"}, true); err != nil {
+		t.Fatal(err)
+	}
+	still("while alex's call waits and sam's new membership isn't confirmed")
+	if _, err := e.srv.db.Exec(`UPDATE whop_customers SET next_try_at = 0 WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`); err != nil {
+		t.Fatal(err)
+	}
+	f.buyAt("biz_other", "mem_sam9", "user_sam", "plan_other", "active")
+	e.reconcile()
+	alex, sam := storeAccount(t, e, "biz_other", "user_alex"), storeAccount(t, e, "biz_other", "user_sam")
+	if alex.State != CustomerPaused || sam.State != CustomerActive {
+		t.Fatalf("once Other was read: alex %+v, sam %+v", alex, sam)
+	}
+	toAlex, toSam := f.sentIn("biz_other", "user_alex"), f.sentIn("biz_other", "user_sam")
+	if len(toAlex) == 0 || !strings.Contains(toAlex[len(toAlex)-1], "Your Playkeeper plan has ended") || len(toSam) == 0 || toSam[len(toSam)-1] != unsuspendedText {
+		t.Fatalf("what they were told: alex %q, sam %q", toAlex, toSam)
 	}
 }
 
