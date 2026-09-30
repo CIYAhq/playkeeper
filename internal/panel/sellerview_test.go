@@ -59,7 +59,9 @@ func TestASellersViewShowsTheirStoreAlone(t *testing.T) {
 	if len(statuses) != 2 || statuses["alexplays"] != "active" || statuses["samcrafts"] != "suspended" {
 		t.Fatalf("the customers: %+v", v.Customers)
 	}
-	if want := []sellerMonth{{Month: "2026-09", Currency: "usd", Sales: 3000, Share: 1700, Kept: 1300}}; !slices.Equal(v.Earnings, want) {
+	// Besides the two payments kept here, the two its customers bought their
+	// plans with, which 2.2's checks kept.
+	if want := []sellerMonth{{Month: "2026-09", Currency: "usd", Sales: 5400, Share: 3400, Kept: 2000}}; !slices.Equal(v.Earnings, want) {
 		t.Fatalf("the earnings: %+v", v.Earnings)
 	}
 	pip, err := e.srv.sellerCustomers(ctx, testStore)
