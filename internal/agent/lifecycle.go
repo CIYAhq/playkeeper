@@ -753,6 +753,9 @@ func lastNonEmpty(lines []string) string {
 // startServer brings the server to "online". It is idempotent: a container
 // already running with the desired spec is left alone.
 func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
+	s.mu.Lock()
+	s.startOwed = false
+	s.mu.Unlock()
 	pastFiles := false
 	defer func() { s.noteRefusal(err, pastFiles) }()
 	if err := s.ensureDirs("press Start"); err != nil {
@@ -1094,9 +1097,14 @@ func (s *server) reconcile(ctx context.Context) {
 	s.mu.Unlock()
 	if handled {
 		s.mu.Lock()
+		owed := s.startOwed && !s.givenUp()
 		due := s.crashed && !s.givenUp() && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
-		if due && desired == api.DesiredRunning {
+		switch {
+		case desired != api.DesiredRunning:
+		case owed:
+			s.recoverStart()
+		case due:
 			s.autoStart("auto-restart")
 		}
 		return
@@ -1136,7 +1144,7 @@ func (s *server) reconcile(ctx context.Context) {
 		due := !s.givenUp() && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
 		if desired == api.DesiredRunning && due {
-			s.autoStart("recover")
+			s.recoverStart()
 		}
 	case intentional:
 		s.closeOpenSessions(fin, "server_stopped", false)
@@ -1145,7 +1153,7 @@ func (s *server) reconcile(ctx context.Context) {
 		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 		s.recordEvent(fin, "server_stopped_externally", "", "docker", fmt.Sprintf("exit code %d", c.State.ExitCode))
 		if desired == api.DesiredRunning {
-			s.autoStart("recover")
+			s.recoverStart()
 		}
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
@@ -1256,7 +1264,8 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState, wanted boo
 	return cause
 }
 
-func (s *server) autoStart(kind string) {
+// autoStart begins an automatic start of kind and reports whether it began.
+func (s *server) autoStart(kind string) bool {
 	_, err := s.beginOp(kind, "playkeeper", func(ctx context.Context, h *opHandle) error {
 		sc, err := s.serverConfig()
 		if err != nil || sc == nil {
@@ -1270,6 +1279,23 @@ func (s *server) autoStart(kind string) {
 	})
 	if err == nil {
 		s.log.Info("automatic start", "server", s.id, "kind", kind)
+	}
+	return err == nil
+}
+
+// recoverStart starts a server that stopped without crashing and should be
+// running. The start is owed until it begins: an operation that has ended
+// holds the server's lock a moment after its status shows none, so a start
+// decided then can't begin, and the reconcile loop tries it again rather
+// than leave the server stopped.
+func (s *server) recoverStart() {
+	s.mu.Lock()
+	s.startOwed = true
+	s.mu.Unlock()
+	if s.autoStart("recover") {
+		s.mu.Lock()
+		s.startOwed = false
+		s.mu.Unlock()
 	}
 }
 

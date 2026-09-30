@@ -1533,6 +1533,27 @@ func TestExternalCleanStopIsRestored(t *testing.T) {
 	}
 }
 
+// The automatic start after a clean stop is owed, not lost, while something
+// holds the server's operation lock as the stop is judged, as an operation
+// that has just ended does for a moment: it begins once the lock is free.
+func TestExternalCleanStopIsRestoredOnceTheServerIsFree(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	release := e.holdWhenFree(s)
+	e.fd.externalStop()
+	e.waitFor("the automatic start to be owed", func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.startOwed
+	})
+	release()
+	e.waitFor("online again", e.onlineIdle)
+	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_stopped_externally'`); n != 1 {
+		t.Fatalf("the clean stop was recorded %d times, want once", n)
+	}
+}
+
 func TestJarChecksumMismatchIsNeverRun(t *testing.T) {
 	e := newAgentEnv(t)
 	e.fill.set(strings.Repeat("0", 64), nil)
