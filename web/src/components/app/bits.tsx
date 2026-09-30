@@ -6,7 +6,7 @@ import { Button, type ButtonProps } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatClock, relativeTime } from '@/lib/format'
-import { awayShort } from '@/lib/machines'
+import { awayLabel, awayShort } from '@/lib/machines'
 import { isSettingUp, opLabel, phaseLabel, statusLabel, statusTone, type Tone } from '@/lib/phase'
 import { cn } from '@/lib/utils'
 
@@ -73,7 +73,7 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
       return { tone, label: statusLabel(st), detail: at ? relativeTime(at) : undefined, labelClass: 'text-destructive-foreground' }
     }
     case 'busy':
-      return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }
+      return { tone, label: statusLabel(st), labelClass: 'text-info-foreground' }
     case 'stopped':
     case 'unknown':
       return {
@@ -108,7 +108,7 @@ export function StatusPill({
   className?: string
 }) {
   const s = away
-    ? { tone: 'unknown' as const, label: t('machines.away.pill', { name: away.name }), detail: away.since ? awayShort(away.since, Date.now()) : undefined, labelClass: 'text-foreground' }
+    ? { tone: 'unknown' as const, label: awayLabel(away), detail: away.since ? awayShort(away.since, Date.now()) : undefined, labelClass: 'text-foreground' }
     : serverState(server, agentDown)
   const labelClass = onChalk ? s.labelClass.replace('text-success-foreground', 'text-success-strong') : s.labelClass
   return (

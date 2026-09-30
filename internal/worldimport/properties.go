@@ -375,6 +375,14 @@ func escapeValue(v string) string {
 	return b.String()
 }
 
+// PropertiesSeed is the level-seed a server.properties sets, in the form
+// Minecraft writes it; "" when it sets none.
+func PropertiesSeed(b []byte) string {
+	v, _ := propertyValue(b, "level-seed")
+	seed, _ := normalizeSetting("level-seed", v)
+	return seed
+}
+
 // propertyValue returns the value of key in a properties file.
 func propertyValue(b []byte, key string) (string, bool) {
 	v, ok := "", false

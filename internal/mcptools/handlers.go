@@ -55,7 +55,11 @@ func listServers(ctx context.Context, c *call) (*mcp.Result, error) {
 		fmt.Fprintf(&b, "\n- %s (id %s, slug %s): ", describe(&s), s.ID, s.Slug)
 		if s.LastKnownAt != nil {
 			it.Status, it.LastKnownStatus, it.LastKnownAt = "unreachable", phase(s.ServerStatus), s.LastKnownAt
-			fmt.Fprintf(&b, "its machine can't be reached; it was %s as of %s", it.LastKnownStatus, when(*s.LastKnownAt))
+			reach := "it can't be reached"
+			if c.seesMachines() {
+				reach = "its machine can't be reached"
+			}
+			fmt.Fprintf(&b, "%s; it was %s as of %s", reach, it.LastKnownStatus, when(*s.LastKnownAt))
 			items = append(items, it)
 			continue
 		}

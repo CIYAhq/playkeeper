@@ -32,12 +32,14 @@ type Webhook struct {
 	Secret string `json:"webhook_secret"`
 }
 
-// CreateWebhook adds an endpoint at u for the account's membership events,
-// its payloads pinned to APIVersion.
-func (c *Client) CreateWebhook(ctx context.Context, accountID, u string) (Webhook, error) {
+// CreateWebhook adds an endpoint at u for membership events, its payloads
+// pinned to APIVersion. resource is an account, for its own events, or an
+// app, for those of every business that installed it. Whop refuses
+// api_version on a new webhook, since every new one gets its v1 events.
+func (c *Client) CreateWebhook(ctx context.Context, resource, u string) (Webhook, error) {
 	var w Webhook
 	err := c.do(ctx, http.MethodPost, "/webhooks", nil, map[string]any{
-		"url": u, "events": Events, "api_version": "v1", "api_version_date": APIVersion, "resource_id": accountID, "enabled": true,
+		"url": u, "events": Events, "api_version_date": APIVersion, "resource_id": resource, "enabled": true,
 	}, &w)
 	return w, err
 }
@@ -60,10 +62,31 @@ func (c *Client) DeleteWebhook(ctx context.Context, id string) error {
 // Event is one event a webhook delivered.
 type Event struct {
 	// ID is the delivery's webhook-id, the same on every retry.
-	ID        string          `json:"-"`
-	Type      string          `json:"type"`
+	ID   string `json:"-"`
+	Type string `json:"type"`
+	// AccountID is the business the event happened in. An app's webhook
+	// hears from every business that installed the app.
 	AccountID string          `json:"account_id"`
 	Data      json.RawMessage `json:"data"`
+}
+
+func (e *Event) UnmarshalJSON(b []byte) error {
+	// A webhook pinned before 2026-08-14, or not pinned at all, as one made
+	// on Whop's dashboard can be, names the business company_id.
+	var raw struct {
+		Type      string          `json:"type"`
+		AccountID string          `json:"account_id"`
+		CompanyID string          `json:"company_id"`
+		Data      json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	*e = Event{Type: raw.Type, AccountID: raw.AccountID, Data: raw.Data}
+	if e.AccountID == "" {
+		e.AccountID = raw.CompanyID
+	}
+	return nil
 }
 
 // WebhookTolerance is how far a delivery's timestamp may be from now, as

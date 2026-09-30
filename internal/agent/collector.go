@@ -258,7 +258,7 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 					s.recovered = s.crash
 				}
 				s.runReady, s.runPhase = true, api.PhaseOnline
-				s.crashed, s.runCrashed, s.crash = false, false, nil
+				s.crashed, s.runCrashed, s.crash, s.repeats = false, false, nil, false
 				s.lastError, s.lastErrorHint = "", ""
 			}
 			s.mu.Unlock()
@@ -740,6 +740,7 @@ func (a *Agent) pruneLoop(ctx context.Context) {
 	for {
 		a.prune()
 		a.prunePacks(ctx)
+		a.pruneKeptBackups()
 		select {
 		case <-ctx.Done():
 			return

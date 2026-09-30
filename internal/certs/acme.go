@@ -123,7 +123,7 @@ func (is *Issuer) Terms(ctx context.Context) (string, error) {
 // certificate of that order rather than asking for another. Errors are
 // *Problems.
 func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) {
-	names, err := normalizeNames(req.Names)
+	names, err := normalizeNames(req.Names, req.DNS01 != nil && req.DNS01.Challenger != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) 
 	if err := is.account(ctx, c, d, s); err != nil {
 		return nil, err
 	}
-	kept := &keptOrder{dir: dir, file: names[0] + orderSuffix}
+	kept := &keptOrder{dir: dir, file: fileStem(names[0]) + orderSuffix}
 	der, key, err := is.certificate(ctx, c, kept, names, req, s)
 	if err != nil {
 		return nil, err
@@ -175,7 +175,7 @@ func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) 
 	if err != nil {
 		return nil, newProblem(err, CodeFailed, nil)
 	}
-	file := names[0] + ".pem"
+	file := fileStem(names[0]) + ".pem"
 	mode := os.FileMode(0o600)
 	if req.Owner != nil {
 		mode = 0o640
@@ -526,7 +526,13 @@ func checkChain(der [][]byte, key *ecdsa.PrivateKey, names []string, now time.Ti
 		return nil, errors.New("the certificate is not for the key Playkeeper sent")
 	}
 	for _, n := range names {
-		if err := leaf.VerifyHostname(n); err != nil {
+		// A host name can't be a wildcard, so a wildcard is looked for as
+		// it is.
+		covered := slices.Contains(leaf.DNSNames, n)
+		if !strings.HasPrefix(n, "*.") {
+			covered = leaf.VerifyHostname(n) == nil
+		}
+		if !covered {
 			return nil, fmt.Errorf("the certificate does not cover %s", n)
 		}
 	}

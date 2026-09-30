@@ -183,8 +183,12 @@ export interface ServerStatus {
   lastKnownAt?: string
   /** Two joined machines list this server, so the dashboard sends its requests to neither. */
   disputed?: boolean
+  /** The owner is moving the server's customer to another machine: no request reaches it until it's there. */
+  moving?: boolean
   /** A joined machine lists this server, but the dashboard couldn't save that yet, so its requests are refused with "try again" until it can. */
   unsaved?: boolean
+  /** A joined machine's server's address without a port, under the dashboard's own domain, once public DNS finds the dashboard's zone. */
+  zoneAddress?: string
   /** A backup left world saving off since then; Playkeeper keeps turning it back on. */
   savingPausedSince?: string
   /** Why the server last stopped unexpectedly or could not start. */
@@ -225,6 +229,8 @@ export type ActionKind =
   | 'install_addon'
   | 'remove_datapack'
   | 'restore_backup'
+  | 'remove_entity'
+  | 'rebuild_level'
   | 'free_disk'
   | 'change_port'
   | 'accept_eula'
@@ -320,6 +326,7 @@ export type CrashKind =
   | 'mixin_failed'
   | 'datapack_failed'
   | 'corrupt_world'
+  | 'ticking_entity'
   | 'world_locked'
   | 'disk_full'
   | 'eula'
@@ -334,6 +341,8 @@ export interface Crash {
   kind: CrashKind
   params?: Params
   certain: boolean
+  /** Starting again can only crash it the same way, so Playkeeper didn't restart it. */
+  repeats?: boolean
   title: string
   explanation: string
   evidence: DiagnosisEvidence[]
@@ -445,6 +454,42 @@ export interface MachineView {
   joinedFrom?: string
   /** Who made the code it joined with. */
   addedBy?: string
+  /** A joined machine the owner confirmed takes customers. */
+  takesCustomers?: TakesCustomers
+  /** How many customers placement gave the machine. */
+  customers?: number
+}
+
+/** When and by whom the owner confirmed a joined machine takes customers. */
+export interface TakesCustomers {
+  since: string
+  by: string
+}
+
+/** A customer whose servers go on a machine, or who still has servers there, as the owner sees them on its page. */
+export interface MachineCustomer {
+  id: number
+  name: string
+  handle?: string
+  state: 'active' | 'paused' | 'suspended'
+  planId?: string
+  memoryMB: number
+  servers: number
+  /** The machine their servers go on, or empty while they wait for room. */
+  machineId: string
+  /** How many of their servers are on the machine listing them. */
+  here: number
+  move?: CustomerMove
+}
+
+/** The owner moving a customer to the machine, under way or stopped. */
+export interface CustomerMove {
+  startedAt: string
+  startedBy: string
+  /** How many of their servers aren't on the machine yet. */
+  left: number
+  /** Why the move stopped; unset while it's under way. */
+  error?: string
 }
 
 /** An address another machine can dial to reach this dashboard. */
@@ -482,6 +527,8 @@ export interface JoinCommand extends JoinCode {
 /** What connecting a machine needs: where it dials, the smallest machine that works and the codes. */
 export interface MachineLinkInfo {
   addresses: DialAddress[]
+  /** The dashboard's address, without a port while it answers on port 443: where AI agents connect. Machines keep dialing `addresses`. */
+  dashboard?: string
   /** systems: each supported distribution with its oldest supported release; later ones work too. */
   minimum: { cores: number; memoryGB: number; freeDiskGB: number; systems: { name: string; version: string }[] }
   sizingUrl: string
@@ -560,6 +607,8 @@ export interface UpdateInfo {
   checkError?: string
   installing?: string
   lastResult?: UpdateResult
+  /** Check for updates automatically: when Playkeeper starts and about every 30 minutes (0.4.9). */
+  autoCheck?: boolean
 }
 
 /** What a machine's heartbeat to the stats service says, field for field (internal/usage). */
@@ -1029,6 +1078,25 @@ export interface DNSRecord {
   srv?: SRVParts
 }
 
+/**
+ * Whether the dashboard's machine answers DNS for its own domain, so players
+ * type no port, and the records the owner adds at the domain's parent and
+ * removes there (GET /api/dns-answers).
+ */
+export interface DNSAnswers {
+  on: boolean
+  zone?: string
+  nameserver?: string
+  unavailable?: 'own_domain' | 'subdomain' | 'address'
+  add: DNSRecord[]
+  remove: DNSRecord[]
+  /** The zone the machine answers now, and how many servers have an SRV record in it. */
+  answering?: string
+  servers: number
+  listening: string[]
+  problem?: string
+}
+
 /** Code and params are what the page translates; message and hint are the backend's English. */
 export interface Note {
   code: string
@@ -1100,9 +1168,58 @@ export interface Address {
   /** Every server gets `label`.host through one wildcard record, *.host, in `records`. */
   serverAddresses?: boolean
   certificate?: CertificateStatus
+  /** Serve the dashboard on the standard HTTPS port (443), on the machine that runs the dashboard; a joined machine has none. */
+  dashboard?: Dashboard443
   names: NamesService
   termsAccepted?: string
   operation?: Operation
+}
+
+/**
+ * Serve the dashboard on the standard HTTPS port (443), from 0.4.11. state is
+ * port 443 for the dashboard: off with the switch, no_address until the
+ * machine's name works with a certificate, waiting for a few minutes after
+ * the machine starts, busy, claimed or denied while another program has it
+ * (holder names it), and open while the dashboard listens there.
+ */
+export interface Dashboard443 {
+  on: boolean
+  /** Nobody has changed the switch, so `on` is the install's choice. */
+  default?: boolean
+  state: PagePortState | 'no_address'
+  holder?: string
+  /** A browser from outside the machine has opened the dashboard on port 443; until then its address keeps its port. */
+  reached?: boolean
+  /** The port the dashboard's address has: 443, which shows as none, once reached and while nothing else has port 443, else the panel's port. */
+  port: number
+}
+
+/** Machine settings › Serve the dashboard on the standard HTTPS port (443). url is the dashboard's address without a port and old with the panel's; both missing without a name that works. */
+export interface DashboardPortView extends Dashboard443 {
+  url?: string
+  old?: string
+  panelPort: number
+  /** The panel answers port 443 at the machine's name, so a visit there counts; a moment after the switch turns on. */
+  serving?: boolean
+  /** The places outside Playkeeper that keep the dashboard's address, each with the change it needs. */
+  outside: OutsideChange[]
+}
+
+/**
+ * A place outside Playkeeper that keeps the dashboard's address: the Whop
+ * app customers sign in through, which must list `add` beside `keep`; the
+ * webhook the owner made for that app on Whop, which keeps working at `keep`;
+ * Whop's webhook, which Playkeeper moves to `add` itself; or AI agents set up
+ * with `keep`, which keeps working. done: Whop takes `add`, or the webhook is
+ * there.
+ */
+export interface OutsideChange {
+  kind: 'whop_signin' | 'whop_app_webhook' | 'whop_webhook' | 'mcp'
+  app?: string
+  add: string
+  keep?: string
+  automatic?: boolean
+  done: boolean
 }
 
 /** What a domain would need, before it is saved. */
@@ -1138,7 +1255,8 @@ export interface RestoreUnsettled {
 
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.
 
-export type AddonSource = 'modrinth' | 'hangar'
+/** Where an add-on comes from; playkeeper is a plugin that ships inside Playkeeper, for its templates. */
+export type AddonSource = 'modrinth' | 'hangar' | 'playkeeper'
 
 export interface AddonTarget {
   kind: 'plugin' | 'mod'
@@ -1769,7 +1887,7 @@ export interface TemplateLibrary {
 /** One template of the library. `file` is its text, planned like any template file. */
 export interface LibraryTemplate {
   id: string
-  /** A file in assets/pixel-art. */
+  /** A file in assets/pixel-art, shown when this dashboard has no thumbnail of the template (assets/template-thumbs/<id>.webp). */
   art: string
   /** Its page on playkeeper.io. */
   page?: string
@@ -1804,6 +1922,8 @@ export type Action =
   | 'files.edit'
   | 'whop.manage'
   | 'machines.stock'
+  | 'machines.customers'
+  | 'machines.view'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 
@@ -1827,7 +1947,26 @@ export interface Access {
   awaitingConfirmation?: boolean
   /** A customer whose server is being set up, waiting for room on a machine. */
   waitingForRoom?: boolean
+  /** A customer waiting for room again, having lost the machine they had. */
+  waitingAgain?: boolean
+  /** A creator's machine: the one their servers go on. */
+  home?: string
+  /** A customer whose plan ended: when their servers are deleted unless they renew. */
+  pausedUntil?: string
+  /** A customer whose servers were deleted once their plan had ended 14 days before. */
+  serversDeleted?: boolean
+  /** A customer, paused or renewed, whose deleted servers' final backups a machine keeps. */
+  finalBackups?: boolean
   can: Action[]
+}
+
+/** A deleted server's final backup, kept for its customer to download until expiresAt. */
+export interface FinalBackup {
+  id: string
+  serverName: string
+  sizeBytes: number
+  madeAt: string
+  expiresAt: string
 }
 
 export interface Me {
@@ -1901,11 +2040,13 @@ export interface WhopStore {
   takenOverBy?: string
   takenOverAt?: string
   plans: WhopPlan[]
-  /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
+  /** Whether Whop tells the dashboard about memberships as they change. The dashboard also reads them every 10 minutes, or every minute without it. */
   webhook: boolean
   customers: WhopCustomer[]
   /** Sign in with Whop's setup, once a store is connected. */
   signIn?: WhopSignIn
+  /** The Whop app customers sign in through, as the app other businesses install to sell servers from this dashboard. */
+  app?: WhopApp
   needs: string[]
   /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
   notice?: string
@@ -1916,6 +2057,29 @@ export interface WhopSignIn {
   clientId?: string
   secretEnding?: string
   redirectUri?: string
+  /** The redirect URL sign-ins use instead while Whop lists only that one: the dashboard's address with the panel's port, from before it answered without one. */
+  using?: string
+}
+
+/** A seller's store as their page inside Whop opens it: new when this open registered it, and what it's waiting on, if anything. */
+export interface WhopSellerOpen {
+  store: { id: string; title: string; route?: string; problem?: string }
+  new: boolean
+}
+
+/**
+ * The app the businesses that sell from this dashboard installed: the end of
+ * its API key, which acts on each of them, how many sell here, whether the
+ * secret of the app's webhook is set, and where that webhook must send their
+ * membership events ("" while the machine has no address).
+ */
+export interface WhopApp {
+  keyEnding?: string
+  stores: number
+  webhook: boolean
+  webhookUrl?: string
+  /** The username of the Whop account Playkeeper's share of their sales goes to, once the owner names one. */
+  shareUser?: string
 }
 
 /** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */
@@ -1928,6 +2092,8 @@ export interface WhopCustomer {
   /** Their account on this dashboard, once it's made. */
   account?: string
   problem?: string
+  /** Why a message to them hasn't gone out on Whop, while it waits for its next try. */
+  messageProblem?: string
 }
 
 /** One plan of the store; allowanceFrom is "store" when its metadata on Whop sets the allowance, "owner" when set here. */
@@ -1941,6 +2107,12 @@ export interface WhopPlan {
   trialDays?: number
   allowance?: Allowance
   allowanceFrom?: 'store' | 'owner'
+}
+
+/** Settings › Machines › Room for customers, the owner's: how many more of each plan fit, which is its stock, with the store selling it, and what each machine can still set aside for customers, or why it takes none. Stores selling on the same machines each get an even share of the room. */
+export interface SaleRoom {
+  plans: { id: string; name: string; store: string; storeName: string; memoryMB: number; free: boolean; left: number }[]
+  machines: { id: string; freeMB: number; takes: boolean; why?: string }[]
 }
 
 /** Settings › Machines › Hetzner stock: the server type the owner watches, and where Hetzner has it now. checkedAt is when Hetzner last answered; discord says whether the dashboard's Discord, where the watch posts, is connected. */
@@ -2051,6 +2223,92 @@ export interface TeamMember {
   /** Set for a customer: the billing provider their account came from ("whop"), and their name there. */
   customer?: string
   handle?: string
+  /** Set for a customer: where their account stands, and the store they bought from, with its name there. */
+  customerState?: CustomerState
+  store?: string
+  storeName?: string
+  /** Whether the owner suspended a customer's account on its own, with its store, or both, and why. */
+  suspendedSelf?: boolean
+  suspendedStore?: boolean
+  suspendReason?: string
+  /** Whether the signed-in account may suspend this customer, or lift its own suspension of them. */
+  canSuspend?: boolean
+}
+
+/** Where a customer's account stands: active, paused because its plan ended, or suspended by the owner. */
+export type CustomerState = 'active' | 'paused' | 'suspended'
+
+/** A customer's account once the owner suspended it or lifted that. */
+export interface CustomerSuspension {
+  state: CustomerState
+  suspendedSelf: boolean
+  suspendedStore: boolean
+}
+
+/** A business that sells from this dashboard through the Playkeeper Cloud app, with how many customers have an account from it. */
+export interface SuspendableStore {
+  id: string
+  title: string
+  route?: string
+  customers: number
+  problem?: string
+  suspendedAt?: string
+  suspendReason?: string
+  /** Set once the business uninstalled the app or removed Playkeeper's share: when, and why. */
+  leftAt?: string
+  leftWhy?: string
+  /** Set while the store sells nothing and starts nobody, such as "Not open yet": why. */
+  closedWhy?: string
+}
+
+export interface StoresResponse {
+  stores: SuspendableStore[]
+}
+
+/** A seller's view of their store on Playkeeper Cloud, for their page inside their Whop dashboard. */
+export interface SellerView {
+  store: SellerStore
+  plans: SellerPlan[]
+  customers: SellerCustomer[]
+  earnings: SellerMonth[]
+}
+
+/** How a seller's store stands, with words for a store that's closed, needs a look or left. */
+export interface SellerStore {
+  id: string
+  title: string
+  route?: string
+  state: 'selling' | 'closed' | 'needsLook' | 'suspended' | 'left'
+  why?: string
+}
+
+/** One of the store's plans that grants servers, with how many customers have it now. */
+export interface SellerPlan {
+  id: string
+  title: string
+  price: string
+  servers: number
+  memoryMB: number
+  stock: number
+  unlimitedStock: boolean
+  customers: number
+}
+
+/** One of the store's customers, as their seller sees them. */
+export interface SellerCustomer {
+  handle: string
+  plan?: string
+  since?: string
+  status: 'active' | 'starting' | 'paused' | 'suspended' | 'ended'
+}
+
+/** What a store earned in one month (UTC) in one currency, each amount in the currency's smallest unit. */
+export interface SellerMonth {
+  month: string
+  currency: string
+  sales: number
+  share: number
+  kept: number
 }
 
 export interface TeamInvite extends Invite {
@@ -2870,4 +3128,21 @@ export interface PublicBoard {
 export interface PublicPage {
   address: string
   servers: PublicServer[]
+}
+
+/** The AI services a server's owner can give it a key for (from 0.4.9). */
+export type AIProvider = 'openrouter'
+
+/** Whether one AI service's key is set: never the key or any part of it. */
+export interface AIKey {
+  set: boolean
+}
+
+/** A server's own AI keys, which the AI Build Battle plugin builds with (from 0.4.9). */
+export interface AIKeys {
+  keys: Record<AIProvider, AIKey>
+  /** A saved key waits for a restart: the running container was made before the server had its secrets folder. */
+  pending: boolean
+  /** The server has the AI Build Battle plugin. */
+  available: boolean
 }

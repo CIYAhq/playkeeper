@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon, ServerIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
+import { ArrowRightIcon, CircleAlertIcon, DownloadIcon, LinkIcon, PlayIcon, PlusIcon, ServerIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, CatalogEntry, MachineView, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
+import type { Activity, CatalogEntry, FinalBackup, MachineView, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
@@ -14,6 +14,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
 import { SignInNotice } from '@/components/app/sign-in-notice'
 import { InlineSkeleton, LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
+import { UpdateNotice } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
@@ -21,9 +22,9 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { can, canCreate, canCreateOn, welcomeKey } from '@/lib/access'
 import { demo } from '@/lib/demo'
-import { formatBytes, formatDate, formatList, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
-import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
-import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
+import { formatBytes, formatDate, formatList, formatLongDate, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
+import { awayLabel, awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
+import { couldntStart, isSettingUp, phaseTone, statusLabel, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
@@ -36,7 +37,8 @@ export function HomePage() {
   const servers = ws.servers
   const machine = ws.machine
   const { catalog } = useCatalog(machine?.id)
-  const grouped = ws.machines.length > 1
+  const sees = can(ws.me, 'machines.view')
+  const grouped = sees && ws.machines.length > 1
   // Home grouped by machine shows no activity, so it asks for none.
   const activity = usePoll<Activity[] | undefined>(() => (grouped ? Promise.resolve(undefined) : recentActivity()), 10000, String(grouped))
   const sections = useListPresence(grouped ? ws.machines : undefined, machineKey)
@@ -53,13 +55,19 @@ export function HomePage() {
   )
 
   if (servers && servers.length === 0) {
+    const deleted = !!ws.me.access.serversDeleted
+    const paused = deleted || !!ws.me.access.pausedUntil
+    const again = !!ws.me.access.waitingAgain
+    const title = paused ? t('home.pausedEmptyTitle') : waiting ? t(again ? 'home.noRoomTitle' : 'home.settingUpTitle') : t('home.emptyTitle')
+    const body = paused ? t('home.pausedEmptyBody') : waiting ? t(again ? 'home.noRoomBody' : 'home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
     return (
       <>
-        <PageHeader title={t('home.title')} subtitle={phone ? undefined : t('home.emptySubtitle', { machine: ws.machineName })} phoneAction={<PhoneMoreButton />} />
+        <PageHeader title={t('home.title')} subtitle={phone || !sees ? undefined : t('home.emptySubtitle', { machine: ws.machineName })} phoneAction={<PhoneMoreButton />} />
         <PageBody className="flex flex-1 flex-col items-center pt-10 text-center max-sm:pt-0">
           <Pip pose="wave" size={phone ? 104 : 96} />
-          <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{waiting ? t('home.settingUpTitle') : t('home.emptyTitle')}</h2>
-          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')}</p>
+          <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{title}</h2>
+          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{body}</p>
+          {ws.me.access.finalBackups && <FinalBackups className="mt-6 w-full max-w-[420px]" />}
           {create &&
             (phone ? (
               <Button size="touch" className="mt-6 w-full" render={<a {...linkProps({ name: 'new-server' })} />}>
@@ -86,7 +94,9 @@ export function HomePage() {
     )
   }
 
-  const count = servers && (grouped ? t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length }) : t('home.servers', { count: servers.length, machine: ws.machineName }))
+  const count =
+    servers &&
+    (grouped ? t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length }) : sees ? t('home.servers', { count: servers.length, machine: ws.machineName }) : t('unit.servers', { count: servers.length }))
   const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers.filter((s) => !s.lastKnownAt)) })}`
   return (
     <>
@@ -108,9 +118,10 @@ export function HomePage() {
         ) : (
           <ServerRow count={demo || !create ? undefined : (servers?.length ?? 2)}>
             {servers ? servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />) : [0, 1].map((i) => <ServerCardSkeleton key={i} />)}
-            {demo ? <demo.HomeCard wide={!!servers && servers.length % 3 === 0} /> : <NewServerCard />}
+            {demo ? <demo.HomeCard wide={!!servers && servers.length % 3 === 0} /> : <NewServerCard planFreeMB={sees ? undefined : catalog?.memoryFreeMB} />}
           </ServerRow>
         )}
+        {ws.me.access.finalBackups && <FinalBackups />}
         {!grouped && (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.23fr)_minmax(0,1fr)]">
             <Card>
@@ -123,7 +134,7 @@ export function HomePage() {
                 </a>
               )}
             </Card>
-            <MachineCard />
+            {sees && <MachineCard />}
           </div>
         )}
       </PageBody>
@@ -140,29 +151,59 @@ function recentActivity(): Promise<Activity[]> {
 
 /**
  * Home's one notice: the agent not answering, what to know after signing
- * in, or disk space; else what a team member should know.
+ * in, or disk space; else what a team member should know; else, on a phone,
+ * which has no sidebar, a new release.
  */
 function HomeNotice() {
   const ws = useWorkspace()
+  const phone = useIsPhone()
   const disk = ws.machine?.live?.diskWarning
-  if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.body', { machine: ws.machineName })}</Notice>
+  if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{can(ws.me, 'machines.view') ? t('agentDown.body', { machine: ws.machineName }) : t('agentDown.bodyHidden')}</Notice>
   if (ws.signInNotice) return <SignInNotice />
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
-  return can(ws.me, 'team.manage') ? <TeamNotice /> : <MemberNotice />
+  const release = phone ? <UpdateNotice phone /> : null
+  return can(ws.me, 'team.manage') ? <TeamNotice fallback={release} /> : <MemberNotice fallback={release} />
+}
+
+/** A customer's deleted servers' final backups, each downloadable until it goes, whether they renewed or not. */
+function FinalBackups({ className }: { className?: string }) {
+  const list = usePoll(() => get<FinalBackup[]>('/api/final-backups'), 60_000)
+  if (!list.data?.length) return null
+  return (
+    <Card className={cn('text-left', className)}>
+      <CardTitle>{t('home.finalBackupsTitle')}</CardTitle>
+      <CardHint>{t('home.finalBackupsBody')}</CardHint>
+      <ul className="mt-3 divide-y rounded-lg border">
+        {list.data.map((b) => (
+          <li key={b.id} className="flex items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{b.serverName}</p>
+              <p className="text-xs text-muted-foreground">{t('home.finalBackupLine', { size: formatBytes(b.sizeBytes), date: formatLongDate(b.expiresAt) })}</p>
+            </div>
+            <Button variant="outline" size="sm" render={<a href={`/api/final-backups/${b.id}/download`} download />}>
+              <DownloadIcon />
+              {t('home.finalBackupDownload')}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
 }
 
 /** For whoever can confirm them, a member waiting for their Admin rights comes first. */
-function TeamNotice() {
+function TeamNotice({ fallback }: { fallback: ReactNode }) {
   const team = usePoll(() => get<TeamResponse>('/api/team'), 15_000)
   const waiting = team.data?.members.find((m) => m.canConfirm)
-  return waiting ? <ConfirmAdminNotice member={waiting} onConfirmed={team.refresh} /> : <MemberNotice />
+  return waiting ? <ConfirmAdminNotice member={waiting} onConfirmed={team.refresh} /> : <MemberNotice fallback={fallback} />
 }
 
-/** Admin rights waiting for two-factor sign-in or a confirmation, or the welcome after joining with an invite link. */
-function MemberNotice() {
+/** Admin rights waiting for two-factor sign-in or a confirmation, or the welcome after joining with an invite link; else fallback. */
+function MemberNotice({ fallback }: { fallback: ReactNode }) {
   const ws = useWorkspace()
   const [dismissed, setDismissed] = useState(false)
   const access = ws.me.access
+  if (access.pausedUntil) return <TwoLineNotice tone="warning" title={t('home.pausedTitle')} body={t('home.pausedBody', { date: formatLongDate(access.pausedUntil) })} />
   if (access.needsTwoFactor) {
     const turnOn = (
       <Button variant="outline" size="sm" render={<a {...linkPath('/account/two-factor')} />}>
@@ -173,7 +214,7 @@ function MemberNotice() {
     return <TwoLineNotice tone="warning" title={t('home.adminLaterTitle')} body={t('home.adminLaterBody')} action={turnOn} />
   }
   if (access.awaitingConfirmation) return <TwoLineNotice tone="warning" title={t('home.adminWaitingTitle')} body={t('home.adminLaterBody')} />
-  if (dismissed || ws.prefs[welcomeKey] !== '1' || !ws.servers?.length) return null
+  if (dismissed || ws.prefs[welcomeKey] !== '1' || !ws.servers?.length) return fallback
   const name = ws.me.user.username
   const servers = access.servers.all ? t('home.welcomeAllServers') : formatList(ws.servers.map((s) => s.name))
   const close = (
@@ -252,7 +293,7 @@ function StartButton({ server, label }: { server: ServerStatus; label: string })
 function CardDetail({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const away = awayOf(reachOf(s, ws))
-  if (away) return <span className="text-[13px] text-muted-foreground">{t('machines.away.pill', { name: away.name })}</span>
+  if (away) return <span className="text-[13px] text-muted-foreground">{awayLabel(away)}</span>
   if (isStale(s, ws.stale) || reachOf(s, ws).state !== 'live') return <span className="text-[13px] text-muted-foreground">{t('status.noLive')}</span>
   if (isSettingUp(s) && s.operation) {
     return (
@@ -294,7 +335,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
       return (
         <span className="flex items-center gap-2 text-[13px] text-info-foreground">
           <Spinner />
-          {phaseLabel(s.phase)}
+          {statusLabel(s)}
         </span>
       )
     case 'stopped':
@@ -394,11 +435,15 @@ function ServerCardSkeleton() {
   )
 }
 
-/** The dashed card that starts a new server: on the dashboard's machine, or on the machine given. */
-function NewServerCard({ machine }: { machine?: MachineView }) {
+/**
+ * The dashed card that starts a new server: on the dashboard's machine, or
+ * on the machine given. A creator or customer sees what their plan has left
+ * instead of what the machine has free.
+ */
+function NewServerCard({ machine, planFreeMB }: { machine?: MachineView; planFreeMB?: number }) {
   const ws = useWorkspace()
   const m = machine ?? ws.machine
-  const live = m?.live
+  const live = can(ws.me, 'machines.view') ? m?.live : undefined
   const name = m && m.kind === 'remote' ? machineLabel(m) : ws.machineName
   const full = !!live && live.memoryFreeMB <= 0
   if (!canCreateOn(ws.me, m)) return null
@@ -416,7 +461,11 @@ function NewServerCard({ machine }: { machine?: MachineView }) {
     <a {...linkProps(machine ? { name: 'new-server', machine: machine.id } : { name: 'new-server' })} className={cn(cls, 'hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring')}>
       <PlusIcon className="size-5 text-primary" aria-hidden="true" />
       <span className="mt-3 text-[15px] font-semibold">{machine ? t('machines.newServerHere') : t('nav.newServer')}</span>
-      {live && <span className="mt-1 text-xs text-muted-foreground">{full ? t('home.newServerFull', { machine: name }) : t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: name })}</span>}
+      {live ? (
+        <span className="mt-1 text-xs text-muted-foreground">{full ? t('home.newServerFull', { machine: name }) : t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: name })}</span>
+      ) : (
+        planFreeMB !== undefined && <span className="mt-1 text-xs text-muted-foreground">{planFreeMB > 0 ? t('home.newServerPlan', { memory: formatMB(planFreeMB) }) : t('new.noMemoryTitle')}</span>
+      )}
     </a>
   )
 }

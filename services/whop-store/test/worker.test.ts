@@ -7,11 +7,11 @@ import { dashboard, fakeWhop, freshCopy, openStore, type Catalogue } from './fak
 const env = { WHOP_API_ORIGIN: 'https://api.example.test', WHOP_ACCOUNT_ID: 'biz_pip' }
 
 /** A store as Whop hosting runs it for the catalogue's business. */
-function store(catalogue: () => Catalogue, opts: { down?: () => boolean } = {}) {
+function store(catalogue: () => Catalogue, opts: { down?: () => boolean; env?: Record<string, string> } = {}) {
   const whop = fakeWhop(catalogue, opts)
   let now = 1_000_000
   const handle = createHandler({ fetch: whop.fetch, now: () => now })
-  const mine = { ...env, WHOP_ACCOUNT_ID: String(catalogue().account.id) }
+  const mine = { ...env, WHOP_ACCOUNT_ID: String(catalogue().account.id), ...opts.env }
   return {
     whop,
     get: (path: string, init?: RequestInit) => handle(new Request(`https://pip-hosting.whop.site${path}`, init), mine),
@@ -52,11 +52,24 @@ describe('the store’s pages', () => {
     expect(page).not.toContain('Not taking orders yet')
   })
 
+  it('asks a hosted copy to connect Playkeeper Cloud, with the app’s install page', async () => {
+    const page = await (await store(freshCopy, { env: { PLAYKEEPER_CLOUD_APP: 'app_6oyNYgGluUMTx4' } }).get('/')).text()
+    const words = text(page)
+    expect(words).toContain('Not taking orders yet Joe’s Hosting opens here soon.')
+    expect(page).toContain('<a class="btn btn-outline btn-sm" href="https://whop.com/apps/app_6oyNYgGluUMTx4/install">Connect Playkeeper Cloud</a>')
+    expect(words).toContain('approve it for this business, picking it in Whop’s business picker.')
+    expect(words).not.toContain('Install Playkeeper on your server')
+    const odd = await (await store(freshCopy, { env: { PLAYKEEPER_CLOUD_APP: 'app_x"><script>' } }).get('/')).text()
+    expect(odd).not.toContain('Connect Playkeeper Cloud')
+    expect(text(odd)).toContain('Install Playkeeper on your server')
+  })
+
   it('says a fresh copy of the store isn’t taking orders, and how to open it', async () => {
     const page = await (await store(freshCopy).get('/')).text()
     const words = text(page)
     expect(words).toContain('Not taking orders yet Joe’s Hosting opens here soon.')
-    expect(words).toContain('connect this store in its Settings › Sell on Whop, then make your plans visible on Whop.')
+    expect(words).toContain('connect this store in its Settings › Sell on Whop. Turn on Sign in with Whop there, with a Whop app that has oauth:token_exchange on its own Permissions tab, not on an API key. Then make your plans visible on Whop.')
+    expect(page).toContain('href="https://playkeeper.io/guides/start-a-minecraft-hosting-company"')
     expect(page).not.toContain('whop.com/checkout')
     expect(page).not.toMatch(/>Sign in( to your dashboard)?<\/a>/)
     expect(page).not.toContain('See the plans')

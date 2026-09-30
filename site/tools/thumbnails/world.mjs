@@ -3,7 +3,8 @@
 // spawn, read from its region files (level.dat says where spawn is). The
 // world's own Minecraft blocks are kept, in the version the renderer draws;
 // a mod's blocks, which Minecraft's textures don't have, are left out, and
-// the snapshot says how many were.
+// the snapshot says how many were. It exits with 3, writing nothing, when
+// spawn is underground.
 //
 //   node world.mjs <world-dir> --template ID --out FILE.json.gz [--radius 10]
 import { existsSync, mkdirSync, openSync, readSync, closeSync, readFileSync, writeFileSync } from 'node:fs'
@@ -110,10 +111,27 @@ function indexes (states, n = 4096, min = 4) {
   return out
 }
 
+// coverOver counts the solid blocks above spawn in its column: many when
+// spawn is under the ground.
+const see = /air$|leaves|_log$|_wood$|glass|vine|carpet|snow$|torch|lantern|flower|grass$|fern|sapling|mushroom/
+function coverOver (col, at) {
+  const p = new Vec3(((Math.floor(at.x) % 16) + 16) % 16, 0, ((Math.floor(at.z) % 16) + 16) % 16)
+  let n = 0
+  for (let y = Math.floor(at.y) + 2; y < 320; y++) {
+    p.y = y
+    const b = registry.blocksByStateId[col.getBlockStateId(p)]
+    if (b && !see.test(b.name)) n++
+  }
+  return n
+}
+
 const scx = Math.floor(spawn.x / 16)
 const scz = Math.floor(spawn.z / 16)
 const columns = []
 let bare = 0
+let cover = 0
+// How many of the chunks' x, z columns have any block: few in a void world.
+let filled = 0
 for (let i = -radius; i <= radius; i++) {
   for (let j = -radius; j <= radius; j++) {
     const c = chunkAt(scx + i, scz + j)
@@ -121,6 +139,7 @@ for (let i = -radius; i <= radius; i++) {
     if (!done.has(String(c.Status).replace(/^minecraft:/, ''))) { bare++; continue }
     const col = new Chunk({ minY: -64, worldHeight: 384 })
     const p = new Vec3(0, 0, 0)
+    const some = new Uint8Array(256)
     for (const sec of c.sections || []) {
       const y0 = sec.Y * 16
       if (y0 < -64 || y0 >= 320) continue
@@ -143,17 +162,30 @@ for (let i = -radius; i <= radius; i++) {
         if (s > 0) {
           p.x = n & 15; p.z = (n >> 4) & 15; p.y = y0 + (n >> 8)
           col.setBlockStateId(p, s)
+          some[n & 255] = 1
         } else if (s < 0) {
           modded++
         }
       }
     }
+    filled += some.reduce((a, b) => a + b, 0)
+    if (i === 0 && j === 0) cover = coverOver(col, spawn)
     columns.push({ x: (scx + i) * 16, z: (scz + j) * 16, chunk: col.toJson() })
   }
 }
 for (const fd of regions.values()) if (fd !== null) closeSync(fd)
 if (!columns.length) throw new Error(`no finished chunk around spawn (${spawn.x}, ${spawn.z}) in ${dir}`)
-const snapshot = { version: VERSION, template: id, subject: false, focus: spawn, player: null, radius, columns, modded }
+// A spawn under the ground, like StoneBlock's lobby in its caves, has no
+// view to take. Exiting with 3 says so, and cmd/template-check then makes a
+// modpack's picture of its logo (pack-art.mjs).
+if (cover > 16) {
+  console.error(`[${id}] spawn (${Math.floor(spawn.x)}, ${spawn.y}, ${Math.floor(spawn.z)}) is underground, under ${cover} blocks, so its world has no view of it`)
+  process.exit(3)
+}
+// An island in the void, like a skyblock pack's, is framed the way
+// render.mjs frames a showpiece, not as land.
+const island = filled / (columns.length * 256) < 0.25
+const snapshot = { version: VERSION, template: id, subject: island, focus: spawn, player: null, radius, columns, modded }
 mkdirSync(dirname(resolve(outFile)), { recursive: true })
 writeFileSync(outFile, gzipSync(JSON.stringify(snapshot)))
-console.log(`[${id}] ${columns.length} chunks around spawn (${Math.floor(spawn.x)}, ${spawn.y}, ${Math.floor(spawn.z)}), ${bare} unfinished left out, ${modded} modded blocks left out`)
+console.log(`[${id}] ${columns.length} chunks around spawn (${Math.floor(spawn.x)}, ${spawn.y}, ${Math.floor(spawn.z)})${island ? ', an island in the void' : ''}, ${bare} unfinished left out, ${modded} modded blocks left out`)

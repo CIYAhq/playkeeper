@@ -3,12 +3,13 @@ import { templateQuery } from '@/api/templates'
 import type { Address, Catalog, CatalogEntry, Me, ProjectRole, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MachineView, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { budgetAdvice, createRequest, freeName, heapMB, styleMemory, versionCards, versionLine } from '@/components/app/create'
 import { activityText } from '@/components/app/activity'
+import { serverState } from '@/components/app/bits'
 import { lineRuns } from '@/components/app/line-chart'
 import { axisLabel } from '@/components/app/players-chart'
 import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/components/app/password-field'
 import { canCreateOn, tokenRoles } from './access'
-import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
+import { certState, claimStep, dashboardPort, dashboardURL, freeServers, freeStage, namedDashboard, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine } from './console'
@@ -300,6 +301,7 @@ describe('AI agents', () => {
     expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }, { kind: 'name', address: 'alex.playkeeper.me:8443' }], 'https://203.0.113.10:8443')).toBe('https://alex.playkeeper.me:8443/mcp')
     expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }], 'https://203.0.113.10:8443')).toBe('https://203.0.113.10:8443/mcp')
     expect(mcpAddress(undefined, 'https://localhost:8448')).toBe('https://localhost:8448/mcp')
+    expect(mcpAddress([{ kind: 'name', address: 'alex.playkeeper.me:8443' }], 'https://203.0.113.10:8443', 'https://alex.playkeeper.me')).toBe('https://alex.playkeeper.me/mcp')
   })
 
   it('writes MCP settings an AI tool can read, and shows the secret cut short', () => {
@@ -415,6 +417,9 @@ describe('server state', () => {
     expect(whyNot(server(), 'change', true)).toBe('Waiting for the Playkeeper agent to answer.')
     expect(whyNot(server(), 'restart', 'Can’t reach home-server')).toBe('Can’t reach home-server')
     expect(whyNot(server(), 'restart', undefined)).toBeUndefined()
+    for (const action of ['start', 'stop', 'restart', 'command', 'change', 'backup', 'pregen', 'restore'] as const) {
+      expect(whyNot(server({ moving: true, phase: 'stopped' }), action, 'Can’t reach home-server')).toBe('This server is being moved. It’s back in a few minutes.')
+    }
     expect(busyReason(server())).toBeUndefined()
     expect(busyReason(server({ operation: backup }))).toBe('Backing up Survival. Try again when it’s done.')
   })
@@ -517,6 +522,15 @@ describe('crash helper', () => {
     expect(statusLabel(server({ phase: 'stopped' }))).toBe('Stopped')
   })
 
+  it('calls a server being moved one being moved, whatever it last said, and offers nothing to do to it', () => {
+    for (const phase of ['stopped', 'online', 'crashed', 'asleep'] as const) {
+      expect(statusLabel(server({ phase, moving: true, crash: crash({ start: true }) }))).toBe('Being moved')
+      expect(statusTone(server({ phase, moving: true }))).toBe('busy')
+      expect(serverState(server({ phase, moving: true }), false).label, phase).toBe('Being moved')
+      expect(controls(server({ phase, moving: true })), phase).toMatchObject({ canStart: false, canStop: false, canRestart: false, canBackup: false })
+    }
+  })
+
   it('tells a port taken on the machine from one taken inside the server', () => {
     const port = crash({ kind: 'port_in_use', params: { port: 25565 }, fixes: [{ kind: 'change_port', params: { port: 25565 }, title: 'Change the port', recommended: true }, { kind: 'restart', title: 'Start again' }] })
     expect(crashSummary(port, 'Survival', 'my-vps')).toBe('Another program on my-vps is using port 25565.')
@@ -586,6 +600,90 @@ describe('crash helper', () => {
     expect(crashSummary(plugin, 'Survival', 'my-vps', { 'update:Multiverse-Portals-5.0.2.jar': update })).toBe('Multiverse-Portals 5.0.2 doesn’t work with Minecraft 26.1.2.')
     expect(crashSummary(plugin, 'Survival', 'my-vps')).toBe('Multiverse-Portals hit an error while starting.')
     expect(crashSummary(plugin, 'Survival', 'my-vps', { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })).toBe('Multiverse-Portals hit an error while starting.')
+  })
+
+  it('names what crashes the server each time it ticks, and takes just it out', () => {
+    const minecart = crash({
+      kind: 'ticking_entity',
+      params: { what: 'entity', type: 'minecraft:minecart', name: 'Minecart', x: 6, y: 120, z: 6, dimension: 'minecraft:overworld' },
+      fixes: [
+        { kind: 'remove_entity', params: { what: 'entity', type: 'minecraft:minecart', dimension: 'minecraft:overworld', x: 6, y: 120, z: 6, pos: [6.5, 120, 6.5] }, title: 'Remove it', recommended: true },
+        { kind: 'restore_backup', params: {}, title: 'Restore' },
+      ],
+    })
+    expect(crashSummary(minecart, 'Survival', 'my-vps')).toBe('The minecart at x 6, y 120, z 6 crashes it each time the game runs it.')
+    expect(crashDetail(minecart)).toBe('It’s in the Overworld, saved in the world, so starting again crashes again.')
+    const [remove, restore] = crashFixes(minecart, 'Survival', 'my-vps', false)
+    expect(remove).toMatchObject({
+      title: 'Remove the minecart',
+      hint: 'Only it goes. Blocks, chests and other mobs stay.',
+      recommended: true,
+      plan: { kind: 'remove-entity', target: { what: 'entity', type: 'minecraft:minecart', dimension: 'minecraft:overworld', x: 6, y: 120, z: 6, pos: [6.5, 120, 6.5] } },
+      button: 'Back up, remove and start Survival',
+      footnote: 'Your world is backed up first, so you can undo.',
+    })
+    expect(restore?.plan).toBeUndefined()
+    expect(crashFixes(minecart, 'Survival', 'my-vps', false).some((o) => o.plan?.kind === 'start')).toBe(false)
+
+    const hopper = crash({
+      kind: 'ticking_entity',
+      params: { what: 'block_entity', type: 'create:mechanical_press', x: 10, y: 64, z: -20, dimension: 'minecraft:the_nether' },
+      fixes: [{ kind: 'remove_entity', params: { what: 'block_entity', type: 'create:mechanical_press', dimension: 'minecraft:the_nether', x: 10, y: 64, z: -20 }, title: 'Reset it', recommended: true }],
+    })
+    expect(crashSummary(hopper, 'Survival', 'my-vps')).toBe('The mechanical press at x 10, y 64, z -20 crashes it each time the game runs it.')
+    expect(crashDetail(hopper)).toBe('It’s in the Nether, saved in the world, so starting again crashes again.')
+    expect(crashFixes(hopper, 'Survival', 'my-vps', false)[0]).toMatchObject({ title: 'Reset the mechanical press', hint: 'The block stays, without what it held.', button: 'Back up, reset and start Survival' })
+
+    const unnamed = crash({ kind: 'ticking_entity', params: { what: 'entity' }, fixes: [] })
+    expect(crashSummary(unnamed, 'Survival', 'my-vps')).toBe('Something in its world crashes it each time the game runs it.')
+    expect(crashFixes(unnamed, 'Survival', 'my-vps', false)).toEqual([
+      { id: 'myself', recommended: false, title: 'I’ll take it out myself', hint: 'Starting again crashes again until it’s gone.', plan: { kind: 'start' }, button: 'Start Survival' },
+    ])
+    expect(crashDetail(crash({ kind: 'ticking_entity', params: { dimension: 'aether:the_aether' } }))).toBe('It’s in aether:the_aether, saved in the world, so starting again crashes again.')
+  })
+
+  it('says what a new level.dat resets, and whether new terrain will match', () => {
+    const level = (seedFrom: string, resets: string[]) =>
+      crash({ kind: 'corrupt_world', params: { file: 'level.dat', world: 'world' }, fixes: [{ kind: 'rebuild_level', params: { world: 'world', seed_from: seedFrom, resets }, title: 'Make a new level.dat', recommended: true }] })
+    expect(crashSummary(level('world', ['spawn']), 'Survival', 'my-vps')).toBe('The world’s level.dat file is damaged.')
+    expect(crashFixes(level('world', ['spawn']), 'Survival', 'my-vps', false)).toEqual([
+      {
+        id: '0:rebuild_level',
+        recommended: true,
+        title: 'Make a new level.dat',
+        hint: 'Keeps every build. Resets the spawn point.',
+        plan: { kind: 'rebuild-level', world: 'world', seedFrom: 'world', resets: ['spawn'] },
+        button: 'Back up, repair and start Survival',
+        footnote: 'Your world is backed up first, so you can undo.',
+      },
+    ])
+    expect(crashFixes(level('properties', ['game_rules', 'time', 'world_border', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe(
+      'Keeps every build. Resets the game rules, the time of day, the world border and the spawn point. New terrain won’t match the old unless server.properties has the world’s seed.',
+    )
+    expect(crashFixes(level('backup', ['game_rules', 'time', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe('Keeps every build. Resets the game rules, the time of day and the spawn point.')
+    expect(crashFixes(level('', ['game_rules', 'time', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe(
+      'Keeps every build. Resets the game rules, the time of day and the spawn point. New terrain won’t match the old.',
+    )
+    const older = crash({ kind: 'corrupt_world', params: { file: 'level.dat' }, fixes: [{ kind: 'rebuild_level', title: 'Make a new level.dat' }] })
+    expect(titles(older)).toEqual([
+      ['Make a new level.dat', 'Coming later'],
+      ['Start Survival again', 'start'],
+    ])
+  })
+
+  it('says a mod only runs in players’ games, and takes it off', () => {
+    const sodium = crash({
+      start: true,
+      kind: 'incompatible_addon',
+      params: { reason: 'client_only', addon: 'sodium', jar: 'sodium-neoforge-0.9.2+mc26.2.jar', class: 'org.lwjgl.Version' },
+      fixes: [{ kind: 'remove_addon', params: { jar: 'sodium-neoforge-0.9.2+mc26.2.jar' }, title: 'Remove it', recommended: true }],
+    })
+    expect(crashSummary(sodium, 'Survival', 'my-vps')).toBe('sodium only runs in players’ games, not on servers.')
+    expect(crashFixes(sodium, 'Survival', 'my-vps', false).map((o) => [o.title, o.hint, o.plan, o.button])).toEqual([
+      ['Remove sodium', 'Survival starts without it. The file is kept.', { kind: 'remove-addon', jar: 'sodium-neoforge-0.9.2+mc26.2.jar' }, 'Remove and start Survival'],
+    ])
+    expect(crashSummary(crash({ kind: 'incompatible_addon', params: { reason: 'client_only' } }), 'Survival', 'my-vps')).toBe('A mod that only runs in players’ games stopped it.')
+    expect(crashSummary(crash({ kind: 'incompatible_addon', params: { jar: 'x.jar' } }), 'Survival', 'my-vps')).toBe('The agent’s words.')
   })
 
   it('says where the memory would come from on a phone', () => {
@@ -755,6 +853,21 @@ describe('machine events', () => {
       'Joined with a code siya made · from 203.0.113.24',
     ])
   })
+
+  it('say who confirmed a machine takes customers, and who stopped it', () => {
+    const events: MachineEvent[] = [
+      { at: '2026-09-30T09:00:00Z', kind: 'machine.customers_off', actor: 'siya' },
+      { at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on', actor: 'siya' },
+    ]
+    expect(events.map((_, i) => machineEventText(events, i))).toEqual(['siya stopped it taking new customers', 'siya confirmed it takes customers'])
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on' }], 0)).toBe('Confirmed it takes customers')
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_off' }], 0)).toBe('Stopped taking new customers')
+  })
+
+  it('say when the dashboard confirmed a machine itself, on finding it in the owner’s Hetzner project', () => {
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on', actor: 'hetzner:fleet-1' }], 0)).toBe('Found in your Hetzner project as fleet-1, so it takes customers')
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on', actor: 'hetzner:' }], 0)).toBe('hetzner: confirmed it takes customers')
+  })
 })
 
 describe('join addresses', () => {
@@ -776,6 +889,13 @@ describe('join addresses', () => {
     const unknown = { address: '', reason: 'No address yet: the dashboard doesn’t know which machine runs Survival.' }
     expect(joinOf(onHome, local, 'panel.example.com')).toEqual(unknown)
     expect(joinOf(onHome, undefined, 'panel.example.com')).toEqual(unknown)
+  })
+
+  it('give a joined machine’s server its name without a port once the dashboard’s zone has it', () => {
+    const named = server({ machineId: home.id, zoneAddress: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf(named, home, 'panel.example.com')).toEqual({ address: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf(named, { ...home, link: { ...home.link!, address: undefined } }, 'panel.example.com')).toEqual({ address: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf({ ...named, machineId: 'z2345abcde' }, home, 'panel.example.com').address).toBe('')
   })
 
   it('give the dashboard’s own servers their name once it works, else the dashboard’s host', () => {
@@ -1055,6 +1175,26 @@ describe('address', () => {
     expect(dashboardURL('play.example.com', 443)).toBe('https://play.example.com')
   })
 
+  it('drops the port once the dashboard answers on port 443, and not before', () => {
+    expect(dashboardPort({ panelPort: 8443 })).toBe(8443)
+    expect(dashboardPort({ panelPort: 8443, dashboard: { on: true, state: 'open', port: 8443 } })).toBe(8443)
+    expect(dashboardPort({ panelPort: 8443, dashboard: { on: true, state: 'open', reached: true, port: 443 } })).toBe(443)
+    const now = Date.parse('2026-09-30T12:00:00Z')
+    const a: Address = {
+      kind: 'own',
+      host: 'play.example.com',
+      panelPort: 8443,
+      base: 'playkeeper.me',
+      servers: [],
+      names: { url: '', unreachable: false },
+      check: { ready: true } as Address['check'],
+      certificate: { names: ['play.example.com'], challenge: 'http-01', notAfter: '2026-12-01T00:00:00Z' } as Address['certificate'],
+      dashboard: { on: true, state: 'open', reached: true, port: 443 },
+    }
+    expect(namedDashboard(a, now)).toBe('https://play.example.com')
+    expect(namedDashboard({ ...a, dashboard: undefined }, now)).toBe('https://play.example.com:8443')
+  })
+
   it('names the zone where records are managed', () => {
     expect(zoneOf('play.example.com')).toBe('example.com')
     expect(zoneOf('example.com')).toBe('example.com')
@@ -1161,13 +1301,18 @@ describe('a restore that didn’t finish', () => {
 })
 
 describe('canCreateOn', () => {
-  const as = (can: string[]) => ({ access: { can } }) as unknown as Me
-  it('lets an admin of every server create on any machine, and a creator only on the dashboard’s own', () => {
+  const as = (can: string[], home?: string) => ({ access: { can, home } }) as unknown as Me
+  const local = { id: 'l2345abcde' }
+  const joined = { id: 'j2345abcde' }
+  it('lets an admin of every server create on any machine, and a creator only on the one their servers go on', () => {
     const admin = as(['servers.create', 'servers.create_own'])
-    const creator = as(['servers.create_own'])
-    const viewer = as(['view'])
-    expect([canCreateOn(admin, { kind: 'local' }), canCreateOn(admin, { kind: 'remote' })]).toEqual([true, true])
-    expect([canCreateOn(creator, { kind: 'local' }), canCreateOn(creator, undefined), canCreateOn(creator, { kind: 'remote' })]).toEqual([true, true, false])
-    expect(canCreateOn(viewer, { kind: 'local' })).toBe(false)
+    const viewer = as(['view'], local.id)
+    expect([canCreateOn(admin, local), canCreateOn(admin, joined)]).toEqual([true, true])
+    const invited = as(['servers.create_own'], local.id)
+    expect([canCreateOn(invited, local), canCreateOn(invited, undefined), canCreateOn(invited, joined)]).toEqual([true, true, false])
+    const placed = as(['servers.create_own'], joined.id)
+    expect([canCreateOn(placed, local), canCreateOn(placed, joined)]).toEqual([false, true])
+    expect(canCreateOn(as(['servers.create_own']), local)).toBe(false)
+    expect(canCreateOn(viewer, local)).toBe(false)
   })
 })

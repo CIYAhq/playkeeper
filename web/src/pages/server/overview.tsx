@@ -4,6 +4,7 @@ import { del, get, post } from '@/api/client'
 import type { Activity, AddonNotice, Crash, LagStatus, LogsResponse, MachineView, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
+import { AIKeyNotice } from '@/components/app/ai-key'
 import { Pip } from '@/components/app/art'
 import { DeleteServerDialog } from '@/components/app/delete-server'
 import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel, useNow } from '@/components/app/bits'
@@ -12,6 +13,7 @@ import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { loaderLabel } from '@/components/app/modpacks'
 import { FailedJobNotice, MemoryCrashNotice, SavingPausedNotice } from '@/components/app/notices'
 import { PlayersChart } from '@/components/app/players-chart'
+import { RebuildLevelDialog, type RebuildPlan } from '@/components/app/rebuild-level'
 import { RestoreDialog } from '@/components/app/restore'
 import { SignInNotice } from '@/components/app/sign-in-notice'
 import { SoftwareChangedView } from '@/components/app/software'
@@ -20,6 +22,7 @@ import { WorldMissingNotice } from '@/components/app/world-missing'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, isMemoryCrash, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
 import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, sameDay } from '@/lib/format'
@@ -79,7 +82,7 @@ function Running({ server: s }: { server: ServerStatus }) {
   )
 }
 
-/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, a run out of memory, or settings waiting for a restart. */
+/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, a run out of memory, settings waiting for a restart, or AI Build Battle waiting for its key. */
 function ServerNotices({ server: s }: { server: ServerStatus }) {
   const { stale, offline, machine } = useServerMachine(s)
   const { refresh } = useWorkspace()
@@ -159,7 +162,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
   const template = s.config?.template
   if (template?.lost) return <Notice tone="warning" title={t('templateLost.title', { template: template.name })}>{t('templateLost.body')}</Notice>
   if (s.config?.modpackUnknown) return <Notice title={t('modpackUnknown.title', { server: s.name })}>{t('modpackUnknown.body')}</Notice>
-  return null
+  return <AIKeyNotice server={s} />
 }
 
 function JoinCard({ server: s }: { server: ServerStatus }) {
@@ -439,6 +442,11 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const pct = /(\d{1,3})\s*%/.exec(s.phaseDetail ?? '')?.[1]
   const other = (ws.servers ?? []).find((o) => o.id !== s.id)
   const disk = place.machine?.live?.diskFreeBytes
+  const reserved = formatMB(cfg?.memoryMB ?? 0)
+  const checkStep = {
+    title: place.name ? t('creating.checked', { machine: place.name }) : t('creating.checkedHidden'),
+    hint: disk === undefined ? undefined : t('creating.checkedDetail', { memory: reserved, disk: formatBytes(disk) }),
+  }
   // Until the pack itself is read, the config holds the recommended loader, not the pack's.
   const packRead = !pack?.pending || !['', 'pulling_image', 'preparing_modpack'].includes(op?.phase ?? '')
   const loader = packRead ? (cfg?.software?.fabricLoader ?? cfg?.software?.quiltLoader) : undefined
@@ -459,7 +467,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const addonsHint = [fetching ? t('creating.packFiles', { done: fetched, total: fetching }) : '', skipped.length ? t('creating.templateSkipped', { count: skipped.length, names: skipped.join(', ') }) : ''].filter(Boolean).join(t('common.dot'))
   const steps = tpl
     ? [
-        { title: t('creating.checked', { machine: place.name }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+        { ...checkStep, state: state(0) },
         { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: checked ? t('creating.downloadedDetail') : undefined },
         {
           title: t(at > 2 ? (onlyPacks ? 'creating.templatePacksDone' : mods ? 'creating.templateModsDone' : 'creating.templatePluginsDone') : onlyPacks ? 'creating.templatePacks' : mods ? 'creating.templateMods' : 'creating.templatePlugins'),
@@ -472,14 +480,14 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
       ]
     : pack
     ? [
-        { title: t('creating.checked', { machine: place.name }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+        { ...checkStep, state: state(0) },
         software,
         { title: t(at > 2 ? 'creating.packModsDone' : 'creating.packMods'), hint: total ? t('creating.packFiles', { done, total }) : undefined, state: state(2), progress: at === 2 && total ? (done / total) * 100 : undefined },
         starting(3),
         { title: t('creating.reachable', { port: s.gamePort }), state: state(4) },
       ]
     : [
-        { title: t('creating.checked', { machine: place.name }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+        { ...checkStep, state: state(0) },
         { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: checked ? t('creating.downloadedDetail') : undefined },
         starting(2),
         { title: t('creating.reachable', { port: s.gamePort }), state: state(3) },
@@ -574,6 +582,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   const logs = usePoll(() => (s.crash || refusal ? Promise.resolve(undefined) : get<LogsResponse>(serverApi(s.id, '/logs?limit=3'))), 10_000, `${s.id}:${s.crash || refusal ? 'crash' : 'tail'}`)
   const [picked, setPicked] = useState<string>()
   const [preview, setPreview] = useState<RestorePreview>()
+  const [rebuild, setRebuild] = useState<RebuildPlan>()
   const [busy, setBusy] = useState(false)
   const lookups = useAddonLookups(s)
   const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, place.name, lookups) : (s.lastError ?? t('crash.generic', { server: s.name }))
@@ -607,6 +616,12 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
         case 'restore':
           setPreview(await post<RestorePreview>(serverApi(s.id, `/backups/${encodeURIComponent(plan.backupId)}/restore`)))
           return
+        case 'remove-entity':
+          await post(serverApi(s.id, '/world/remove-entity'), { ...plan.target, start: true })
+          break
+        case 'rebuild-level':
+          setRebuild(plan)
+          return
         case 'delete-backups':
           for (const id of plan.ids) await del(serverApi(s.id, `/backups/${encodeURIComponent(id)}`))
           await post(serverApi(s.id, '/start'))
@@ -630,7 +645,12 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
       {choice?.button}
     </Button>
   )
-  const dialog = <RestoreDialog preview={preview} server={s} onClose={() => setPreview(undefined)} />
+  const dialog = (
+    <>
+      <RestoreDialog preview={preview} server={s} onClose={() => setPreview(undefined)} />
+      <RebuildLevelDialog server={s} plan={rebuild} onClose={() => setRebuild(undefined)} />
+    </>
+  )
 
   if (phone) {
     return (
@@ -721,7 +741,7 @@ function AgentDownView({ machine, since }: { machine?: MachineView; since?: stri
       <Pip pose="search" size={phone ? 96 : 116} />
       <h2 className="mt-4 text-2xl font-bold text-balance max-sm:text-lg">{t('agentDown.title')}</h2>
       <p className="mt-2 max-w-[520px] text-sm text-muted-foreground">
-        {since ? t('agentDown.bodySince', { machine: name, time: relativeTime(since) }) : t('agentDown.body', { machine: name })}
+        {!name ? t('agentDown.bodyHidden') : since ? t('agentDown.bodySince', { machine: name, time: relativeTime(since) }) : t('agentDown.body', { machine: name })}
       </p>
       <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
         <Button
@@ -740,6 +760,7 @@ function AgentDownView({ machine, since }: { machine?: MachineView; since?: stri
           <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
         </a>
       </div>
+      {name && (
       <Card className="mt-8 w-full max-w-[640px] text-left">
         <CardTitle>{machine?.kind === 'remote' ? t('machines.agentDown.fixOn', { name }) : t('agentDown.fix')}</CardTitle>
         <p className="mt-1 text-xs text-muted-foreground">{t('agentDown.fixBody')}</p>
@@ -749,19 +770,23 @@ function AgentDownView({ machine, since }: { machine?: MachineView; since?: stri
         </div>
         <p className="mt-3 text-xs text-muted-foreground">{t('agentDown.note')}</p>
       </Card>
+      )}
     </div>
   )
 }
 
 /** A joined machine hasn't called in: the server may still run there, but the dashboard can't see or control it. */
 function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatus; machine: MachineView; since?: string }) {
+  const ws = useWorkspace()
   const phone = useIsPhone()
   const now = useNow(30_000)
+  const sees = can(ws.me, 'machines.view')
   const name = machineLabel(m)
   const join = joinOf(s, m)
   const joined = m.joinedAt
   let title: string
-  if (since) title = t('machines.problem.offline', { name, duration: awayLong(since, now) })
+  if (!sees) title = t('machines.away.pillHidden')
+  else if (since) title = t('machines.problem.offline', { name, duration: awayLong(since, now) })
   else if (joined) title = t('machines.problem.neverConnected', { name, duration: awayLong(joined, now) })
   else title = t('machines.away.pill', { name })
   return (
@@ -770,11 +795,15 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
         <Pip pose="sleep" size={phone ? 64 : 84} />
         <div className="min-w-0">
           <h2 className="text-[17px] leading-6 font-bold">{title}</h2>
-          <p className="mt-1 text-sm">{t('machines.away.body', { server: s.name, name })}</p>
-          <p className="mt-2.5 text-xs text-muted-foreground">{since ? t('machines.problem.offlineHint', { name }) : t('machines.problem.neverConnectedHint', { name })}</p>
-          <Button variant="outline" size="sm" className="mt-2" render={<a {...linkProps(machineRoute(m))} />}>
-            {t('machines.details')}
-          </Button>
+          <p className="mt-1 text-sm">{sees ? t('machines.away.body', { server: s.name, name }) : t('agentDown.bodyHidden')}</p>
+          {sees && (
+            <>
+              <p className="mt-2.5 text-xs text-muted-foreground">{since ? t('machines.problem.offlineHint', { name }) : t('machines.problem.neverConnectedHint', { name })}</p>
+              <Button variant="outline" size="sm" className="mt-2" render={<a {...linkProps(machineRoute(m))} />}>
+                {t('machines.details')}
+              </Button>
+            </>
+          )}
         </div>
       </Card>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -790,7 +819,7 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
           )}
           <p className="mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground">
             <span className="size-2 rounded-full border-[1.5px] border-muted-foreground/60" aria-hidden="true" />
-            {t('machines.away.join', { name })}
+            {sees ? t('machines.away.join', { name }) : t('machines.away.joinHidden')}
           </p>
         </Card>
         <LastKnownCard server={s} at={s.lastKnownAt ?? since} />

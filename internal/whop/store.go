@@ -43,15 +43,46 @@ func (c *Client) Me(ctx context.Context) (Account, error) {
 	return a, err
 }
 
+// AppNeeds are the permissions the Playkeeper Cloud app asks a business for
+// when it's installed, which the business's store needs: Needs less the
+// webhook, since the app's own webhook hears of every business, and with
+// the business's name, its payments and Playkeeper's revenue share. An app
+// holds only what a business approved, and Whop answers a read it doesn't
+// hold with nothing rather than an error, as with memberships, so a store
+// that lacks any of them isn't read.
+var AppNeeds = []string{
+	"company:basic:read",
+	"access_pass:basic:read",
+	"access_pass:update",
+	"plan:basic:read",
+	"plan:update",
+	"member:basic:read",
+	"member:email:read",
+	"payment:basic:read",
+	"affiliate:basic:read",
+	"affiliate:create",
+	"affiliate:update",
+	"support_chat:create",
+	"support_chat:message:create",
+	"webhook_receive:memberships",
+	"webhook_receive:payments",
+	"webhook_receive:refunds",
+}
+
 // Missing lists the actions of Needs the key isn't granted on accountID.
 func (c *Client) Missing(ctx context.Context, accountID string) ([]string, error) {
+	return c.Lacks(ctx, accountID, Needs)
+}
+
+// Lacks lists the actions of needs the key isn't granted on accountID.
+func (c *Client) Lacks(ctx context.Context, accountID string, needs []string) ([]string, error) {
 	var res struct {
 		Data []struct {
 			Action  string `json:"action"`
 			Granted bool   `json:"granted"`
 		} `json:"data"`
 	}
-	q := url.Values{"resource_id": {accountID}, "actions": {strings.Join(Needs, ",")}}
+	q := url.Values{"resource_id": {accountID}, "actions": {strings.Join(needs, ",")}}
 	if err := c.do(ctx, http.MethodGet, "/permissions", q, nil, &res); err != nil {
 		return nil, err
 	}
@@ -60,7 +91,7 @@ func (c *Client) Missing(ctx context.Context, accountID string) ([]string, error
 		granted[p.Action] = granted[p.Action] || p.Granted
 	}
 	var missing []string
-	for _, n := range Needs {
+	for _, n := range needs {
 		if !granted[n] {
 			missing = append(missing, n)
 		}

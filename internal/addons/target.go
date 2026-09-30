@@ -76,7 +76,8 @@ func (t Target) ownLoaders() []string {
 	return t.Loaders[:t.own]
 }
 
-// Sources lists where add-ons for the target come from.
+// Sources lists the sources searched for add-ons for the target. Playkeeper's
+// own plugins aren't searched: they come with templates.
 func (t Target) Sources() []Source {
 	if t.HangarPlatform != "" {
 		return []Source{Modrinth, Hangar}
@@ -84,9 +85,11 @@ func (t Target) Sources() []Source {
 	return []Source{Modrinth}
 }
 
+// supports refuses a source the target can't take add-ons from. Which server
+// types each of Playkeeper's own plugins runs on is its own (candidates).
 func (t Target) supports(s Source) error {
 	switch s {
-	case Modrinth:
+	case Modrinth, Playkeeper:
 		return nil
 	case Hangar:
 		if t.HangarPlatform != "" {

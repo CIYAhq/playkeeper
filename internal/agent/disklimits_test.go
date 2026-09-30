@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -76,6 +77,38 @@ func TestDiskLimitsLastAndSayWhatTheirServersTake(t *testing.T) {
 		if code, _ := e.call("PUT", "/v1/disk-limits", map[string]any{"limits": limits, "actor": "admin"}); code != 400 {
 			t.Errorf("limits with %s: %d", name, code)
 		}
+	}
+}
+
+// A limit's hold keeps its servers from starting, whoever asks, and says
+// why; lifted, they start again. A hold's reason is bounded and printable.
+func TestAHeldServerDoesntStart(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.runOp("POST", "/stop")
+	hold := func(reason string) (int, map[string]any) {
+		return e.call("PUT", "/v1/disk-limits", map[string]any{"limits": []any{map[string]any{
+			"id": "customer-6", "limitBytes": 1 << 40, "servers": []string{e.sid}, "hold": reason}}, "actor": "admin"})
+	}
+	if code, out := hold("the plan it's on has ended."); code != 200 {
+		t.Fatalf("holding the server: %d %v", code, out)
+	}
+	if op := e.runOp("POST", "/start"); op.Status != api.OpFailed || !strings.HasSuffix(op.Error, "can't start: the plan it's on has ended.") {
+		t.Fatalf("starting a held server: %+v", op)
+	}
+	if running := e.status().Phase == "online"; running {
+		t.Fatal("the held server is running")
+	}
+	for _, bad := range []string{strings.Repeat("x", 201), "two\nlines"} {
+		if code, _ := hold(bad); code != 400 {
+			t.Errorf("a hold of %q: %d", bad, code)
+		}
+	}
+	if code, out := hold(""); code != 200 {
+		t.Fatalf("lifting the hold: %d %v", code, out)
+	}
+	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+		t.Fatalf("starting once the hold was lifted: %+v", op)
 	}
 }
 
@@ -271,10 +304,39 @@ func claimingTotal(t *testing.T, archive []byte, n int64) []byte {
 	return out.Bytes()
 }
 
+// sendUpload uploads body to url without saying its size. It never fails
+// the test, so a goroutine can use it.
+func sendUpload(url string, body io.Reader) (int, map[string]any, error) {
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("X-Playkeeper-Actor", "admin")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	out := map[string]any{}
+	json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out, nil
+}
+
+// pausedConnection sends nothing until wait returns, and then ends, so what
+// follows it in an io.MultiReader carries on.
+type pausedConnection struct{ wait func() }
+
+func (p pausedConnection) Read([]byte) (int, error) {
+	p.wait()
+	return 0, io.EOF
+}
+
 // A restore counts the world it unpacks to, not its archive, by the sizes of
 // the files the archive holds rather than what its manifest claims. An
-// upload is refused once it's staged, leaving no stage, and a staged restore
-// is held when it's applied, from an upload or a backup of the server's own.
+// upload is refused as it unpacks past the room its limit has, or once it's
+// staged when something else took that room meanwhile, leaving no stage;
+// and a staged restore is held when it's applied, from an upload or a backup
+// of the server's own.
 func TestRestoresCountTheWorldTheyUnpackTo(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
@@ -297,25 +359,66 @@ func TestRestoresCountTheWorldTheyUnpackTo(t *testing.T) {
 	}
 
 	e.limitTo(1 << 40)
-	staged := map[string]string{}
-	stage := func(code int, out map[string]any) {
+	type staging struct{ what, confirm string }
+	staged := map[string]staging{}
+	stage := func(what string, code int, out map[string]any) string {
 		t.Helper()
 		id, _ := out["id"].(string)
 		confirm, _ := out["confirmPhrase"].(string)
 		if code != 200 || id == "" {
-			t.Fatalf("staging a restore: %d %v", code, out)
+			t.Fatalf("staging %s: %d %v", what, code, out)
 		}
-		staged[id] = confirm
+		staged[id] = staging{what, confirm}
+		return id
 	}
-	stage(e.uploadTo(e.sp("/restore/upload"), raw))
 	var out map[string]any
 	code := e.callInto("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"}, &out)
-	stage(code, out)
+	f, err := readStageFile(e.a.stageDir(stage("a backup of the server's own", code, out)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Uploads fit with room for the world and 256 KiB more, but not once
+	// another operation holds 512 KiB of it while one streams in.
+	used = e.limitTo(1 << 40)
+	e.limitTo(used + unpackedBytes(f.Manifest) + 256<<10)
+	code, out = e.uploadTo(e.sp("/restore/upload"), raw)
+	stage("an upload", code, out)
+	code, out = e.uploadTo(e.sp("/restore/upload"), claimingTotal(t, raw, 1))
+	stage("an upload whose manifest claims 1 byte", code, out)
+	before = stages()
+	wait, let := gate(t)
+	type result struct {
+		code int
+		out  map[string]any
+		err  error
+	}
+	got := make(chan result, 1)
+	url := e.ts.URL + e.sp("/restore/upload")
+	go func() {
+		code, out, err := sendUpload(url, io.MultiReader(pausedConnection{wait}, bytes.NewReader(raw)))
+		got <- result{code, out, err}
+	}()
+	e.waitFor("the upload's stage", func() bool { return stages() > before })
+	done, err := e.a.holdDiskLimit(context.Background(), e.sid, 512<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	let()
+	r := <-got
+	done(false)
+	if r.code != 507 || codeOf(r.out) != api.CodeDiskLimit {
+		t.Fatalf("an upload that lost its room as it streamed in: %d %v %v", r.code, r.out, r.err)
+	}
+	if n := stages(); n != before {
+		t.Fatalf("%d stages after the refused upload, %d before", n, before)
+	}
+
 	used = e.limitTo(1 << 40)
 	e.limitTo(used + 1<<20)
-	for id, confirm := range staged {
-		if code, out := e.callWhenFree("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": confirm, "actor": "admin"}); code != 507 || codeOf(out) != api.CodeDiskLimit {
-			t.Fatalf("applying a staged restore past the limit: %d %v", code, out)
+	for id, s := range staged {
+		if code, out := e.callWhenFree("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": s.confirm, "actor": "admin"}); code != 507 || codeOf(out) != api.CodeDiskLimit {
+			t.Fatalf("applying %s past the limit: %d %v", s.what, code, out)
 		}
 	}
 }

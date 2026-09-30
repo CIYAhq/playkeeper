@@ -19,6 +19,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/certs"
+	"github.com/CIYAhq/playkeeper/internal/dnszone"
 	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
@@ -1017,12 +1018,61 @@ func (a *Agent) checkOwn(ctx context.Context) (*api.AddressCheck, error) {
 	if err != nil {
 		return nil, problemError(err, http.StatusBadRequest)
 	}
-	check := &api.AddressCheck{At: a.now().UTC(), Name: nameCheck(pc.Name), Ready: pc.Ready}
+	check := &api.AddressCheck{At: a.now().UTC(), Name: nameCheck(pc.Name), Ready: pc.Ready, PortFree: a.portFree(ctx, st.Host)}
 	for _, rc := range pc.Records {
 		check.Records = append(check.Records, api.RecordCheck{Note: api.Note(rc.Note), Record: dnsRecord(rc.Record), OK: rc.OK, Found: rc.Found, Own: rc.Own})
 	}
 	a.saveCheck(st.Host, check)
 	return check, nil
+}
+
+// zoneSRV is the first SRV record of the zone the machine answers DNS for,
+// if that zone is host.
+func (a *Agent) zoneSRV(host string) (dnszone.Record, bool) {
+	z := a.dns.answerer.Zone()
+	if z.Name != host {
+		return dnszone.Record{}, false
+	}
+	for _, r := range z.Records {
+		if r.Type == dnszone.TypeSRV {
+			return r, true
+		}
+	}
+	return dnszone.Record{}, false
+}
+
+// portFree reports whether players reach the servers under host with no
+// port (api.AddressCheck.PortFree): public DNS gives the SRV record of a
+// server in the machine's zone for host as the zone has it.
+func (a *Agent) portFree(ctx context.Context, host string) bool {
+	r, ok := a.zoneSRV(host)
+	if !ok {
+		return false
+	}
+	_, found, err := a.opts.Resolver.LookupSRV(ctx, "minecraft", "tcp", strings.TrimPrefix(r.Name, "_minecraft._tcp.")+"."+host)
+	return err == nil && slices.ContainsFunc(found, func(s *net.SRV) bool {
+		return strings.TrimSuffix(s.Target, ".") == r.Value && int(s.Port) == r.Port
+	})
+}
+
+// answersSRV reports whether the machine answers DNS for host with an SRV
+// record taking players to label's server on port.
+func (a *Agent) answersSRV(host, label string, port int) bool {
+	z := a.dns.answerer.Zone()
+	return z.Name == host && slices.ContainsFunc(z.Records, func(r dnszone.Record) bool {
+		return r.Type == dnszone.TypeSRV && r.Name == "_minecraft._tcp."+label && r.Port == port
+	})
+}
+
+// recheckOwnSoon brings the own domain's next look forward to within
+// ownRecheckPending: the machine now answers DNS for another zone, which its
+// parent may hand here (portFree).
+func (a *Agent) recheckOwnSoon() {
+	a.addr.mu.Lock()
+	defer a.addr.mu.Unlock()
+	if next := a.now().Add(ownRecheckPending); a.addr.recheck.After(next) {
+		a.addr.recheck = next
+	}
 }
 
 func (a *Agent) saveCheck(host string, check *api.AddressCheck) {
@@ -1031,8 +1081,11 @@ func (a *Agent) saveCheck(host string, check *api.AddressCheck) {
 			st.Check = check
 		}
 	})
+	// While the machine answers DNS for the domain but its parent doesn't
+	// hand the domain here yet, it looks again soon, as for a missing record.
 	next := ownRecheckPending
-	if check.Ready && !slices.ContainsFunc(check.Records, func(rc api.RecordCheck) bool { return rc.Own && !rc.OK }) {
+	_, answering := a.zoneSRV(host)
+	if check.Ready && !slices.ContainsFunc(check.Records, func(rc api.RecordCheck) bool { return rc.Own && !rc.OK }) && (check.PortFree || !answering) {
 		next = ownRecheckReady
 	}
 	a.addr.mu.Lock()
@@ -1130,9 +1183,13 @@ func (a *Agent) joinAddresses(st addressState, servers []joinServer) []api.JoinA
 		case api.AddressOwn:
 			if s.wild {
 				// The wildcard record points it here, and no SRV record
-				// says its port.
+				// says its port, unless the machine answers DNS for the
+				// domain with one and its parent hands the domain here.
 				j.Label, j.Automatic = s.slug, true
 				j.Address, j.OwnAddress = hostPort(s.own, s.port), s.own
+				if st.Check != nil && st.Check.PortFree && a.answersSRV(st.Host, s.slug, s.port) {
+					j.Address = s.own
+				}
 				j.Published = st.Check != nil && ownNameOK(st, s)
 				break
 			}
@@ -1330,6 +1387,7 @@ func (a *Agent) addressView() api.Address {
 			v.Certificate = certificateView(row)
 		}
 	}
+	v.Dashboard = a.dashboard443View()
 	return v
 }
 
@@ -1693,6 +1751,7 @@ func (a *Agent) addressLoop(ctx context.Context) {
 		tick = t.C
 	}
 	a.addressTick(ctx, true)
+	a.refreshDiscordDashboard()
 	for {
 		select {
 		case <-ctx.Done():
@@ -1701,6 +1760,9 @@ func (a *Agent) addressLoop(ctx context.Context) {
 		case <-a.addr.kick:
 		}
 		a.addressTick(ctx, false)
+		// The dashboard's address changes with the machine's name, and with
+		// port 443 coming and going.
+		a.refreshDiscordDashboard()
 	}
 }
 

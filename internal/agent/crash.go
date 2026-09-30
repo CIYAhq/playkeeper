@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -95,7 +96,7 @@ func (s *server) explainCrash(id string, st docker.ContainerState, start bool, s
 	in.HasBackup = latest != nil
 	d := diagnose.ExplainCrash(in)
 	c := &api.Crash{
-		At: s.now().UTC(), Start: start, Kind: string(d.Kind), Params: d.Params, Certain: d.Certain,
+		At: s.now().UTC(), Start: start, Kind: string(d.Kind), Params: d.Params, Certain: d.Certain, Repeats: d.Repeats,
 		Title: d.Title, Explanation: d.Explanation, Evidence: apiEvidence(d.Evidence), Fixes: apiActions(d.Fixes),
 		Lines: []api.CrashLine{}, RoomMB: in.RoomMB,
 	}
@@ -113,8 +114,23 @@ func (s *server) explainCrash(id string, st docker.ContainerState, start bool, s
 			if free >= 0 {
 				planFreeDisk(f, backups, free)
 			}
+		case diagnose.ActionRemoveEntity:
+			req := entityFixRequest(f.Params)
+			if validEntityRequest(req) != nil {
+				f.Params = nil
+			} else if _, err := s.planEntityFix(*sc, req); err != nil {
+				s.log.Warn("the crash helper can't take out what crashed", "server", s.id, "err", err)
+				f.Params = nil
+			}
+		case diagnose.ActionRebuildLevel:
+			world, _ := f.Params["world"].(string)
+			f.Params = s.levelRepairParams(cmp.Or(world, s.levelName(*sc)))
 		}
 	}
+	c.Fixes = slices.DeleteFunc(c.Fixes, func(f api.DiagnosisAction) bool {
+		k := diagnose.ActionKind(f.Kind)
+		return (k == diagnose.ActionRemoveEntity || k == diagnose.ActionRebuildLevel) && f.Params == nil
+	})
 	if d.Kind == diagnose.CrashPortInUse && d.Params["reason"] == nil && in.DockerError != "" {
 		if port, ok := d.Params["port"].(int); ok {
 			if name, found := s.portContainer(ctx, port); found {

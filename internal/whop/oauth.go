@@ -25,6 +25,11 @@ import (
 // username, and not their email.
 const SignInScope = "openid profile"
 
+// TokenExchange is the permission the app itself needs on Whop, on its
+// Permissions tab rather than as a scope or on an API key, before Whop
+// trades a code for its secret.
+const TokenExchange = "oauth:token_exchange"
+
 // OAuthURL is where Whop's OAuth answers for an API location: /oauth at its
 // origin, such as https://api.whop.com/oauth.
 func OAuthURL(apiURL string) (string, error) {
@@ -130,6 +135,65 @@ func (o OAuth) Exchange(ctx context.Context, code, verifier string) (Tokens, err
 		return Tokens{}, errors.New("Whop's answer had no access token")
 	}
 	return t, nil
+}
+
+// CheckClient asks Whop whether it takes the app's ID and secret, by
+// trading a code nobody was given: Whop checks the app before the code, so
+// only an app it refuses answers invalid_client, and nothing is made.
+func (o OAuth) CheckClient(ctx context.Context) error {
+	verifier, err := NewVerifier()
+	if err != nil {
+		return err
+	}
+	_, err = o.Exchange(ctx, "playkeeper-check", verifier)
+	var e *OAuthError
+	if errors.As(err, &e) && e.Code == "invalid_client" {
+		return err
+	}
+	return nil
+}
+
+// Accepts asks Whop whether the app lists RedirectURI, the way a browser
+// leaving to sign in would, without anyone signing in: Whop sends such a
+// browser on to its sign-in page (a redirect), and answers one that names a
+// redirect URI the app doesn't list with invalid_request, "redirect_uri is
+// invalid". known is false when Whop's answer says neither, or it couldn't
+// be asked.
+func (o OAuth) Accepts(ctx context.Context) (accepted, known bool) {
+	verifier, err := NewVerifier()
+	if err != nil {
+		return false, false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.AuthorizeURL("playkeeper-check", "playkeeper-check", verifier), nil)
+	if err != nil {
+		return false, false
+	}
+	req.Header.Set("Accept", "application/json")
+	if o.UserAgent != "" {
+		req.Header.Set("User-Agent", o.UserAgent)
+	}
+	hc := o.HTTP
+	if hc == nil {
+		hc = noRedirects
+	}
+	res, err := hc.Do(req)
+	if err != nil {
+		return false, false
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 4<<10))
+	switch {
+	case res.StatusCode >= 300 && res.StatusCode < 400 && res.Header.Get("Location") != "":
+		return true, true
+	case res.StatusCode == http.StatusBadRequest:
+		var e struct {
+			Description string `json:"error_description"`
+		}
+		if json.Unmarshal(b, &e) == nil && strings.Contains(e.Description, "redirect_uri") {
+			return false, true
+		}
+	}
+	return false, false
 }
 
 // UserInfo is who signed in: their Whop user id, username and name.

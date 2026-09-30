@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,155 @@ func TestRoundTripAllowlistAndSecrets(t *testing.T) {
 	}
 	if _, err := Extract(bytes.NewReader(arch), dest, DefaultLimits()); err == nil {
 		t.Fatal("extracting over an existing directory must fail")
+	}
+}
+
+// ReadFile takes one file out of an archive: nothing past the size it's
+// allowed, and a missing file is fs.ErrNotExist.
+// A move's archive carries the server's whole folder, not a backup's
+// allowlist: a plugin's world, a server type's own settings, scripts and a
+// file uploaded at the top all go. What a backup also leaves out stays: the
+// RCON password, eula.txt, server jars, libraries and logs. It needs no
+// world, as before a server's first start, and says it's whole, since a
+// restore takes an archive without a world only then.
+func TestAWholeArchiveCarriesTheWholeServerFolder(t *testing.T) {
+	src := fixtureDataDir(t)
+	write(t, src, "creative/level.dat", "a plugin's world")
+	write(t, src, "purpur.yml", "purpur: true")
+	write(t, src, "scripts/recipes.zs", "// crafttweaker")
+	write(t, src, "notes.txt", "uploaded at the top")
+	write(t, src, "crash-reports/crash-1.txt", "crash")
+	meta := Manifest{CreatedAt: time.Now().UTC(), MinecraftVersion: "26.1.2", VersionID: "paper-26.1.2", PaperBuild: 74}
+	var buf bytes.Buffer
+	m, err := CreateWhole(&buf, src, meta, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "moved")
+	if got, err := Extract(bytes.NewReader(buf.Bytes()), dst, DefaultLimits()); err != nil || !got.Whole || !m.Whole {
+		t.Fatalf("extracting the whole archive: %v, whole %v", err, got.Whole)
+	}
+	for _, want := range []string{"creative/level.dat", "purpur.yml", "scripts/recipes.zs", "notes.txt", "world/level.dat", "config/paper-global.yml", "plugins/spark/config.json", "mods/waystones-21.1.4.jar"} {
+		if _, err := os.Stat(filepath.Join(dst, want)); err != nil {
+			t.Errorf("the whole archive is missing %s", want)
+		}
+	}
+	for _, left := range []string{".rcon-cli.env", "eula.txt", "paper-26.1.2-74.jar", "libraries/lib.jar", "versions/26.1.2/server.jar", "logs/latest.log", "crash-reports/crash-1.txt", "plugins/.paper-remapped/cache.jar"} {
+		if _, err := os.Stat(filepath.Join(dst, left)); err == nil {
+			t.Errorf("the whole archive carries %s", left)
+		}
+	}
+	if props, _ := os.ReadFile(filepath.Join(dst, "server.properties")); strings.Contains(string(props), "hunter2") || strings.Contains(string(props), "abc123") {
+		t.Errorf("the whole archive carries server.properties' secrets: %s", props)
+	}
+
+	fresh := t.TempDir()
+	write(t, fresh, "server.properties", "level-name=world\n")
+	write(t, fresh, "plugins/Essentials/config.yml", "motd: hi")
+	buf.Reset()
+	if _, err := CreateWhole(&buf, fresh, meta, DefaultLimits()); err != nil {
+		t.Fatalf("a whole archive of a server that hasn't made its world: %v", err)
+	}
+	if got, err := Verify(bytes.NewReader(buf.Bytes()), DefaultLimits()); err != nil || !got.Whole {
+		t.Errorf("a whole archive with no world is refused: %v", err)
+	}
+}
+
+// A server's whole folder is measured as it arrives where the server moves,
+// without reading a file: a sparse file in full, and each of a file's links
+// apart. A folder the limits refuse is refused by the measure too, before
+// anything is sent.
+func TestAWholeFolderIsMeasuredAsItArrives(t *testing.T) {
+	src := t.TempDir()
+	write(t, src, "server.properties", "level-name=world\n")
+	write(t, src, "world/level.dat", "level")
+	sparse, err := os.Create(filepath.Join(src, "plugins-sparse.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sparse.Truncate(64 << 20); err != nil {
+		t.Fatal(err)
+	}
+	sparse.Close()
+	write(t, src, "shared/data.bin", strings.Repeat("x", 1<<20))
+	for _, link := range []string{"shared/link-1.bin", "shared/link-2.bin"} {
+		if err := os.Link(filepath.Join(src, "shared", "data.bin"), filepath.Join(src, filepath.FromSlash(link))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	size, err := MeasureWhole(src, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := int64(len("level-name=world\n")+len("level")) + 64<<20 + 3<<20; size.Bytes != want || size.Files != 6 || size.DiskBytes < want {
+		t.Errorf("the whole folder measures %+v, want %d bytes in 6 files", size, want)
+	}
+
+	lim := DefaultLimits()
+	lim.MaxFiles = 3
+	var refused *RefusedError
+	if _, err := MeasureWhole(src, lim); !errors.As(err, &refused) || !strings.Contains(err.Error(), "more than 3 files") {
+		t.Errorf("a whole folder of more files than a move carries measures: %v", err)
+	}
+
+	m, err := CreateWhole(io.Discard, src, Manifest{}, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, _ := json.MarshalIndent(m, "", "  ")
+	lim = DefaultLimits()
+	lim.MaxManifestBytes = len(manifest)
+	if _, err := MeasureWhole(src, lim); err != nil {
+		t.Errorf("a whole folder whose manifest just fits measures: %v", err)
+	}
+	lim.MaxManifestBytes = len(manifest) - 1
+	if _, err := MeasureWhole(src, lim); !errors.As(err, &refused) || !strings.Contains(err.Error(), "manifest") {
+		t.Errorf("a whole folder whose manifest a move can't carry measures: %v", err)
+	}
+}
+
+func TestReadFileTakesOneFileOutOfAnArchive(t *testing.T) {
+	arch, _ := createArchive(t, fixtureDataDir(t))
+	b, err := ReadFile(bytes.NewReader(arch), "world/level.dat", 1<<20)
+	if err != nil || string(b) != "level-data" {
+		t.Fatalf("world/level.dat: %q, %v", b, err)
+	}
+	if _, err := ReadFile(bytes.NewReader(arch), "world/level.dat_old", 1<<20); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a file the archive doesn't hold: %v", err)
+	}
+	if _, err := ReadFile(bytes.NewReader(arch), "world/level.dat", 5); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a file larger than allowed: %v", err)
+	}
+	if _, err := ReadFile(bytes.NewReader(arch[:len(arch)/2]), "world_nether/DIM-1/region/r.0.0.mca", 1<<20); err == nil {
+		t.Fatal("a cut archive gave no error")
+	}
+}
+
+// ReadFiles takes several files out in one pass and stops once it is past
+// them, so a file the archive doesn't hold costs no read to its end.
+func TestReadFilesStopsOncePastTheFiles(t *testing.T) {
+	arch, _ := createArchive(t, fixtureDataDir(t))
+	got, err := ReadFiles(bytes.NewReader(arch), []string{"world/level.dat", "world/level.dat_old", "server.properties"}, 1<<20, nil)
+	if err != nil || string(got["world/level.dat"]) != "level-data" || got["world/level.dat_old"] != nil || !strings.Contains(string(got["server.properties"]), "level-name=world") {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	cut := arch[:len(arch)*3/4]
+	if _, err := ReadFile(bytes.NewReader(cut), "world/level.dat_old", 1<<20); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the cut must be past world/level.dat, in the region file after it: %v", err)
+	}
+	if got, err := ReadFiles(bytes.NewReader(cut), []string{"world/level.dat", "world/level.dat_old"}, 1<<20, nil); err != nil || string(got["world/level.dat"]) != "level-data" {
+		t.Fatalf("the pass read on past the files it was asked for: %q, %v", got, err)
+	}
+	nether := []string{"server.properties", "world_nether/DIM-1/region/r.0.0.mca"}
+	if _, err := ReadFiles(bytes.NewReader(cut), nether, 1<<20, nil); err == nil {
+		t.Fatal("a pass to a file past the cut gave no error")
+	}
+	enough := func(read map[string][]byte) bool { return read["server.properties"] != nil }
+	if got, err := ReadFiles(bytes.NewReader(cut), nether, 1<<20, enough); err != nil || got["server.properties"] == nil {
+		t.Fatalf("a pass that had enough read on: %q, %v", got, err)
+	}
+	if _, err := ReadFiles(bytes.NewReader(arch), []string{"world/level.dat"}, 5, nil); err == nil {
+		t.Fatal("a file larger than allowed")
 	}
 }
 

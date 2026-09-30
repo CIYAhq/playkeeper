@@ -1,14 +1,15 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, get, onUnauthorized, setCsrfToken } from '@/api/client'
 import type { Me, SetupStatus } from '@/api/types'
 import { useWorkspace, WorkspaceProvider } from '@/api/workspace'
 import { Frame, FrameCard } from '@/components/app/frame'
 import { LoadBoundary } from '@/components/app/load-boundary'
-import { AppShell } from '@/components/app/shell'
+import { AppShell, loadPalette } from '@/components/app/shell'
 import { PageSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { Appear } from '@/lib/presence'
 import { navigate, useRoute, type Route } from '@/lib/router'
 import { afterSignIn, signInPath } from '@/lib/templates'
@@ -30,6 +31,7 @@ const pages = {
   recover: () => import('@/pages/recover'),
   server: () => import('@/pages/server'),
   settings: () => import('@/pages/settings'),
+  whopSeller: () => import('@/pages/whop-seller'),
 }
 const AccountPage = lazy(() => pages.account().then((m) => ({ default: m.AccountPage })))
 const DiskPage = lazy(() => pages.disk().then((m) => ({ default: m.DiskPage })))
@@ -47,9 +49,10 @@ const PackPage = lazy(() => pages.pack().then((m) => ({ default: m.PackPage })))
 const RecoverPage = lazy(() => pages.recover().then((m) => ({ default: m.RecoverPage })))
 const ServerPage = lazy(() => pages.server().then((m) => ({ default: m.ServerPage })))
 const GlobalSettingsPage = lazy(() => pages.settings().then((m) => ({ default: m.GlobalSettingsPage })))
+const WhopSellerPage = lazy(() => pages.whopSeller().then((m) => ({ default: m.WhopSellerPage })))
 
 function preloadPages() {
-  for (const load of Object.values(pages)) void load().catch(() => {})
+  for (const load of [...Object.values(pages), loadPalette]) void load().catch(() => {})
   void pages.server().then((m) => m.preloadTabs(), () => {})
 }
 
@@ -73,6 +76,9 @@ export function App() {
   // takes the address to the bare sign-in page, and forgotten once someone
   // signs in, so a later sign-out doesn't show it again.
   const [whopError, setWhopError] = useState(() => new URLSearchParams(window.location.search).get('whop') ?? undefined)
+  // The store a customer's sign-in link is for, so someone who bought from
+  // two stores signs in to that store's account.
+  const [whopStore] = useState(() => new URLSearchParams(window.location.search).get('store') ?? undefined)
 
   const signedIn = useCallback((m: Me) => {
     setCsrfToken(m.csrfToken)
@@ -87,8 +93,9 @@ export function App() {
     navigate(signInPath(window.location), true)
   }, [])
 
-  // The invite page works without an account, so it skips signing in.
-  const onJoin = route.name === 'join'
+  // The invite page works without an account, and a seller's page inside
+  // Whop with Whop's token instead, so both skip signing in.
+  const onJoin = route.name === 'join' || route.name === 'whop-seller'
 
   useEffect(() => {
     if (onJoin) return
@@ -118,6 +125,16 @@ export function App() {
       off()
     }
   }, [signedIn, signedOut, onJoin])
+
+  if (route.name === 'whop-seller') {
+    return (
+      <LoadBoundary>
+        <Suspense fallback={<Booting />}>
+          <WhopSellerPage store={route.store} />
+        </Suspense>
+      </LoadBoundary>
+    )
+  }
 
   if (route.name === 'join') {
     return (
@@ -172,6 +189,7 @@ export function App() {
               version={status?.version}
               whopSignIn={status?.whopSignIn}
               whopError={whopError}
+              whopStore={whopStore}
               onDone={(m) => {
                 signedIn(m)
                 navigate(afterSignIn(window.location), true)
@@ -194,12 +212,17 @@ export function App() {
   }
 }
 
-export function Routes({ route }: { route: Route }) {
-  const { servers } = useWorkspace()
+/** Pages about the machines themselves, which creators and customers never see. */
+const machinePages: Route['name'][] = ['machine', 'machine-settings', 'machines', 'machine-details', 'welcome']
+
+export function Routes({ route: asked }: { route: Route }) {
+  const { servers, me } = useWorkspace()
+  const hidden = !can(me, 'machines.view') && machinePages.includes(asked.name)
+  const route = useMemo<Route>(() => (hidden ? { name: 'home' } : asked), [hidden, asked])
 
   useEffect(() => {
-    if (route.name === 'login' || route.name === 'setup') navigate('/', true)
-  }, [route.name])
+    if (asked.name === 'login' || asked.name === 'setup' || hidden) navigate('/', true)
+  }, [asked.name, hidden])
 
   // 0.2.0 had one server with pages at /console, /players and /world.
   useEffect(() => {
@@ -245,6 +268,7 @@ function page(route: Route) {
     case 'welcome':
     case 'legacy':
     case 'join':
+    case 'whop-seller':
       return <HomePage />
     case 'new-server':
       return <NewServerPage key={route.machine ?? ''} machine={route.machine} />

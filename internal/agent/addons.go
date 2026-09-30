@@ -51,9 +51,11 @@ const (
 func (a *Agent) lib() *addons.Library { return a.opts.Addons }
 
 // parseAddonKey checks an add-on's source and project id from a request.
+// Playkeeper's own plugins arrive with templates, and are then managed like
+// any other add-on.
 func parseAddonKey(source, project string) (addons.Key, error) {
 	switch addons.Source(source) {
-	case addons.Modrinth, addons.Hangar:
+	case addons.Modrinth, addons.Hangar, addons.Playkeeper:
 	default:
 		return addons.Key{}, errInvalid("Add-ons come from Modrinth or Hangar.")
 	}
@@ -742,7 +744,7 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 			out.Changed, out.Missing = p.Changed, p.Missing
 		}
 		l := d.Latest
-		out.UpdateAvailable = l != nil && l.ExternalURL == "" && l.VersionID != rec.VersionID && (rec.Published.IsZero() || l.Published.After(rec.Published))
+		out.UpdateAvailable = l != nil && l.ExternalURL == "" && addons.IsUpdate(*rec, *l)
 	case d.Latest != nil && d.Latest.ExternalURL == "":
 		p, err := lib.PlanInstall(r.Context(), srv, installed, addons.InstallRequest{Source: d.Card.Source, Project: d.Card.ProjectID})
 		if err != nil {
@@ -1205,7 +1207,8 @@ func (s *server) removeAddonRecords(drop []addons.Key) (int, error) {
 }
 
 // hAddonAdopt lets Playkeeper manage a file added by hand that Modrinth
-// recognizes by its hash: from now on it can update and remove it.
+// recognizes by its hash, or that is one of Playkeeper's own plugins: from
+// now on it can update and remove it.
 func (s *server) hAddonAdopt(w http.ResponseWriter, r *http.Request) {
 	var req api.AddonAdoptRequest
 	if err := decode(r, &req); err != nil {

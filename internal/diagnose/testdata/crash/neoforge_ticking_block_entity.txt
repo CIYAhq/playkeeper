@@ -1,0 +1,39 @@
+[17:45:25] [RCON Listener #1/INFO] [minecraft/GenericThread]: Thread RCON Client /172.18.0.1 started
+[17:45:31] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage (world): All chunks are saved
+[17:45:31] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved
+[17:45:31] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
+[17:45:31] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage: All dimensions are saved
+[17:45:31] [Server thread/ERROR] [minecraft/MinecraftServer]: Encountered an unexpected exception
+net.minecraft.ReportedException: Ticking block entity
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1144) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:993) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.dedicated.DedicatedServer.tickServer(DedicatedServer.java:312) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.processPacketsAndTick(MinecraftServer.java:1025) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:766) [minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:299) [minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at java.base/java.lang.Thread.run(Unknown Source) [?:?] {}
+Caused by: java.lang.NullPointerException: Test error: this hopper is set to fail when it ticks
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.block.entity.HopperBlockEntity.pushItemsTick(HopperBlockEntity.java) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.chunk.LevelChunk$BoundTickingBlockEntity.tick(LevelChunk.java:774) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.chunk.LevelChunk$RebindableTickingBlockEntityWrapper.tick(LevelChunk.java:850) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.Level.tickBlockEntities(Level.java:528) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:472) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1140) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	... 6 more
+[17:45:31] [Server thread/FATAL] [ne.ne.ne.co.NeoForgeMod/]: Preparing crash report with UUID a3fe7b8d-279e-4d34-bee6-15fe57d7ba61
+[17:45:31] [Server thread/ERROR] [minecraft/MinecraftServer]: This crash report has been saved to: /data/crash-reports/crash-2026-09-29_17.45.31-server.txt
+[17:45:31] [Server thread/INFO] [minecraft/MinecraftServer]: Stopping server
+[17:45:31] [Server thread/INFO] [minecraft/MinecraftServer]: Saving players
+[17:45:31] [Server thread/INFO] [minecraft/MinecraftServer]: Saving worlds
+[17:45:31] [Server thread/INFO] [minecraft/MinecraftServer]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld
+[17:45:32] [Server thread/INFO] [minecraft/MinecraftServer]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_end
+[17:45:32] [Server thread/INFO] [minecraft/MinecraftServer]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_nether
+[17:45:32] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage (world): All chunks are saved
+[17:45:32] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved
+[17:45:32] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
+[17:45:32] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage: All dimensions are saved
+[17:45:32] [Server thread/INFO] [minecraft/GenericThread]: Thread RCON Listener stopped
+[17:45:32] [RCON Client /172.18.0.1 #2/INFO] [minecraft/RconClient]: Thread RCON Client /172.18.0.1 shutting down
+[17:45:32] [Server thread/INFO] [minecraft/GenericThread]: Thread RCON Client /172.18.0.1 stopped
+[17:45:32] [main/INFO] [ne.ne.fm.lo.FMLLoader/]: Closing FML Loader 3702e019
+[17:45:32] [main/INFO] [ne.ne.fm.ModLoader/]: Clearing ModLoader

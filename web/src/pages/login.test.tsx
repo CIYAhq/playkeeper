@@ -109,7 +109,7 @@ describe('sign-in page', () => {
 })
 
 describe('Sign in with Whop', () => {
-  async function show(props: { whopSignIn?: boolean; whopError?: string }) {
+  async function show(props: { whopSignIn?: boolean; whopError?: string; whopStore?: string }) {
     const r = createRoot(document.body.appendChild(document.createElement('div')))
     root = r
     await act(async () => r.render(<LoginPage {...props} onDone={vi.fn()} />))
@@ -128,9 +128,15 @@ describe('Sign in with Whop', () => {
     expect(whopLink()).toBeUndefined()
   })
 
+  it('signs in for the store a customer’s link names', async () => {
+    await show({ whopSignIn: true, whopStore: 'biz_pip&x=1' })
+    expect(whopLink()?.getAttribute('href')).toBe('/api/public/whop/signin/start?store=biz_pip%26x%3D1')
+  })
+
   it('says why a sign-in with Whop came back, and says little about a code it doesn’t know', async () => {
     for (const [code, words] of [
       ['no_account', 'That Whop account has no plan here.'],
+      ['stores', 'Sign in from the link your store sent you on Whop'],
       ['starting', 'Your account is being set up. Try again in a minute.'],
       ['paused', 'If your plan ended, renew it on Whop.'],
       ['suspended', 'This account is suspended. Message us on Whop if you think that’s a mistake.'],

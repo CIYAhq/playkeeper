@@ -262,7 +262,7 @@ func TestADashboardTakenOverStopsBeforeItActsAgain(t *testing.T) {
 	if got := core.got(); len(got) != 0 || len(f.stockWrites()) != 0 {
 		t.Fatalf("a dashboard taken over still acted: calls %q, stock written %q", got, f.stockWrites())
 	}
-	if !a.srv.whopTakenOver() {
+	if !a.srv.whopTakenOver(testStore) {
 		t.Fatal("the first dashboard didn't notice it was taken over")
 	}
 }
@@ -290,7 +290,7 @@ func TestTakingAStoreOverNeedsAnAddress(t *testing.T) {
 		t.Fatalf("a dashboard without an address took the store's marks off: it names %q", got)
 	}
 	a.reconcile()
-	if !a.srv.whopTakenOver() {
+	if !a.srv.whopTakenOver(testStore) {
 		t.Fatal("a dashboard without an address didn't notice it was taken over")
 	}
 }

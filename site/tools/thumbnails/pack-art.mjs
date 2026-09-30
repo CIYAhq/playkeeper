@@ -1,8 +1,8 @@
-// Pictures for a modpack template whose server the capture bot can't join,
-// such as a NeoForge pack or one whose mods every player must have: made of
-// the pack's official icon, from Modrinth, or from CurseForge through a
-// running Playkeeper (--socket), then written for the site by
-// site/tools/shots.py like the rendered ones.
+// Pictures for a modpack template whose saved world doesn't make one: its
+// spawn is underground, or without its mods' blocks the world doesn't look
+// like the pack. Made of the pack's official icon, from Modrinth, or from
+// CurseForge through a running Playkeeper (--socket), then written for the
+// site by site/tools/shots.py like the rendered ones.
 //
 //   node pack-art.mjs <captures-dir> <template-id>... [--socket /tmp/pk/agent.sock] [--extra DIR]
 import { resolve } from 'node:path'

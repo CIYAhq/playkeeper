@@ -42,6 +42,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/portshare"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
+	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
 type Options struct {
@@ -71,6 +72,10 @@ type Options struct {
 	// dashboard was opened at a loopback address (default: HostIPs). The
 	// installed panel's unit leaves out AF_NETLINK, so there it finds none.
 	HostIPs func() []net.IP
+	// SlugLetters is what the slug of a server new to the dashboard gets
+	// after it when another server shows that slug, on the try'th go
+	// (default: a few random letters and digits; see stableSlugs).
+	SlugLetters func(try int) string
 }
 
 type Server struct {
@@ -135,9 +140,19 @@ type Server struct {
 	// "METHOD pattern", once Routes has built it: every one must take it.
 	hostStamped sync.Map
 	// whopMu serialises changes to Sell on Whop (see whop.go), and whopKick
-	// has its reconciler look now (see whop_customers.go).
-	whopMu   sync.Mutex
-	whopKick chan struct{}
+	// has its reconciler look now (see whop_customers.go): at the stores in
+	// whopKicked, or at every store when whopKickAll is set.
+	whopMu      sync.Mutex
+	whopKick    chan struct{}
+	whopKickMu  sync.Mutex
+	whopKicked  map[string]bool
+	whopKickAll bool
+	// whopTokens checks the tokens Whop's proxy adds to a seller's page and
+	// its calls (see whop_sellerpage.go).
+	whopTokens *whop.UserTokens
+	// redirects are Whop's last answers on the redirect URIs Sign in with
+	// Whop may send (see signInRedirect).
+	redirects redirectChecks
 	// hosting is the hosting core billing providers call, and notifier what
 	// the core calls to tell customers something (see hosting.go). sales is
 	// what the fleet tells how many more of each plan fit (see whop_stock.go).
@@ -146,11 +161,23 @@ type Server struct {
 	sales    saleStock
 	// hetznerMu serialises the Hetzner stock watch's changes and checks,
 	// so a check never writes over a token the owner just replaced (see
-	// hetzner.go).
-	hetznerMu sync.Mutex
+	// hetzner.go), and guards confirmFailed, when each joined machine
+	// found in the owner's Hetzner project last couldn't be confirmed (see
+	// autoconfirm.go).
+	hetznerMu     sync.Mutex
+	confirmFailed map[string]time.Time
 	// placeMu serialises placing customers, so two never get the same room
-	// (see placement.go).
-	placeMu sync.Mutex
+	// (see placement.go), roomKick has the customers waiting for room
+	// placed now (see machinecustomers.go), and saleRoomKick has the plans'
+	// room worked out again (see saleroom.go).
+	placeMu      sync.Mutex
+	roomKick     chan struct{}
+	saleRoomKick chan struct{}
+	// zoneAddrs are the addresses without a port of joined machines'
+	// servers, and joinedZone lists those servers for the dashboard's zone
+	// (see fleetdns.go); tests stand in for it.
+	zoneAddrs  zoneAddresses
+	joinedZone func(ctx context.Context) ([]zoneServer, error)
 	// customersMu serialises what the hosting core does for customers, so
 	// two starts never take the same name (see customers.go).
 	customersMu sync.Mutex
@@ -162,8 +189,23 @@ type Server struct {
 		sync.Mutex
 		at     time.Time
 		used   map[int64]int64
+		usedOn map[string]map[int64]int64
 		failed map[string]string
+		// recounts counts the counts asked for at once (recountDisk).
+		recounts int
 	}
+	// diskSending is held while a machine is sent its disk limits, and
+	// by a move from sending the machine a server goes to its limits
+	// until the server's requests go there (switchTo).
+	diskSending sync.Mutex
+	// dnsMu serialises sending the dashboard's machine its DNS zone with
+	// the owner's switch (see dnsanswers.go).
+	dnsMu sync.Mutex
+	// moves are the customers whose servers are being moved now, which
+	// runs until Close ends movesCtx (see moves.go).
+	moves       moveRuns
+	movesCtx    context.Context
+	movesCancel context.CancelFunc
 }
 
 func New(opts Options) (*Server, error) {
@@ -210,24 +252,30 @@ func New(opts Options) (*Server, error) {
 	}
 	s := &Server{
 		cfg: opts.Config, opts: opts, db: db, log: opts.Logger, now: opts.Now, agent: opts.Agent, static: opts.Static,
-		loginIP:     newLimiter(10, 15*time.Minute, opts.Now),
-		control:     newLimiter(30, time.Minute, opts.Now),
-		previews:    newLimiter(120, time.Minute, opts.Now),
-		uploads:     newLimiter(1200, time.Minute, opts.Now),
-		locks:       newLockout(opts.Now),
-		loginUser:   newLimiter(30, time.Hour, opts.Now),
-		heads:       newHeadFetcher(src, mc),
-		mojang:      mc,
-		joinGuard:   invites.NewGuard(invites.GuardLimits{}, opts.Now),
-		auditMaxAge: 365 * 24 * time.Hour,
-		maxAudit:    100_000,
-		whopKick:    make(chan struct{}, 1),
-		diskKick:    make(chan struct{}, 1),
+		loginIP:      newLimiter(10, 15*time.Minute, opts.Now),
+		control:      newLimiter(30, time.Minute, opts.Now),
+		previews:     newLimiter(120, time.Minute, opts.Now),
+		uploads:      newLimiter(1200, time.Minute, opts.Now),
+		locks:        newLockout(opts.Now),
+		loginUser:    newLimiter(30, time.Hour, opts.Now),
+		heads:        newHeadFetcher(src, mc),
+		mojang:       mc,
+		joinGuard:    invites.NewGuard(invites.GuardLimits{}, opts.Now),
+		auditMaxAge:  365 * 24 * time.Hour,
+		maxAudit:     100_000,
+		whopKick:     make(chan struct{}, 1),
+		diskKick:     make(chan struct{}, 1),
+		roomKick:     make(chan struct{}, 1),
+		saleRoomKick: make(chan struct{}, 1),
 	}
+	s.movesCtx, s.movesCancel = context.WithCancel(context.Background())
+	jwks, _ := whop.JWKSURL(opts.Config.WhopAPIURL)
+	s.whopTokens = &whop.UserTokens{URL: jwks}
 	s.hosting = customerCore{s: s}
 	s.notifier = billingNotifier{s: s}
 	s.sales = whopStock{s: s}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
+	s.joinedZone = s.joinedZoneServers
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
 	s.page = s.newPageSite()
 	if err := s.ensureWorkspace(); err != nil {
@@ -251,6 +299,7 @@ func New(opts Options) (*Server, error) {
 }
 
 func (s *Server) Close() error {
+	s.moves.stop(s.movesCancel)
 	s.mcpHTTP.Close()
 	if s.hub != nil {
 		s.hub.Close()
@@ -359,22 +408,29 @@ func (s *Server) Routes() []Route {
 		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
 		view("/api/projects", s.hProjects),
 		view("/api/machines", s.hMachines),
-		view("/api/machines/link", s.hMachineLink),
+		{"GET", "/api/machines/link", needSession, actViewMachines, s.hMachineLink},
 		{"POST", "/api/join-codes", needSessionCSRF, actManageMachine, s.hJoinCodeCreate},
 		{"DELETE", "/api/join-codes/{cid}", needSessionCSRF, actManageMachine, s.hJoinCodeCancel},
-		view("/api/machines/{mid}", s.hMachine),
+		{"GET", "/api/machines/{mid}", needSession, actViewMachines, s.hMachine},
 		{"DELETE", "/api/machines/{mid}", needSessionCSRF, actManageMachine, s.hMachineRemove},
-		view("/api/machines/{mid}/events", s.hMachineEvents),
-		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
+		{"GET", "/api/machines/{mid}/events", needSession, actViewMachines, s.hMachineEvents},
+		{"GET", "/api/machines/{mid}/preflight", needSession, actViewMachines, s.machineProxy("GET", "/v1/preflight")},
 		view("/api/machines/{mid}/catalog", s.hCatalog),
-		view("/api/machines/{mid}/activity", s.hMachineActivity),
+		{"GET", "/api/machines/{mid}/activity", needSession, actViewMachines, s.hMachineActivity},
 		view("/api/activity", s.hActivity),
-		mg("/api/machines/{mid}/update", "/v1/update"),
+		// Browsers only read what the machine's last check found; the agent
+		// checks by itself, or when Check for updates is pressed.
+		{"GET", "/api/machines/{mid}/update", needSession, actViewMachines, s.machineProxy("GET", "/v1/update")},
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
+		mm("PUT", "/api/machines/{mid}/update/auto", "/v1/update/auto", actManageMachine),
 		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},
 		// Usage stats: the switch sets them on every machine of the dashboard.
-		view("/api/usage-stats", s.hUsageStats),
+		{"GET", "/api/usage-stats", needSession, actViewMachines, s.hUsageStats},
 		{"PUT", "/api/usage-stats", needSessionCSRF, actManageMachine, s.hUsageStatsSet},
+		// Port-free addresses: the dashboard's machine answers DNS for its
+		// own domain.
+		{"GET", "/api/dns-answers", needSession, actManageMachine, s.hDNSAnswers},
+		{"PUT", "/api/dns-answers", needSessionCSRF, actManageMachine, s.hDNSAnswersSet},
 		ag("/api/machines/{mid}/address", "/v1/address"),
 		{"GET", "/api/machines/{mid}/address/available", needSession, actManageMachine, s.machineProxy("GET", "/v1/address/available")},
 		ag("/api/machines/{mid}/address/plan", "/v1/address/plan"),
@@ -385,18 +441,27 @@ func (s *Server) Routes() []Route {
 		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
 		am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),
 		{"POST", "/api/machines/{mid}/network-guard", needSessionCSRF, actManageMachine, s.hNetworkGuard},
+		{"PUT", "/api/machines/{mid}/customers", needSessionCSRF, actTakeCustomers, s.hMachineCustomers},
+		{"GET", "/api/machines/{mid}/customers", needSession, actTakeCustomers, s.hMachineCustomerList},
+		{"POST", "/api/customers/{uid}/move", needSessionCSRF, actTakeCustomers, s.hCustomerMove},
+		{"POST", "/api/customers/{uid}/suspension", needSessionCSRF, actSuspendCustomers, s.hCustomerSuspend},
+		{"DELETE", "/api/customers/{uid}/suspension", needSessionCSRF, actSuspendCustomers, s.hCustomerUnsuspend},
+		{"GET", "/api/whop/stores", needSession, actSuspendCustomers, s.hWhopStores},
+		{"POST", "/api/whop/stores/{store}/suspension", needSessionCSRF, actSuspendCustomers, s.hWhopStoreSuspend},
+		{"DELETE", "/api/whop/stores/{store}/suspension", needSessionCSRF, actSuspendCustomers, s.hWhopStoreUnsuspend},
+		{"GET", "/api/machines/room", needSession, actTakeCustomers, s.hSaleRoom},
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
-		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
+		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateOwnServers, s.hRestoreUploadNew},
 		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}", nil)},
 		{"POST", "/api/machines/{mid}/restore/{rid}/apply", needSessionCSRF, actRestore, s.restoreProxy("POST", "/v1/restore/{rid}/apply", s.claimCreatedBy)},
 		{"DELETE", "/api/machines/{mid}/restore/{rid}", needSessionCSRF, actRestore, s.restoreProxy("DELETE", "/v1/restore/{rid}", nil)},
 		view("/api/machines/{mid}/operations/{op}", s.hOperation),
 		view("/api/servers", s.hServers),
-		sg("/api/servers/{id}", "/v1/servers/{id}"),
-		smAs(actRunServers, "POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
-		smAs(actRunServers, "POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
-		smAs(actRunServers, "POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
+		view("/api/servers/{id}", s.hServer),
+		{"POST", "/api/servers/{id}/start", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/start")},
+		{"POST", "/api/servers/{id}/stop", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/stop")},
+		{"POST", "/api/servers/{id}/restart", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/restart")},
 		{"POST", "/api/servers/{id}/settings", needSessionCSRF, actManageServers, s.hServerSettings},
 		sm("POST", "/api/servers/{id}/version", "/v1/servers/{id}/version"),
 		{"POST", "/api/servers/{id}/delete", needSessionCSRF, actCreateOwnServers, s.hDeleteServer},
@@ -416,6 +481,8 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/memory", "/v1/servers/{id}/memory"),
 		sm("POST", "/api/servers/{id}/saving/resume", "/v1/servers/{id}/saving/resume"),
 		sm("POST", "/api/servers/{id}/addons/remove-file", "/v1/servers/{id}/addons/remove-file"),
+		smAs(actRestore, "POST", "/api/servers/{id}/world/rebuild-level", "/v1/servers/{id}/world/rebuild-level"),
+		smAs(actRestore, "POST", "/api/servers/{id}/world/remove-entity", "/v1/servers/{id}/world/remove-entity"),
 		sg("/api/servers/{id}/players/sessions", "/v1/servers/{id}/players/sessions"),
 		sg("/api/servers/{id}/players/summary", "/v1/servers/{id}/players/summary"),
 		sg("/api/servers/{id}/events", "/v1/servers/{id}/events"),
@@ -424,11 +491,13 @@ func (s *Server) Routes() []Route {
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/backups", "/v1/servers/{id}/backups"),
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/backups/{bid}/verify", "/v1/servers/{id}/backups/{bid}/verify"),
 		{"GET", "/api/servers/{id}/backups/{bid}/download", needSession, actMakeBackups, s.hDownload},
+		{"GET", "/api/final-backups", needSession, actMakeBackups, s.hFinalBackups},
+		{"GET", "/api/final-backups/{kid}/download", needSession, actMakeBackups, s.hFinalBackupDownload},
 		sm("DELETE", "/api/servers/{id}/backups/{bid}", "/v1/servers/{id}/backups/{bid}"),
 		smAs(actRestore, "POST", "/api/servers/{id}/backups/{bid}/restore", "/v1/servers/{id}/backups/{bid}/restore"),
 		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actRestore, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
 		view("/api/players/{name}/head", s.hHead),
-		view("/api/server", s.hLegacyStatus),
+		{"GET", "/api/server", needSession, actViewMachines, s.hLegacyStatus},
 		// Follow-ups after 0.3.0.
 		sg("/api/servers/{id}/world-copies", "/v1/servers/{id}/world-copies"),
 		sm("DELETE", "/api/servers/{id}/world-copies/{name}", "/v1/servers/{id}/world-copies/{name}"),
@@ -517,7 +586,7 @@ func (s *Server) Routes() []Route {
 		mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),
 		mm("POST", "/api/machines/{mid}/offsite/recover/restore", "/v1/offsite/recover/restore", actRecoverBackups),
 		// The Disk space page lists every server's use of the disk.
-		{"GET", "/api/machines/{mid}/disk", needSession, actView, everyServer(s.machineProxy("GET", "/v1/disk"))},
+		{"GET", "/api/machines/{mid}/disk", needSession, actViewMachines, everyServer(s.machineProxy("GET", "/v1/disk"))},
 		mm("POST", "/api/machines/{mid}/disk/clean", "/v1/disk/clean", actManageMachine),
 	}
 	// Wave 5: invite links and join requests, player profiles, the team
@@ -547,6 +616,12 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/whop", needSessionCSRF, actSellOnWhop, s.hWhopDisconnect},
 		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
 		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
+		{"PUT", "/api/whop/app", needSessionCSRF, actSellOnWhop, s.hWhopAppSet},
+		// The dashboard on the standard HTTPS port (dashboard443.go): it
+		// changes the dashboard's address, like the machine's address does.
+		{"GET", "/api/dashboard-port", needSession, actViewMachines, s.hDashboardPort},
+		{"PUT", "/api/dashboard-port", needSessionCSRF, actManageMachine, s.hDashboardPortSet},
+		{"POST", "/api/dashboard-port/retry", needSessionCSRF, actManageMachine, s.hDashboardPortRetry},
 		// Hetzner stock (hetzner.go): the owner's alone.
 		{"GET", "/api/hetzner", needSession, actWatchStock, s.hHetzner},
 		{"PUT", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerSet},
@@ -570,7 +645,7 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/map/share", needSessionCSRF, actManageServers, s.sharing("/v1/servers/{id}/map/share", s.recordMapLink)},
 		sm("POST", "/api/servers/{id}/map/restart-later", "/v1/servers/{id}/map/restart-later"),
 		sm("POST", "/api/servers/{id}/world-imports", "/v1/servers/{id}/world-imports"),
-		mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),
+		{"POST", "/api/machines/{mid}/world-imports", needSessionCSRF, actCreateOwnServers, s.hWorldImportOpen},
 		{"GET", "/api/machines/{mid}/world-imports/{imp}", needSession, actView, s.importGuard(actView, s.machineProxy("GET", "/v1/world-imports/{imp}"))},
 		{"DELETE", "/api/machines/{mid}/world-imports/{imp}", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.machineProxy("DELETE", "/v1/world-imports/{imp}"))},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/files", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.machineProxy("POST", "/v1/world-imports/{imp}/files"))},
@@ -578,7 +653,7 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/inspect", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/inspect"))},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/preview", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/preview"))},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/apply", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/apply"))},
-		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actCreateServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actCreateOwnServers, s.importGuard(actCreateServers, s.hWorldImportCreate)},
 	}...)
 	// The map's area: anyone who sees the server sees it; choosing one, which
 	// pre-generates land, needs the rights to change the map.
@@ -602,7 +677,8 @@ func (s *Server) Routes() []Route {
 		{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("PUT", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
 		{"DELETE", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("DELETE", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
 	}...)
-	return append(routes, s.fileRoutes()...)
+	routes = append(routes, s.fileRoutes()...)
+	return append(routes, s.aiKeyRoutes()...)
 }
 
 // Handler returns the complete panel handler (API, health check and UI).
@@ -682,7 +758,7 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				return
 			}
 			sess.Access = acct
-			if err := permit(acct, rt.Act, r.PathValue("id")); err != nil {
+			if err := s.permitOn(acct, rt.Act, r.PathValue("id")); err != nil {
 				switch rt.Act {
 				case actRecoveryKey:
 					s.audit(sess.User.Username, "offsite.recovery_key", r.PathValue("id"), "refused", "not allowed to hold backup keys")
@@ -691,6 +767,19 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				}
 				writeRefusal(w, err)
 				return
+			}
+			if acct.hidesMachines() {
+				// A customer waiting for room has no machine yet, and is
+				// told so whichever one the path names.
+				if mid := r.PathValue("mid"); mid != "" && !s.machineShown(r.Context(), acct, mid) {
+					if err := s.waitingRefusal(r.Context(), acct); err != nil {
+						writeRefusal(w, err)
+					} else {
+						writeErr(w, http.StatusNotFound, api.CodeNotFound, "Machine not found.", "")
+					}
+					return
+				}
+				w = &blindWriter{ResponseWriter: w}
 			}
 			rt.handler(w, r, &sess)
 		default:
@@ -725,12 +814,21 @@ func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 }
 
+// whopSellerCSP is a seller's page's Content-Security-Policy, which Whop
+// shows inside its own frames (see whop_sellerpage.go). No site may frame
+// any other page of the dashboard.
+const whopSellerCSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors https://whop.com https://*.whop.com; base-uri 'none'; form-action 'self'"
+
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		if strings.HasPrefix(r.URL.Path, whopSellerPage) {
+			h.Set("Content-Security-Policy", whopSellerCSP)
+		} else {
+			h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"+s.reachSource()+"; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+			h.Set("X-Frame-Options", "DENY")
+		}
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
@@ -857,7 +955,13 @@ func (s *Server) hSetupStatus(w http.ResponseWriter, r *http.Request, _ *session
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: n == 0, Machine: s.localMachineName(), Version: version.Version, WhopSignIn: n > 0 && s.whopSignInOn()})
+	st := api.SetupStatus{NeedsSetup: n == 0, Version: version.Version, WhopSignIn: n > 0 && s.whopSignInOn()}
+	// Customers sign in where Sign in with Whop is, and never see a
+	// machine's name.
+	if !st.WhopSignIn {
+		st.Machine = s.localMachineName()
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 type credentials struct {
@@ -995,9 +1099,20 @@ type accessBody struct {
 	NeedsTwoFactor       bool `json:"needsTwoFactor,omitempty"`
 	AwaitingConfirmation bool `json:"awaitingConfirmation,omitempty"`
 	// WaitingForRoom is set for a customer whose server is being set up,
-	// waiting for room on a machine (see readyserver.go).
-	WaitingForRoom bool     `json:"waitingForRoom,omitempty"`
-	Can            []action `json:"can"`
+	// waiting for room on a machine (see readyserver.go), WaitingAgain too
+	// once they've lost the machine they had, and Home for a creator is the
+	// machine their servers go on (homeMachine).
+	WaitingForRoom bool   `json:"waitingForRoom,omitempty"`
+	WaitingAgain   bool   `json:"waitingAgain,omitempty"`
+	Home           string `json:"home,omitempty"`
+	// PausedUntil is set for a customer whose plan ended: when their servers
+	// are deleted unless they renew (see pausing.go). ServersDeleted is set
+	// once they are, and FinalBackups for a customer, paused or renewed,
+	// whose deleted servers' final backups a machine keeps (see deletion.go).
+	PausedUntil    *time.Time `json:"pausedUntil,omitempty"`
+	ServersDeleted bool       `json:"serversDeleted,omitempty"`
+	FinalBackups   bool       `json:"finalBackups,omitempty"`
+	Can            []action   `json:"can"`
 }
 
 func (s *Server) meBody(sess session) map[string]any {
@@ -1010,7 +1125,9 @@ func (s *Server) meBody(sess session) map[string]any {
 		"csrfToken": sess.CSRF,
 		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
-			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), Can: a.can()},
+			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), WaitingAgain: s.waitingAgain(context.Background(), a),
+			Home: s.creatorHome(a), PausedUntil: s.pausedUntil(a),
+			ServersDeleted: s.serversDeleted(a), FinalBackups: s.hasFinalBackups(a), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
 		"version":            version.Version,
@@ -1214,6 +1331,9 @@ func agentPath(pattern string, r *http.Request) string {
 
 func (s *Server) agentFailure(w http.ResponseWriter, err error) {
 	status, body := failureOf(err)
+	if blind(w) {
+		body = blindFailure(err, body)
+	}
 	writeJSON(w, status, body)
 }
 
@@ -1297,8 +1417,11 @@ func (s *Server) dashboardAddress(next func(http.ResponseWriter, *http.Request, 
 }
 
 // claimCreatedBy records the server a machine route just created on a
-// joined machine.
-func (s *Server) claimCreatedBy(m machine, _ *session, raw json.RawMessage) { s.claimCreated(m, raw) }
+// joined machine, whose memory the plans' room no longer has.
+func (s *Server) claimCreatedBy(m machine, _ *session, raw json.RawMessage) {
+	s.claimCreated(m, raw)
+	s.kickSaleRoom()
+}
 
 // recordUpdate puts a dashboard-started update in a joined machine's events.
 func (s *Server) recordUpdate(m machine, sess *session, _ json.RawMessage) {
@@ -1471,7 +1594,13 @@ func (s *Server) hDownload(w http.ResponseWriter, r *http.Request, sess *session
 	if !ok {
 		return
 	}
-	resp, err := m.agent.Raw(r.Context(), "GET", agentPath("/v1/servers/{id}/backups/{bid}/download", r), nil, nil, map[string]string{"X-Playkeeper-Actor": sess.User.Username}, true)
+	s.relayArchive(w, r, m, agentPath("/v1/servers/{id}/backups/{bid}/download", r), bid, sess.User.Username)
+}
+
+// relayArchive streams the backup archive bid from m's agent path as a
+// download the panel describes itself (see hDownload).
+func (s *Server) relayArchive(w http.ResponseWriter, r *http.Request, m machine, path, bid, actor string) {
+	resp, err := m.agent.Raw(r.Context(), "GET", path, nil, nil, map[string]string{"X-Playkeeper-Actor": actor}, true)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
@@ -1685,7 +1814,12 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runWhop(ctx)
 	go s.runStock(ctx)
 	go s.runDiskLimits(ctx)
+	go s.runDNSAnswers(ctx)
 	go s.runCustomers(ctx)
+	go s.runRoom(ctx)
+	go s.runSaleRoom(ctx)
+	go s.runLapsedCustomers(ctx)
+	go s.runMoves(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }
@@ -1727,7 +1861,7 @@ func (s *Server) serve(ctx context.Context, ln net.Listener, tc *tls.Config) err
 func (s *Server) httpServer(addr string, tc *tls.Config) *http.Server {
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           s.Handler(),
+		Handler:           s.panelPortHandler(),
 		TLSConfig:         tc,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,

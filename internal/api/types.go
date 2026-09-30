@@ -149,10 +149,13 @@ type RestoreUnsettled struct {
 type Crash struct {
 	At time.Time `json:"at"`
 	// Start: the server did not come up, rather than stopping while it ran.
-	Start       bool                `json:"start"`
-	Kind        string              `json:"kind"`
-	Params      map[string]any      `json:"params,omitempty"`
-	Certain     bool                `json:"certain"`
+	Start   bool           `json:"start"`
+	Kind    string         `json:"kind"`
+	Params  map[string]any `json:"params,omitempty"`
+	Certain bool           `json:"certain"`
+	// Repeats: starting again can only crash it the same way, so Playkeeper
+	// didn't restart it.
+	Repeats     bool                `json:"repeats,omitempty"`
 	Title       string              `json:"title"`
 	Explanation string              `json:"explanation"`
 	Evidence    []DiagnosisEvidence `json:"evidence"`
@@ -176,6 +179,41 @@ type RemoveAddonRequest struct {
 	Actor string `json:"actor"`
 	Jar   string `json:"jar"`
 	Start bool   `json:"start,omitempty"`
+}
+
+// RebuildLevelRequest makes a new level.dat for a stopped server's world
+// whose level.dat and level.dat_old can't be read: the world is backed up,
+// the world's seed, when Playkeeper finds it, goes into server.properties,
+// and both files are deleted, so Minecraft makes a new one. World names the
+// world folder; empty is the server's own world. SeedFrom is where the
+// owner was told the seed comes from: when that keeps the seed and
+// Playkeeper can't find it now, nothing changes. Start starts the server
+// afterwards, and then checks it kept the seed.
+type RebuildLevelRequest struct {
+	Actor    string  `json:"actor"`
+	World    string  `json:"world,omitempty"`
+	SeedFrom *string `json:"seedFrom,omitempty"`
+	Start    bool    `json:"start,omitempty"`
+}
+
+// RemoveEntityRequest takes one entity, or one block entity's data, out of a
+// stopped server's world, the crash helper's fix for one that throws each
+// time the game ticks it. What is "entity" or "block_entity"; Type is its id,
+// like minecraft:minecart; X, Y and Z are its block, in Dimension; Pos, for an
+// entity, is its exact position as a crash report gives it, and Level the
+// world's name there. The world is backed up first. Start starts the server
+// afterwards.
+type RemoveEntityRequest struct {
+	Actor     string    `json:"actor"`
+	What      string    `json:"what"`
+	Type      string    `json:"type"`
+	Dimension string    `json:"dimension"`
+	Level     string    `json:"level,omitempty"`
+	X         int       `json:"x"`
+	Y         int       `json:"y"`
+	Z         int       `json:"z"`
+	Pos       []float64 `json:"pos,omitempty"`
+	Start     bool      `json:"start,omitempty"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.
@@ -273,6 +311,16 @@ type UpdateInfo struct {
 	CheckError  string        `json:"checkError,omitempty"`
 	Installing  string        `json:"installing,omitempty"`
 	LastResult  *UpdateResult `json:"lastResult,omitempty"`
+	// AutoCheck is Settings' Check for updates automatically: whether the
+	// agent looks for a new release by itself, when it starts and about
+	// every half hour (0.4.9).
+	AutoCheck bool `json:"autoCheck"`
+}
+
+// UpdateAutoRequest turns the automatic check for a new release on or off.
+type UpdateAutoRequest struct {
+	On    bool   `json:"on"`
+	Actor string `json:"actor"`
 }
 
 // UpdateResult is how the last update ended: updated, rolled_back (the new
@@ -432,7 +480,12 @@ type ServerConfig struct {
 
 type CreateServerRequest struct {
 	// Name is what Playkeeper calls the server; empty picks "My server".
-	Name       string `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Account is the disk limit of the account the server is one of, a
+	// customer's, whose servers' names its must differ from; empty for the
+	// machine's own servers, whose names differ from each other's. Only the
+	// dashboard sets it.
+	Account    string `json:"account,omitempty"`
 	Type       string `json:"type,omitempty"`
 	AcceptEULA bool   `json:"acceptEula"`
 	VersionID  string `json:"versionId"`
@@ -487,6 +540,32 @@ type DeleteServerRequest struct {
 	// recovery_key_not_saved asked, or while that can't be told, as
 	// recovery_key_unknown asked.
 	ForgetKey bool `json:"forgetKey,omitempty"`
+	// KeepFinalBackupDays, from 1 to 90, keeps a final backup of the server
+	// that many days after it's deleted (see KeptBackup): a new one, or its
+	// newest when a new one can't be made. A server none of whose backups
+	// can be kept isn't deleted. KeptFor labels the backup, as the
+	// dashboard's account ids do.
+	KeepFinalBackupDays int    `json:"keepFinalBackupDays,omitempty"`
+	KeptFor             string `json:"keptFor,omitempty"`
+	// KeepWhole keeps the server's whole folder as its final backup, as a
+	// move carries it, rather than a backup's files, and none of its
+	// backups when that can't be made: for the copy a move left, whose
+	// folder went where the server moved.
+	KeepWhole bool `json:"keepWhole,omitempty"`
+}
+
+// KeptBackup is a deleted server's final backup, kept until ExpiresAt, as a
+// Playkeeper Cloud customer's are once their servers are deleted.
+type KeptBackup struct {
+	ID         string    `json:"id"`
+	ServerID   string    `json:"serverId"`
+	ServerName string    `json:"serverName"`
+	KeptFor    string    `json:"keptFor,omitempty"`
+	FileName   string    `json:"fileName"`
+	SizeBytes  int64     `json:"sizeBytes"`
+	SHA256     string    `json:"sha256"`
+	MadeAt     time.Time `json:"madeAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
 }
 
 type OperatorEntry struct {
@@ -943,6 +1022,9 @@ type RestorePreview struct {
 	ConfirmPhrase      string           `json:"confirmPhrase"`
 	Steps              []string         `json:"steps"`
 	NotRestored        []string         `json:"notRestored"`
+	// DiskLimit is the disk limit an upload for a new server was made
+	// against, as a creator's are (see WorldImportOpenRequest).
+	DiskLimit string `json:"diskLimit,omitempty"`
 }
 
 type RestoreApplyRequest struct {
@@ -954,6 +1036,61 @@ type RestoreApplyRequest struct {
 	// Name names the new server a restore creates.
 	Name  string `json:"name,omitempty"`
 	Actor string `json:"actor"`
+}
+
+// MoveInRequest makes a server from a staged upload of a backup as a server
+// moved from another machine, as the dashboard does when it moves a
+// customer: it keeps its id, name, slug, memory, creation time and play
+// style, and the EULA acceptance it had there. A restore the dashboard's
+// pages apply always gets a new id, so only the dashboard picks one.
+type MoveInRequest struct {
+	ServerID string `json:"serverId"`
+	Name     string `json:"name"`
+	// Slug is the slug it had; one of this machine's servers having it
+	// gives it another.
+	Slug string `json:"slug,omitempty"`
+	// Account is the disk limit of the customer's account it's one of, as
+	// in CreateServerRequest: its name must differ only from theirs.
+	Account   string `json:"account,omitempty"`
+	MemoryMB  int    `json:"memoryMB"`
+	PlayStyle string `json:"playStyle,omitempty"`
+	// Start starts it once its world is in place, as it ran there. One that
+	// didn't run stays stopped, and no start checks its world.
+	Start          bool      `json:"start,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	EULAAcceptedAt time.Time `json:"eulaAcceptedAt"`
+	EULAAcceptedBy string    `json:"eulaAcceptedBy"`
+	Actor          string    `json:"actor"`
+}
+
+// MoveState is what an agent keeps about a server beside its folder and its
+// settings, which a move carries to the machine it goes to: its own rows,
+// by table, each a column's value by name (see the agent's movestate.go).
+// It holds the secrets and keys of the server's copies somewhere else, so
+// only the dashboard reads it, and never shows it.
+type MoveState struct {
+	Rows map[string][]map[string]any `json:"rows"`
+}
+
+// MoveStateRequest gives a server moved here the MoveState it had.
+type MoveStateRequest struct {
+	State MoveState `json:"state"`
+	Actor string    `json:"actor"`
+}
+
+// MoveStateResult names what of a MoveState a server moved here couldn't
+// take: "ownAddress" when its own address doesn't fit this machine's
+// address.
+type MoveStateResult struct {
+	Left []string `json:"left,omitempty"`
+}
+
+// MoveCheck is what a server's whole folder takes where it moves, as the
+// dashboard checks before any of a customer's servers stops: DiskBytes
+// once unpacked there, and ArchiveBytes at most for the upload meanwhile.
+type MoveCheck struct {
+	DiskBytes    int64 `json:"diskBytes"`
+	ArchiveBytes int64 `json:"archiveBytes"`
 }
 
 type AuditEntry struct {
@@ -1584,7 +1721,11 @@ type Address struct {
 	ServerAddresses bool `json:"serverAddresses,omitempty"`
 	// Certificate is the dashboard's certificate for Host.
 	Certificate *CertificateStatus `json:"certificate,omitempty"`
-	Names       NamesService       `json:"names"`
+	// Dashboard is Serve the dashboard on the standard HTTPS port (443),
+	// and the port the dashboard's address has, on the machine that runs
+	// the dashboard; a joined machine has none.
+	Dashboard *Dashboard443 `json:"dashboard,omitempty"`
+	Names     NamesService  `json:"names"`
 	// TermsAccepted is when an admin accepted Let's Encrypt's terms.
 	TermsAccepted *time.Time `json:"termsAccepted,omitempty"`
 	// Operation is the address's work in progress: publishing a free
@@ -1725,6 +1866,12 @@ type AddressCheck struct {
 	Records []RecordCheck `json:"records,omitempty"`
 	// Ready: the name points here and every SRV record is right.
 	Ready bool `json:"ready"`
+	// PortFree: the machine answers DNS for the domain with an SRV record
+	// for each server (the dashboard's zone, for port-free addresses), and
+	// public DNS gives a server's SRV record as the zone has it, so the
+	// domain's parent hands the domain to the machine. Players then join
+	// each server with an SRV record there at its address, with no port.
+	PortFree bool `json:"portFree,omitempty"`
 }
 
 // NameCheck is where the own domain points, compared with this machine.
@@ -1839,6 +1986,18 @@ const (
 	CodeWhopOtherSeller = "whop_other_seller"
 )
 
+// A seller's page inside their Whop dashboard: CodeWhopToken refuses a
+// request without Whop's token for the Playkeeper Cloud app, CodeWhopNotTeam
+// someone who isn't on the business's team, and CodeWhopNotApproved a
+// business that hasn't approved every permission the app asks for, with the
+// install link in Params["installUrl"] and the missing ones in
+// Params["lacking"].
+const (
+	CodeWhopToken       = "whop_token"
+	CodeWhopNotTeam     = "whop_not_team"
+	CodeWhopNotApproved = "whop_not_approved"
+)
+
 // CodeHetznerTokenRefused refuses a Hetzner API token that Hetzner doesn't
 // take, or that can't be one (Settings › Machines › Hetzner stock).
 const CodeHetznerTokenRefused = "hetzner_token_refused"
@@ -1864,6 +2023,29 @@ type CurseForgeSource struct {
 
 // CurseForgeKeyRequest saves the owner's own CurseForge API key.
 type CurseForgeKeyRequest struct {
+	Key   string `json:"key"`
+	Actor string `json:"actor"`
+}
+
+// AIKeys is what a server's owner has of their own AI keys, which the AI
+// Build Battle plugin builds with: whether each provider's is set, never
+// the key or any part of it.
+type AIKeys struct {
+	Keys map[string]AIKey `json:"keys"`
+	// Pending is set while a saved key waits for a restart: the running
+	// container was made before the server had its secrets folder.
+	Pending bool `json:"pending"`
+	// Available is set while the server has the AI Build Battle plugin.
+	Available bool `json:"available"`
+}
+
+// AIKey is one provider's key on a server.
+type AIKey struct {
+	Set bool `json:"set"`
+}
+
+// AIKeyRequest saves a provider's key, in place of the one it had.
+type AIKeyRequest struct {
 	Key   string `json:"key"`
 	Actor string `json:"actor"`
 }
@@ -2483,8 +2665,20 @@ type WorldImport struct {
 	Files     []WorldImportFile `json:"files"`
 	// LimitBytes bounds all files together.
 	LimitBytes int64 `json:"limitBytes"`
+	// DiskLimit is the disk limit the upload, and the new server it makes,
+	// count against (see WorldImportOpenRequest).
+	DiskLimit string `json:"diskLimit,omitempty"`
 	// Inspection is what the files hold, once they were checked.
 	Inspection *worldimport.Inspection `json:"inspection,omitempty"`
+}
+
+// WorldImportOpenRequest opens a world upload. DiskLimit, for an upload
+// that makes a new server, names the disk limit it and the server count
+// against, as the dashboard names a creator's: the files, and the world
+// they make, are refused beyond it, and the new server joins it.
+type WorldImportOpenRequest struct {
+	Actor     string `json:"actor"`
+	DiskLimit string `json:"diskLimit,omitempty"`
 }
 
 // WorldImportFile is one uploaded archive. Received counts the bytes that
@@ -2801,7 +2995,67 @@ type PublicPageState struct {
 	// Hosts are the servers' own addresses the page also answers for, each
 	// with only its server: those of the servers on the page.
 	Hosts []string `json:"hosts,omitempty"`
+	// Dashboard (from 0.4.11) has the panel answer Host on port 443 with
+	// the dashboard: Serve the dashboard on the standard HTTPS port is on,
+	// and Host works with a certificate. Reached is set once a browser from
+	// outside the machine opened it there (see Dashboard443).
+	Dashboard bool `json:"dashboard,omitempty"`
+	Reached   bool `json:"reached,omitempty"`
 }
+
+// Dashboard443 is the switch Serve the dashboard on the standard HTTPS port
+// (443), on the machine that runs the dashboard (from 0.4.11).
+type Dashboard443 struct {
+	// On is the switch. Default is set while nobody has changed it, so On
+	// is the install's choice: on for a new install that found port 443
+	// free.
+	On      bool `json:"on"`
+	Default bool `json:"default,omitempty"`
+	// State is port 443 for the dashboard: PortOff while the switch is
+	// off, DashboardNoAddress until the machine has a name that works with
+	// a certificate, PortWaiting for a few minutes after the machine
+	// starts, PortBusy, PortClaimed or PortDenied while another program has
+	// it (Holder names it when Playkeeper can tell), and PortOpen while the
+	// dashboard listens on it.
+	State  string `json:"state"`
+	Holder string `json:"holder,omitempty"`
+	// Reached is set once a browser from outside the machine has opened the
+	// dashboard on port 443 at the machine's name. Until then the address
+	// keeps its port: a firewall in front of the machine can't be seen
+	// from it, and an address that doesn't open is worse than one with a
+	// port.
+	Reached bool `json:"reached,omitempty"`
+	// Port is the port the dashboard's address has: 443, which it shows as
+	// none, once Reached and while no other program has port 443, and the
+	// panel's port otherwise.
+	Port int `json:"port"`
+}
+
+// DashboardNoAddress is Dashboard443.State while the switch is on but the
+// machine has no name that works with a certificate yet.
+const DashboardNoAddress = "no_address"
+
+// Dashboard443Request turns Serve the dashboard on the standard HTTPS port
+// on or off. Held says the panel holds port 443 already, for the public
+// page, so the agent doesn't try it.
+type Dashboard443Request struct {
+	On    bool   `json:"on"`
+	Held  bool   `json:"held,omitempty"`
+	Actor string `json:"actor"`
+}
+
+// Dashboard443Reached tells the agent that a browser reached the dashboard
+// on port 443 at Host from the address From, which counts once it's a
+// public address and not the machine's own.
+type Dashboard443Reached struct {
+	Host string `json:"host"`
+	From string `json:"from"`
+}
+
+// CodePortInUse refuses a change that needs a port another program uses or
+// claims; its params name the port and, when Playkeeper can tell, the
+// holder.
+const CodePortInUse = "port_in_use"
 
 // PagePortsRequest names the ports the panel asks the agent to open for
 // the page: those it doesn't hold already.

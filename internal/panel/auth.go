@@ -497,6 +497,283 @@ ALTER TABLE whop_account ADD COLUMN marked_as     TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN taken_over_by TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN taken_over_at INTEGER NOT NULL DEFAULT 0;
 `,
+	// Pausing a customer whose plan ended: when, why, and when their
+	// servers are deleted unless they renew (see customers.go).
+	`
+ALTER TABLE customers ADD COLUMN paused_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN delete_after INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN pause_reason TEXT    NOT NULL DEFAULT '';
+`,
+	// A paused customer's servers deleted once the grace period ended: when,
+	// and the machine keeping their final backups (see deletion.go).
+	`
+ALTER TABLE customers ADD COLUMN servers_deleted_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN final_backups_machine TEXT    NOT NULL DEFAULT '';
+`,
+	// Confirming joined machines: when and by whom the owner confirmed a
+	// joined machine is theirs, so it takes customers, or 0 and '' (see
+	// machinecustomers.go).
+	`
+ALTER TABLE machines ADD COLUMN customers_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE machines ADD COLUMN customers_by TEXT    NOT NULL DEFAULT '';
+`,
+	// Confirming joined machines by themselves: when the owner last stopped
+	// a joined machine taking customers, after which the Hetzner token
+	// doesn't confirm it again, or 0 (see autoconfirm.go).
+	`
+ALTER TABLE machines ADD COLUMN customers_stopped_at INTEGER NOT NULL DEFAULT 0;
+`,
+	// Moving customers: each customer the owner moves to another machine,
+	// who asked and when, and why it stopped, if it did; each server being
+	// moved, from and to which machine, whether it ran, and the operation
+	// making its copy there; each copy of a server a move left on a machine,
+	// how many days its final backup is kept there, and when it went (0
+	// until it did); and each server a failed move left stopped though it
+	// ran, until it starts again (see moves.go).
+	`
+CREATE TABLE customer_moves (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  to_machine TEXT    NOT NULL,
+  started_at INTEGER NOT NULL,
+  started_by TEXT    NOT NULL,
+  error      TEXT    NOT NULL DEFAULT ''
+);
+CREATE TABLE server_moves (
+  server_id    TEXT    PRIMARY KEY,
+  user_id      INTEGER NOT NULL,
+  from_machine TEXT    NOT NULL,
+  to_machine   TEXT    NOT NULL,
+  ran          INTEGER NOT NULL DEFAULT 0,
+  made_by      TEXT    NOT NULL DEFAULT ''
+);
+CREATE TABLE left_copies (
+  server_id  TEXT    NOT NULL,
+  machine_id TEXT    NOT NULL,
+  user_id    INTEGER NOT NULL,
+  keep_days  INTEGER NOT NULL DEFAULT 0,
+  left_at    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(server_id, machine_id)
+);
+CREATE TABLE move_restarts (
+  server_id  TEXT    PRIMARY KEY,
+  machine_id TEXT    NOT NULL,
+  user_id    INTEGER NOT NULL
+);
+`,
+	// Customers per store: the store each billing provider's customer bought
+	// from, such as a Whop business, which with the provider and its id for
+	// them finds their account, so someone who buys from two stores has two
+	// accounts; and the store a sign-in with Whop is for, when it names one.
+	// The Whop customers so far bought from the store the dashboard sells
+	// for; with none connected, the next store connected takes them on (see
+	// adoptWhopCustomers).
+	`
+CREATE TABLE customers_by_store (
+  user_id               INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  provider              TEXT    NOT NULL,
+  store                 TEXT    NOT NULL DEFAULT '',
+  subject               TEXT    NOT NULL,
+  handle                TEXT    NOT NULL DEFAULT '',
+  plan_id               TEXT    NOT NULL DEFAULT '',
+  state                 TEXT    NOT NULL DEFAULT 'active',
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+  told_ready            INTEGER NOT NULL DEFAULT 0,
+  told_waiting          INTEGER NOT NULL DEFAULT 0,
+  paused_at             INTEGER NOT NULL DEFAULT 0,
+  delete_after          INTEGER NOT NULL DEFAULT 0,
+  pause_reason          TEXT    NOT NULL DEFAULT '',
+  servers_deleted_at    INTEGER NOT NULL DEFAULT 0,
+  final_backups_machine TEXT    NOT NULL DEFAULT '',
+  UNIQUE(provider, store, subject)
+);
+INSERT INTO customers_by_store(user_id, provider, store, subject, handle, plan_id, state, created_at, updated_at, told_ready, told_waiting,
+  paused_at, delete_after, pause_reason, servers_deleted_at, final_backups_machine)
+SELECT user_id, provider, CASE WHEN provider = 'whop' THEN COALESCE((SELECT account_id FROM whop_account WHERE id = 1), '') ELSE '' END,
+  subject, handle, plan_id, state, created_at, updated_at, told_ready, told_waiting, paused_at, delete_after, pause_reason, servers_deleted_at, final_backups_machine
+FROM customers;
+DROP TABLE customers;
+ALTER TABLE customers_by_store RENAME TO customers;
+ALTER TABLE whop_signins ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+`,
+	// Stores: the Whop businesses the dashboard sells for, by business id,
+	// each reached with its own API key (the one key store, which Settings ›
+	// Sell on Whop manages) or with the Playkeeper Cloud app's key (an app
+	// store), with what its reconciler keeps; the Playkeeper Cloud app on the
+	// dashboard, whose client id and secret sign customers in and whose key
+	// acts on the app stores; and each plan, membership, customer, message
+	// and stock kept for its store. The store the dashboard sold for becomes
+	// the key store, and what no store sells for goes (see whop_stores.go).
+	`
+CREATE TABLE whop_stores (
+  store_id       TEXT    PRIMARY KEY,
+  via            TEXT    NOT NULL CHECK (via IN ('key', 'app')),
+  title          TEXT    NOT NULL DEFAULT '',
+  route          TEXT    NOT NULL DEFAULT '',
+  api_key        TEXT    NOT NULL DEFAULT '',
+  connected_by   TEXT    NOT NULL DEFAULT '',
+  connected_at   INTEGER NOT NULL,
+  synced_at      INTEGER NOT NULL DEFAULT 0,
+  problem        TEXT    NOT NULL DEFAULT '',
+  webhook_id     TEXT    NOT NULL DEFAULT '',
+  webhook_url    TEXT    NOT NULL DEFAULT '',
+  webhook_secret TEXT    NOT NULL DEFAULT '',
+  polled_at      INTEGER NOT NULL DEFAULT 0,
+  marked_as      TEXT    NOT NULL DEFAULT '',
+  taken_over_by  TEXT    NOT NULL DEFAULT '',
+  taken_over_at  INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX whop_stores_one_key ON whop_stores(via) WHERE via = 'key';
+INSERT INTO whop_stores(store_id, via, title, route, api_key, connected_by, connected_at, synced_at, problem, webhook_id, webhook_url, webhook_secret,
+  polled_at, marked_as, taken_over_by, taken_over_at)
+SELECT account_id, 'key', title, route, api_key, connected_by, connected_at, synced_at, problem, webhook_id, webhook_url, webhook_secret,
+  polled_at, marked_as, taken_over_by, taken_over_at FROM whop_account;
+CREATE TABLE whop_app (
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  client_id     TEXT    NOT NULL DEFAULT '',
+  client_secret TEXT    NOT NULL DEFAULT '',
+  api_key       TEXT    NOT NULL DEFAULT ''
+);
+INSERT INTO whop_app(id, client_id, client_secret) SELECT 1, oauth_client_id, oauth_client_secret FROM whop_account;
+ALTER TABLE whop_plans       ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_memberships ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_messages    ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_stock       ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+UPDATE whop_plans       SET store_id = COALESCE((SELECT account_id FROM whop_account), '');
+UPDATE whop_memberships SET store_id = COALESCE((SELECT account_id FROM whop_account), '');
+UPDATE whop_messages    SET store_id = COALESCE((SELECT account_id FROM whop_account), '');
+UPDATE whop_stock       SET store_id = COALESCE((SELECT account_id FROM whop_account), '');
+CREATE TABLE whop_customers_by_store (
+  store_id     TEXT    NOT NULL,
+  whop_user_id TEXT    NOT NULL,
+  handle       TEXT    NOT NULL DEFAULT '',
+  applied      TEXT    NOT NULL DEFAULT '',
+  paused       INTEGER NOT NULL DEFAULT 0,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_try_at  INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT '',
+  channel_id   TEXT    NOT NULL DEFAULT '',
+  updated_at   INTEGER NOT NULL DEFAULT 0,
+  applied_at   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(store_id, whop_user_id)
+);
+INSERT INTO whop_customers_by_store(store_id, whop_user_id, handle, applied, paused, attempts, next_try_at, problem, channel_id, updated_at, applied_at)
+SELECT COALESCE((SELECT account_id FROM whop_account), ''), whop_user_id, handle, applied, paused, attempts, next_try_at, problem, channel_id, updated_at, applied_at
+FROM whop_customers;
+DROP TABLE whop_customers;
+ALTER TABLE whop_customers_by_store RENAME TO whop_customers;
+DELETE FROM whop_plans       WHERE store_id = '';
+DELETE FROM whop_memberships WHERE store_id = '';
+DELETE FROM whop_messages    WHERE store_id = '';
+DELETE FROM whop_stock       WHERE store_id = '';
+DELETE FROM whop_customers   WHERE store_id = '';
+DROP INDEX whop_memberships_user;
+CREATE INDEX whop_memberships_store_user ON whop_memberships(store_id, whop_user_id);
+CREATE INDEX whop_plans_store ON whop_plans(store_id, position);
+CREATE INDEX whop_messages_store ON whop_messages(store_id, sent_at, id);
+DROP TABLE whop_account;
+`,
+	// The Playkeeper Cloud app's webhook (see whop_app.go): the secret of
+	// the one the owner made on Whop, and when they pasted it.
+	`
+ALTER TABLE whop_app ADD COLUMN webhook_secret TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_app ADD COLUMN hooked_at      INTEGER NOT NULL DEFAULT 0;
+`,
+	// Suspensions (see suspension.go): when each customer's account was
+	// suspended and why, and whether the owner suspended it on its own, with
+	// its store, or both; and when each store was suspended, and why. An
+	// account suspended before is the owner's own suspension.
+	`
+ALTER TABLE customers   ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers   ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
+ALTER TABLE customers   ADD COLUMN suspended_self  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers   ADD COLUMN suspended_store INTEGER NOT NULL DEFAULT 0;
+UPDATE customers SET suspended_self = 1 WHERE state = 'suspended';
+ALTER TABLE whop_stores ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_stores ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
+`,
+	// A store that left (see leaving.go): when the Whop side found it gone,
+	// and why.
+	`
+ALTER TABLE whop_stores ADD COLUMN left_at  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_stores ADD COLUMN left_why TEXT    NOT NULL DEFAULT '';
+`,
+	// Closed stores (see closing.go): each reason a store is closed for,
+	// whose it is and in what words, so each opens it for its own reason
+	// alone.
+	`
+CREATE TABLE whop_store_closures (
+  store_id  TEXT    NOT NULL,
+  closed_by TEXT    NOT NULL,
+  why       TEXT    NOT NULL,
+  closed_at INTEGER NOT NULL,
+  PRIMARY KEY(store_id, closed_by)
+);
+`,
+	// The redirect URI each sign-in with Whop left with, which trading its
+	// code names again: the dashboard's address, or its address at the
+	// panel's port while Whop lists only that one (see signInRedirect).
+	`
+ALTER TABLE whop_signins ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
+`,
+	// When the server whose copy a move left on a machine stopped being that
+	// copy, as its requests went where it moved, or 0 for the copy a failed
+	// move made, which never was the server (see adoptLeftCopy).
+	`
+ALTER TABLE left_copies ADD COLUMN switched_at INTEGER NOT NULL DEFAULT 0;
+`,
+	// A store's payments, as 2.2 checked them (see sellerview.go): each once,
+	// by its id, for its store, with what was paid, what was refunded and
+	// Playkeeper's share, in the currency's smallest unit.
+	`
+CREATE TABLE whop_payments (
+  payment_id   TEXT    PRIMARY KEY,
+  store_id     TEXT    NOT NULL,
+  whop_user_id TEXT    NOT NULL,
+  plan_id      TEXT    NOT NULL DEFAULT '',
+  currency     TEXT    NOT NULL,
+  amount       INTEGER NOT NULL,
+  share        INTEGER NOT NULL,
+  refunded     INTEGER NOT NULL DEFAULT 0,
+  paid_at      INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX whop_payments_store ON whop_payments(store_id, paid_at);
+`,
+	// Playkeeper's share of the app stores' sales (see whop_share.go): the
+	// Whop user it goes to, each store's partner on Whop, each hosting
+	// product's share as it was last set, in basis points, and every fee
+	// line a payment was checked with.
+	`
+ALTER TABLE whop_app ADD COLUMN share_user     TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_app ADD COLUMN share_username TEXT NOT NULL DEFAULT '';
+CREATE TABLE whop_partners (
+  store_id   TEXT    PRIMARY KEY,
+  partner_id TEXT    NOT NULL,
+  user_id    TEXT    NOT NULL,
+  made_at    INTEGER NOT NULL
+);
+CREATE TABLE whop_shares (
+  store_id     TEXT    NOT NULL,
+  product_id   TEXT    NOT NULL,
+  share_id     TEXT    NOT NULL,
+  basis_points INTEGER NOT NULL,
+  set_at       INTEGER NOT NULL,
+  PRIMARY KEY (store_id, product_id)
+);
+CREATE TABLE whop_fee_lines (
+  payment_id   TEXT    NOT NULL,
+  n            INTEGER NOT NULL,
+  store_id     TEXT    NOT NULL,
+  type         TEXT    NOT NULL,
+  origin       TEXT    NOT NULL,
+  label        TEXT    NOT NULL,
+  amount       TEXT    NOT NULL,
+  currency     TEXT    NOT NULL,
+  read_at      INTEGER NOT NULL,
+  PRIMARY KEY (payment_id, n)
+);
+`,
 }
 
 const (

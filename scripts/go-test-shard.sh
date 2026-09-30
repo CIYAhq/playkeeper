@@ -11,7 +11,10 @@
 #   scripts/go-test-shard.sh --check OUT N        every shard's list is the same and
 #                                                 together they ran all of it
 # A shard writes the package's tests to OUT/all-K.txt and the ones that ran
-# to OUT/ran-K.txt; OUT defaults to a new temporary folder.
+# to OUT/ran-K.txt; OUT defaults to a new temporary folder. A test that
+# crashes its shard's test binary (a panic, a timeout) fails the shard, and
+# the tests it kept from starting run in a binary of their own (resume), so
+# every test still passes or fails.
 set -euo pipefail
 
 # report JSON: prints the output of the tests that failed and the package's own lines.
@@ -42,6 +45,27 @@ ran() {
   jq -r 'select(.Action == "run" and .Test != null and (.Test | contains("/") | not)) | .Test' "$1" | sort -u
 }
 
+# resume LIST JSON COMMAND...: runs the tests in LIST with COMMAND, given the
+# pattern that picks them as its last argument, into JSON. A test binary
+# stops at a test that panics or runs out of time, so the tests it didn't
+# start run again with COMMAND, until each has started or a run started
+# none. Fails when any run failed.
+resume() {
+  local list=$1 json=$2 todo started status=0 round=0
+  shift 2
+  todo=$(cat "$list")
+  : >"$json"
+  while [ -n "$todo" ]; do
+    round=$((round + 1))
+    "$@" "^($(paste -sd'|' <<<"$todo"))\$" >"$json.$round" 2>&1 || status=1
+    cat "$json.$round" >>"$json"
+    started=$(ran "$json.$round")
+    if [ -z "$started" ]; then break; fi
+    todo=$(grep -vxF -e "$started" <<<"$todo" || true)
+  done
+  return "$status"
+}
+
 if [ "${1:-}" = --check ]; then
   dir=$2 n=$3
   for k in $(seq "$n"); do
@@ -61,6 +85,7 @@ if [ "${1:-}" = --check ]; then
   if [ -n "$missed" ]; then
     echo "no shard ran these tests:" >&2
     echo "$missed" >&2
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error title=Tests no shard ran::$(paste -sd' ' <<<"$missed")"; fi
     exit 1
   fi
   echo "the $n shards ran all $(wc -l <"$dir/all-1.txt") tests"
@@ -75,6 +100,7 @@ if [ "${1:-}" = --jobs ]; then
     exit 2
   fi
   mkdir -p "$out"
+  out=$(cd "$out" && pwd)
   dir=$(go list -f '{{.Dir}}' "$pkg")
   path=$(go list -f '{{.ImportPath}}' "$pkg")
   go test -c -o "$out/pkg.test" "$pkg"
@@ -89,8 +115,10 @@ if [ "${1:-}" = --jobs ]; then
     (
       status=0
       if [ -s "$out/mine-$k.txt" ]; then
-        (cd "$dir" && PLAYKEEPER_TEST_SHARD=$k PLAYKEEPER_TEST_SHARDS=$jobs go tool test2json -t -p "$path" "$out/pkg.test" -test.v=test2json -test.paniconexit0 -test.count=1 -test.timeout=30m \
-          -test.run "^($(paste -sd'|' "$out/mine-$k.txt"))\$") >"$out/test-$k.json" 2>&1 || status=$?
+        cd "$dir"
+        export PLAYKEEPER_TEST_SHARD=$k PLAYKEEPER_TEST_SHARDS=$jobs
+        resume "$out/mine-$k.txt" "$out/test-$k.json" go tool test2json -t -p "$path" "$out/pkg.test" -test.v=test2json -test.paniconexit0 \
+          -test.count=1 -test.timeout=30m -test.run || status=$?
       else
         : >"$out/test-$k.json"
       fi
@@ -126,7 +154,7 @@ awk -v k="$shard" -v n="$of" 'NR % n == k % n' "$out/all-$shard.txt" >"$out/mine
 echo "shard $shard of $of: $(wc -l <"$out/mine-$shard.txt") of the $(wc -l <"$out/all-$shard.txt") tests in $pkg"
 json="$out/test-$shard.json"
 status=0
-go test -count=1 -timeout 30m -json -run "^($(paste -sd'|' "$out/mine-$shard.txt"))\$" "$pkg" >"$json" || status=$?
+resume "$out/mine-$shard.txt" "$json" go test -count=1 -timeout 30m -json "$pkg" -run || status=$?
 ran "$json" >"$out/ran-$shard.txt"
 report "$json"
 exit "$status"

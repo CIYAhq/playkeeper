@@ -1,0 +1,143 @@
+---- Minecraft Crash Report ----
+// I just don't know what went wrong :(
+
+Time: 2026-09-29 17:45:31
+Description: Ticking block entity
+
+java.lang.NullPointerException: Test error: this hopper is set to fail when it ticks
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.block.entity.HopperBlockEntity.pushItemsTick(HopperBlockEntity.java) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.chunk.LevelChunk$BoundTickingBlockEntity.tick(LevelChunk.java:774) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.chunk.LevelChunk$RebindableTickingBlockEntityWrapper.tick(LevelChunk.java:850) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.Level.tickBlockEntities(Level.java:528) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:472) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1140) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:993) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.dedicated.DedicatedServer.tickServer(DedicatedServer.java:312) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.processPacketsAndTick(MinecraftServer.java:1025) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:766) [minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:299) [minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at java.base/java.lang.Thread.run(Unknown Source) [?:?] {}
+
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Server thread
+Stacktrace:
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.block.entity.HopperBlockEntity.pushItemsTick(HopperBlockEntity.java) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.chunk.LevelChunk$BoundTickingBlockEntity.tick(LevelChunk.java:774) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.chunk.LevelChunk$RebindableTickingBlockEntityWrapper.tick(LevelChunk.java:850) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.Level.tickBlockEntities(Level.java:528) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+-- Block entity being ticked --
+Details:
+	Name: minecraft:hopper // net.minecraft.world.level.block.entity.HopperBlockEntity
+	Cached block: Block{minecraft:hopper}[enabled=true,facing=down]
+	Actual block: Block{minecraft:hopper}[enabled=true,facing=down]
+	Block location: World: (10,120,10), Section: (at 10,8,10 in 0,7,0; chunk contains blocks 0,-64,0 to 15,319,15), Region: (0,0; contains chunks 0,0 to 31,31, blocks 0,-64,0 to 511,319,511)
+Stacktrace:
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.chunk.LevelChunk$BoundTickingBlockEntity.tick(LevelChunk.java:774) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.chunk.LevelChunk$RebindableTickingBlockEntityWrapper.tick(LevelChunk.java:850) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.Level.tickBlockEntities(Level.java:528) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:472) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1140) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:993) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.dedicated.DedicatedServer.tickServer(DedicatedServer.java:312) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.processPacketsAndTick(MinecraftServer.java:1025) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:766) [minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:299) [minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at java.base/java.lang.Thread.run(Unknown Source) [?:?] {}
+
+
+-- Affected level --
+Details:
+	All players: 0 total; 
+	Chunk stats: 729
+	Level dimension: minecraft:overworld
+	Level time: 711 game time, 711 day time
+	Level spawn location: World: (80,75,-16), Section: (at 0,11,0 in 5,4,-1; chunk contains blocks 80,-64,-16 to 95,319,-1), Region: (0,-1; contains chunks 0,-32 to 31,-1, blocks 0,-64,-512 to 511,319,-1)
+	Level name: world
+	Level game mode: Game mode: survival (ID 0). Hardcore: false. Commands: false
+	Known server brands: neoforge
+	Removed feature flags: 
+	Level was modded: true
+	Level storage version: 0x04ABD - Anvil
+	Loaded entity count: 2
+	Server weather: Rain time: 169070 (now: false), thunder time: 72366 (now: false)
+Stacktrace:
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.level.ServerLevel.fillReportDetails(ServerLevel.java:1869) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1143) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:993) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.dedicated.DedicatedServer.tickServer(DedicatedServer.java:312) ~[minecraft-server-patched-26.2.0.88.jar:?] {}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.processPacketsAndTick(MinecraftServer.java:1025) ~[minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:766) [minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at TRANSFORMER/minecraft@26.2/net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:299) [minecraft-server-patched-26.2.0.88.jar:?] {neoforge:access_transformer}
+	at java.base/java.lang.Thread.run(Unknown Source) [?:?] {}
+
+
+-- System Details --
+Details:
+	Minecraft Version: 26.2
+	Minecraft Version ID: 26.2
+	Operating System: Linux (amd64) version 6.12.94+
+	Java Version: 25.0.4, Eclipse Adoptium
+	Java VM Version: OpenJDK 64-Bit Server VM (mixed mode, sharing), Eclipse Adoptium
+	Memory: 1363720112 bytes (1300 MiB) / 2147483648 bytes (2048 MiB) up to 2147483648 bytes (2048 MiB)
+	Memory (heap): init: 2048MiB, used: 732MiB, committed: 2048MiB, max: 2048MiB
+	Memory (non-head): init: 007MiB, used: 153MiB, committed: 155MiB, max: 000MiB
+	CPUs: 4
+	Processor Vendor: GenuineIntel
+	Processor Name: Intel(R) Xeon(R) Processor
+	Identifier: Intel64 Family 6 Model 207 Stepping 2
+	Microarchitecture: unknown
+	Frequency (GHz): -0.00
+	Number of physical packages: 1
+	Number of physical CPUs: 4
+	Number of logical CPUs: 4
+	Graphics card #0 name: unknown
+	Graphics card #0 vendor: unknown
+	Graphics card #0 VRAM (MiB): 0.00
+	Graphics card #0 deviceId: unknown
+	Graphics card #0 versionInfo: unknown
+	Virtual memory max (MiB): 8007.02
+	Virtual memory used (MiB): 9850.48
+	Swap memory total (MiB): 0.00
+	Swap memory used (MiB): 0.00
+	Space in storage for jna.tmpdir (MiB): <path not set>
+	Space in storage for org.lwjgl.system.SharedLibraryExtractPath (MiB): <path not set>
+	Space in storage for io.netty.native.workdir (MiB): <path not set>
+	Space in storage for java.io.tmpdir (MiB): available: 246058.28, total: 259367.69
+	Space in storage for workdir (MiB): available: 246058.28, total: 259367.69
+	Operating System Version: GNU/Linux Ubuntu 24.04.4 LTS (Noble Numbat) build 6.12.94+
+	Process Elevated: false
+	Process Loads: Uptime: 18s, user: 29s (167.34%), kernel: 1s (7.16%), total: 31s (174.50%)
+	Process Virtual Size (MiB): 5703.56
+	Process Resident Size (MiB): 2392.80
+	JVM Flags: 21 total; -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -Xmx2048M -Xms2048M -Xlog:gc:file=/data/logs/gc.log:time,uptime,level,tags:filecount=2,filesize=5M
+	Debug Flags: 0 total; 
+	Server Running: true
+	Player Count: 0 / 5; []
+	Active Data Packs: vanilla, mod_data, mod/neoforge
+	Available Data Packs: minecart_improvements, redstone_experiments, trade_rebalance, vanilla, mod/neoforge, mod_data
+	Enabled Feature Flags: minecraft:vanilla
+	World Generation: Stable
+	World Seed: 2130389200682484014
+	Suppressed Exceptions: ~~NONE~~
+	Is Modded: Definitely; Server brand changed to 'neoforge'
+	Type: Dedicated Server
+	Class Processors: 
+		00.00%: neoforge:computing_frames (marker)
+		00.00%: neoforge:runtime_enum_extender
+		04.04%: neoforge:access_transformer
+		00.07%: neoforge:mixin
+		00.00%: neoforge:simple_processors_default (marker)
+		00.02%: neoforge.coremods:field_to_getter.net.minecraft.world.level.biome.biome
+		00.02%: neoforge.coremods:field_to_getter.net.minecraft.world.level.block.flowerpotblock
+		00.02%: neoforge.coremods:field_to_getter.net.minecraft.world.level.levelgen.structure.structure
+		00.41%: neoforge.coremods:method_redirector
+	Mod List: 
+		minecraft-server-patched-26.2.0.88.jar            |Minecraft                     |minecraft                     |26.2                |Manifest: 551ab74ac21221a935c534f642e6a5b0fce17310438ee1b69d601a198f550c6d
+		neoforge-26.2.0.88-universal.jar                  |NeoForge                      |neoforge                      |26.2.0.88           |Manifest: febba20109c82832bd2fab6197ae8563f0d9ca84b0e5abeab0302ed4e736533c
+	Crash Report UUID: a3fe7b8d-279e-4d34-bee6-15fe57d7ba61
+	FML: 11.0.16
+	NeoForge: 26.2.0.88

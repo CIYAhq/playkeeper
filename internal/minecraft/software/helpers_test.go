@@ -93,6 +93,16 @@ func (f *fakeNet) status(rawURL string, code int) {
 	f.handle(rawURL, func(w http.ResponseWriter, r *http.Request) { http.Error(w, http.StatusText(code), code) })
 }
 
+// noAnswer never answers: it holds the request until the client gives up,
+// then drops the connection. Returning instead would answer 200 OK with no
+// body, and that answer can still reach a client that is closing the
+// connection: Go's transport keeps a response that races its request's
+// cancellation.
+func noAnswer(w http.ResponseWriter, r *http.Request) {
+	<-r.Context().Done()
+	panic(http.ErrAbortHandler)
+}
+
 func (f *fakeNet) hitCount(rawURL string) int {
 	u, _ := url.Parse(rawURL)
 	f.mu.Lock()

@@ -39,11 +39,19 @@ schema: article
   <ul>
     <li><a href="/errors/cant-keep-up">Can't keep up! Is the server overloaded?</a>: the server fell behind its 20 ticks a second, by the time and ticks it names.</li>
   </ul>
+  <h3>The server crashes while it runs</h3>
+  <ul>
+    <li><a href="/errors/ticking-entity">Ticking entity, or Ticking block entity</a>: one mob, cart or block threw an error, so the server stopped. The same page covers Paper's <code>Entity threw exception</code>.</li>
+  </ul>
   <h3>The server won't start</h3>
   <ul>
     <li><a href="/errors/unable-to-access-jarfile">Error: Unable to access jarfile</a>: Java couldn't open the file named after <code>-jar</code>. The same page covers <code>Invalid or corrupt jarfile</code> and <code>no main manifest attribute</code>.</li>
     <li><a href="/errors/agree-to-the-eula">You need to agree to the EULA</a>: a new server stops until <code>eula.txt</code> says <code>eula=true</code>.</li>
     <li><a href="/errors/failed-to-bind-to-port">FAILED TO BIND TO PORT!</a>: the server couldn't take its port, because another program has it, <code>server-ip</code> is wrong or the port is under 1024.</li>
+  </ul>
+  <h3>The world is damaged</h3>
+  <ul>
+    <li><a href="/errors/world-corrupted">World files may be corrupted</a>: the server can read neither level.dat nor level.dat_old, or a chunk comes back as new land after <code>Failed to load chunk</code>.</li>
   </ul>
 </section>
 
@@ -65,11 +73,12 @@ schema: article
     <li>The disk is full.</li>
     <li>The Minecraft EULA hasn't been accepted.</li>
     <li>The server needs a different Java.</li>
-    <li>The world is already open somewhere else, its level.dat file is damaged, or part of it may be damaged.</li>
+    <li>The world is already open somewhere else, its level.dat file is damaged, or part of it may be damaged. From 0.4.8, it can make a new level.dat that keeps every build.</li>
+    <li>From 0.4.8: one mob, cart or block crashes the server each time the game runs it. It names which and where, and removes just that one.</li>
     <li>The server froze, or was stopped abruptly.</li>
     <li>A data pack stopped the world from loading.</li>
     <li>The server isn't allowed to use its own files.</li>
-    <li>A mod needs another mod or a different version of one, clashes with another, or can't load.</li>
+    <li>A mod needs another mod or a different version of one, clashes with another, or can't load. From 0.4.8, also a mod that only runs in players' games.</li>
   </ul>
 </section>
 {{end}}

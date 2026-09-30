@@ -27,7 +27,8 @@ func init() {
 // importGuard runs next only for an account that may take act on the server
 // the world import is for, as restoreProxy does for a restore: the routes
 // name only the import, so the route's own check doesn't see the server. An
-// import that makes a new server needs every server.
+// import that makes a new server needs every server, but a creator's own,
+// named with their disk limit, is theirs (uploadCreates).
 func (s *Server) importGuard(act action, next func(http.ResponseWriter, *http.Request, *session)) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.machineFromPath(w, r)
@@ -41,9 +42,9 @@ func (s *Server) importGuard(act action, next func(http.ResponseWriter, *http.Re
 		}
 		need := act
 		if imp.ServerID == "" {
-			need = actCreateServers
+			need = uploadCreates(sess.Access, imp.DiskLimit)
 		}
-		if err := permit(sess.Access, need, imp.ServerID); err != nil {
+		if err := s.permitOn(sess.Access, need, imp.ServerID); err != nil {
 			writeRefusal(w, err)
 			return
 		}
@@ -78,6 +79,12 @@ func (s *Server) hWorldUpload(w http.ResponseWriter, r *http.Request, sess *sess
 // forwardLong is forward for a POST that can take longer than the agent
 // client's minute: checking a large world reads all of it.
 func (s *Server) forwardLong(pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forwardLongThen(pattern, nil)
+}
+
+// forwardLongThen is forwardLong, then calls then (if set) with the answer
+// of a request that succeeded.
+func (s *Server) forwardLongThen(pattern string, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)
 		if !ok {
@@ -107,20 +114,23 @@ func (s *Server) forwardLong(pattern string) func(http.ResponseWriter, *http.Req
 			return
 		}
 		defer resp.Body.Close()
-		relayJSON(w, resp, maxImportAnswer)
+		if b := relayJSON(w, resp, maxImportAnswer); b != nil && then != nil && resp.StatusCode < 300 {
+			then(m, sess, b)
+		}
 	}
 }
 
-// relayJSON passes an agent's JSON answer on, up to limit bytes.
-func relayJSON(w http.ResponseWriter, resp *http.Response, limit int64) {
+// relayJSON passes an agent's JSON answer on, up to limit bytes, and returns
+// it, or nil when there was none to pass on.
+func relayJSON(w http.ResponseWriter, resp *http.Response, limit int64) json.RawMessage {
 	if resp.StatusCode == http.StatusNoContent {
 		w.WriteHeader(http.StatusNoContent)
-		return
+		return nil
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil || int64(len(b)) > limit || !json.Valid(b) {
 		writeErr(w, http.StatusBadGateway, api.CodeInternal, "The agent's answer could not be read.", "")
-		return
+		return nil
 	}
 	status := resp.StatusCode
 	if status >= 400 {
@@ -130,4 +140,5 @@ func relayJSON(w http.ResponseWriter, resp *http.Response, limit int64) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	w.Write(b)
+	return b
 }

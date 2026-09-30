@@ -16,8 +16,9 @@
 // weekly run finds the updates worth a PR.
 //
 // -shots DIR makes the templates' thumbnails instead of recording checks: a
-// bot joins each passing template's server and saves its world into DIR,
-// which site/tools/thumbnails/render.mjs draws (make template-thumbnails).
+// bot joins each passing template's server and saves its world into DIR, or,
+// on a server it can't join, the world is read from the server's own files.
+// site/tools/thumbnails/render.mjs draws them (make template-thumbnails).
 package main
 
 import (
@@ -51,7 +52,7 @@ func main() {
 	pin := flag.Bool("pin", false, "rewrite each passing template's add-ons to the exact versions that installed")
 	bump := flag.Bool("bump", false, "move each template's add-ons to their newest versions first, then check and pin them")
 	verify := flag.Bool("verify", false, "fail when a template's check in site/data/checks disagrees with this run")
-	shots := flag.String("shots", "", "save each passing template's world into this folder for its thumbnails, with a bot; the agent must run servers in offline mode")
+	shots := flag.String("shots", "", "save each passing template's world into this folder for its thumbnails, with a bot or from its saved files; the agent must run servers in offline mode")
 	flag.Parse()
 	if *socket == "" {
 		fmt.Fprintln(os.Stderr, "template-check: -socket is the agent's socket, such as /tmp/pk/agent.sock")
@@ -64,7 +65,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	opts := options{root: *root, only: split(*only), shard: *shard, write: *write, pin: *pin || *bump, bump: *bump, verify: *verify}
-	c := &checker{agent: agentclient.New(*socket), sources: newSources(), actor: "template-check", now: time.Now, poll: 2 * time.Second, retryAfter: time.Minute, shots: *shots, root: *root}
+	c := &checker{agent: agentclient.New(*socket), sources: newSources(), actor: "template-check", now: time.Now, poll: 2 * time.Second, retryAfter: time.Minute, shots: *shots, root: *root, socket: *socket}
 	results, err := run(ctx, c, opts)
 	if err == nil && *out != "" {
 		err = writeResults(*out, c.release, results)
@@ -259,11 +260,8 @@ func summary(w io.Writer, release string, results []result) {
 			crossplay = "didn't turn on: " + r.CrossplayFailure
 		}
 		wrong := r.Failure
-		switch {
-		case r.ShotFailure != "":
+		if r.ShotFailure != "" {
 			wrong = strings.TrimPrefix(wrong+"; ", "; ") + "its thumbnail's capture: " + r.ShotFailure
-		case r.ShotSkipped != "":
-			wrong = "no capture, " + r.ShotSkipped
 		}
 		fmt.Fprintf(w, "| %s | %s | %s | %s | %s |\n", r.ID, r.Status, ready, strings.ReplaceAll(crossplay, "|", "/"), strings.ReplaceAll(wrong, "|", "/"))
 	}

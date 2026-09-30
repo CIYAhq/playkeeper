@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
@@ -34,6 +35,7 @@ const (
 	maxDiskLimits       = 1000
 	maxDiskLimitServers = 100
 	maxDiskLimitBytes   = 1 << 50
+	maxDiskLimitHold    = 200
 	minCPUMilliPerGB    = 100
 	maxCPUMilliPerGB    = 16000
 )
@@ -130,7 +132,7 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	a.limits.mu.Lock()
 	old := a.limits.limits
 	changed := !slices.EqualFunc(old, limits, func(x, y api.DiskLimit) bool {
-		return x.ID == y.ID && x.LimitBytes == y.LimitBytes && slices.Equal(x.Servers, y.Servers) && x.CPUMilliPerGB == y.CPUMilliPerGB
+		return x.ID == y.ID && x.LimitBytes == y.LimitBytes && slices.Equal(x.Servers, y.Servers) && x.CPUMilliPerGB == y.CPUMilliPerGB && x.Hold == y.Hold
 	})
 	if changed {
 		raw, _ := json.Marshal(limits)
@@ -145,6 +147,7 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	if changed {
 		a.audit(actor, "disk_limits.set", "", "succeeded", fmt.Sprintf("%d disk limits", len(limits)))
 	}
+	a.accountsFromLimits(limits)
 	// Every set puts the running servers' caps right, changed or not, and a
 	// dashboard that stops waiting doesn't cut it short: the dashboard sets
 	// the limits every minute, so a cap one set missed is caught by the next.
@@ -152,6 +155,27 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	a.recapCPUs(ctx, a.diskLimits())
 	cancel()
 	writeJSON(w, http.StatusOK, limits)
+}
+
+// accountsFromLimits gives each server made before servers had accounts the
+// account of the limit it's in (see nameTaken): as the agent starts, from
+// the limits it kept, before any request can make a server, and at every
+// set, since the first after an update names the same limits as before it.
+// It waits for a server being made, so neither misses the other. A server
+// made with its account keeps it, and one whose account has a server of its
+// name already stays out, so no account has a name twice, until it's
+// renamed.
+func (a *Agent) accountsFromLimits(limits []api.DiskLimit) {
+	a.createMu.Lock()
+	defer a.createMu.Unlock()
+	for _, l := range limits {
+		for _, id := range l.Servers {
+			if _, err := a.db.Exec(`UPDATE servers SET account = ? WHERE id = ? AND account = ''
+				AND NOT EXISTS (SELECT 1 FROM servers o WHERE o.account = ? AND lower(o.name) = lower(servers.name))`, l.ID, id, l.ID); err != nil {
+				a.log.Warn("could not record the account of a server in a disk limit", "server", id, "limit", l.ID, "err", err)
+			}
+		}
+	}
 }
 
 // cpuCapIn is server id's processor cap under limits, in billionths of a
@@ -217,6 +241,8 @@ func checkDiskLimits(in []api.DiskLimit) ([]api.DiskLimit, error) {
 			return nil, errInvalid("A disk limit covers at most %d servers.", maxDiskLimitServers)
 		case l.CPUMilliPerGB != 0 && (l.CPUMilliPerGB < minCPUMilliPerGB || l.CPUMilliPerGB > maxCPUMilliPerGB):
 			return nil, errInvalid("A processor share is from %d to %d thousandths of a core for each GB of memory, or none.", minCPUMilliPerGB, maxCPUMilliPerGB)
+		case len(l.Hold) > maxDiskLimitHold || strings.ContainsFunc(l.Hold, func(r rune) bool { return !unicode.IsPrint(r) }):
+			return nil, errInvalid("A hold's reason is at most %d printable characters.", maxDiskLimitHold)
 		}
 		ids[l.ID] = true
 		list := slices.Clone(l.Servers)
@@ -227,7 +253,7 @@ func checkDiskLimits(in []api.DiskLimit) ([]api.DiskLimit, error) {
 			}
 			servers[id] = true
 		}
-		out = append(out, api.DiskLimit{ID: l.ID, LimitBytes: l.LimitBytes, Servers: list, CPUMilliPerGB: l.CPUMilliPerGB})
+		out = append(out, api.DiskLimit{ID: l.ID, LimitBytes: l.LimitBytes, Servers: list, CPUMilliPerGB: l.CPUMilliPerGB, Hold: l.Hold})
 	}
 	slices.SortFunc(out, func(x, y api.DiskLimit) int { return strings.Compare(x.ID, y.ID) })
 	return out, nil
@@ -271,6 +297,16 @@ func unpackedBytes(m backup.Manifest) int64 {
 	return n
 }
 
+// holdRefusal refuses to start a server whose limit holds it, and says why.
+// Every start goes through it: a request, a restart, a schedule, a player
+// waking the server, and recovering it.
+func (s *server) holdRefusal() error {
+	if l := s.diskLimitOf(s.id); l != nil && l.Hold != "" {
+		return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Msg: s.name() + " can't start: " + l.Hold}
+	}
+	return nil
+}
+
 // usedBy is what servers take in a scan.
 func usedBy(rep *diskusage.Report, servers []string) int64 {
 	var n int64
@@ -292,18 +328,18 @@ func (a *Agent) holdDiskLimit(ctx context.Context, id string, need int64) (done 
 	if l == nil {
 		return func(bool) {}, nil
 	}
+	return a.holdLimit(ctx, l, need)
+}
+
+// holdLimit is holdDiskLimit for the limit l itself.
+func (a *Agent) holdLimit(ctx context.Context, l *api.DiskLimit, need int64) (done func(wrote bool), err error) {
 	rep, err := a.scanDisk(ctx, nil, false)
 	if err != nil {
 		return nil, err
 	}
 	a.limits.mu.Lock()
 	defer a.limits.mu.Unlock()
-	used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers) + a.limits.held[l.ID] + a.pregenOnTheWay(l.Servers)
-	for _, w := range a.limits.wrote {
-		if w.limit == l.ID && !w.at.Before(rep.ScannedAt) {
-			used += w.bytes
-		}
-	}
+	used := a.limitUsed(rep, l)
 	if used+need > l.LimitBytes {
 		return nil, errDiskLimit(used, l.LimitBytes, need)
 	}
@@ -319,6 +355,112 @@ func (a *Agent) holdDiskLimit(ctx context.Context, id string, need int64) (done 
 			}
 		})
 	}, nil
+}
+
+// limitUsed is what counts against l: what its servers take at the scan
+// rep, what's on its way to them, held for them, or written since the scan.
+// The caller holds a.limits.mu.
+func (a *Agent) limitUsed(rep *diskusage.Report, l *api.DiskLimit) int64 {
+	used := usedBy(rep, l.Servers) + a.onTheWay(l) + a.limits.held[l.ID] + a.pregenOnTheWay(l.Servers)
+	for _, w := range a.limits.wrote {
+		if w.limit == l.ID && !w.at.Before(rep.ScannedAt) {
+			used += w.bytes
+		}
+	}
+	return used
+}
+
+// namedLimit is the disk limit called id, or nil.
+func (a *Agent) namedLimit(id string) *api.DiskLimit {
+	for _, l := range a.diskLimits() {
+		if l.ID == id {
+			return &l
+		}
+	}
+	return nil
+}
+
+// errNoSuchLimit refuses an upload for a new server whose disk limit the
+// dashboard hasn't sent: nothing it makes may go uncounted.
+func errNoSuchLimit() *apiError {
+	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Msg: "This account's disk limit hasn't reached the machine yet.", Hint: "Try again in a minute."}
+}
+
+// holdNamedLimit is holdDiskLimit for the disk limit called id, which an
+// upload for a new server names; a limit the machine doesn't have refuses.
+func (a *Agent) holdNamedLimit(ctx context.Context, id string, need int64) (done func(wrote bool), err error) {
+	l := a.namedLimit(id)
+	if l == nil {
+		return nil, errNoSuchLimit()
+	}
+	return a.holdLimit(ctx, l, need)
+}
+
+// namedLimitRefusal is diskLimitRefusal for the disk limit called id.
+func (a *Agent) namedLimitRefusal(ctx context.Context, id string, need int64) error {
+	done, err := a.holdNamedLimit(ctx, id, need)
+	if err == nil {
+		done(false)
+	}
+	return err
+}
+
+// namedLimitRoom is how many more bytes fit the disk limit called id.
+func (a *Agent) namedLimitRoom(ctx context.Context, id string) (int64, error) {
+	l := a.namedLimit(id)
+	if l == nil {
+		return 0, errNoSuchLimit()
+	}
+	rep, err := a.scanDisk(ctx, nil, false)
+	if err != nil {
+		return 0, err
+	}
+	a.limits.mu.Lock()
+	defer a.limits.mu.Unlock()
+	return max(l.LimitBytes-a.limitUsed(rep, l), 0), nil
+}
+
+// roomReplacingStage is namedLimitRoom for a backup staged for a new server,
+// which replaces the one staged against the limit before it once it's
+// staged itself, so that one's room is its too.
+func (a *Agent) roomReplacingStage(ctx context.Context, id string) (int64, error) {
+	l := a.namedLimit(id)
+	if l == nil {
+		return 0, errNoSuchLimit()
+	}
+	rep, err := a.scanDisk(ctx, nil, false)
+	if err != nil {
+		return 0, err
+	}
+	staged := a.stagedFor(id)
+	a.limits.mu.Lock()
+	defer a.limits.mu.Unlock()
+	return max(l.LimitBytes-a.limitUsed(rep, l)+staged, 0), nil
+}
+
+// joinDiskLimit counts the new server made from an upload against the disk
+// limit called id, the upload's, until the dashboard sends the limits again
+// with it.
+func (a *Agent) joinDiskLimit(id, serverID string) error {
+	a.limits.mu.Lock()
+	defer a.limits.mu.Unlock()
+	i := slices.IndexFunc(a.limits.limits, func(l api.DiskLimit) bool { return l.ID == id })
+	if i < 0 {
+		return errNoSuchLimit()
+	}
+	limits := slices.Clone(a.limits.limits)
+	l := limits[i]
+	if !slices.Contains(l.Servers, serverID) {
+		l.Servers = append(slices.Clone(l.Servers), serverID)
+		slices.Sort(l.Servers)
+	}
+	limits[i] = l
+	raw, _ := json.Marshal(limits)
+	if err := a.kvSet(kvDiskLimits, string(raw)); err != nil {
+		return err
+	}
+	a.limits.limits = limits
+	return nil
 }
 
 // diskLimitRefusal refuses need more bytes that wouldn't fit server id's
@@ -392,9 +534,11 @@ func (a *Agent) forgetDiskWrites(t time.Time) {
 
 // onTheWay is what uploads announced for servers and haven't put in place:
 // files into their folders, and worlds to import into them, other than one
-// being applied, whose operation holds what it writes.
-func (a *Agent) onTheWay(servers []string) int64 {
-	var n int64
+// being applied, whose operation holds what it writes; and the backups staged
+// for new servers against the limit (stagedFor).
+func (a *Agent) onTheWay(l *api.DiskLimit) int64 {
+	servers := l.Servers
+	n := a.stagedFor(l.ID)
 	a.uploads.mu.Lock()
 	ups := make([]*fileUpload, 0, len(a.uploads.byID))
 	for _, up := range a.uploads.byID {
@@ -415,14 +559,14 @@ func (a *Agent) onTheWay(servers []string) int64 {
 	a.imports.mu.Lock()
 	imps := make([]*worldImport, 0, len(a.imports.byID))
 	for _, imp := range a.imports.byID {
-		if slices.Contains(servers, imp.serverID) {
+		if slices.Contains(servers, imp.serverID) || imp.serverID == "" && imp.limit == l.ID {
 			imps = append(imps, imp)
 		}
 	}
 	a.imports.mu.Unlock()
 	for _, imp := range imps {
 		imp.mu.Lock()
-		if !imp.gone && imp.busy != "applying" {
+		if !imp.gone && imp.busy != "applying" && imp.busy != "creating" {
 			for _, f := range imp.files {
 				n += f.size
 			}

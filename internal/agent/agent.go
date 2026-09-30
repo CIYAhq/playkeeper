@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/netip"
@@ -75,7 +76,10 @@ type Options struct {
 	// UDPPortInUse reports a UDP port something on the machine listens on;
 	// add-ons such as voice chat get one no one uses.
 	UDPPortInUse func(port int) bool
-	Retention    Retention
+	// DNSAddrs are the addresses the machine answers DNS on (default: port
+	// 53 of each of its own addresses, see ownDNSAddrs).
+	DNSAddrs  func() ([]string, error)
+	Retention Retention
 	// StopTimeout bounds a graceful server stop (default 90s).
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
@@ -106,9 +110,18 @@ type Options struct {
 	// without any, this agent cannot install updates. The playkeeper command
 	// passes the keys compiled into the build.
 	UpdateKeys []ed25519.PublicKey
-	// UpdateCheckInterval is how often the agent looks for a new release
-	// (default 12h; negative turns the automatic check off).
+	// UpdateCheckInterval is how often the agent looks for a new release,
+	// give or take a fifth (default 30 minutes; negative turns the automatic
+	// check off), and UpdateCheckFirst the most the first look waits after
+	// the agent starts (default a minute). UpdateJitter picks their random
+	// moments, a number in [0, 1) (tests fix it).
 	UpdateCheckInterval time.Duration
+	UpdateCheckFirst    time.Duration
+	UpdateJitter        func() float64
+	// MinecraftCheckInterval is how often the agent looks for newer
+	// Minecraft versions for the servers, for Discord (default 12 hours;
+	// negative turns it off).
+	MinecraftCheckInterval time.Duration
 	// BinaryVersion runs a downloaded binary's `version` command (tests).
 	BinaryVersion func(path string) (string, error)
 	// HTTPClient fetches releases and PaperMC's version list.
@@ -208,6 +221,13 @@ type Options struct {
 	// off).
 	Firewall      netguard.Runner
 	GuardInterval time.Duration
+
+	// RestoreStarting is called with the stage a restore's operation puts
+	// in place as the operation starts, before it names the stage (tests).
+	RestoreStarting func(stage string)
+	// SlugLetters is what a slug another server has gets after it, on the
+	// try'th go (default: a few random letters and digits; tests pick them).
+	SlugLetters func(try int) string
 }
 
 // Retention bounds stored analytics and audit data.
@@ -328,10 +348,18 @@ type Agent struct {
 	// Wave 7 (0.4.0): the Disk space page's last scan.
 	disk   diskCache
 	limits diskLimitState
+	// dns answers the zone the dashboard sets, for port-free addresses.
+	dns dnsService
 	// unreadableSwaps is the error last logged for each stage whose swap
 	// journal can't be read, and under "" for the staging folder itself, so
-	// each is logged once.
+	// each is logged once. swapsMu makes one look at the staging folder at
+	// a time note what it found, so that a look that found the folder
+	// missing can't forget, after a later look logged it, that it can't be
+	// read.
 	unreadableSwaps sync.Map
+	swapsMu         sync.Mutex
+	// stages are the restore stages restores are applying.
+	stages stageClaims
 	// copyReads keeps the backup rules from deleting copies while one is
 	// downloaded: a restore, a check or a recovery holds it for reading while
 	// it downloads, and pruning deletes only when it can hold it alone.
@@ -342,6 +370,9 @@ type Agent struct {
 	// passes checks on to while the panel holds it.
 	pagePorts pagePorts
 	http01    *certs.HTTP01Responder
+	// dash is Serve the dashboard on the standard HTTPS port (443), which
+	// the page's hand-over opens port 443 for too (dashboardport.go).
+	dash dash443
 
 	usage usageState
 }
@@ -380,6 +411,9 @@ func New(opts Options) (*Agent, error) {
 	if opts.UDPPortInUse == nil {
 		opts.UDPPortInUse = udpPortInUse
 	}
+	if opts.DNSAddrs == nil {
+		opts.DNSAddrs = ownDNSAddrs
+	}
 	if opts.RCONAddr == nil {
 		opts.RCONAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(rconPort)) }
 	}
@@ -414,7 +448,16 @@ func New(opts Options) (*Agent, error) {
 		opts.BackupWarnDelay = 3 * time.Second
 	}
 	if opts.UpdateCheckInterval == 0 {
-		opts.UpdateCheckInterval = 12 * time.Hour
+		opts.UpdateCheckInterval = 30 * time.Minute
+	}
+	if opts.UpdateCheckFirst == 0 {
+		opts.UpdateCheckFirst = time.Minute
+	}
+	if opts.UpdateJitter == nil {
+		opts.UpdateJitter = rand.Float64
+	}
+	if opts.MinecraftCheckInterval == 0 {
+		opts.MinecraftCheckInterval = 12 * time.Hour
 	}
 	if opts.BinaryVersion == nil {
 		opts.BinaryVersion = binaryVersion
@@ -540,6 +583,7 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.http01 = &certs.HTTP01Responder{Addr: opts.HTTP01Addr, Shared: a.pageRelaysChallenge}
 	a.usage.kick = make(chan struct{}, 1)
+	a.upd.kick = make(chan struct{}, 1)
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	if a.opts.Issue == nil {
@@ -564,14 +608,23 @@ func New(opts Options) (*Agent, error) {
 		db.Close()
 		return nil, fmt.Errorf("read the network guard's switch: %w", err)
 	}
+	if err := a.loadDashboard443(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read the dashboard's port switch: %w", err)
+	}
 	if err := a.loadDiskLimits(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("read the disk limits: %w", err)
+	}
+	if err := a.loadDNSZone(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read the DNS zone: %w", err)
 	}
 	if err := a.migrateSingleServer(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate the existing server: %w", err)
 	}
+	a.accountsFromLimits(a.diskLimits())
 	if err := a.loadServers(); err != nil {
 		db.Close()
 		return nil, err
@@ -606,6 +659,7 @@ func (a *Agent) Start() {
 	a.loop(a.addressLoop)
 	a.loop(a.disc.n.Run)
 	a.loop(a.discordLoop)
+	a.startDNS()
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -620,11 +674,31 @@ func (a *Agent) loop(fn func(ctx context.Context)) {
 // cancellation.
 func (a *Agent) Close() {
 	a.cancel()
+	a.dns.mu.Lock()
+	a.stopDNSLocked()
+	a.dns.mu.Unlock()
 	a.wg.Wait()
 	for _, s := range a.serverList() {
 		s.resetRCON()
 	}
+	a.waitDBIdle(5 * time.Second)
 	a.db.Close()
+}
+
+// waitDBIdle waits, up to limit, until no database connection is in use. A
+// query the cancellation interrupted gives up its connection, and
+// database/sql opens the ones other queries were waiting for from a
+// goroutine of its own. db.Close doesn't wait for that connection, which
+// can still create the database's files after the agent has closed.
+func (a *Agent) waitDBIdle(limit time.Duration) {
+	deadline := time.Now().Add(limit)
+	for a.db.Stats().InUse > 0 {
+		if time.Now().After(deadline) {
+			a.log.Warn("closing the database with connections still in use", "inUse", a.db.Stats().InUse)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // machineOp is the machine-wide operation in progress, if any.
@@ -916,10 +990,16 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/backups", srv((*server).hBackupCreate)},
 		{"POST", "/v1/servers/{id}/backups/{bid}/verify", srv((*server).hBackupVerify)},
 		{"GET", "/v1/servers/{id}/backups/{bid}/download", srv((*server).hBackupDownload)},
+		{"GET", "/v1/servers/{id}/move-out", srv((*server).hMoveOut)},
+		{"GET", "/v1/servers/{id}/move-check", srv((*server).hMoveCheck)},
+		{"GET", "/v1/servers/{id}/move-state", srv((*server).hMoveStateGet)},
+		{"PUT", "/v1/servers/{id}/move-state", srv((*server).hMoveStatePut)},
 		{"DELETE", "/v1/servers/{id}/backups/{bid}", srv((*server).hBackupDelete)},
 		{"POST", "/v1/servers/{id}/backups/{bid}/restore", srv((*server).hRestoreFromBackup)},
 		{"POST", "/v1/servers/{id}/saving/resume", srv((*server).hSavingResume)},
 		{"POST", "/v1/servers/{id}/addons/remove-file", srv((*server).hRemoveAddon)},
+		{"POST", "/v1/servers/{id}/world/rebuild-level", srv((*server).hRebuildLevel)},
+		{"POST", "/v1/servers/{id}/world/remove-entity", srv((*server).hRemoveEntity)},
 		{"POST", "/v1/servers/{id}/restore/upload", srv((*server).hRestoreUpload)},
 		{"GET", "/v1/servers/{id}/addons", srv((*server).hAddons)},
 		{"GET", "/v1/servers/{id}/addons/checks", srv((*server).hAddonChecks)},
@@ -953,12 +1033,14 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/restore/upload", a.hRestoreUploadNew},
 		{"GET", "/v1/restore/{id}", a.hRestorePreview},
 		{"POST", "/v1/restore/{id}/apply", a.hRestoreApply},
+		{"POST", "/v1/restore/{id}/move-in", a.hRestoreMoveIn},
 		{"DELETE", "/v1/restore/{id}", a.hRestoreDiscard},
 		{"GET", "/v1/operations/{id}", a.hOperation},
 		{"GET", "/v1/activity", a.hActivity},
 		{"GET", "/v1/audit", a.hAudit},
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
+		{"PUT", "/v1/update/auto", a.hUpdateAuto},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
 		{"GET", "/v1/usage-stats", a.hUsageStats},
 		{"PUT", "/v1/usage-stats", a.hUsageStatsSet},
@@ -1036,6 +1118,10 @@ func (a *Agent) routeTable() []Route {
 		{"POST", pagePortsPath, a.hPublicPagePorts},
 		{"POST", "/v1/public-page/ports/retry", a.hPublicPagePortsRetry},
 		{"GET", "/v1/acme-challenge/{token}", a.hACMEChallenge},
+		// 0.4.11: the dashboard on the standard HTTPS port, which the page's
+		// hand-over opens port 443 for too.
+		{"PUT", dashboard443Path, a.hDashboard443},
+		{"POST", dashboard443ReachedPath, a.hDashboard443Reached},
 		// Wave 6: worlds people upload, for a new server or to replace one's world.
 		{"POST", "/v1/servers/{id}/world-imports", srv((*server).hWorldImportNew)},
 		{"POST", "/v1/world-imports", a.hWorldImportNewServer},
@@ -1063,6 +1149,10 @@ func (a *Agent) routeTable() []Route {
 		{"DELETE", "/v1/servers/{id}/files/uploads/{up}", srv((*server).hFileUploadDelete)},
 		{"POST", "/v1/servers/{id}/files/uploads/{up}/files", srv((*server).hFileUploadFile)},
 		{"PUT", "/v1/servers/{id}/files/uploads/{up}/files/{n}", srv((*server).hFileUploadPut)},
+		// 0.4.9: the owner's own AI keys, for the AI Build Battle plugin.
+		{"GET", "/v1/servers/{id}/ai-keys", srv((*server).hAIKeys)},
+		{"PUT", "/v1/servers/{id}/ai-keys/{provider}", srv((*server).hAIKeySet)},
+		{"DELETE", "/v1/servers/{id}/ai-keys/{provider}", srv((*server).hAIKeyRemove)},
 	}, a.automationRoutes()...)
 }
 

@@ -10,22 +10,35 @@ import (
 	"testing"
 )
 
-// recordingNotifier keeps what the core tells customers, and fails while
-// fail is set.
+// recordingNotifier keeps what the core tells customers, and whom, and
+// fails while fail is set.
 type recordingNotifier struct {
 	mu   sync.Mutex
 	sent []CustomerMessage
+	to   []Customer
 	fail error
 }
 
-func (n *recordingNotifier) Notify(_ context.Context, _ Customer, m CustomerMessage) error {
+func (n *recordingNotifier) Notify(_ context.Context, c Customer, m CustomerMessage) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.fail != nil {
 		return n.fail
 	}
 	n.sent = append(n.sent, m)
+	n.to = append(n.to, c)
 	return nil
+}
+
+// told lists each message's kind with the store of the customer it's for.
+func (n *recordingNotifier) told() []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	var out []string
+	for i, m := range n.sent {
+		out = append(out, m.Kind+" "+n.to[i].Store)
+	}
+	return out
 }
 
 func (n *recordingNotifier) kinds() []string {
@@ -36,6 +49,21 @@ func (n *recordingNotifier) kinds() []string {
 		out = append(out, m.Kind)
 	}
 	return out
+}
+
+// The messages that say where to sign in link to the sign-in page for the
+// store the customer bought from, so someone who bought from two stores
+// signs in to that store's account.
+func TestWhereToSignInNamesTheStore(t *testing.T) {
+	_, e, _ := connectedWhop(t)
+	ctx := context.Background()
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alexplays"}
+	at := "at " + whopDashboard + "/login?store=" + testStore
+	for name, text := range map[string]string{"ready": e.srv.readyText(ctx, alex), "deleted": e.srv.deletedText(ctx, alex, e.clock.now(), true)} {
+		if !strings.Contains(text, at+" ") && !strings.Contains(text, at+".") {
+			t.Errorf("the %s message: %q", name, text)
+		}
+	}
 }
 
 // waitingFor reads whether the signed-in account's dashboard says its server
@@ -60,7 +88,7 @@ func TestACustomerIsToldOnceTheirServerIsReady(t *testing.T) {
 	n := &recordingNotifier{fail: errors.New("the provider is away")}
 	e.srv.notifier = n
 	ctx := context.Background()
-	alex := Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}
 	if _, err := core.StartCustomer(ctx, alex, starter); err == nil {
 		t.Fatal("a start whose message couldn't be sent went through")
 	}
@@ -93,14 +121,14 @@ func TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears(t *testing.T) {
 	core := customerCore{s: e.srv}
 	ctx := context.Background()
 	for range 2 {
-		if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+		if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if k := n.kinds(); !slices.Equal(k, []string{messageSettingUp}) {
 		t.Fatalf("what alex was told with no room: %v", k)
 	}
-	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	alex := signIn(t, e.env, info.UserID)
 	if !waitingFor(t, e.env, alex) {
 		t.Fatal("alex's dashboard doesn't say their server is being set up")
@@ -135,10 +163,10 @@ func TestAReadyMessageThatFailedAfterPlacingIsSentLater(t *testing.T) {
 	e.srv.notifier = n
 	core := customerCore{s: e.srv}
 	ctx := context.Background()
-	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
 	n.mu.Lock()
 	n.fail = errors.New("the provider is away")
@@ -156,6 +184,26 @@ func TestAReadyMessageThatFailedAfterPlacingIsSentLater(t *testing.T) {
 	if k := n.kinds(); !slices.Equal(k, []string{messageSettingUp, messageReady}) {
 		t.Fatalf("what alex was told: %v", k)
 	}
+
+	n.mu.Lock()
+	n.fail = errors.New("the provider is away")
+	n.mu.Unlock()
+	sam := Customer{Provider: whopProvider, Store: testStore, Subject: "user_sam", Handle: "sam"}
+	_, _ = core.StartCustomer(ctx, sam, starter)
+	samInfo, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_sam")
+	if _, ok, _ := e.srv.homeMachine(ctx, samInfo.UserID); !ok {
+		t.Fatal("sam, with room at once, wasn't placed")
+	}
+	n.mu.Lock()
+	n.fail = nil
+	n.mu.Unlock()
+	e.srv.startWaitingCustomers(ctx)
+	n.mu.Lock()
+	last, lastTo := n.sent[len(n.sent)-1], n.to[len(n.to)-1]
+	n.mu.Unlock()
+	if last.Kind != messageReady || lastTo.Subject != "user_sam" {
+		t.Errorf("sam, placed at once and never told it was being set up, was last told %q (%s)", last.Kind, lastTo.Subject)
+	}
 }
 
 // A customer paused while waiting gets no server and no ready message when
@@ -170,11 +218,11 @@ func TestOnlyAnActiveCustomerIsToldTheirServerIsReady(t *testing.T) {
 	e.srv.notifier = n
 	core := customerCore{s: e.srv}
 	ctx := context.Background()
-	alex := Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}
 	if _, err := core.StartCustomer(ctx, alex, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	if _, err := e.srv.db.Exec(`UPDATE customers SET state = 'paused' WHERE user_id = ?`, info.UserID); err != nil {
 		t.Fatal(err)
 	}
@@ -195,5 +243,74 @@ func TestOnlyAnActiveCustomerIsToldTheirServerIsReady(t *testing.T) {
 	}
 	if k := n.kinds(); !slices.Equal(k, []string{messageSettingUp}) {
 		t.Fatalf("a suspended customer whose plan started again was told %v", k)
+	}
+}
+
+// A customer told their server was ready who then loses their machine, as a
+// removed machine's customers do, with no room on another, isn't told their
+// server is being set up: they're told once that there's no room for their
+// servers, their dashboard and a new server's refusal say so, and once room
+// appears they're told once that there's room again.
+func TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp(t *testing.T) {
+	e := newJoinEnv(t)
+	owner(t, e.env)
+	e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	e.reply("GET", "/v1/servers", `[]`)
+	n := &recordingNotifier{}
+	e.srv.notifier = n
+	core := customerCore{s: e.srv}
+	ctx := context.Background()
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+		t.Fatal(err)
+	}
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
+	alex := signIn(t, e.env, info.UserID)
+	e.reply("GET", "/v1/machine", liveMachine(0, true))
+	if _, err := e.srv.db.Exec(`UPDATE customer_homes SET machine_id = '' WHERE user_id = ?`, info.UserID); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := e.srv.startWaitingCustomer(ctx, info.UserID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if k := n.kinds(); !slices.Equal(k, []string{messageReady, messageNoRoom}) || !strings.Contains(n.sent[1].Text, "no room for your Playkeeper servers") {
+		t.Fatalf("what alex was told once their machine went: %v %+v", k, n.sent)
+	}
+	var me struct {
+		Access struct {
+			WaitingForRoom bool `json:"waitingForRoom"`
+			WaitingAgain   bool `json:"waitingAgain"`
+		} `json:"access"`
+	}
+	e.get(t, "/api/auth/me", alex.cookie, &me)
+	if !me.Access.WaitingForRoom || !me.Access.WaitingAgain {
+		t.Errorf("alex's dashboard once their machine went: %+v", me.Access)
+	}
+	create := `{"name":"alex","acceptEula":true,"memoryMB":4096}`
+	if r := e.do(t, "POST", "/api/machines/"+machineID(t, e.env)+"/servers", create, alex.auth()); r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "There's no room for your servers") {
+		t.Errorf("alex creates a server with no room once their machine went: %d %v", r.status, r.body)
+	}
+
+	e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	n.mu.Lock()
+	n.fail = errors.New("Whop didn't answer")
+	n.mu.Unlock()
+	if err := e.srv.startWaitingCustomer(ctx, info.UserID); err == nil {
+		t.Fatal("a message that there's room again, which Whop didn't take, was taken for sent")
+	}
+	n.mu.Lock()
+	n.fail = nil
+	n.mu.Unlock()
+	for range 2 {
+		e.srv.startWaitingCustomers(ctx)
+	}
+	if k := n.kinds(); !slices.Equal(k, []string{messageReady, messageNoRoom, messageRoomAgain}) || !strings.Contains(n.sent[2].Text, "room for your Playkeeper servers again") {
+		t.Fatalf("what alex was told once room appeared again: %v %+v", k, n.sent)
+	}
+	me.Access.WaitingForRoom, me.Access.WaitingAgain = false, false
+	e.get(t, "/api/auth/me", alex.cookie, &me)
+	if me.Access.WaitingForRoom || me.Access.WaitingAgain {
+		t.Errorf("alex's dashboard once placed again: %+v", me.Access)
 	}
 }

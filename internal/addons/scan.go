@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/addons/firstparty"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 )
 
@@ -23,7 +24,8 @@ const (
 	FileManaged FileStatus = "managed"
 	// FileModified is a file Playkeeper installed that has changed since.
 	FileModified FileStatus = "modified"
-	// FileIdentified was added by hand, and Modrinth knows it by its hash.
+	// FileIdentified was added by hand, and Modrinth knows it by its hash,
+	// or it's one of Playkeeper's own plugins.
 	FileIdentified FileStatus = "identified"
 	// FileUnknown was added by hand, and Playkeeper cannot tell what it is.
 	FileUnknown FileStatus = "unknown"
@@ -36,8 +38,8 @@ type ScanEntry struct {
 	Status   FileStatus `json:"status"`
 	// Installed is the record of a managed or modified file.
 	Installed *Installed `json:"installed,omitempty"`
-	// Identified is what Modrinth knows an identified file as: the record
-	// to store to let Playkeeper update and remove it from now on.
+	// Identified is what an identified file is known as: the record to
+	// store to let Playkeeper update and remove it from now on.
 	Identified *Installed `json:"identified,omitempty"`
 	// Meta is what the jar says about itself.
 	Meta JarMeta `json:"meta"`
@@ -54,8 +56,9 @@ type ScanResult struct {
 
 // Scan sorts the jars in the server's plugins or mods folder into files
 // Playkeeper installed (unchanged or modified), files added by hand that
-// Modrinth identifies by their hash (only when identify is set; one
-// request), and unknown files. It never changes the folder.
+// Modrinth identifies by their hash or that are Playkeeper's own plugins
+// (only when identify is set; one request, to Modrinth), and unknown files.
+// It never changes the folder.
 func (l *Library) Scan(ctx context.Context, srv Server, installed []Installed, identify bool) (*ScanResult, error) {
 	t, err := TargetFor(srv.Type)
 	if err != nil {
@@ -74,7 +77,7 @@ func (l *Library) Scan(ctx context.Context, srv Server, installed []Installed, i
 			e.Status, e.Installed = FileModified, lf.rec
 		case lf.rec != nil:
 			e.Status, e.Installed = FileManaged, lf.rec
-		case lf.ident != nil:
+		case lf.ident != nil || lf.first != nil:
 			rec := lf.identified(now)
 			e.Status, e.Identified = FileIdentified, &rec
 			if other := inv.managed[rec.Key()]; other != nil && other.FileName != lf.name {
@@ -111,6 +114,10 @@ type localFile struct {
 	sha512   string
 	ident    *modrinth.Version
 	identP   *modrinth.Project
+	// first is the plugin of Playkeeper's own this file is, by its SHA-256,
+	// and firstJar that plugin's build; Modrinth isn't asked about it.
+	first    *firstparty.Plugin
+	firstJar firstparty.Jar
 }
 
 // inventory reads the add-on folder. verify hashes the files Playkeeper
@@ -195,8 +202,10 @@ func (l *Library) readLocal(ctx context.Context, root *os.Root, lf *localFile, i
 		same, err := unchanged(ctx, f, lf.size, *lf.rec, l.maxFileSize())
 		lf.modified = err != nil || !same
 	case lf.rec == nil && identify && lf.size <= l.maxFileSize():
-		if sums, err := sumFile(ctx, f, lf.size, "sha512"); err == nil {
-			lf.sha512 = sums["sha512"]
+		if sums, err := sumFile(ctx, f, lf.size, "sha512", "sha256"); err == nil {
+			if lf.first, lf.firstJar = firstparty.ByHash(sums["sha256"]); lf.first == nil {
+				lf.sha512 = sums["sha512"]
+			}
 		}
 	}
 }
@@ -258,6 +267,14 @@ func readDir(r *os.Root, n int) ([]fs.DirEntry, error) {
 
 // identified is the record that lets Playkeeper manage an identified file.
 func (lf *localFile) identified(now time.Time) Installed {
+	if p := lf.first; p != nil {
+		j := lf.firstJar
+		return Installed{
+			Source: Playkeeper, ProjectID: p.ID, Slug: p.Slug, Name: p.Name, Summary: p.Summary,
+			VersionID: j.Version, VersionNumber: j.Version, Channel: release, Published: p.Published,
+			FileName: lf.name, HashAlgo: "sha256", Hash: j.SHA256, Size: lf.size, InstalledAt: now,
+		}
+	}
 	v := lf.ident
 	rec := Installed{
 		Source: Modrinth, ProjectID: v.ProjectID, Name: lf.display(), VersionID: v.ID, VersionNumber: v.VersionNumber,
@@ -282,6 +299,8 @@ func (lf *localFile) display() string {
 		return lf.rec.Name
 	case lf.identP != nil:
 		return lf.identP.Title
+	case lf.first != nil:
+		return lf.first.Name
 	case lf.meta.Name != "":
 		return lf.meta.Name
 	case lf.meta.ID != "":
@@ -306,8 +325,9 @@ func (lf *localFile) provider() provider {
 }
 
 // provides finds the file on the server that is project key: installed by
-// Playkeeper, identified by Modrinth, or else a plugin or mod with one of
-// names, from any source or added by hand.
+// Playkeeper, identified by Modrinth or as one of Playkeeper's own plugins,
+// or else a plugin or mod with one of names, from any source or added by
+// hand.
 func (inv *inventory) provides(key Key, names ...string) (provider, bool) {
 	if rec := inv.managed[key]; rec != nil {
 		if lf := inv.byName[rec.FileName]; lf != nil && lf.rec == rec {
@@ -317,6 +337,13 @@ func (inv *inventory) provides(key Key, names ...string) (provider, bool) {
 	if key.Source == Modrinth {
 		for _, lf := range inv.files {
 			if lf.rec == nil && lf.ident != nil && lf.ident.ProjectID == key.ProjectID {
+				return lf.provider(), true
+			}
+		}
+	}
+	if key.Source == Playkeeper {
+		for _, lf := range inv.files {
+			if lf.rec == nil && lf.first != nil && lf.first.ID == key.ProjectID {
 				return lf.provider(), true
 			}
 		}
@@ -343,6 +370,8 @@ func (inv *inventory) provides(key Key, names ...string) (provider, bool) {
 			ok = match(lf.rec.Name, lf.rec.Slug, lf.meta.ID)
 		case lf.identP != nil:
 			ok = match(lf.identP.Title, lf.identP.Slug, lf.meta.ID)
+		case lf.first != nil:
+			ok = match(lf.first.Name, lf.first.Slug, lf.meta.ID)
 		default:
 			ok = match(lf.meta.ID, lf.meta.Name)
 		}

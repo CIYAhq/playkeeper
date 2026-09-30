@@ -13,9 +13,9 @@ export function canCreate(me: Me): boolean {
   return can(me, 'servers.create') || can(me, 'servers.create_own')
 }
 
-/** Whether the account may create a server on machine m: an admin of every server on any machine, a creator only on the dashboard's own. */
-export function canCreateOn(me: Me, m: { kind: string } | undefined): boolean {
-  return can(me, 'servers.create') || (can(me, 'servers.create_own') && (!m || m.kind === 'local'))
+/** Whether the account may create a server on machine m: an admin of every server on any machine, a creator only on the one their servers go on. */
+export function canCreateOn(me: Me, m: { id: string } | undefined): boolean {
+  return can(me, 'servers.create') || (can(me, 'servers.create_own') && (!m || m.id === me.access.home))
 }
 
 /** "Up to 1 server with 4 GB": what a creator may create. */
@@ -91,7 +91,7 @@ export const settingsSections: { route: Route & { name: SettingsSectionName }; l
   { route: { name: 'discord' }, label: 'global.nav.discord', act: 'machine.manage' },
   { route: { name: 'whop' }, label: 'global.nav.whop', act: 'whop.manage' },
   { route: { name: 'ai-agents' }, label: 'global.nav.aiAgents', act: 'account.manage' },
-  { route: { name: 'machines' }, label: 'global.nav.machines', act: 'view' },
+  { route: { name: 'machines' }, label: 'global.nav.machines', act: 'machines.view' },
 ]
 
 /** Where Settings opens: the first section the account can use, else the general page. */

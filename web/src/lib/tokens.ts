@@ -7,10 +7,13 @@ export const tokenDays = [30, 60, 90, 365] as const
 export type TokenDays = (typeof tokenDays)[number]
 
 /**
- * The address AI agents connect to: the dashboard's name when it has one,
- * which its certificate is for, else the address this page was opened with.
+ * The address AI agents connect to: the dashboard's address under its name
+ * when it has one, which its certificate is for and which has no port while
+ * the dashboard answers on port 443, else the address this page was opened
+ * with.
  */
-export function mcpAddress(addresses: DialAddress[] | undefined, origin: string): string {
+export function mcpAddress(addresses: DialAddress[] | undefined, origin: string, dashboard?: string): string {
+  if (dashboard) return `${dashboard}/mcp`
   const name = addresses?.find((a) => a.kind === 'name')
   return name ? `https://${name.address}/mcp` : `${origin}/mcp`
 }

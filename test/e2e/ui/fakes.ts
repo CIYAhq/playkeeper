@@ -53,6 +53,8 @@ interface FakeState {
   discord: Record<string, unknown>
   /** Usage stats as the real panel last showed them; the switch answers with them. */
   usage: Record<string, unknown>
+  /** Serve the dashboard on the standard HTTPS port as the real panel last showed it; the switch answers with it. */
+  dashboardPort: Record<string, unknown>
   opSeq: number
   inviteSeq: number
   /** Each machine's address as the real panel last showed it; address changes answer with it. */
@@ -589,6 +591,16 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/(servers|machines)\/(\w+)\/restore\/upload$/, () => ({ status: 200, body: restorePreview(undefined) })],
   ['POST', /^\/api\/machines\/(\w+)\/servers$/, (r, state) => ((r.body as { acceptEula?: boolean } | null)?.acceptEula ? op(state, 'create', 'fakeserver') : invalid('Accept the Minecraft EULA first.'))],
   ['POST', /^\/api\/machines\/(\w+)\/update\/check$/, (_r, state) => ({ status: 200, body: { current: 'dev', supported: true, available: false, ...state.update, checkedAt: new Date().toISOString() } })],
+  [
+    'PUT',
+    /^\/api\/machines\/(\w+)\/update\/auto$/,
+    (r, state) => {
+      const on = (r.body as { on?: unknown } | null)?.on
+      if (typeof on !== 'boolean') return invalid('Send {"on": true} or {"on": false}.')
+      state.update = { ...state.update, autoCheck: on }
+      return { status: 200, body: { current: 'dev', supported: true, available: false, ...state.update } }
+    },
+  ],
   ['POST', /^\/api\/machines\/(\w+)\/update\/apply$/, (_r, state) => op(state, 'update')],
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
@@ -668,12 +680,26 @@ const routes: [string, RegExp, Handler][] = [
   ],
   ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], webhook: false, customers: [], needs: whopNeeds } })],
   ['PUT', /^\/api\/whop\/signin$/, () => ({ status: 200, body: whopConnected({}) })],
+  ['PUT', /^\/api\/whop\/app$/, () => ({ status: 200, body: whopConnected({}) })],
   ['DELETE', /^\/api\/whop\/signin$/, () => ({ status: 200, body: { ...whopConnected({}), signIn: { redirectUri: whopSignInRedirect } } })],
   // Hetzner stock never reaches Hetzner: a token typed here isn't one Hetzner knows, so it's refused as the real check would.
   ['PUT', /^\/api\/hetzner$/, () => ({ status: 400, body: { error: 'Hetzner didn’t take that token.', code: 'hetzner_token_refused' }, expected: true })],
   ['DELETE', /^\/api\/hetzner$/, () => ({ status: 200, body: { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: false } })],
   // The usage stats switch never changes the machine the crawl runs on.
   ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
+  // Serve the dashboard on the standard HTTPS port never takes the runner's port 443: turned on, it waits for a browser from outside.
+  [
+    'PUT',
+    /^\/api\/dashboard-port$/,
+    (r, state) => {
+      const b = r.body as Record<string, unknown> | null
+      if (!b || typeof b !== 'object' || typeof b.on !== 'boolean' || Object.keys(b).some((k) => k !== 'on')) return invalid('Invalid request.')
+      const v = state.dashboardPort
+      const panelPort = typeof v.panelPort === 'number' ? v.panelPort : 8443
+      return { status: 200, body: { outside: [], ...v, on: b.on, default: false, state: !b.on ? 'off' : v.url ? 'open' : 'no_address', reached: false, holder: undefined, port: panelPort, panelPort } }
+    },
+  ],
+  ['POST', /^\/api\/dashboard-port\/retry$/, () => ({ status: 200, body: { ok: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
   // Wave 1: the World tab's pre-generation and packs, and the Plugins and Mods tabs.
   [
@@ -802,6 +828,10 @@ const routes: [string, RegExp, Handler][] = [
   // Wave 3: the crash screen's fixes that act on a plugin or mod, then start
   // the server. Its update and install with `start` are Wave 1's entries.
   ['POST', /^\/api\/servers\/(\w+)\/addons\/remove-file$/, (r, state) => (addonJar.test(String((r.body as { jar?: unknown } | null)?.jar ?? '')) ? op(state, 'remove-addon', r.params[0]) : invalid('That is not the name of a plugin or mod file.'))],
+  // 0.4.8: a new level.dat for a world whose level.dat files are both damaged.
+  ['POST', /^\/api\/servers\/(\w+)\/world\/rebuild-level$/, (r, state) => op(state, 'rebuild-level', r.params[0])],
+  // 0.4.8: taking an entity that crashes the server out of its world.
+  ['POST', /^\/api\/servers\/(\w+)\/world\/remove-entity$/, (r, state) => op(state, 'remove-entity', r.params[0])],
   // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
   ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
   // Wave 4: the CurseForge key. A key typed here isn't one CurseForge knows, so it's refused as the real check would.
@@ -856,6 +886,23 @@ const routes: [string, RegExp, Handler][] = [
       return typeof on === 'boolean' ? op(state, on ? 'crossplay_on' : 'crossplay_off', r.params[0]) : invalid('Say whether crossplay should be on.')
     },
   ],
+  // 0.4.9: the server's own OpenRouter key for AI Build Battle, checked as the agent checks it. Answers say only whether one is set.
+  [
+    'PUT',
+    /^\/api\/servers\/(\w+)\/ai-keys\/openrouter$/,
+    ({ body }) => {
+      const raw = (body as { key?: unknown } | null)?.key
+      const key = typeof raw === 'string' ? raw.trim() : ''
+      const refused = (error: string, reason: string): Reply => ({ status: 400, body: { error, code: 'invalid_request', field: 'key', reason }, expected: true })
+      if (key === '') return refused('Paste your OpenRouter key.', 'ai_key_missing')
+      if (!key.startsWith('sk-or-')) return refused("That isn't an OpenRouter key: those start with sk-or-.", 'ai_key_prefix')
+      if (/[^!-~]/.test(key)) return refused('Keys have no spaces or characters like that. Copy it again from openrouter.ai/keys.', 'ai_key_characters')
+      if (key.length < 20) return refused('That key is too short. Copy all of it from openrouter.ai/keys.', 'ai_key_short')
+      if (key.length > 256) return refused('That key is too long. Copy only the key from openrouter.ai/keys.', 'ai_key_long')
+      return { status: 200, body: { keys: { openrouter: { set: true } }, pending: false, available: true } }
+    },
+  ],
+  ['DELETE', /^\/api\/servers\/(\w+)\/ai-keys\/openrouter$/, () => ({ status: 200, body: { keys: { openrouter: { set: false } }, pending: false, available: true } })],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
   ['POST', /^\/api\/servers\/(\w+)\/map\/enable$/, (r, state) => op(state, 'map_enable', r.params[0])],
   ['POST', /^\/api\/servers\/(\w+)\/map\/disable$/, (r, state) => (typeof (r.body as { deleteMap?: unknown } | null)?.deleteMap === 'boolean' ? op(state, 'map_disable', r.params[0]) : invalid('Say whether to keep the drawn map.'))],
@@ -1238,6 +1285,19 @@ const routes: [string, RegExp, Handler][] = [
     ({ body }) => {
       const host = (body as { host?: unknown } | null)?.host
       return typeof host === 'boolean' ? { status: 200, body: { on: true, host } } : invalid('Say whether to keep servers away from this machine.')
+    },
+  ],
+  // A joined machine taking customers, which would turn on its Keep servers away from this machine.
+  [
+    'PUT',
+    /^\/api\/machines\/([a-z2-9]{10})\/customers$/,
+    (r, state) => {
+      const on = (r.body as { on?: unknown } | null)?.on
+      const m = state.machines.find((x) => x.id === r.params[0])
+      if (typeof on !== 'boolean') return invalid('Send {"on": true} or {"on": false}.')
+      if (!m) return { status: 404, body: { error: 'Machine not found.', code: 'not_found' } }
+      if (m.kind === 'local') return invalid('The dashboard’s own machine always takes customers.')
+      return { status: 200, body: { ...m, ...(on ? { takesCustomers: { since: new Date().toISOString(), by: 'siya' } } : {}) } }
     },
   ],
   // Wave 8: AI agent tokens, join codes and joined machines.
@@ -1775,6 +1835,7 @@ function whopConnected(body: Json): Json {
     plans: [plan('plan_fakestarter', 'Starter', '$8.00 / month', { trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }), plan('plan_fakebig', 'Big', '$16.00 / month', {})],
     webhook: true,
     signIn: { clientId: 'app_fakecloud', redirectUri: whopSignInRedirect },
+    app: { stores: 0, webhook: false },
     customers: [
       { whopUserId: 'user_fakealex', handle: 'alexplays', status: 'active', plan: 'Starter', account: 'alexplays', allowance: { servers: 1, memoryMB: 4096 } },
       { whopUserId: 'user_fakesam', handle: 'samcrafts', status: 'paused', plan: 'Starter', allowance: { servers: 1, memoryMB: 4096 } },
@@ -2136,6 +2197,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     origin,
     discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] },
     usage: {},
+    dashboardPort: {},
     inviteSeq: 0,
     maps: new Map(),
     imports: new Map(),
@@ -2316,6 +2378,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         if (path === '/api/discord') state.discord = await res.json().catch(() => state.discord)
         if (path === '/api/usage-stats') state.usage = await res.json().catch(() => state.usage)
+        if (path === '/api/dashboard-port') state.dashboardPort = await res.json().catch(() => state.dashboardPort)
         if (path === '/api/machines/link') state.link = await res.json().catch(() => ({}))
         if (path === '/api/machines') state.machines = await res.json().catch(() => [])
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ArrowUpRightIcon } from 'lucide-react'
 import { api, get, post } from '@/api/client'
-import type { PublicBoard, PublicPageView, ServerStatus } from '@/api/types'
+import type { Me, PublicBoard, PublicPageView, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { useNow } from '@/components/app/bits'
 import { SettingRow } from '@/components/app/controls'
@@ -34,7 +34,7 @@ export function PublicPageRows({ server: s }: { server: ServerStatus }) {
   const v = view.data
   const enabled = pending?.enabled ?? v?.enabled ?? false
   const players = pending?.players ?? v?.players ?? false
-  const locked = stale ? t('reason.noAgent') : !v ? t('common.loading') : pending ? t('reason.saving') : !can(ws.me, 'servers.manage') ? t('publicPage.notAllowed') : !v.ports ? t('publicPage.otherMachine') : undefined
+  const locked = stale ? t('reason.noAgent') : !v ? t('common.loading') : pending ? t('reason.saving') : !can(ws.me, 'servers.manage') ? t('publicPage.notAllowed') : !v.ports ? otherMachineText(ws.me) : undefined
 
   async function save(next: { enabled?: boolean; players?: boolean }) {
     setPending(next)
@@ -200,14 +200,20 @@ function BoardRow({ server: s, board, enabled, onChange }: { server: ServerStatu
   )
 }
 
+/** Why a server off the dashboard's machine has no page; a creator or customer hears of no other machine. */
+function otherMachineText(me: Me): string {
+  return can(me, 'machines.view') ? t('publicPage.otherMachine') : t('common.notForThisServerYet')
+}
+
 /** The page row's line: where it answers, or why browsers can't reach it. */
 function Reach({ view, server: s, onRetry }: { view: PublicPageView; server: ServerStatus; onRetry: () => Promise<void> }) {
+  const ws = useWorkspace()
   const r = pageReach(view)
   switch (r.kind) {
     case 'off':
       return <>{t('publicPage.offHint')}</>
     case 'otherMachine':
-      return <>{t('publicPage.otherMachine')}</>
+      return <>{otherMachineText(ws.me)}</>
     case 'noAddress':
       return <NoAddress server={s} />
     case 'live':
@@ -252,8 +258,9 @@ function PageLink({ url }: { url: string }) {
 }
 
 function NoAddress({ server: s }: { server: ServerStatus }) {
+  const ws = useWorkspace()
   const { machine } = useServerMachine(s)
-  const link: ReactNode = machine ? (
+  const link: ReactNode = machine && can(ws.me, 'machines.view') ? (
     <a {...linkPath(`/machines/${machine.id}/settings`)} className="font-medium text-success-strong hover:underline">
       {t('publicPage.addressLink')}
     </a>

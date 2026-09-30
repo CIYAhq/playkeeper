@@ -34,6 +34,10 @@ type fakeHetzner struct {
 	resetAt       time.Time
 	asked         int
 	tokens        map[string]bool
+	// servers are the project's servers, as GET /servers lists them, and
+	// listed how many times it did.
+	servers []map[string]any
+	listed  int
 }
 
 func newFakeHetzner(t *testing.T) *fakeHetzner {
@@ -63,6 +67,10 @@ func (f *fakeHetzner) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	case f.down:
 		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	case r.Method == http.MethodGet && r.URL.Path == "/servers":
+		f.listed++
+		json.NewEncoder(w).Encode(map[string]any{"servers": f.servers, "meta": map[string]any{"pagination": map[string]any{"page": 1, "next_page": nil}}})
 		return
 	case r.Method != http.MethodGet || r.URL.Path != "/server_types":
 		w.WriteHeader(http.StatusNotFound)

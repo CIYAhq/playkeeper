@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,8 +82,11 @@ func write(out string, o *site.Output) error {
 func handler(o *site.Output) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		policy := o.Policy
-		if path.Clean(r.URL.Path) == "/start" {
+		switch p := path.Clean(r.URL.Path); {
+		case p == "/start":
 			policy = o.StartPolicy
+		case slices.Contains(o.Films, p):
+			policy = o.FilmPolicy
 		}
 		w.Header().Set("Content-Security-Policy", policy)
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")

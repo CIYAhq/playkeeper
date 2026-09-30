@@ -11,7 +11,7 @@ layout: guide
 crumb: Guides
 og: modded-minecraft-server
 published: 2026-09-26
-updated: 2026-09-28
+updated: 2026-09-29
 schema: article
 */}}
 
@@ -87,7 +87,7 @@ echo "-Xmx8G" &gt;&gt; user_jvm_args.txt
 sudo ufw allow 25565/tcp
 ./run.sh nogui</pre>{{end}}
   </div>
-  <p class="fine">For a whole <code>user_jvm_args.txt</code>, with Aikar's flags and a heap that leaves Java room, use the <a href="/tools/jvm-flags">JVM arguments generator</a>.</p>
+  <p class="fine">For a whole <code>user_jvm_args.txt</code>, with Aikar's flags and a heap that leaves Java room, use the <a href="/tools/jvm-flags">JVM arguments generator</a>. Step by step, with the errors a wrong mod gives: <a href="/guides/neoforge-server">a NeoForge server</a> and <a href="/guides/fabric-server">a Fabric server</a>.</p>
 </section>
 
 <section aria-labelledby="one-click">
@@ -141,8 +141,9 @@ sudo ufw allow 25565/tcp
   <div class="error-card reveal">
     <h3>A client-only mod on the server</h3>
     <code class="err">Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER</code>
-    <p>{{template "icon" "arrow-right"}}Minimaps, shaders and menus belong in players' games. Take them off the server.</p>
+    <p>{{template "icon" "arrow-right"}}Minimaps, shaders and menus belong in players' games. Take them off the server. From Playkeeper 0.4.8, the Overview names such a mod when the log says which it is, and offers to remove it.</p>
   </div>
+  <p>A server that crashes while it runs, with Description: Ticking entity in its crash report, has one mob, cart or machine that keeps failing: <a href="/errors/ticking-entity">how to find it and remove it</a>.</p>
   {{template "cardshot" (dict "Name" "guide-crash" "Alt" "A crashed server's Overview: what happened, the last lines of the log, and how to fix it." "Caption" "Playkeeper reads the log and offers the fix." "Sizes" $article)}}
 </section>
 {{end}}
@@ -158,8 +159,8 @@ sudo ufw allow 25565/tcp
   {{if shown "cobblemon" "better-mc"}}<section class="tpl-section" aria-labelledby="tpl-title">
     <h2 id="tpl-title" class="h3 reveal">Or start from a modpack template</h2>
     <div class="tpl-pair">
-      {{template "template-card" (dict "ID" "cobblemon")}}
-      {{template "template-card" (dict "ID" "better-mc")}}
+      {{template "template-card" (dict "ID" "cobblemon" "Sizes" "(max-width: 1023.98px) 50vw, 370px")}}
+      {{template "template-card" (dict "ID" "better-mc" "Sizes" "(max-width: 1023.98px) 50vw, 370px")}}
     </div>
   </section>{{end}}
 </div>

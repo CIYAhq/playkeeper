@@ -1,0 +1,145 @@
+{{/*
+path: /errors/ticking-entity
+title: Ticking entity crash in Minecraft: what it means and the fix
+description: Ticking entity means one mob, cart or block threw an error while the server ran it. Find it in the crash report and remove it, with fixes tested on 4 servers.
+label: Ticking entity
+h1: Ticking entity: what the crash means, and how to fix it
+card: Ticking entity crash, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-ticking-entity
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Ticking entity means one entity, like a mob, a minecart or an item frame, threw an error while the server ran it, and Minecraft stopped the whole server. Ticking block entity is the same for a block such as a hopper or a mod's machine. The crash report says which one and where it is: remove it, then update or remove the mod behind it, if there is one.{{end}}
+
+{{define "closing-title"}}A crash that names what to take out.{{end}}
+{{define "closing-sub"}}Free and open source. From 0.4.8, Playkeeper names the entity that crashed your server and removes just it, after a backup.{{end}}
+
+{{define "side-text"}}From 0.4.8, Playkeeper names what crashed your server and removes just it, after a backup.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "What the crash says" "Toc" "What it means")}}
+  <div class="error-card reveal">
+    <h3>The top of the crash report, from our NeoForge test</h3>
+    <code class="err">---- Minecraft Crash Report ----
+// Why did you do that?
+
+Time: 2026-09-29 15:05:21
+Description: Ticking entity
+
+java.lang.NullPointerException: Test error: this minecart is set to fail when it ticks</code>
+  </div>
+  <p>Twenty times a second, the server runs every entity in the parts of the world that are active, around players and at spawn: it moves mobs and minecarts, and counts down dropped items. When the code that runs one of them throws an error, Minecraft stops the whole server and writes a crash report in the server's <code>crash-reports</code> folder. The line under Description is the error itself.</p>
+  <p>Ticking block entity is the same crash for a block with data and code of its own: a hopper, a furnace, a spawner, or a machine or pipe from a mod.</p>
+</section>
+
+<section aria-labelledby="report">
+  {{template "h2n" (dict "ID" "report" "N" 2 "Text" "Which entity, and where" "Toc" "Read the report")}}
+  <p>Further down, the report names what failed and where it is:</p>
+  <div class="error-card reveal">
+    <h3>The same report's entity section</h3>
+    <code class="err">-- Entity being ticked --
+Details:
+  Entity Type: minecraft:minecart (net.minecraft.world.entity.vehicle.Minecart)
+  Entity ID: 2
+  Entity Name: Minecart
+  Entity's Exact location: 6.50, -60.00, 6.50
+  Entity's Block location: World: (6,-60,6), Section: (at 6,4,6 in 0,-4,0; chunk contains blocks 0,-64,0 to 15,319,15), Region: (0,0; contains chunks 0,0 to 31,31, blocks 0,-64,0 to 511,319,511)</code>
+  </div>
+  <ul>
+    <li><strong>Entity Type</strong> says what it is. The part before the colon is what adds it: <code>minecraft</code> for the game, or a mod's ID.</li>
+    <li><strong>Exact location</strong> is where it is, as x, y and z.</li>
+    <li><strong>in 0,-4,0</strong> is its chunk, by the first and last numbers: x 0 and z 0. A chunk is 16 by 16 blocks, so that's the block x and z divided by 16, rounded down.</li>
+    <li><strong>Region: (0,0; …)</strong> names the file it's saved in: <code>entities/r.0.0.mca</code>, in the world folder. A region is 32 by 32 chunks.</li>
+    <li><strong>The lines under the error</strong> name the code that failed. In a real crash, look for a mod's or a plugin's name there; ours named the game's own minecart code, where we'd planted the error.</li>
+  </ul>
+  <p>For a block, the section is called Block entity being ticked, and it gives the block's Name, like <code>minecraft:hopper</code>, and its Block location. A block's data is saved with the land around it, in <code>region/r.0.0.mca</code>.</p>
+</section>
+
+<section aria-labelledby="tests">
+  {{template "h2n" (dict "ID" "tests" "N" 3 "Text" "What each server did" "Toc" "Our tests")}}
+  <p>On 29 Sep we made one minecart throw an error each time the server ran it, and one hopper the same, as a broken mod would. A small Java agent changed the game's code as it loaded, on Minecraft 1.21.1's own server, Fabric, Paper and NeoForge:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">What ran</th><th scope="col">The minecart</th><th scope="col">The hopper</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Minecraft 1.21.1</th><td>Stopped: Ticking entity</td><td>Stopped: Ticking block entity</td></tr>
+        <tr><th scope="row">Fabric Loader 0.19.5 on 1.21.1</th><td>Stopped: Ticking entity</td><td>Stopped: Ticking block entity</td></tr>
+        <tr><th scope="row">Paper 1.21.1, build 133</th><td>Logged <code>Entity threw exception at world:6.5,-60.0,6.5</code>, removed the minecart and kept running</td><td>Logged <code>BlockEntity threw exception at world:10,-60,10</code>; the hopper stayed, without the 2 diamonds in it</td></tr>
+        <tr><th scope="row">NeoForge 21.1.252</th><td>Stopped: Ticking entity</td><td>Stopped: Ticking block entity</td></tr>
+        <tr><th scope="row">NeoForge, with its two remove settings on</th><td>Wrote the crash report into the log, removed the minecart and kept running</td><td>The same; the hopper stayed, empty</td></tr>
+        <tr><th scope="row">Fabric with Neruina 3.3.3</th><td>Logged <code>Neruina caught an exception</code>, kept running and left the minecart in place, stopped</td><td>The same; the hopper kept its 2 diamonds</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Each server that stopped had saved the world first, with the entity still in it, so the crash came back:</p>
+  <ul>
+    <li><strong>At spawn,</strong> Minecraft crashed in the same second it said Done, at every start.</li>
+    <li><strong>2,000 blocks away,</strong> it ran normally with a player at spawn. When the player teleported next to the minecart, it crashed within a second, and the player saw Server closed.</li>
+    <li><strong>With nobody on,</strong> it stopped running entities shortly after it started. A broken minecart we added 10 seconds after a start crashed it at once; one added after 18 seconds did nothing until the next start.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="fixes">
+  {{template "h2n" (dict "ID" "fixes" "N" 4 "Text" "How to fix it" "Toc" "Fixes")}}
+  <p>Take the first fix that fits your server. Before you change the world's files, stop the server and copy the world folder.</p>
+  <ul>
+    <li><strong>Restore a backup from before the crash.</strong> The world comes back as it was then, without the broken entity; what changed since is lost.</li>
+    <li><strong>Paper: it's already gone.</strong> Paper removed our minecart by itself and logged its world and position. If it happens again, the lines under that log line name the code.</li>
+    <li><strong>Forge or NeoForge: let it remove the entity, once.</strong> Set <code>removeErroringEntities</code>, or <code>removeErroringBlockEntities</code> for a block, to <code>true</code> and start the server. NeoForge 21.1 keeps them in <code>config/neoforge-server.toml</code>, Forge 1.20.1 in <code>world/serverconfig/forge-server.toml</code>; both start off. Then turn it off again: the file itself warns BE WARNED THIS COULD SCREW UP EVERYTHING, and while it's on, whatever fails next is deleted instead of stopping the server.</li>
+    <li><strong>Fabric, Forge or NeoForge: Neruina.</strong> This mod, downloaded 9.7 million times on Modrinth, stops the entity that fails and keeps the server running. <code>/neruina kill @e[type=minecart,limit=1]</code> then removed ours. It doesn't remove anything by itself: once we took Neruina off, the hopper it had stopped crashed the server again.</li>
+    <li><strong>Otherwise, delete the entities file.</strong> With the server stopped, delete the file the Region line names. Ours then started: the blocks and a chest's diamonds stayed, and every entity in that 512 by 512 block area was gone, a cow we'd named too.</li>
+    <li><strong>Or only that chunk, with MCA Selector.</strong> This free world editor deleted the chunk from the report, which came back as new land: what was built in it went, and a cow one chunk over stayed. For a block, it replaced only the hopper with air, and the chest beside it kept its diamonds.</li>
+    <li><strong>Then the cause.</strong> If the lines under the error name a mod's code, the next entity of that kind can fail the same way: update the mod, or remove it.</li>
+  </ul>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="What failed">
+        <button type="button" class="code-tab" role="tab" id="tab-entity" aria-controls="code-entity" aria-selected="true">An entity</button>
+        <button type="button" class="code-tab" role="tab" id="tab-block" aria-controls="code-block" aria-selected="false" tabindex="-1">A block</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-entity" role="tabpanel" tabindex="0" aria-labelledby="tab-entity"><span class="c"># In the server's folder, with the server stopped</span>
+cp -r world world-backup
+rm world/entities/r.0.0.mca   <span class="c"># the numbers from the Region line</span>
+<span class="c"># Or only chunk 0,0, with MCA Selector 2.9</span>
+java -jar mcaselector-2.9.jar --mode delete --world world --query "xPos = 0 AND zPos = 0"</pre>
+<pre id="code-block" role="tabpanel" tabindex="0" aria-labelledby="tab-block" hidden><span class="c"># In the server's folder, with the server stopped</span>
+cp -r world world-backup
+<span class="c"># Every hopper in chunk 0,0 becomes air</span>
+java -jar mcaselector-2.9.jar --mode change --world world --query "xPos = 0 AND zPos = 0" --fields 'ReplaceBlocks = "minecraft:hopper=minecraft:air"'</pre>
+  </div>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 5 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>From Playkeeper 0.4.8, the Overview names the entity and where it is.</strong> For our minecart it says The minecart at x 6, y -60, z 6 crashes it each time the game runs it, and It's in the Overworld, saved in the world, so starting again crashes again.</li>
+    <li><strong>Remove the minecart takes out only that one:</strong> Only it goes. Blocks, chests and other mobs stay. Playkeeper backs up the world first, so you can undo, then starts the server. For a block the button is Reset the hopper: The block stays, without what it held.</li>
+    <li><strong>It no longer offers to start again,</strong> which only crashes again. When it can't tell what crashed and there's no backup to restore, it offers I'll take it out myself, for the fixes above.</li>
+    <li><strong>It doesn't restart the server first.</strong> It knows this crash would happen again at every start, so the Overview shows what to remove right after the first crash, and the status says It would crash the same way again, so Playkeeper didn't restart it. A Discord alert says the server crashed and stays off. Crashes it doesn't recognise are still restarted, up to 3 times in 15 minutes.</li>
+  </ul>
+  <p>Before 0.4.8, Playkeeper started the server again until it had crashed 3 times, then the Overview showed the last errors with the crash report's Description line and offered only a restart. There, as on any other server, use the fixes above: the Files tab deletes <code>world/entities/r.0.0.mca</code> once the server has stopped, and the World tab restores a backup, keeping the world it replaces as a rollback archive.</p>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What does Ticking entity mean in Minecraft?" "One entity, like a mob, a minecart or an item frame, threw an error while the server ran it, so Minecraft stopped the server and wrote a crash report.")
+    (qa "What is a ticking block entity crash?" "The same crash for a block with data and code of its own, like a hopper, a furnace or a mod's machine.")
+    (qa "Why does my server crash every time it starts?" "It saved the world with the broken entity in it. At spawn, that entity runs a moment after each start; elsewhere, when a player goes near it.")
+    (qa "Will fixing it delete my world?" "No. Deleting the entities file keeps every block and chest; deleting a chunk loses only what was built in it.")
+    (qa "Can Playkeeper fix a ticking entity crash?" "From 0.4.8, yes. The Overview names the entity and where it is, and Remove takes out only that one, after backing up the world.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/errors/world-corrupted" "/guides/modded-minecraft-server")}}{{end}}

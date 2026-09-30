@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -217,6 +218,333 @@ func TestPlanMembershipsAreThePlansAlone(t *testing.T) {
 		if err != nil || len(ms) != 1 || ms[0].ID != "mem_1" || unfiltered != map[string]int{"refuses": 1}[how] {
 			t.Fatalf("Whop %s the filter: PlanMemberships = %+v, %v, after %d reads of every membership", how, ms, err, unfiltered)
 		}
+	}
+}
+
+func TestMessagesGoOutAsTheOwnerWithATokenThatMaySendThemAlone(t *testing.T) {
+	var seen []string
+	answers := map[string]string{
+		"GET /accounts/me":    `{"id":"biz_pip","owner":{"id":"user_pip","username":"pipowner","name":"Pip"}}`,
+		"POST /access_tokens": `{"token":"ut_1","expires_at":"2026-09-30T13:00:00Z"}`,
+		"POST /messages":      `{"id":"msg_1"}`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		seen = append(seen, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization")+" "+string(b))
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, answers[r.Method+" "+r.URL.Path])
+	}))
+	defer srv.Close()
+	c := &Client{APIURL: srv.URL, Key: testKey}
+	ctx := context.Background()
+	owner, err := c.Owner(ctx)
+	if err != nil || owner != (User{ID: "user_pip", Username: "pipowner", Name: "Pip"}) {
+		t.Fatalf("Owner = %+v, %v", owner, err)
+	}
+	token, err := c.UserToken(ctx, "biz_pip", owner.ID, MessageAction)
+	if err != nil || token != "ut_1" {
+		t.Fatalf("UserToken = %q, %v", token, err)
+	}
+	if err := c.SendMessage(ctx, token, "feed_1", "Your server is ready"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"GET /accounts/me Bearer " + testKey + " ",
+		"POST /access_tokens Bearer " + testKey + ` {"account_id":"biz_pip","scoped_actions":["support_chat:message:create"],"user_id":"user_pip"}`,
+		`POST /messages Bearer ut_1 {"channel_id":"feed_1","content":"Your server is ready"}`,
+	}
+	if strings.Join(seen, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("requests:\n%s", strings.Join(seen, "\n"))
+	}
+	// A token asked for no actions would get every one the key has.
+	if _, err := c.UserToken(ctx, "biz_pip", owner.ID); err == nil || len(seen) != 3 {
+		t.Fatalf("a token for every action: %v, after %d requests", err, len(seen))
+	}
+	answers["GET /accounts/me"], answers["POST /access_tokens"] = `{"id":"biz_pip"}`, `{}`
+	if _, err := c.Owner(ctx); err == nil {
+		t.Fatal("an account Whop names no owner of")
+	}
+	if _, err := c.UserToken(ctx, "biz_pip", owner.ID, MessageAction); err == nil {
+		t.Fatal("an answer without a token")
+	}
+}
+
+// An app's key can't read an installed business's account, which Whop
+// keeps behind company:balance:read, so the owner comes from one of its
+// products, read by id since the list leaves the owner out.
+// An app's key reads an installed business's name from one of its products,
+// and its store's address from one of its memberships, since a product names
+// the business by id; without a membership there's no address yet.
+func TestBusinessReadsItsNameFromAProductAndItsAddressFromAMembership(t *testing.T) {
+	var firsts []string
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /accounts/biz_seller": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the company:balance:read scope."}}`)
+		},
+		"GET /products": func(w http.ResponseWriter, r *http.Request) {
+			var data []map[string]any
+			if r.URL.Query().Get("account_id") != "biz_empty" {
+				data = append(data, map[string]any{"id": "prod_4gb", "title": "Minecraft server"})
+			}
+			answer(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})(w, r)
+		},
+		"GET /products/prod_4gb": answer(map[string]any{"id": "prod_4gb", "account": map[string]any{"id": "biz_seller", "title": "Joe's Hosting", "route": "biz_seller"}}),
+		"GET /memberships": func(w http.ResponseWriter, r *http.Request) {
+			firsts = append(firsts, r.URL.Query().Get("first"))
+			var data []map[string]any
+			if r.URL.Query().Get("account_id") == "biz_seller" {
+				data = append(data, map[string]any{"id": "mem_1", "account": map[string]any{"id": "biz_seller", "title": "Joe's Hosting", "route": "joes-hosting"}})
+			}
+			answer(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})(w, r)
+		},
+	})
+	ctx := context.Background()
+	if a, err := c.Business(ctx, "biz_seller"); err != nil || a != (Account{ID: "biz_seller", Title: "Joe's Hosting", Route: "joes-hosting"}) {
+		t.Fatalf("Business = %+v, %v", a, err)
+	}
+	if a, err := c.Business(ctx, "biz_new"); err != nil || a != (Account{ID: "biz_new", Title: "Joe's Hosting"}) {
+		t.Fatalf("a business with no membership yet: %+v, %v", a, err)
+	}
+	if _, err := c.Business(ctx, "biz_empty"); err == nil {
+		t.Fatal("a business with no product")
+	}
+	if !slices.Equal(firsts, []string{"1", "1"}) {
+		t.Fatalf("memberships read with first=%v, not one", firsts)
+	}
+}
+
+func TestOwnerOfReadsTheOwnerOnOneOfTheAccountsProducts(t *testing.T) {
+	balance := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the company:balance:read scope."}}`)
+	}
+	list := func(ids ...string) func(http.ResponseWriter, *http.Request) {
+		var data []map[string]any
+		for _, id := range ids {
+			data = append(data, map[string]any{"id": id, "title": "Minecraft server"})
+		}
+		return answer(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
+	}
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /accounts/biz_seller": balance,
+		"GET /products": func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Query().Get("account_id") {
+			case "biz_seller":
+				list("prod_4gb", "prod_8gb")(w, r)
+			case "biz_noowner":
+				list("prod_x")(w, r)
+			default:
+				list()(w, r)
+			}
+		},
+		"GET /products/prod_4gb": answer(map[string]any{"id": "prod_4gb", "owner_user": map[string]any{"id": "user_seller", "username": "sellerjoe", "name": "Joe"},
+			"account": map[string]any{"id": "biz_seller", "title": "Joe's Hosting", "route": "biz_seller"}}),
+		"GET /products/prod_x": answer(map[string]any{"id": "prod_x"}),
+	})
+	u, err := c.OwnerOf(context.Background(), "biz_seller")
+	if err != nil || u != (User{ID: "user_seller", Username: "sellerjoe", Name: "Joe"}) {
+		t.Fatalf("OwnerOf = %+v, %v", u, err)
+	}
+	for _, biz := range []string{"biz_noowner", "biz_empty"} {
+		if _, err := c.OwnerOf(context.Background(), biz); err == nil {
+			t.Fatalf("%s: no owner, but no error", biz)
+		}
+	}
+}
+
+// Which of the actions an account grants the key: an app's key holds only
+// what each business that installed the app approved.
+func TestLacksListsTheActionsTheAccountDoesntGrant(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /permissions": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("resource_id") != "biz_seller" {
+				t.Errorf("asked about %q", r.URL.Query().Get("resource_id"))
+			}
+			var data []map[string]any
+			for _, a := range strings.Split(r.URL.Query().Get("actions"), ",") {
+				data = append(data, map[string]any{"action": a, "granted": a != "member:email:read"})
+			}
+			answer(map[string]any{"data": data})(w, r)
+		},
+	})
+	lacking, err := c.Lacks(context.Background(), "biz_seller", AppNeeds)
+	if err != nil || !slices.Equal(lacking, []string{"member:email:read"}) {
+		t.Fatalf("Lacks = %v, %v", lacking, err)
+	}
+	if len(AppNeeds) != 16 || slices.Contains(AppNeeds, "developer:manage_webhook") {
+		t.Fatalf("an app store's needs: %v", AppNeeds)
+	}
+}
+
+// A hosted store's fee is Playkeeper's revenue share: a percentage of every
+// payment on each product, taken before Whop's fees, with no referral link.
+// Whop refuses a flat amount on a revenue share, and the percentage is set
+// again when the price changes.
+func TestRevenueSharesAreAPercentageOfEachPaymentBeforeFees(t *testing.T) {
+	var sent []string
+	keep := func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		sent = append(sent, r.Method+" "+string(b))
+	}
+	override := map[string]any{"id": "affov_1", "override_type": "rev_share", "product_id": "prod_4gb", "commission_type": "percentage",
+		"commission_value": 70.84, "revenue_basis": "pre_fees", "applies_to_products": "single_product", "plan_id": nil}
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"POST /affiliates": func(w http.ResponseWriter, r *http.Request) {
+			keep(w, r)
+			answer(map[string]any{"id": "aff_pk", "status": "active"})(w, r)
+		},
+		"POST /affiliates/aff_pk/overrides": func(w http.ResponseWriter, r *http.Request) {
+			keep(w, r)
+			answer(override)(w, r)
+		},
+		"PATCH /affiliates/aff_pk/overrides/affov_1": func(w http.ResponseWriter, r *http.Request) {
+			keep(w, r)
+			answer(map[string]any{"id": "affov_1", "override_type": "rev_share", "product_id": "prod_4gb", "commission_type": "percentage",
+				"commission_value": 56.67, "revenue_basis": "pre_fees"})(w, r)
+		},
+		"GET /affiliates/aff_pk/overrides": answer(map[string]any{"data": []map[string]any{
+			override,
+			{"id": "affov_2", "override_type": "standard", "plan_id": "plan_x", "commission_type": "flat_fee", "commission_value": 5},
+		}, "page_info": map[string]any{"has_next_page": false}}),
+	})
+	ctx := context.Background()
+	partner, err := c.Partner(ctx, "biz_seller", "playkeeper")
+	if err != nil || partner != "aff_pk" {
+		t.Fatalf("Partner = %q, %v", partner, err)
+	}
+	share, err := c.AddRevShare(ctx, partner, "prod_4gb", 70.84)
+	want := RevShare{ID: "affov_1", ProductID: "prod_4gb", Kind: "percentage", Percent: 70.84, Basis: "pre_fees", Type: "rev_share"}
+	if err != nil || share != want {
+		t.Fatalf("AddRevShare = %+v, %v", share, err)
+	}
+	shares, err := c.RevShares(ctx, partner)
+	if err != nil || len(shares) != 1 || shares[0] != want {
+		t.Fatalf("RevShares = %+v, %v", shares, err)
+	}
+	moved, err := c.UpdateRevShare(ctx, partner, "affov_1", 56.67)
+	if err != nil || moved.Percent != 56.67 || moved.Basis != "pre_fees" {
+		t.Fatalf("UpdateRevShare = %+v, %v", moved, err)
+	}
+	if got := strings.Join(sent, "\n"); got != `POST {"account_id":"biz_seller","user_identifier":"playkeeper"}`+"\n"+
+		`POST {"commission_type":"percentage","commission_value":70.84,"override_type":"rev_share","product_id":"prod_4gb","revenue_basis":"pre_fees"}`+"\n"+
+		`PATCH {"commission_type":"percentage","commission_value":56.67,"revenue_basis":"pre_fees"}` {
+		t.Fatalf("requests:\n%s", got)
+	}
+	for _, bad := range []struct {
+		product string
+		percent float64
+	}{{"", 70.84}, {"prod_4gb", 0}, {"prod_4gb", 100.5}} {
+		if _, err := c.AddRevShare(ctx, partner, bad.product, bad.percent); err == nil {
+			t.Fatalf("a share of %v%% on %q", bad.percent, bad.product)
+		}
+	}
+	if _, err := c.UpdateRevShare(ctx, partner, "affov_1", 101); err == nil {
+		t.Fatal("a share over 100%")
+	}
+}
+
+// The percentage of a price that pays a flat fee is rounded up to two
+// decimals, as Whop takes it, so it never pays less than the fee. Whop caps
+// a share at 100%, so a price under the fee can't carry it.
+func TestSharePercentPaysAtLeastTheFee(t *testing.T) {
+	for _, c := range []struct {
+		dollars, price, want float64
+	}{
+		{8.5, 12, 70.84}, {8.5, 15, 56.67}, {8.5, 20, 42.5}, {8.5, 10, 85}, {8.5, 8.5, 100}, {17, 24, 70.84}, {8.5, 12.99, 65.44},
+		{8.5, 850, 1}, {8.5, 900, 1}, {8.5, 2000, 1},
+	} {
+		got, err := SharePercent(c.dollars, c.price)
+		if err != nil || got != c.want {
+			t.Errorf("SharePercent(%v, %v) = %v, %v; want %v", c.dollars, c.price, got, err, c.want)
+			continue
+		}
+		if paid := math.Floor(c.price*got) / 100; paid < c.dollars {
+			t.Errorf("%v%% of $%v pays $%v, under $%v", got, c.price, paid, c.dollars)
+		}
+	}
+	for _, price := range []float64{8.49, 0, -1} {
+		if got, err := SharePercent(8.5, price); err == nil {
+			t.Errorf("SharePercent(8.5, %v) = %v, not refused", price, got)
+		}
+	}
+}
+
+func TestPaymentFeesListEveryLine(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /payments/pay_1/fees": answer(map[string]any{"data": []map[string]any{
+			{"type": "whop_fee", "origin": "whop_processing_fee", "label": "Whop fee", "amount": map[string]any{"amount": "0.45", "currency": "usd"},
+				"settlement_amount": map[string]any{"amount": "0.45", "currency": "usd"}},
+			{"type": "affiliate_program_fee", "origin": "affiliate_fee", "label": "Revenue share", "amount": map[string]any{"amount": "8.50", "currency": "usd"},
+				"settlement_amount": map[string]any{"amount": "8.50", "currency": "usd"}},
+		}}),
+	})
+	fees, err := c.PaymentFees(context.Background(), "pay_1")
+	if err != nil || len(fees) != 2 || fees[1] != (PaymentFee{Type: "affiliate_program_fee", Origin: "affiliate_fee", Label: "Revenue share", Settled: Money{Amount: "8.50", Currency: "usd"}}) {
+		t.Fatalf("PaymentFees = %+v, %v", fees, err)
+	}
+}
+
+// Whop writes money as exact decimals; Minor reads them in the smallest
+// unit, and refuses anything that isn't exactly that.
+func TestMoneyIsReadExactlyInTheSmallestUnit(t *testing.T) {
+	for _, c := range []struct {
+		m    Money
+		want int64
+	}{
+		{Money{Amount: "8.50", Currency: "usd", Decimals: 2}, 850},
+		{Money{Amount: "8.5", Currency: "usd", Decimals: 2}, 850},
+		{Money{Amount: "12", Currency: "usd", Decimals: 2}, 1200},
+		{Money{Amount: "-8.50", Currency: "usd", Decimals: 2}, -850},
+		{Money{Amount: "0.01", Currency: "usd", Decimals: 2}, 1},
+		{Money{Amount: "1500", Currency: "jpy", Decimals: 0}, 1500},
+	} {
+		if got, err := c.m.Minor(); err != nil || got != c.want {
+			t.Errorf("Minor(%+v) = %d, %v; want %d", c.m, got, err, c.want)
+		}
+	}
+	for _, m := range []Money{
+		{Amount: "8.505", Currency: "usd", Decimals: 2},
+		{Amount: "8.50", Currency: "usd"},
+		{Amount: "", Currency: "usd", Decimals: 2},
+		{Amount: ".50", Currency: "usd", Decimals: 2},
+		{Amount: "8,50", Currency: "usd", Decimals: 2},
+		{Amount: "1e3", Currency: "usd", Decimals: 2},
+		{Amount: "--8", Currency: "usd", Decimals: 2},
+		{Amount: "99999999999999", Currency: "usd", Decimals: 2},
+	} {
+		if got, err := m.Minor(); err == nil {
+			t.Errorf("Minor(%+v) = %d, not refused", m, got)
+		}
+	}
+}
+
+// A membership's paid payments are read newest first, from its account,
+// whatever order Whop's answer comes in.
+func TestPaidPaymentsAreAMembershipsNewestFirst(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /payments": func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if q.Get("account_id") != "biz_other" || q.Get("membership_id") != "mem_1" || q.Get("status") != "paid" || q.Get("first") != "10" ||
+				q.Get("order") != "paid_at" || q.Get("direction") != "desc" {
+				t.Errorf("GET /payments?%s", r.URL.RawQuery)
+			}
+			answer(map[string]any{"data": []map[string]any{
+				{"id": "pay_1", "status": "paid", "membership_id": "mem_1", "plan_id": "plan_other", "product_id": "prod_other",
+					"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}, "paid_at": "2026-09-30T12:00:00.000Z", "billing_reason": "subscription_create"},
+				{"id": "pay_2", "status": "paid", "membership_id": "mem_1", "plan_id": "plan_other", "product_id": "prod_other",
+					"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}, "refunded_amount": nil,
+					"paid_at": "2026-10-30T12:00:00.000Z", "billing_reason": "subscription_cycle", "user": map[string]any{"id": "user_alex", "username": "alex"}},
+			}, "page_info": map[string]any{"has_next_page": true, "end_cursor": "c2"}})(w, r)
+		},
+	})
+	pays, err := c.PaidPayments(context.Background(), "biz_other", "mem_1")
+	if err != nil || len(pays) != 2 || pays[0].ID != "pay_2" || pays[0].Total == nil || pays[0].Refunded != nil || pays[0].User == nil || pays[0].User.ID != "user_alex" ||
+		pays[1].BillingReason != "subscription_create" || pays[1].User != nil {
+		t.Fatalf("PaidPayments = %+v, %v", pays, err)
+	}
+	if n, err := pays[0].Total.Minor(); err != nil || n != 1200 {
+		t.Fatalf("the newest payment's total: %d, %v", n, err)
 	}
 }
 

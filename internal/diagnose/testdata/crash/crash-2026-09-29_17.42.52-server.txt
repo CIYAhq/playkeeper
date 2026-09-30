@@ -1,0 +1,130 @@
+---- Minecraft Crash Report ----
+// Surprise! Haha. Well, this is awkward.
+
+Time: 2026-09-29 17:42:52
+Description: Ticking entity
+
+java.lang.NullPointerException: Test error: this entity is set to fail when it ticks
+	at net.minecraft.server.level.ServerLevel.tickNonPassenger(ServerLevel.java)
+	at net.minecraft.world.level.Level.guardEntityTick(Level.java:484)
+	at net.minecraft.server.level.ServerLevel.lambda$tick$0(ServerLevel.java:457)
+	at net.minecraft.world.level.entity.EntityTickList.forEach(EntityTickList.java:53)
+	at net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:427)
+	at net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1116)
+	at net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:980)
+	at net.minecraft.server.dedicated.DedicatedServer.tickServer(DedicatedServer.java:278)
+	at net.minecraft.server.MinecraftServer.processPacketsAndTick(MinecraftServer.java:1013)
+	at net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:752)
+	at net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:310)
+	at java.base/java.lang.Thread.run(Unknown Source)
+
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Server thread
+Stacktrace:
+	at net.minecraft.server.level.ServerLevel.tickNonPassenger(ServerLevel.java)
+	at net.minecraft.world.level.Level.guardEntityTick(Level.java:484)
+	at net.minecraft.server.level.ServerLevel.lambda$tick$0(ServerLevel.java:457)
+	at net.minecraft.world.level.entity.EntityTickList.forEach(EntityTickList.java:53)
+
+-- Entity being ticked --
+Details:
+	Entity Type: minecraft:minecart (net.minecraft.world.entity.vehicle.minecart.Minecart)
+	Entity ID: 10
+	Entity Name: Minecart
+	Entity's Exact location: 6.50, 120.00, 6.50
+	Entity's Block location: World: (6,120,6), Section: (at 6,8,6 in 0,7,0; chunk contains blocks 0,-64,0 to 15,319,15), Region: (0,0; contains chunks 0,0 to 31,31, blocks 0,-64,0 to 511,319,511)
+	Entity's Momentum: 0.00, 0.00, 0.00
+	Entity's Passengers: []
+	Entity's Vehicle: null
+Stacktrace:
+	at net.minecraft.world.level.Level.guardEntityTick(Level.java:484)
+	at net.minecraft.server.level.ServerLevel.lambda$tick$0(ServerLevel.java:457)
+	at net.minecraft.world.level.entity.EntityTickList.forEach(EntityTickList.java:53)
+	at net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:427)
+	at net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1116)
+	at net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:980)
+	at net.minecraft.server.dedicated.DedicatedServer.tickServer(DedicatedServer.java:278)
+	at net.minecraft.server.MinecraftServer.processPacketsAndTick(MinecraftServer.java:1013)
+	at net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:752)
+	at net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:310)
+	at java.base/java.lang.Thread.run(Unknown Source)
+
+-- Affected level --
+Details:
+	All players: 0 total; 
+	Chunk stats: 729
+	Level dimension: minecraft:overworld
+	Level time: 207 game time, 207 day time
+	Level spawn location: World: (0,65,8), Section: (at 0,1,8 in 0,4,0; chunk contains blocks 0,-64,0 to 15,319,15), Region: (0,0; contains chunks 0,0 to 31,31, blocks 0,-64,0 to 511,319,511)
+	Level name: world
+	Level game mode: Game mode: survival (ID 0). Hardcore: false. Commands: false
+	Known server brands: vanilla
+	Removed feature flags: 
+	Level was modded: false
+	Level storage version: 0x04ABD - Anvil
+	Loaded entity count: 6
+	Server weather: Rain time: 30490 (now: false), thunder time: 26523 (now: false)
+Stacktrace:
+	at net.minecraft.server.level.ServerLevel.fillReportDetails(ServerLevel.java:1892)
+	at net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1119)
+	at net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:980)
+	at net.minecraft.server.dedicated.DedicatedServer.tickServer(DedicatedServer.java:278)
+	at net.minecraft.server.MinecraftServer.processPacketsAndTick(MinecraftServer.java:1013)
+	at net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:752)
+	at net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:310)
+	at java.base/java.lang.Thread.run(Unknown Source)
+
+-- System Details --
+Details:
+	Minecraft Version: 26.3
+	Minecraft Version ID: 26.3
+	Operating System: Linux (amd64) version 6.12.94+
+	Java Version: 25.0.4, Eclipse Adoptium
+	Java VM Version: OpenJDK 64-Bit Server VM (mixed mode, sharing), Eclipse Adoptium
+	Memory: 1355725936 bytes (1292 MiB) / 1610612736 bytes (1536 MiB) up to 1610612736 bytes (1536 MiB)
+	Memory (heap): init: 1536MiB, used: 235MiB, committed: 1536MiB, max: 1536MiB
+	Memory (non-heap): init: 007MiB, used: 139MiB, committed: 140MiB, max: 000MiB
+	CPUs: 4
+	Processor Vendor: GenuineIntel
+	Processor Name: Intel(R) Xeon(R) Processor
+	Identifier: Intel64 Family 6 Model 207 Stepping 2
+	Microarchitecture: unknown
+	Frequency (GHz): -0.00
+	Number of physical packages: 1
+	Number of physical CPUs: 4
+	Number of logical CPUs: 4
+	Graphics card #0 name: unknown
+	Graphics card #0 vendor: unknown
+	Graphics card #0 VRAM (MiB): 0.00
+	Graphics card #0 deviceId: unknown
+	Graphics card #0 versionInfo: unknown
+	Virtual memory max (MiB): 8007.02
+	Virtual memory used (MiB): 13020.63
+	Swap memory total (MiB): 0.00
+	Swap memory used (MiB): 0.00
+	Space in storage for jna.tmpdir (MiB): <path not set>
+	Space in storage for org.lwjgl.system.SharedLibraryExtractPath (MiB): <path not set>
+	Space in storage for io.netty.native.workdir (MiB): <path not set>
+	Space in storage for java.io.tmpdir (MiB): available: 245938.47, total: 259367.69
+	Space in storage for workdir (MiB): available: 245938.47, total: 259367.69
+	Operating System Version: GNU/Linux Ubuntu 24.04.4 LTS (Noble Numbat) build 6.12.94+
+	Process Elevated: false
+	Process Loads: Uptime: 18s, user: 27s (147.24%), kernel: 1s (6.50%), total: 28s (153.74%)
+	Process Virtual Size (MiB): 5171.81
+	Process Resident Size (MiB): 1840.69
+	JVM Flags: 21 total; -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -Xmx1536M -Xms1536M -Xlog:gc:file=/data/logs/gc.log:time,uptime,level,tags:filecount=2,filesize=5M
+	Debug Flags: 0 total; 
+	Server Running: true
+	Player Count: 0 / 5; []
+	Active Data Packs: vanilla
+	Available Data Packs: minecart_improvements, redstone_experiments, trade_rebalance, vanilla
+	Enabled Feature Flags: minecraft:vanilla
+	World Generation: Stable
+	World Seed: 7529477126535855482
+	Suppressed Exceptions: ~~NONE~~
+	Is Modded: Probably not. Server jar signature and brand is untouched
+	Type: Dedicated Server

@@ -468,6 +468,10 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := validAccount(req.Account); err != nil {
+		writeError(w, err)
+		return
+	}
 	if !playStyles[req.PlayStyle] {
 		writeError(w, errInvalid("Unknown play style."))
 		return
@@ -565,7 +569,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			record = func(tx *sql.Tx, id string) error { return saveTemplateInstall(tx, id, planned, dataPacks, at) }
 		}
 	}
-	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor, record: record}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
+	_, op, err := a.addServer(newServerSpec{name: name, account: req.Account, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor, record: record}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
 			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
 			s.recordEvent(s.now(), "server_created", "", "playkeeper", label)
@@ -628,6 +632,7 @@ func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
 func (s *server) forgetCrashes() {
 	s.mu.Lock()
 	s.crashes, s.crashed, s.runCrashed, s.crash, s.nextAutoRestart = nil, false, false, nil, time.Time{}
+	s.repeats = false
 	s.mu.Unlock()
 }
 
@@ -802,8 +807,8 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 		if name, err = validName(*req.Name); err != nil {
 			return err
 		}
-		if s.nameTaken(name, s.id) {
-			return errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+		if account := s.accountOf(s.id); s.nameTaken(name, s.id, account) {
+			return errNameTaken(name, account)
 		}
 		if name != old {
 			changed = append(changed, fmt.Sprintf("name %q→%q", old, name))
@@ -876,6 +881,11 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	keep, err := checkKeep(req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	name := s.name()
 	if strings.TrimSpace(req.Confirm) != name {
 		s.audit(actor, "server.deleted", s.id, "refused", "confirmation did not match the name")
@@ -895,7 +905,7 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		if err := s.setDesired(api.DesiredStopped); err != nil {
 			return err
 		}
-		if err := s.deleteServer(ctx, h, actor); err != nil {
+		if err := s.deleteServer(ctx, h, actor, keep); err != nil {
 			return err
 		}
 		s.prunePacks(s.Agent.ctx)
@@ -1280,6 +1290,29 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		writeError(w, errInvalid("X-Playkeeper-Actor header is required"))
 		return
 	}
+	// An upload for a new server may name the disk limit it counts against,
+	// as the dashboard does for a creator's: it's read no further than the
+	// limit has room for, and the world it unpacks to has to fit too.
+	limit, most := r.URL.Query().Get("diskLimit"), a.uploadLimit()
+	switch {
+	case limit != "" && target != nil:
+		writeError(w, errInvalid("An upload into a server counts against that server's disk limit."))
+		return
+	case limit != "" && !reDiskLimitID.MatchString(limit):
+		writeError(w, errInvalid("A disk limit is named with lower-case letters, digits and dashes."))
+		return
+	case limit != "":
+		room, err := a.roomReplacingStage(r.Context(), limit)
+		if err == nil && r.ContentLength > room {
+			err = errDiskLimit(0, room, r.ContentLength)
+		}
+		if err != nil {
+			a.audit(actor, "restore.uploaded", "", "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+		most = min(most, room)
+	}
 	if target != nil {
 		err := target.restoreRefusal("restore again")
 		if err == nil && r.ContentLength > 0 {
@@ -1291,11 +1324,26 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 			return
 		}
 	}
-	p, err := a.stageArchive(r.Body, "upload", a.uploadLimit(), target)
+	room, err := a.unpackRoom(target, limit)
 	if err != nil {
 		a.auditFor(serverIDOf(target), actor, "restore.uploaded", "", "refused", err.Error())
 		writeError(w, err)
 		return
+	}
+	p, err := a.stageArchive(r.Body, "upload", most, target, room)
+	if err != nil {
+		a.auditFor(serverIDOf(target), actor, "restore.uploaded", "", "refused", err.Error())
+		writeError(w, err)
+		return
+	}
+	if limit != "" {
+		if err := a.tagStage(p.ID, limit); err != nil {
+			os.RemoveAll(a.stageDir(p.ID))
+			a.audit(actor, "restore.uploaded", p.ID, "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+		p.DiskLimit = limit
 	}
 	// The world it would replace stays beside it until it's in place, so the
 	// world it unpacks to is what it adds.
@@ -1344,7 +1392,13 @@ func (s *server) hRestoreFromBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	p, err := s.stageArchive(f, "backup "+b.ID, s.uploadLimit(), s)
+	room, err := s.unpackRoom(s, "")
+	if err != nil {
+		s.audit(actor, "restore.staged", b.ID, "refused", err.Error())
+		writeError(w, err)
+		return
+	}
+	p, err := s.stageArchive(f, "backup "+b.ID, s.uploadLimit(), s, room)
 	if err != nil {
 		s.audit(actor, "restore.staged", b.ID, "refused", err.Error())
 		writeError(w, err)
@@ -1379,12 +1433,28 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	release, err := a.claimStage(r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	started := false
+	defer func() {
+		if !started {
+			release()
+		}
+	}()
 	st, err := a.loadStage(r.PathValue("id"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	p := st.preview
+	if st.manifest.Whole {
+		a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", "a server's whole folder, which only a move takes")
+		writeError(w, errConflict("This upload is a server's whole folder, which only moving that server from another machine takes.", ""))
+		return
+	}
 	target := a.serverByID(p.ServerID)
 	if p.ServerID != "" && target == nil {
 		writeError(w, errNotFound("Server"))
@@ -1425,6 +1495,10 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 	}
 	restore := func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
+			defer release()
+			if a.opts.RestoreStarting != nil {
+				a.opts.RestoreStarting(st.preview.ID)
+			}
 			if p.NeedsEULA {
 				s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
 			}
@@ -1433,7 +1507,32 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 	}
 	var op *api.Operation
 	if target == nil {
-		op, err = a.restoreAsNewServer(st, req, name, actor, restore)
+		// A new server from an upload made against a disk limit holds the
+		// world it unpacks to against it, and joins it.
+		done := func(bool) {}
+		if st.limit != "" {
+			if done, err = a.holdNamedLimit(r.Context(), st.limit, unpackedBytes(st.manifest)); err != nil {
+				a.audit(actor, "restore.applied", r.PathValue("id"), "refused", err.Error())
+				writeError(w, err)
+				return
+			}
+		}
+		op, err = a.restoreAsNewServer(st, req, name, actor, func(s *server) func(ctx context.Context, h *opHandle) error {
+			if st.limit != "" {
+				if err := a.joinDiskLimit(st.limit, s.id); err != nil {
+					a.log.Warn("a server restored from an upload couldn't join its disk limit", "server", s.id, "limit", st.limit, "err", err)
+				}
+			}
+			run := restore(s)
+			return func(ctx context.Context, h *opHandle) error {
+				err := run(ctx, h)
+				done(err == nil)
+				return err
+			}
+		})
+		if err != nil {
+			done(false)
+		}
 	} else {
 		// The restored world stays beside the one it replaces until it's in
 		// place, from a backup of the server's own as from an upload, and
@@ -1457,6 +1556,7 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	started = true
 	writeJSON(w, http.StatusAccepted, op)
 }
 
@@ -1466,13 +1566,20 @@ func (a *Agent) hRestoreDiscard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("invalid restore id"))
 		return
 	}
-	for _, s := range a.serverList() {
-		if op := s.currentOp(); op != nil && op.Kind == "restore" && op.Detail["stage"] == id {
-			writeError(w, errConflict("A restore is in progress.", ""))
-			return
-		}
+	a.stages.mu.Lock()
+	busy := a.stageInUse(id)
+	aside, ok := "", false
+	if !busy {
+		aside, ok = a.setStageAside(id)
 	}
-	os.RemoveAll(a.stageDir(id))
+	a.stages.mu.Unlock()
+	if busy {
+		writeError(w, errConflict("A restore is in progress.", ""))
+		return
+	}
+	if ok {
+		os.RemoveAll(aside)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

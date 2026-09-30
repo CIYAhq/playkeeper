@@ -41,8 +41,17 @@ func (s *Server) publicRoutes() []publicRoute {
 		// Sell on Whop: the webhook Whop sends membership events to, which
 		// must hear a failure as one to send the delivery again.
 		{prefix: whopWebhookPath, limits: whopWebhookLimits, ownRefusals: true, handler: s.whopWebhook()},
+		// The Playkeeper Cloud app's webhook, for every business that
+		// installed the app.
+		{prefix: whopAppWebhookPath, limits: whopWebhookLimits, ownRefusals: true, handler: s.whopAppWebhook()},
 		// Sign in with Whop: leaving for Whop, and coming back.
 		{prefix: whopSignInPrefix, limits: whopSignInLimits, handler: s.whopSignIn()},
+		// A seller's page inside their Whop dashboard, which says who's
+		// looking with Whop's token rather than a session.
+		{prefix: whopSellerPrefix, limits: whopSellerLimits, ownRefusals: true, handler: s.whopSeller()},
+		// The dashboard on the standard HTTPS port: a browser's check that it
+		// reaches port 443 (dashboard443.go).
+		{prefix: reachPath, limits: reachLimits, handler: http.HandlerFunc(s.hReach)},
 	}
 }
 

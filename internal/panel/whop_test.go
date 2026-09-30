@@ -1,6 +1,9 @@
 package panel
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,7 +27,37 @@ const (
 	whopOtherKey   = "apik_other_business_0123456789"
 	whopDashboard  = "https://beta.playkeeper.me:8443"
 	whopTestSecret = "ws_0123456789abcdef0123456789abcdef"
+	// whopTestOwner owns Pip Hosting, and is in each of its support chats.
+	whopTestOwner = "user_pip"
+	// whopTestAppKey is the Playkeeper Cloud app's key, which reaches each
+	// business that installed the app by its id.
+	whopTestAppKey = "apik_playkeeper_cloud_app_01234"
 )
+
+// fakeBusiness is a business that installed the Playkeeper Cloud app: its
+// account, with its owner, and its store. revoked is a business that took
+// the app's grant back, which Whop still answers with empty lists, and
+// declined the permissions it didn't grant, as when it approved an older
+// version of the app.
+type fakeBusiness struct {
+	account     map[string]any
+	products    map[string]whop.Metadata
+	plans       []map[string]any
+	memberships map[string]map[string]any
+	revoked     bool
+	declined    []string
+	// partner is the user Playkeeper's share goes to, once the app made
+	// them the business's partner (aff_<business>), and shares their
+	// revenue shares. payments are the business's payments, newest first,
+	// and fees each one's fee lines.
+	partner  string
+	shares   []map[string]any
+	payments []map[string]any
+	fees     map[string][]map[string]any
+}
+
+// fakeChat is an installed business's support chat with one customer.
+type fakeChat struct{ account, user string }
 
 // fakeWhop answers like Whop's API for one seller, Pip Hosting, whose store
 // sells one product with two plans: Starter, whose metadata says what it
@@ -33,45 +66,78 @@ type fakeWhop struct {
 	mu      sync.Mutex
 	srv     *httptest.Server
 	missing map[string]bool
-	// permissionsDown makes Whop's permission check fail, patchDown its
-	// product updates, refuseProduct those of one product, and revoked
-	// refuses the test key. lostReply is a product whose next update Whop
-	// makes but answers with an error, as when its answer is lost.
-	permissionsDown, patchDown, revoked bool
-	refuseProduct, lostReply            string
-	products                            map[string]whop.Metadata
-	plans                               []map[string]any
-	patches                             []string
-	keysSeen                            map[string]bool
-	// webhooks are the endpoints the dashboard added, by id.
-	webhooks map[string]map[string]any
+	// permissionsDown makes Whop's permission check fail, membershipsDown
+	// an installed business's list of memberships, patchDown its product
+	// updates, refuseProduct those of one product, and revoked refuses the
+	// test key. lostReply is a product whose next update Whop makes but
+	// answers with an error, as when its answer is lost.
+	permissionsDown, membershipsDown, patchDown, revoked bool
+	refuseProduct, lostReply                             string
+	products                                             map[string]whop.Metadata
+	plans                                                []map[string]any
+	patches                                              []string
+	keysSeen                                             map[string]bool
+	// webhooks are the endpoints the dashboard added, by id; hooksDown
+	// makes adding one fail.
+	webhooks  map[string]map[string]any
+	hooksDown bool
 	// memberships are the store's, by id; users the buyers' usernames.
 	memberships map[string]map[string]any
 	users       map[string]string
-	// messages are what was sent to each support chat; chatDown makes
-	// opening one fail.
+	// messages are what was sent to each support chat, and senders who sent
+	// each; chatDown makes opening one fail.
 	messages map[string][]string
+	senders  map[string][]string
 	chatDown bool
+	// tokens are the user tokens Whop gave, by token; tokenDown makes
+	// getting one fail.
+	tokens    map[string]fakeToken
+	tokenDown bool
 	// stockSets are the stocks the dashboard set, as plan=n; stockDown
 	// makes setting one fail, and listDown listing memberships.
 	stockSets []string
 	stockDown bool
 	listDown  bool
+	// shareWrites are the revenue shares the app added or set, as
+	// "add <product> <percent>" or "set <share> <percent>".
+	shareWrites []string
 	// refuseFilter refuses listing memberships by plan, as a Whop that
 	// doesn't know the filter might.
 	refuseFilter bool
-	// requests counts what the dashboard asked.
-	requests int
+	// requests counts what the dashboard asked, and planReads its reads of
+	// the store's plans, which only reading the store does.
+	requests, planReads int
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
-	// the refresh tokens ended.
-	grants        map[string]oauthGrant
-	revokedTokens []string
+	// the refresh tokens ended. noTokenExchange is an app without the
+	// oauth:token_exchange permission on Whop.
+	grants          map[string]oauthGrant
+	revokedTokens   []string
+	noTokenExchange bool
+	// installed are the businesses that installed the Playkeeper Cloud app,
+	// by id, and chats their support chats, by id.
+	installed map[string]*fakeBusiness
+	chats     map[string]fakeChat
+	// tokenKey signs the tokens Whop's proxy adds to a seller's page, and
+	// team the users on each installed business's team besides its owner.
+	tokenKey *ecdsa.PrivateKey
+	team     map[string][]string
+	// redirects are the redirect URLs the sign-in app lists; nil lists the
+	// dashboard's address at the panel's port alone. unsure are those whose
+	// check Whop answers with neither a sign-in page nor a refusal.
+	redirects, unsure []string
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
 // redirect, and the PKCE challenge the code must be traded with.
 type oauthGrant struct {
 	user, clientID, redirect, challenge string
+}
+
+// fakeToken is a user token Whop gave: the user it acts as, inside which
+// account, and what it may do.
+type fakeToken struct {
+	user, account string
+	actions       []string
 }
 
 // approve does what Whop does when someone signs in: it checks the link the
@@ -103,8 +169,46 @@ func (f *fakeWhop) serveOAuth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": why})
 	}
+	refuseApp := func(why string) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client", "error_description": why})
+	}
 	switch r.Method + " " + r.URL.Path {
+	case "GET /oauth/authorize":
+		// A browser leaving to sign in goes on to Whop's sign-in page, when
+		// the app lists the redirect URL it names.
+		q := r.URL.Query()
+		listed := f.redirects
+		if listed == nil {
+			listed = []string{whopDashboard + whopSignInCallback}
+		}
+		switch {
+		case q.Get("client_id") != whopTestApp:
+			refuse("invalid_request", "client_id is invalid")
+		case slices.Contains(f.unsure, q.Get("redirect_uri")):
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, "<html>Bad gateway</html>")
+		case !slices.Contains(listed, q.Get("redirect_uri")):
+			refuse("invalid_request", "redirect_uri is invalid")
+		default:
+			http.Redirect(w, r, "https://whop.com/oauth/authorize?"+r.URL.RawQuery, http.StatusFound)
+		}
 	case "POST /oauth/token":
+		// Whop checks the app before the code, and wants the app's secret.
+		switch {
+		case body["client_id"] != whopTestApp:
+			refuseApp("Unknown client")
+			return
+		case body["client_secret"] == "":
+			refuseApp("client_secret is required")
+			return
+		case body["client_secret"] != whopTestAppSecret:
+			refuseApp("client_secret is invalid")
+			return
+		case f.noTokenExchange:
+			refuseApp("client_secret lacks oauth:token_exchange permission")
+			return
+		}
 		g, ok := f.grants[body["code"]]
 		delete(f.grants, body["code"])
 		switch {
@@ -136,6 +240,7 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 	t.Helper()
 	f := &fakeWhop{missing: map[string]bool{}, keysSeen: map[string]bool{}, webhooks: map[string]map[string]any{},
 		memberships: map[string]map[string]any{}, users: map[string]string{"user_alex": "alexplays"}, messages: map[string][]string{},
+		senders: map[string][]string{}, tokens: map[string]fakeToken{}, installed: map[string]*fakeBusiness{}, chats: map[string]fakeChat{}, team: map[string][]string{},
 		products: map[string]whop.Metadata{"prod_mc": {"color": "green"}},
 		plans: []map[string]any{
 			{"id": "plan_starter", "title": "Starter", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "formatted_price": "$8.00 / month",
@@ -145,6 +250,11 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 				"product": map[string]any{"id": "prod_mc", "title": "Minecraft server"}, "metadata": map[string]any{}, "unlimited_stock": true},
 			{"id": "plan_old", "title": "Old", "visibility": "archived", "product": map[string]any{"id": "prod_mc"}},
 		}}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tokenKey = key
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -154,6 +264,10 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests++
+	if r.URL.Path == "/.well-known/jwks.json" {
+		w.Write(whop.UserTokenKeys(whopTestTokenKid, &f.tokenKey.PublicKey))
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/oauth/") {
 		f.serveOAuth(w, r)
 		return
@@ -161,11 +275,25 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	f.keysSeen[key] = true
 	w.Header().Set("Content-Type", "application/json")
-	account := map[string]any{"id": "biz_pip", "title": "Pip Hosting", "route": "pip-hosting"}
+	if tok, ok := f.tokens[key]; ok {
+		f.serveAsUser(w, r, tok)
+		return
+	}
+	if key == whopTestAppKey && strings.HasPrefix(r.URL.Path, "/users/") && strings.Contains(r.URL.Path, "/access/") {
+		f.serveAccess(w, r)
+		return
+	}
+	if key == whopTestAppKey {
+		f.serveInstalled(w, r)
+		return
+	}
+	account := map[string]any{"id": "biz_pip", "title": "Pip Hosting", "route": "pip-hosting",
+		"owner": map[string]any{"id": whopTestOwner, "username": "pipowner", "name": "Pip"}}
 	switch {
 	case key == whopTestKey && !f.revoked:
 	case key == whopOtherKey:
-		account = map[string]any{"id": "biz_other", "title": "Other", "route": "other"}
+		account = map[string]any{"id": "biz_other", "title": "Other", "route": "other",
+			"owner": map[string]any{"id": "user_otherowner", "username": "otherowner", "name": "Other"}}
 	default:
 		w.WriteHeader(http.StatusUnauthorized)
 		io.WriteString(w, `{"error":{"type":"authentication_error","message":"Invalid API key"}}`)
@@ -192,10 +320,21 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	case "GET /variants":
+		f.planReads++
 		json.NewEncoder(w).Encode(map[string]any{"data": f.plans, "page_info": map[string]any{"has_next_page": false}})
 	case "POST /webhooks":
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
+		if _, ok := body["api_version"]; ok {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"api_version is no longer supported. New webhooks always use the v1 events; pin payload shapes with api_version_date instead."}}`)
+			return
+		}
+		if f.hooksDown {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+			return
+		}
 		id := "hook_" + strings.Repeat("x", len(f.webhooks)+1)
 		body["id"] = id
 		f.webhooks[id] = body
@@ -228,11 +367,41 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
 		json.NewDecoder(r.Body).Decode(&body)
 		json.NewEncoder(w).Encode(map[string]any{"id": "chan_" + body["user_id"]})
-	case "POST /messages":
-		var body map[string]string
+	case "POST /access_tokens":
+		var body struct {
+			AccountID string   `json:"account_id"`
+			UserID    string   `json:"user_id"`
+			Actions   []string `json:"scoped_actions"`
+		}
 		json.NewDecoder(r.Body).Decode(&body)
-		f.messages[body["channel_id"]] = append(f.messages[body["channel_id"]], body["content"])
-		json.NewEncoder(w).Encode(map[string]any{"id": "msg_sent"})
+		owner, _ := account["owner"].(map[string]any)
+		var lacking []string
+		for _, a := range body.Actions {
+			if f.missing[a] {
+				lacking = append(lacking, a)
+			}
+		}
+		switch {
+		case f.tokenDown:
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+		case len(lacking) > 0:
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"type": "forbidden",
+				"message": "Actor is missing all required permissions: " + strings.Join(lacking, ", ")}})
+		case body.AccountID != account["id"] || body.UserID != owner["id"] || len(body.Actions) == 0:
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, `{"error":{"type":"forbidden","message":"You do not have permission to access this resource"}}`)
+		default:
+			token := fmt.Sprintf("ut_%d", len(f.tokens)+1)
+			f.tokens[token] = fakeToken{user: body.UserID, account: body.AccountID, actions: body.Actions}
+			json.NewEncoder(w).Encode(map[string]any{"token": token, "expires_at": "2026-09-30T13:00:00Z"})
+		}
+	case "POST /messages":
+		// Messages come from people: Whop refuses one sent with an API key,
+		// whatever the key may do, in these words.
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"Unauthorized: Actor is missing all required permissions: support_chat:message:create"}}`)
 	default:
 		if id, ok := strings.CutPrefix(r.URL.Path, "/products/"); ok && r.Method == "PATCH" && f.products[id] != nil {
 			if f.patchDown || id == f.refuseProduct {
@@ -303,6 +472,29 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such route"}}`)
 	}
+}
+
+// serveAsUser answers a request made with a user token, which may only send
+// a message in a support chat its user is in, the store's owner or its
+// customer, and only if the token may send messages; f.mu must be held.
+func (f *fakeWhop) serveAsUser(w http.ResponseWriter, r *http.Request, tok fakeToken) {
+	var body map[string]string
+	json.NewDecoder(r.Body).Decode(&body)
+	channel := body["channel_id"]
+	customer, _ := strings.CutPrefix(channel, "chan_")
+	inChat := tok.account == "biz_pip" && (tok.user == whopTestOwner || tok.user == customer)
+	if chat, ok := f.chats[channel]; ok {
+		owner, _ := f.installed[chat.account].account["owner"].(map[string]any)
+		inChat = tok.account == chat.account && (tok.user == owner["id"] || tok.user == chat.user)
+	}
+	if r.Method+" "+r.URL.Path != "POST /messages" || !slices.Contains(tok.actions, whop.MessageAction) || !inChat {
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"You do not have permission to access this resource"}}`)
+		return
+	}
+	f.messages[channel] = append(f.messages[channel], body["content"])
+	f.senders[channel] = append(f.senders[channel], tok.user)
+	json.NewEncoder(w).Encode(map[string]any{"id": "msg_sent"})
 }
 
 func (f *fakeWhop) dashboardMeta() string {
@@ -430,7 +622,7 @@ func TestConnectingReadsTheStoreAndMarksItsProducts(t *testing.T) {
 		t.Fatalf("the product's metadata: %v", f.products["prod_mc"])
 	}
 	var stored string
-	e.srv.db.QueryRow(`SELECT api_key FROM whop_account`).Scan(&stored)
+	e.srv.db.QueryRow(`SELECT api_key FROM whop_stores`).Scan(&stored)
 	if stored != whopTestKey {
 		t.Fatalf("stored key %q", stored)
 	}
@@ -560,7 +752,7 @@ func TestDisconnectingClosesTheStoreAndForgetsTheKey(t *testing.T) {
 		t.Fatalf("the product after disconnecting: %v", f.products["prod_mc"])
 	}
 	var n int
-	e.srv.db.QueryRow(`SELECT (SELECT COUNT(*) FROM whop_account) + (SELECT COUNT(*) FROM whop_plans)`).Scan(&n)
+	e.srv.db.QueryRow(`SELECT (SELECT COUNT(*) FROM whop_stores) + (SELECT COUNT(*) FROM whop_plans)`).Scan(&n)
 	if n != 0 {
 		t.Fatalf("%d rows left after disconnecting", n)
 	}

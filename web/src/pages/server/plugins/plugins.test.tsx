@@ -12,9 +12,10 @@ vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  put: vi.fn(() => new Promise(() => {})),
 }))
 
-const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'machines.view']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',
@@ -934,5 +935,109 @@ describe('Plugins tab', () => {
     expect(vi.mocked(client.post).mock.calls.some(([path]) => String(path).endsWith('/addons/install'))).toBe(false)
     await click('Install and open the port')
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/install', { source: 'modrinth', projectId: '9eGKb6K1', fingerprint: 'fp-voice', openPorts: true })
+  })
+})
+
+describe('AI Build Battle’s key on the Plugins tab', () => {
+  const battle = addon('AI Build Battle', { source: 'playkeeper', projectId: 'ai-build-battle', slug: 'ai-build-battle', versionNumber: '0.1.0' })
+  const withBattle: Addons = { ...installed, files: [...installed.files, { fileName: battle.fileName, size: 1, status: 'managed', addon: battle }] }
+  const filesEdit = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'files.view', 'files.edit'] } } })
+  const keys = (set: boolean) => ({ keys: { openrouter: { set } }, pending: false, available: true })
+  const aiKey = 'sk-or-v1-' + 'abcdef0123456789'.repeat(4)
+  const asked = () => vi.mocked(client.get).mock.calls.some(([path]) => String(path).endsWith('/ai-keys'))
+
+  afterEach(() => {
+    vi.mocked(client.put).mockReset()
+    vi.mocked(client.put).mockImplementation(() => new Promise(() => {}))
+  })
+
+  it('asks for the key on the plugin’s row, and saves it from the dialog the row opens', async () => {
+    answer([
+      ['/ai-keys', keys(false)],
+      ['/addons/checks', checks],
+      ['/addons', withBattle],
+    ])
+    vi.mocked(client.put).mockResolvedValue(keys(true))
+    let text = await render(server(), 'plugins', undefined, filesEdit)
+    expect(text).toContain('Needs your key')
+    await click('Add key')
+    expect(document.querySelector('[role=dialog]')?.textContent).toContain('Add your OpenRouter key')
+    const input = document.querySelector<HTMLInputElement>('[role=dialog] input[aria-label="OpenRouter key"]')
+    if (!input) throw new Error('no key field')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, aiKey)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    text = await click('Save')
+    expect(client.put).toHaveBeenCalledWith('/api/servers/abcdefghjk/ai-keys/openrouter', { key: aiKey })
+    expect(document.querySelector('[role=dialog]')).toBeNull()
+    expect(text).not.toContain('Needs your key')
+    expect(document.body.innerHTML).not.toContain(aiKey)
+  })
+
+  it('says nothing of a key once the plugin has one, and asks nothing for an account that can’t change files', async () => {
+    answer([
+      ['/ai-keys', keys(true)],
+      ['/addons/checks', checks],
+      ['/addons', withBattle],
+    ])
+    let text = await render(server(), 'plugins', undefined, filesEdit)
+    expect(text).toContain('AI Build Battle')
+    expect(text).not.toContain('Needs your key')
+    // It comes with Playkeeper, and its row says so as others name Modrinth or Hangar.
+    expect(text).toMatch(/AI Build Battle[^]{0,40}Playkeeper/)
+
+    await act(async () => root?.unmount())
+    vi.mocked(client.get).mockClear()
+    answer([
+      ['/ai-keys', keys(false)],
+      ['/addons/checks', checks],
+      ['/addons', withBattle],
+    ])
+    text = await render(server())
+    expect(text).toContain('AI Build Battle')
+    expect(text).not.toContain('Needs your key')
+    expect(asked()).toBe(false)
+  })
+
+  it('asks for no key on a server without the plugin', async () => {
+    answer([
+      ['/ai-keys', keys(false)],
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    const text = await render(server(), 'plugins', undefined, filesEdit)
+    expect(text).toContain('Chunky')
+    expect(asked()).toBe(false)
+  })
+
+  it('marks the row on a phone', async () => {
+    const media = vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) => ({ matches: query.includes('max-width: 639px'), media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList,
+    )
+    answer([
+      ['/ai-keys', keys(false)],
+      ['/addons/checks', checks],
+      ['/addons', withBattle],
+    ])
+    const text = await render(server(), 'plugins', undefined, filesEdit)
+    media.mockRestore()
+    expect(text).toContain('Needs key')
+  })
+
+  it('keeps the key’s editor in the plugin’s details, even when the details can’t load', async () => {
+    vi.mocked(client.get).mockImplementation(((path: string) => {
+      if (path.endsWith('/ai-keys')) return Promise.resolve(keys(true))
+      if (path.includes('/addons/project/playkeeper/')) return Promise.reject(new client.ApiError(502, { error: 'Survival’s machine didn’t answer.', code: 'agent_unreachable' }))
+      if (path.includes('/addons/checks')) return Promise.resolve(checks)
+      if (path.includes('/addons')) return Promise.resolve(withBattle)
+      return new Promise(() => {})
+    }) as typeof client.get)
+    await render(server(), 'plugins', undefined, filesEdit)
+    const text = await click('AI Build Battle')
+    expect(text).toContain('Survival’s machine didn’t answer.')
+    expect(text).toContain('OpenRouter key')
+    expect(document.querySelector<HTMLInputElement>('[role=dialog] input[aria-label="OpenRouter key"]')?.placeholder).toBe('Saved · type to replace')
+    expect(text).toContain('Remove key')
   })
 })

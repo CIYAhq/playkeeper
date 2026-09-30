@@ -38,9 +38,11 @@ import type {
   RestorePreview,
   RetentionEstimate,
   Running,
+  SaleRoom,
   ServerConfig,
   ServerStatus,
   SignInNotice,
+  StoresResponse,
   TeamInvite,
   TeamResponse,
   TemplateContents,
@@ -66,6 +68,7 @@ import { parse } from '@/lib/router'
 import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { HetznerStockCard } from './hetzner-stock'
+import { SaleRoomCard } from './sale-room'
 import { HomePage } from './home'
 import { JoinPage } from './join'
 import { DashboardMachineOnly, MachinePage } from './machine'
@@ -97,7 +100,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   del: vi.fn(() => Promise.resolve(undefined)),
 }))
 
-const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'machines.view']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',
@@ -250,7 +253,7 @@ async function wait(ms: number) {
   await act(async () => new Promise((resolve) => setTimeout(resolve, ms)))
 }
 
-const moderatorCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make']
+const moderatorCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'machines.view']
 
 /** An account that joined the team with an invite link. */
 function member(role: ProjectRole, can: Action[], over: Partial<Me['access']> = {}): Me {
@@ -316,11 +319,66 @@ describe('Home', () => {
     for (const step of ['Create your first server', 'Invite a friend', 'A friend joins', 'Make a backup', 'Download it']) expect(text).toContain(step)
   })
 
+  it('tells a paused customer their plan has ended, and until when they can download', async () => {
+    const paused = member('admin', ['view', 'backups.make'], { servers: { servers: ['abcdefghjk'] }, pausedUntil: '2026-10-13T12:00:00Z' })
+    const text = await render(<HomePage />, workspace({ me: paused }))
+    expect(text).toContain('Your plan has ended, so your servers are paused')
+    expect(text).toContain(`You can still see them and download backups until ${formatLongDate('2026-10-13T12:00:00Z')}.`)
+  })
+
+  it('tells a paused customer with no servers that their plan has ended, not that one is on its way', async () => {
+    const paused = member('admin', ['view', 'backups.make'], { servers: {}, waitingForRoom: true, pausedUntil: '2026-10-13T12:00:00Z' })
+    const text = await render(<HomePage />, workspace({ servers: [], me: paused }))
+    expect(text).toContain('Your plan has ended')
+    expect(text).toContain('Renew your plan to create your server.')
+    expect(text).not.toContain('Your server is being set up')
+    expect(text).not.toContain('No servers yet')
+  })
+
+  it('offers a customer whose servers were deleted their final backups, each until it goes', async () => {
+    vi.mocked(client.get).mockImplementation(((path: string) =>
+      path === '/api/final-backups'
+        ? Promise.resolve([{ id: '20260929-150405-abc123', serverName: 'Survival', sizeBytes: 1.5 * 1024 ** 3, madeAt: '2026-10-13T12:00:00Z', expiresAt: '2026-11-12T12:00:00Z' }])
+        : new Promise(() => {})) as typeof client.get)
+    const deleted = member('admin', ['view', 'backups.make'], { servers: {}, serversDeleted: true, finalBackups: true })
+    const text = await render(<HomePage />, workspace({ servers: [], me: deleted }))
+    expect(text).toContain('Your plan has ended')
+    expect(text).toContain('Survival')
+    expect(text).toContain(`download until ${formatLongDate('2026-11-12T12:00:00Z')}`)
+    expect(document.querySelector('a[href="/api/final-backups/20260929-150405-abc123/download"]')).not.toBeNull()
+    expect(text).not.toContain('No servers yet')
+  })
+
+  it('still offers a customer who renewed their deleted servers’ final backups', async () => {
+    vi.mocked(client.get).mockImplementation(((path: string) =>
+      path === '/api/final-backups'
+        ? Promise.resolve([{ id: '20260929-150405-abc123', serverName: 'Old survival', sizeBytes: 1.5 * 1024 ** 3, madeAt: '2026-10-13T12:00:00Z', expiresAt: '2026-11-12T12:00:00Z' }])
+        : new Promise(() => {})) as typeof client.get)
+    const renewed = member('admin', ['view', 'servers.run', 'backups.make', 'servers.create_own'], { servers: { servers: ['abcdefghjk'] }, finalBackups: true })
+    const text = await render(<HomePage />, workspace({ me: renewed }))
+    expect(text).toContain('Final backups')
+    expect(text).toContain('Old survival')
+    expect(document.querySelector('a[href="/api/final-backups/20260929-150405-abc123/download"]')).not.toBeNull()
+  })
+
   it('says a customer’s server is being set up while it waits for room, and offers no way to create one', async () => {
     const text = await render(<HomePage />, workspace({ servers: [], me: member('admin', ['view', 'servers.create_own'], { servers: {}, waitingForRoom: true }) }))
     expect(text).toContain('Your server is being set up')
     expect(text).toContain('We’ll message you as soon as it’s ready.')
     expect(text).not.toContain('No servers yet')
+    expect(text).not.toContain('Create your first server')
+  })
+
+  it('says on its card that a server being moved is being moved', async () => {
+    await render(<HomePage />, workspace({ servers: [server({ phase: 'online', moving: true })] }))
+    expect([...document.querySelectorAll('.animate-spin')].map((spin) => spin.parentElement?.textContent)).toEqual(['Being moved', 'Being moved'])
+  })
+
+  it('tells a customer who lost their machine there’s no room for their servers, not that one is being set up', async () => {
+    const text = await render(<HomePage />, workspace({ servers: [], me: member('admin', ['view', 'servers.create_own'], { servers: {}, waitingForRoom: true, waitingAgain: true }) }))
+    expect(text).toContain('No room for your servers yet')
+    expect(text).toContain('There’s no room for your servers right now. We’ll message you as soon as there is.')
+    expect(text).not.toContain('being set up')
     expect(text).not.toContain('Create your first server')
   })
 
@@ -1461,6 +1519,77 @@ describe('Crash helper', () => {
     expect(document.body.textContent).toContain('Restore this backup?')
   })
 
+  it('takes the entity that crashes the server out of its world, then starts', async () => {
+    vi.mocked(client.post).mockClear()
+    const target = { what: 'entity', type: 'minecraft:minecart', dimension: 'minecraft:overworld', x: 6, y: 120, z: 6, pos: [6.5, 120, 6.5] }
+    const ticking = crash({
+      kind: 'ticking_entity',
+      params: { what: 'entity', type: 'minecraft:minecart', name: 'Minecart', x: 6, y: 120, z: 6, dimension: 'minecraft:overworld' },
+      fixes: [{ kind: 'remove_entity', params: target, title: 'Remove the minecart at 6, 120, 6', recommended: true }],
+    })
+    const text = await render(<Overview server={server({ phase: 'crashed', crash: ticking })} />)
+    expect(text).toContain('The minecart at x 6, y 120, z 6 crashes it each time the game runs it.')
+    expect(text).toContain('It’s in the Overworld, saved in the world, so starting again crashes again.')
+    expect(text).toContain('Remove the minecartRecommendedOnly it goes. Blocks, chests and other mobs stay.')
+    expect(text).not.toContain('Start Survival again')
+    await press('Back up, remove and start Survival')
+    expect(posts()).toEqual([['/world/remove-entity', { ...target, start: true }]])
+  })
+
+  it('makes a new level.dat only once the owner has read what resets', async () => {
+    vi.mocked(client.post).mockClear()
+    const made = new Date()
+    made.setHours(0, 5, 0, 0)
+    const level = crash({
+      start: true,
+      kind: 'corrupt_world',
+      params: { file: 'level.dat', world: 'world' },
+      fixes: [
+        { kind: 'restore_backup', params: { backup_id: 'b20260925', made_at: made.toISOString() }, title: 'Restore the latest backup of the world', recommended: true },
+        { kind: 'rebuild_level', params: { world: 'world', seed_from: 'backup', resets: ['game_rules', 'time', 'spawn'] }, title: 'Make a new level.dat' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: level })} />)
+    expect(text).toContain('The world’s level.dat file is damaged.')
+    expect(text).toContain('Restore today’s 00:05 backupRecommended')
+    expect(text).toContain('Make a new level.datKeeps every build. Resets the game rules, the time of day and the spawn point.')
+    await act(async () => labelled('Make a new level.dat')?.click())
+    expect(document.body.textContent).toContain('Your world is backed up first, so you can undo.')
+    await press('Back up, repair and start Survival')
+    expect(posts()).toEqual([])
+    const dialog = document.body.textContent ?? ''
+    expect(dialog).toContain('Make a new level.dat for Survival?')
+    expect(dialog).toContain('The seed, read from a backup, so new terrain matches the old')
+    expect(dialog).toContain('The game rules go back to their defaults')
+    expect(dialog).toContain('The spawn point goes back to where the world first had it')
+    expect(dialog).not.toContain('won’t match the old')
+    await press('Back up and repair')
+    expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', seedFrom: 'backup', start: true }]])
+  })
+
+  it('says plainly that new terrain won’t match when it can’t find the seed', async () => {
+    for (const [seedFrom, line] of [
+      ['', 'The seed: Playkeeper can’t find the world’s, so new terrain won’t match the old'],
+      ['properties', 'The seed: Playkeeper can’t find the world’s, so new terrain won’t match the old unless the level-seed in server.properties is the one it was made with'],
+    ]) {
+      vi.mocked(client.post).mockClear()
+      const level = crash({
+        start: true,
+        kind: 'corrupt_world',
+        params: { file: 'level.dat', world: 'world' },
+        fixes: [{ kind: 'rebuild_level', params: { world: 'world', seed_from: seedFrom, resets: ['spawn'] }, title: 'Make a new level.dat', recommended: true }],
+      })
+      const text = await render(<Overview server={server({ phase: 'stopped', crash: level })} />)
+      expect(text).toContain('Keeps every build. Resets the spawn point. New terrain won’t match the old')
+      await press('Back up, repair and start Survival')
+      const dialog = document.body.textContent ?? ''
+      expect(dialog).toContain(line)
+      expect(dialog).not.toContain('so new terrain matches the old')
+      await press('Back up and repair')
+      expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', seedFrom, start: true }]])
+    }
+  })
+
   it('deletes the oldest backups it planned, then starts', async () => {
     vi.mocked(client.post).mockClear()
     vi.mocked(client.del).mockClear()
@@ -1590,6 +1719,24 @@ describe('Templates', () => {
 
     await click('Choose another template')
     expect(document.body.textContent).toContain('Paper 26.2 · 4 GB')
+  })
+
+  it('shows each listed template’s own world, and its scene when this dashboard has no picture of it', async () => {
+    window.history.replaceState(null, '', '/servers/new')
+    const library: TemplateLibrary = {
+      templates: [
+        { id: 'towny', art: 'world-big-biomes.svg', contents: { ...contents, name: 'Towny' }, file: '{"name":"Towny"}' },
+        { id: 'from-a-newer-release', art: 'world-amplified.svg', contents: { ...contents, name: 'Newer' }, file: '{"name":"Newer"}' },
+      ],
+    }
+    answer({ '/catalog': catalog, '/templates/library': library })
+    await render(<NewServerPage />)
+    await click('A template')
+    const picture = (name: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith(name))?.querySelector('img')
+    expect(picture('Towny')?.getAttribute('src')).toMatch(/\/template-thumbs\/towny\.webp$/)
+    expect(picture('Towny')?.classList.contains('pixelated')).toBe(false)
+    expect(picture('Newer')?.getAttribute('src')).toMatch(/\/pixel-art\/world-amplified\.svg$/)
+    expect(picture('Newer')?.classList.contains('pixelated')).toBe(true)
   })
 
   it('shows no template list when the machine’s release carries none', async () => {
@@ -1850,6 +1997,8 @@ describe('Sell on Whop', () => {
     answer({ '/api/whop': { ...open, signIn: { redirectUri: redirect } } })
     const text = await render(<SellOnWhopSection />, owner)
     expect(text).toContain(`Redirect URL: ${redirect}`)
+    expect(text).toContain('add the oauth:token_exchange permission on the app’s own Permissions tab (not on an API key), then paste the app’s ID and client secret here.')
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="App’s client secret"]')?.type).toBe('password')
     expect(button('Turn on').disabled).toBe(true)
     await typeInto('input[aria-label="Whop app ID"]', ' app_pipcloud ')
     vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn: { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: redirect } })
@@ -1860,6 +2009,98 @@ describe('Sell on Whop', () => {
     await click('Turn off')
     expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/whop/signin')
     expect(document.body.textContent).toContain(`Redirect URL: ${redirect}`)
+  })
+
+  it('says when customers still come back through the dashboard’s old address', async () => {
+    const redirect = 'https://beta.playkeeper.me/api/public/whop/signin/callback'
+    const using = 'https://beta.playkeeper.me:8443/api/public/whop/signin/callback'
+    answer({ '/api/whop': { ...open, signIn: { clientId: 'app_pipcloud', redirectUri: redirect, using } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain(`Whop still sends customers back through ${using}. To move them, add this redirect URL on the app’s OAuth tab: ${redirect}`)
+    answer({ '/api/whop': { ...open, signIn: { clientId: 'app_pipcloud', redirectUri: redirect } } })
+    expect(await render(<SellOnWhopSection />, owner)).not.toContain('still sends customers back')
+  })
+
+  it('lists the businesses selling through the app, and lets the owner suspend one with a reason or lift it', async () => {
+    const stores: StoresResponse = {
+      stores: [
+        { id: 'biz_other', title: 'Other Hosting', customers: 2 },
+        { id: 'biz_gone', title: 'Gone Hosting', customers: 1, suspendedAt: hoursAgo(2), suspendReason: 'selling to cheaters' },
+        { id: 'biz_left', title: 'Left Hosting', customers: 3, leftAt: hoursAgo(5), leftWhy: 'Playkeeper’s share has been gone for 72 hours' },
+        { id: 'biz_new', title: 'New Hosting', customers: 0, closedWhy: 'Not open yet' },
+      ],
+    }
+    answer({ '/api/whop/stores': stores, '/api/whop': open })
+    answerPosts({})
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Businesses selling through your app')
+    expect(text).toContain('Other Hosting2 customers · selling')
+    expect(text).toContain('Gone Hosting1 customer · suspended: selling to cheaters')
+    expect(text).toContain('Left Hosting3 customers · left: Playkeeper’s share has been gone for 72 hours')
+    expect(text).toContain('New Hosting0 customers · Not open yet')
+    expect(buttons('Suspend')).toHaveLength(2)
+    await click('Suspend')
+    expect(page()).toContain('Suspend Other Hosting?')
+    expect(button('Suspend Other Hosting').disabled).toBe(true)
+    await typeInto('input[placeholder="Why, for the audit log"]', ' selling to cheaters ')
+    await act(async () => button('Suspend Other Hosting').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    // internal/panel's TestSuspendingAStoreSuspendsItsOwnCustomersAlone posts this body.
+    expect(client.post).toHaveBeenCalledWith('/api/whop/stores/biz_other/suspension', { reason: 'selling to cheaters' })
+    await click('Lift suspension')
+    expect(page()).toContain('Lift Gone Hosting’s suspension?')
+    await act(async () => [...document.querySelectorAll('[role="dialog"] form')].at(-1)?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(client.del).toHaveBeenCalledWith('/api/whop/stores/biz_gone/suspension')
+  })
+
+  it('saves the app’s key and webhook secret, so businesses that install the app sell here', async () => {
+    const redirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
+    const webhookUrl = 'https://my-vps.playkeeper.me:8443/api/public/whop/app-webhook'
+    const signIn = { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: redirect }
+    answer({ '/api/whop': { ...open, signIn, app: { stores: 0, webhook: false, webhookUrl } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Other businesses on Whop can sell servers from this dashboard by installing app_pipcloud, the app customers sign in through.')
+    expect(text).toContain('The app’s API key isn’t set, so businesses that install it wait.No business that installed it sells here yet.Without the app’s webhook, their purchases are read every minute.')
+    expect(text).toContain(`membership.cancel_at_period_end_changed, payment.succeeded, refund.created and refund.updated, then paste its secret here. Its URL: ${webhookUrl}`)
+    for (const label of ['App’s API key', 'App webhook’s secret']) expect(document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.type).toBe('password')
+    expect(button('Save').disabled).toBe(true)
+    await typeInto('input[aria-label="App’s API key"]', ' apik_cloud_0123456789abcdef ')
+    await typeInto('input[aria-label="App webhook’s secret"]', 'ws_0123456789abcdef0123')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { keyEnding: 'cdef', stores: 2, webhook: true, webhookUrl } })
+    await act(async () => button('Save').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/app', { key: 'apik_cloud_0123456789abcdef', webhookSecret: 'ws_0123456789abcdef0123' })
+    const after = document.body.textContent ?? ''
+    expect(after).toContain('The app’s API key ends cdef.2 businesses that installed it sell here.Whop tells this dashboard of their purchases through the app’s webhook.')
+    expect(after).not.toContain('Its URL:')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { stores: 2, webhook: false, webhookUrl } })
+    await click('Remove the key and webhook secret')
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/app', { key: '', webhookSecret: '' })
+  })
+
+  it('names the Whop account that receives Playkeeper’s share of their sales', async () => {
+    const signIn = { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback' }
+    answer({ '/api/whop': { ...open, signIn, app: { keyEnding: 'cdef', stores: 0, webhook: true } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Nobody receives Playkeeper’s share of their sales yet, so they can’t open their stores.')
+    expect(button('Set').disabled).toBe(true)
+    await typeInto('input[aria-label="Whop username that receives Playkeeper’s share"]', ' @ ')
+    expect(button('Set').disabled).toBe(true)
+    await typeInto('input[aria-label="Whop username that receives Playkeeper’s share"]', ' @siyabuilt ')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { keyEnding: 'cdef', stores: 0, webhook: true, shareUser: 'siyabuilt' } })
+    await act(async () => button('Set').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/app', { shareUser: '@siyabuilt' })
+    expect(document.body.textContent).toContain('Playkeeper’s share of their sales goes to @siyabuilt.')
+  })
+
+  it('shows the businesses that install the app only once Sign in with Whop is on', async () => {
+    answer({ '/api/whop': { ...open, signIn: { redirectUri: 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback' }, app: { stores: 0, webhook: false } } })
+    expect(await render(<SellOnWhopSection />, owner)).not.toContain('Businesses that install your app')
+  })
+
+  it('says why a message to a customer hasn’t gone out, as the store needing a look', async () => {
+    answer({ '/api/whop': { ...open, customers: [{ ...open.customers[0], messageProblem: 'Whop said: Something went wrong' }] } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Pip HostingNeeds a look')
+    expect(text).toContain('alexplaysActive as alexplays · Starter · Up to 1 server with 4 GBTheir messages on Whop aren’t going out. Whop said: Something went wrong')
   })
 
   it('says Sign in with Whop needs the machine’s address', async () => {
@@ -1953,13 +2194,13 @@ describe('Sell on Whop', () => {
     expect(text).toContain('samcraftsPaused: their plan ended · Old plan · Up to 2 servers with 8 GB')
     expect(text).toContain('user_kaiSetting up their account · Starter · Up to 1 server with 4 GBThis dashboard can’t host customers yet.')
     expect(text).toContain('leebuildsTheir plan ended')
-    expect(text).not.toContain('checks every few minutes')
+    expect(text).not.toContain('so it checks every minute')
   })
 
   it('says when Whop can’t tell the dashboard about customers as they buy', async () => {
     answer({ '/api/whop': { ...open, webhook: false, customers: [] } })
     const text = await render(<SellOnWhopSection />, owner)
-    expect(text).toContain('so it checks every few minutes')
+    expect(text).toContain('so it checks every minute')
     expect(text).toContain('No customers yet.')
   })
 
@@ -2096,6 +2337,52 @@ describe('Hetzner stock', () => {
   })
 })
 
+describe('Room for customers', () => {
+  const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } })
+  const home: MachineView = { id: 'h2345abcde', projectId: machine.projectId, name: 'home-server', kind: 'remote' }
+  const pip = { store: 'biz_pip', storeName: 'Pip Hosting' }
+  const room: SaleRoom = {
+    plans: [
+      { id: 'plan_starter', name: 'Starter', ...pip, memoryMB: 4096, free: false, left: 3 },
+      { id: 'plan_big', name: 'Big', ...pip, memoryMB: 8192, free: false, left: 0 },
+      { id: 'plan_creator', name: 'Creator', ...pip, memoryMB: 4096, free: true, left: 1 },
+    ],
+    machines: [
+      { id: machine.id, freeMB: 20480, takes: true },
+      { id: home.id, freeMB: 30000, takes: false, why: 'Joined machines take customers once you confirm them.' },
+    ],
+  }
+  const machineLink = { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }] }, sizingUrl: '', available: false, codes: [] }
+
+  it('is on the Machines page for the owner alone, and only while plans are on sale', async () => {
+    answer({ '/api/machines/link': machineLink, '/api/machines/room': room })
+    expect(await render(<MachinesSection />, owner)).toContain('Room for customers')
+    expect(await render(<MachinesSection />)).not.toContain('Room for customers')
+    answer({ '/api/machines/link': machineLink, '/api/machines/room': { plans: [], machines: room.machines } })
+    expect(await render(<MachinesSection />, owner)).not.toContain('Room for customers')
+  })
+
+  it('says how many more of each plan fit, and what each machine can still set aside', async () => {
+    answer({ '/api/machines/room': room })
+    await render(<SaleRoomCard />, { ...owner, machines: [machine, home] })
+    const rows = [...document.querySelectorAll('li')].map((li) => li.textContent)
+    expect(rows).toEqual(['Starter 4 GB3 more', 'Big 8 GBSold out', 'Creator 4 GB · free1 more', 'my-vps20 GB free for customers', 'home-serverJoined machines take customers once you confirm them.'])
+    expect(document.body.textContent).not.toContain('Pip Hosting')
+  })
+
+  it('puts each plan under its store when stores share the machines, and says how they share', async () => {
+    const other = { store: 'biz_other', storeName: 'Other Hosting' }
+    answer({ '/api/machines/room': { ...room, plans: [...room.plans, { id: 'plan_other', name: 'Other', ...other, memoryMB: 4096, free: false, left: 4 }] } })
+    const text = await render(<SaleRoomCard />, { ...owner, machines: [machine, home] })
+    const stores = [...document.querySelectorAll('[data-store]')].map((group) => [group.querySelector('h3')?.textContent, [...group.querySelectorAll('li')].map((li) => li.textContent)])
+    expect(stores).toEqual([
+      ['Pip Hosting', ['Starter 4 GB3 more', 'Big 8 GBSold out', 'Creator 4 GB · free1 more']],
+      ['Other Hosting', ['Other 4 GB4 more']],
+    ])
+    expect(text).toContain('Each store gets an even share of the room, and each plan is offered once while there’s room for it.')
+  })
+})
+
 describe('Sidebar', () => {
   it('stops saying Creating once a create failed, like the server’s page', async () => {
     const failedCreate = failed('create', 'downloading_server', 'The server stopped while starting (exit code 1).')
@@ -2104,6 +2391,13 @@ describe('Sidebar', () => {
     expect(row?.textContent).toContain('Stopped')
     expect(text).not.toContain('Creating')
     expect(row?.querySelector('[data-slot="spinner"], .animate-spin')).toBeNull()
+  })
+
+  it('says a server being moved is being moved, whatever it last said', async () => {
+    await render(<AppShell route={{ name: 'home' }}><p>page</p></AppShell>, workspace({ servers: [server({ name: 'Moving one', phase: 'online', moving: true })] }))
+    const row = [...document.querySelectorAll('aside a')].find((a) => a.textContent?.includes('Moving one'))
+    expect(row?.textContent).toContain('Being moved')
+    expect(row?.textContent).not.toContain('Online')
   })
 })
 
@@ -2602,6 +2896,19 @@ describe('Machine page', () => {
 })
 
 describe('Command palette', () => {
+  it('opens from the sidebar once its code loads, and its shortcuts from its footer', async () => {
+    await render(<AppShell route={{ name: 'home' }}><p>page</p></AppShell>)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    const search = [...document.querySelectorAll('aside button')].find((b) => b.textContent?.includes('Search or jump to…'))
+    if (!search) throw new Error('no Search in the sidebar')
+    await act(async () => (search as HTMLButtonElement).click())
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"][aria-label="Search or jump to"]')).not.toBeNull())
+    const shortcuts = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent?.includes('all shortcuts'))
+    if (!shortcuts) throw new Error('no shortcuts button in the palette')
+    await act(async () => (shortcuts as HTMLButtonElement).click())
+    await vi.waitFor(() => expect(page()).toContain('Keyboard shortcuts'))
+  })
+
   it('keeps Tab and Shift+Tab inside the palette', async () => {
     await render(<CommandPalette open onOpenChange={() => {}} route={{ name: 'home' }} onShortcuts={() => {}} />)
     const palette = document.querySelector<HTMLElement>('[role="dialog"]')
@@ -2617,6 +2924,13 @@ describe('Command palette', () => {
     }
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
+  })
+
+  it('offers nothing to do to a server being moved, a backup neither', async () => {
+    const palette = (moving: boolean) => render(<CommandPalette open onOpenChange={() => {}} route={{ name: 'home' }} onShortcuts={() => {}} />, workspace({ servers: [server({ phase: 'online', moving })] }))
+    expect(await palette(false)).toContain('Back up Survival now')
+    const text = await palette(true)
+    for (const action of ['Back up Survival now', 'Restart Survival', 'Stop Survival']) expect(text).not.toContain(action)
   })
 
   it('offers each server the tabs its tab bar shows', async () => {
@@ -2935,6 +3249,43 @@ describe('Team', () => {
     expect(text).toContain('Customer')
     expect(text).toContain('signs in with Whop as Siya')
     expect(text).not.toContain('two-factor on')
+  })
+
+  it('shows a customer’s store and suspension, and lets the owner suspend them with a reason or lift it', async () => {
+    const customer = { owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, canEdit: false, allowance: { servers: 1, memoryMB: 4096 }, customer: 'whop', store: 'biz_other', storeName: 'Other Hosting', canSuspend: true } as const
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { ...customer, id: 6, username: 'alexplays', handle: 'alexplays', addedAt: hoursAgo(1), customerState: 'active' },
+        { ...customer, id: 7, username: 'samcrafts', handle: 'samcrafts', addedAt: hoursAgo(2), customerState: 'suspended', suspendedSelf: true, suspendReason: 'griefing' },
+      ],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    answerPosts({})
+    const text = await render(<TeamSection />)
+    expect(text).toContain('signs in with Whop as alexplays · 30 GB of disk · bought from Other Hosting')
+    expect(text).toContain('bought from Other Hosting · suspended: griefing')
+    const item = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === label)
+    await click(button('More for alexplays'))
+    await act(async () => item('Suspend')?.click())
+    await act(async () => {})
+    expect(page()).toContain('Suspend alexplays?')
+    expect(button('Suspend alexplays').disabled).toBe(true)
+    await typeInto('input[placeholder="Why, for the audit log"]', ' a DDoS from their server ')
+    await act(async () => button('Suspend alexplays').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    // internal/panel's TestASuspendedCustomerCanDoNothingUntilTheOwnerLiftsIt posts this body.
+    expect(client.post).toHaveBeenCalledWith('/api/customers/6/suspension', { reason: 'a DDoS from their server' })
+    await click(button('More for samcrafts'))
+    await act(async () => item('Lift suspension')?.click())
+    await act(async () => {})
+    expect(page()).toContain('Lift samcrafts’s suspension?')
+    await act(async () => button('Lift suspension').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(client.del).toHaveBeenCalledWith('/api/customers/7/suspension')
   })
 
   it('makes a creator invite with the dialog’s defaults, in the body the panel takes', async () => {
@@ -3823,6 +4174,205 @@ describe('Machines and AI agents', () => {
     expect(silent).toContain('Restart it on home-server: sudo systemctl restart playkeeper-agent')
     const answering = await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, { ...home, error: undefined, live: machine.live }] }))
     expect(answering).not.toContain('stopped answering')
+  })
+
+  describe('customers on a joined machine', () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server' },
+      joinedAt: '2026-09-29T13:40:00Z',
+      joinedFrom: '65.108.10.20',
+      addedBy: 'siya',
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'Z287KN4CDZD0Z8A4XXJA514NKG', state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const owner = (m: MachineView, can: Action[] = [...everything, 'machines.customers']) => workspace({ machines: [machine, m], me: { ...me, access: { ...me.access, can } } })
+
+    it('places customers on a joined machine once the owner checks it’s theirs', async () => {
+      const refresh = vi.fn(async () => {})
+      await render(<MachineDetailsSection id={home.id} />, { ...owner(home), refresh })
+      expect(page()).toContain('home-server takes no customers')
+      expect(page()).toContain('New customers go on the dashboard’s machine, and on joined machines you confirm are yours or that your Hetzner token finds in your project.')
+      await click('Take customers…')
+      expect(vi.mocked(client.put)).not.toHaveBeenCalled()
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('Place customers on home-server?')
+      expect(dialog).toContain('Only if it’s yours: customers’ servers and worlds will run on it.')
+      expect(dialog).toContain('by siya, from 65.108.10.20')
+      expect(dialog).toContain('Z287 KN4C DZD0 Z8A4 XXJA 514N KG')
+      expect(dialog).toContain('Playkeeper keeps servers away from home-server first.')
+      const eventReads = () => vi.mocked(client.get).mock.calls.filter(([p]) => p === '/api/machines/h2345abcde/events').length
+      const before = eventReads()
+      await click('Take customers')
+      expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/machines/h2345abcde/customers', { on: true })
+      expect(refresh).toHaveBeenCalled()
+      expect(eventReads()).toBeGreaterThan(before)
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+    })
+
+    it('says since when a joined machine takes customers and how many are on it, and stops it', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 3 }
+      await render(<MachineDetailsSection id={home.id} />, owner(taking))
+      expect(page()).toContain('home-server takes customers')
+      expect(page()).toContain('Confirmed by siya on Sep 29')
+      expect(page()).toContain('3 customers are on it')
+      await click('Stop taking customers')
+      expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/machines/h2345abcde/customers', { on: false })
+
+      await render(<MachinesSection />, owner(taking))
+      expect(page()).toContain('takes customers')
+      await render(<MachinesSection />, owner(taking, everything))
+      expect(page()).not.toContain('takes customers')
+    })
+
+    it('says when the dashboard confirmed a joined machine itself, on finding it in the owner’s Hetzner project', async () => {
+      const found = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'hetzner:fleet-1' } }
+      await render(<MachineDetailsSection id={home.id} />, owner(found))
+      expect(page()).toContain('home-server takes customers')
+      expect(page()).toContain('Found in your Hetzner project as fleet-1 on Sep 29.')
+      expect(page()).not.toContain('Confirmed by hetzner')
+    })
+
+    it('is the owner’s alone, and waits for a machine that’s away', async () => {
+      await render(<MachineDetailsSection id={home.id} />, owner(home, everything))
+      expect(page()).not.toContain('takes no customers')
+      expect(buttons('Take customers…')).toEqual([])
+      const away = { ...home, link: { ...home.link!, state: 'offline' as const, lastSeen: new Date(Date.now() - 600_000).toISOString() } }
+      await render(<MachineDetailsSection id={home.id} />, owner(away))
+      expect(button('Take customers…').disabled).toBe(true)
+      expect(button('Take customers…').title).toBe('Can’t reach home-server')
+    })
+
+    it('lists the customers on a machine, and moves one to the machine the owner picks', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 2 }
+      const attic: MachineView = { ...taking, id: 'a2345abcde', name: 'attic', customers: 0 }
+      const cellar: MachineView = { ...home, id: 'c2345abcde', name: 'cellar' }
+      answer({
+        '/api/machines/h2345abcde/customers': [
+          { id: 7, name: 'alex', handle: 'alex', state: 'active', planId: 'plan_plus', memoryMB: 8192, servers: 2, machineId: 'h2345abcde', here: 2 },
+          { id: 8, name: 'sam', state: 'paused', memoryMB: 4096, servers: 1, machineId: 'h2345abcde', here: 1 },
+        ],
+      })
+      answerPosts({ '/api/customers/7/move': { machineId: 'a2345abcde' } })
+      const refresh = vi.fn(async () => {})
+      await render(<MachineDetailsSection id={home.id} />, { ...workspace({ machines: [machine, taking, attic, cellar], me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } }), refresh })
+      expect(page()).toContain('8 GB plan · 2 servers')
+      expect(page()).toContain('4 GB plan · 1 server · Paused')
+      expect(buttons('Move…')).toHaveLength(2)
+      await click(buttons('Move…')[0]!)
+      const dialog = () => document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog()).toContain('Move alex to another machine?')
+      expect(dialog()).toContain('The machine each one leaves keeps its final backup for 7 days.')
+      expect(dialog()).toContain('The fullest machine with room for their plan')
+      expect(dialog()).toContain('my-vps')
+      expect(dialog()).toContain('attic')
+      expect(dialog()).not.toContain('cellar')
+      expect(dialog()).not.toContain('home-server')
+      const pick = [...document.querySelectorAll('label')].find((l) => l.textContent === 'attic')?.querySelector<HTMLElement>('[role="radio"]')
+      if (!pick) throw new Error('no attic choice')
+      await click(pick)
+      await click('Move alex')
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/7/move', { machineId: 'a2345abcde' })
+      expect(refresh).toHaveBeenCalled()
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+      await click(buttons('Move…')[1]!)
+      await click('Move sam')
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', {})
+    })
+
+    it('lists the customers on the dashboard’s machine on its page, for the owner alone', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' } }
+      answer({ '/api/machines/m2345abcde/customers': [{ id: 7, name: 'alex', state: 'active', memoryMB: 4096, servers: 1, machineId: 'm2345abcde', here: 1 }] })
+      await render(<MachinePage id={machine.id} />, owner(taking))
+      expect(document.querySelector('#machine-customers')?.textContent).toBe('Customers')
+      expect(page()).toContain('4 GB plan · 1 server')
+      await click('Move…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('home-server')
+      expect(dialog).not.toContain('my-vps')
+      await render(<MachinePage id={machine.id} />, owner(taking, everything))
+      expect(page()).not.toContain('4 GB plan')
+    })
+
+    it('follows a move to a machine, and tries one that stopped again', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 2 }
+      answer({
+        '/api/machines/h2345abcde/customers': [
+          { id: 7, name: 'alex', state: 'active', memoryMB: 8192, servers: 2, machineId: 'h2345abcde', here: 1, move: { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1 } },
+          { id: 8, name: 'sam', state: 'active', memoryMB: 4096, servers: 1, machineId: 'h2345abcde', here: 0, move: { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1, error: 'survival: attic couldn’t make it from its folder.' } },
+        ],
+      })
+      await render(<MachineDetailsSection id={home.id} />, owner(taking))
+      expect(page()).toContain('8 GB plan · 2 servers · Moving here: 1 server to go')
+      expect(page()).toContain('Their move here stopped: survival: attic couldn’t make it from its folder.')
+      expect(buttons('Move…')).toEqual([])
+      await click('Try again')
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', { machineId: 'h2345abcde' })
+    })
+
+    it('lists customers a stopped move left servers with, and tries their move again to their own machine', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 2 }
+      const attic: MachineView = { ...taking, id: 'a2345abcde', name: 'attic' }
+      const stopped = { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1, error: 'survival didn’t stop.' }
+      answer({
+        '/api/machines/h2345abcde/customers': [
+          { id: 7, name: 'alex', state: 'active', memoryMB: 8192, servers: 2, machineId: 'a2345abcde', here: 1, move: stopped },
+          { id: 8, name: 'sam', state: 'active', memoryMB: 4096, servers: 1, machineId: '', here: 1, move: stopped },
+        ],
+      })
+      await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, taking, attic], me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } }))
+      expect(page()).toContain('8 GB plan · 2 servers · 1 still here, their servers go on attic · Their move stopped: survival didn’t stop.')
+      expect(page()).toContain('4 GB plan · 1 server · 1 still here, waiting for room on another machine · Their move stopped: survival didn’t stop.')
+      expect(page()).not.toContain('Their move here')
+      await click(buttons('Try again')[0]!)
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/7/move', { machineId: 'a2345abcde' })
+      await click(buttons('Try again')[1]!)
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', {})
+    })
+
+    it('moves a customer with servers left on a machine to their own machine by default, though it takes no new customers', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 1 }
+      const attic: MachineView = { ...home, id: 'a2345abcde', name: 'attic' }
+      const cellar: MachineView = { ...taking, id: 'c2345abcde', name: 'cellar' }
+      answer({ '/api/machines/h2345abcde/customers': [{ id: 7, name: 'alex', state: 'active', memoryMB: 8192, servers: 2, machineId: 'a2345abcde', here: 1 }] })
+      answerPosts({ '/api/customers/7/move': { machineId: 'a2345abcde' } })
+      await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, taking, attic, cellar], me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } }))
+      expect(page()).toContain('1 still here, their servers go on attic')
+      await click('Move…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('attic, their machine')
+      expect(dialog).toContain('cellar')
+      await click('Move alex')
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/7/move', { machineId: 'a2345abcde' })
+    })
+
+    it('warns before removing a machine customers are on', async () => {
+      await render(<MachineDetailsSection id={home.id} />, owner({ ...home, customers: 2 }))
+      await click('Remove home-server…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('2 customers are on home-server')
+      expect(dialog).toContain('Move them first, in Customers on this page, to take their servers along. Otherwise they get room on another machine to start again, and their servers stay on home-server, out of reach.')
+      expect(button('Remove home-server').disabled).toBe(false)
+      await render(<MachineDetailsSection id={home.id} />, owner(home))
+      await click('Remove home-server…')
+      expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('customers are on')
+    })
+
+    it('leaves removing a machine customers are on to the owner', async () => {
+      await render(<MachineDetailsSection id={home.id} />, owner({ ...home, customers: 2 }, everything))
+      await click('Remove home-server…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('2 customers are on home-server')
+      expect(dialog).toContain('Only the owner can remove a machine customers are on, as removing it places them on another machine.')
+      expect(dialog).not.toContain('Move them first')
+      expect(button('Remove home-server').disabled).toBe(true)
+      await render(<MachineDetailsSection id={home.id} />, owner(home, everything))
+      await click('Remove home-server…')
+      expect(button('Remove home-server').disabled).toBe(false)
+    })
   })
 
   it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {

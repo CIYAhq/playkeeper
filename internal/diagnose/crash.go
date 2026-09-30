@@ -27,6 +27,7 @@ const (
 	CrashMixinFailed       CrashKind = "mixin_failed"
 	CrashDatapack          CrashKind = "datapack_failed"
 	CrashCorruptWorld      CrashKind = "corrupt_world"
+	CrashTickingEntity     CrashKind = "ticking_entity"
 	CrashWorldLocked       CrashKind = "world_locked"
 	CrashDiskFull          CrashKind = "disk_full"
 	CrashEULA              CrashKind = "eula"
@@ -74,12 +75,15 @@ type Addon struct {
 
 // CrashDiagnosis says what stopped the server, the evidence for it and what
 // can be done. Certain is false when the evidence only makes it the most
-// likely explanation, which Explanation then says. Exactly one fix is
-// Recommended when there are any.
+// likely explanation, which Explanation then says. Repeats is true when
+// starting the server again can only crash it the same way, until someone
+// fixes the cause, so Playkeeper doesn't restart it on its own. Exactly one
+// fix is Recommended when there are any.
 type CrashDiagnosis struct {
 	Kind        CrashKind      `json:"kind"`
 	Params      map[string]any `json:"params,omitempty"`
 	Certain     bool           `json:"certain"`
+	Repeats     bool           `json:"repeats,omitempty"`
 	Title       string         `json:"title"`
 	Explanation string         `json:"explanation"`
 	Evidence    []Evidence     `json:"evidence"`

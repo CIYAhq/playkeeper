@@ -49,7 +49,7 @@ schema: article
   {{template "h2n" (dict "ID" "ports" "N" 3 "Text" "Open the ports")}}
   <p>hPanel's firewall is optional. Once one is on, it drops every port you haven't allowed, so add a rule for each of these: in hPanel, your VPS › <strong>Security › Firewall › Add firewall</strong>, then <strong>Edit</strong>, and <strong>Add rule</strong> with Accept, the protocol, the port and Anywhere.</p>
   {{template "provider-ports"}}
-  <p>If ufw or firewalld runs on the VPS itself, the installer allows 8443, 25565 and 80 there for you.</p>
+  <p>If ufw or firewalld runs on the VPS itself, the installer allows 8443, 25565, 443 and 80 there for you.</p>
 </section>
 
 <section aria-labelledby="run">

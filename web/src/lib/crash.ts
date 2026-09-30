@@ -1,7 +1,7 @@
 import { get, post } from '@/api/client'
 import type { AddonBrowse, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Crash, CrashLine, DiagnosisAction, FileRefusal, Operation, Params, ServerStatus } from '@/api/types'
 import { errorText, serverApi } from '@/api/workspace'
-import { t } from '@/i18n'
+import { t, type MessageKey } from '@/i18n'
 import { keyFrom, libraryMatch, sameKey, searchPath } from '@/lib/addons'
 import { formatClock, formatDate, formatList, formatMB, sameDay } from '@/lib/format'
 import { num, str, strs } from '@/lib/params'
@@ -13,7 +13,8 @@ export function isMemoryCrash(c: Crash): boolean {
 
 /**
  * What happened, in one line. Kinds without a line of their own, or without
- * the params it needs, fall back to the agent's English explanation.
+ * the params it needs, fall back to the agent's English explanation. An
+ * empty machine is for a creator or customer, who never sees the machine.
  */
 export function crashSummary(c: Crash, server: string, machine: string, lookups: AddonLookups = {}): string {
   const p = c.params
@@ -35,6 +36,7 @@ export function crashSummary(c: Crash, server: string, machine: string, lookups:
       const reason = str(p, 'reason')
       const port = num(p, 'port')
       if (reason === 'in_use') return t('crash.portInside', { server })
+      if (!machine) return c.explanation
       if (reason === 'address') return t('crash.portAddress', { machine })
       return !reason && port ? t('crash.portTaken', { machine, port }) : c.explanation
     }
@@ -72,10 +74,19 @@ export function crashSummary(c: Crash, server: string, machine: string, lookups:
       const z = num(p, 'chunk_z')
       return x !== undefined && z !== undefined ? t('crash.chunk', { x: x * 16, z: z * 16 }) : t('crash.chunkPlain')
     }
+    case 'ticking_entity': {
+      const x = num(p, 'x')
+      const y = num(p, 'y')
+      const z = num(p, 'z')
+      const type = str(p, 'type')
+      if (!type || x === undefined || y === undefined || z === undefined) return t('crash.tickingPlain')
+      return t('crash.ticking', { what: thingName(type), x, y, z })
+    }
     case 'world_locked':
       return t('crash.locked')
     case 'disk_full': {
       const free = num(p, 'free_mb')
+      if (!machine) return c.explanation
       return c.certain || free === undefined ? t('crash.disk', { machine, server }) : t('crash.diskLow', { machine, free: formatMB(free) })
     }
     case 'eula':
@@ -84,8 +95,11 @@ export function crashSummary(c: Crash, server: string, machine: string, lookups:
       return t('crash.permission')
     case 'killed':
       return t('crash.killed')
-    case 'incompatible_addon':
-      return c.explanation
+    case 'incompatible_addon': {
+      if (str(p, 'reason') !== 'client_only') return c.explanation
+      const addon = str(p, 'addon')
+      return addon ? t('crash.clientOnly', { addon }) : t('crash.clientOnlyPlain')
+    }
     case 'unknown':
       return c.start ? t('crash.unknownStart') : t('crash.unknown')
     default: {
@@ -126,11 +140,28 @@ export function failureLine(op: Operation, s: ServerStatus, machine: string): st
   return crash ? crashSummary(crash, s.name, machine) : op.error
 }
 
+/** What a namespaced id like minecraft:chest_minecart is called in a sentence: "chest minecart". */
+function thingName(id: string): string {
+  const path = id.slice(id.indexOf(':') + 1)
+  return path.slice(path.lastIndexOf('/') + 1).replaceAll('_', ' ')
+}
+
+const dimensionKeys: Record<string, MessageKey> = {
+  'minecraft:overworld': 'crash.tickingOverworld',
+  'minecraft:the_nether': 'crash.tickingNether',
+  'minecraft:the_end': 'crash.tickingEnd',
+}
+
 /** A quieter second line, for the kinds that have one. */
 export function crashDetail(c: Crash): string | undefined {
   const backups = num(c.params, 'backups_mb')
   const disk = num(c.params, 'disk_mb')
   if (c.kind === 'disk_full' && backups && disk) return t('crash.diskDetail', { backups: formatMB(backups), disk: formatMB(disk) })
+  if (c.kind === 'ticking_entity') {
+    const dim = str(c.params, 'dimension')
+    if (!dim) return t('crash.tickingSaved')
+    return dimensionKeys[dim] ? t(dimensionKeys[dim]) : t('crash.tickingDimension', { dimension: dim })
+  }
   const holder = str(c.params, 'holder')
   const pid = num(c.params, 'holder_pid')
   if (c.kind === 'port_in_use' && holder && pid) return t('crash.portHolder', { name: holder, pid: String(pid) })
@@ -152,6 +183,8 @@ export type FixPlan =
   | { kind: 'update-addon'; key: AddonKey; fingerprint: string }
   | { kind: 'install-addon'; key: AddonKey; fingerprint: string }
   | { kind: 'restore'; backupId: string }
+  | { kind: 'remove-entity'; target: Params }
+  | { kind: 'rebuild-level'; world: string; seedFrom: string; resets: string[] }
   | { kind: 'delete-backups'; ids: string[] }
 
 /** What the library says about updating or installing an add-on for a fix. */
@@ -248,7 +281,10 @@ export function crashFixes(c: Crash, server: string, machine: string, phone: boo
   if (c.kind === 'disk_full' && !starts && out.some((o) => o.plan?.kind === 'delete-backups')) {
     out.push({ id: 'myself', recommended: false, ...startText(t('crash.fix.myself'), server) })
   }
-  if (!out.some((o) => o.plan)) out.push({ id: 'again', recommended: out.length === 0, ...startText(t('crash.fix.again', { server }), server) })
+  if (!out.some((o) => o.plan)) {
+    if (c.kind === 'ticking_entity') out.push({ id: 'myself', recommended: false, ...startText(t('crash.fix.tickingMyself'), server, t('crash.fix.tickingMyselfHint')) })
+    else out.push({ id: 'again', recommended: out.length === 0, ...startText(t('crash.fix.again', { server }), server) })
+  }
   return out
 }
 
@@ -280,7 +316,7 @@ function fixText(c: Crash, f: DiagnosisAction, server: string, machine: string, 
       const to = num(p, 'to_mb')
       if (!to) return { title: f.title, reason: later }
       const free = formatMB(c.roomMB)
-      const hint = c.roomMB > 0 ? (phone ? t('crash.fix.memoryFree', { machine, free }) : t('crash.fix.memoryFits', { free })) : undefined
+      const hint = c.roomMB > 0 ? (phone && machine ? t('crash.fix.memoryFree', { machine, free }) : t('crash.fix.memoryFits', { free })) : undefined
       return { title: t('crash.fix.memory', { server, memory: formatMB(to) }), hint, plan: { kind: 'settings', body: { memoryMB: to } }, button: t('crash.do.save', { server }) }
     }
     case 'lower_view_distance': {
@@ -313,6 +349,25 @@ function fixText(c: Crash, f: DiagnosisAction, server: string, machine: string, 
       return { title: t('crash.fix.removePack', { pack: str(p, 'pack') ?? '' }), reason: later }
     case 'restore_backup':
       return restoreText(p, server, now)
+    case 'remove_entity': {
+      const type = str(p, 'type')
+      if (!type || !p) return { title: f.title, reason: later }
+      const what = thingName(type)
+      const block = str(p, 'what') === 'block_entity'
+      return {
+        title: block ? t('crash.fix.resetBlock', { what }) : t('crash.fix.removeEntity', { what }),
+        hint: block ? t('crash.fix.resetBlockHint') : t('crash.fix.removeEntityHint'),
+        plan: { kind: 'remove-entity', target: p },
+        button: block ? t('crash.do.resetBlock', { server }) : t('crash.do.removeEntity', { server }),
+        footnote: t('crash.removeEntityNote'),
+      }
+    }
+    case 'rebuild_level': {
+      const world = str(p, 'world')
+      if (!world) return { title: t('crash.fix.rebuildLevel'), reason: later }
+      const plan = { kind: 'rebuild-level', world, seedFrom: str(p, 'seed_from') ?? '', resets: strs(p, 'resets') } as const
+      return { title: t('crash.fix.rebuildLevel'), hint: rebuildHint(plan.resets, plan.seedFrom), plan, button: t('crash.do.rebuildLevel', { server }), footnote: t('crash.rebuildNote') }
+    }
     case 'free_disk': {
       const ids = strs(p, 'backup_ids')
       if (!ids.length) return startText(t('crash.fix.myself'), server)
@@ -362,6 +417,19 @@ function restartText(c: Crash, server: string): FixText {
   if (c.kind === 'world_locked') return startText(t('crash.fix.again', { server }), server, t('crash.fix.lockedHint'))
   if (c.kind === 'disk_full' && free !== undefined) return startText(t('crash.fix.again', { server }), server, t('crash.fix.freeNow', { free: formatMB(free) }))
   return startText(t('crash.fix.again', { server }), server)
+}
+
+/** What a new level.dat starts over, in words: resets as the agent names them. */
+export function levelResets(resets: string[]): string[] {
+  const words: Record<string, MessageKey> = { game_rules: 'crash.reset.gameRules', time: 'crash.reset.time', world_border: 'crash.reset.worldBorder', spawn: 'crash.reset.spawn' }
+  return resets.flatMap((r) => (words[r] ? [t(words[r])] : []))
+}
+
+function rebuildHint(resets: string[], seedFrom: string): string {
+  const list = levelResets(resets)
+  const hint = list.length ? t('crash.fix.rebuildHint', { list: formatList(list) }) : t('crash.fix.rebuildHintNothing')
+  if (seedFrom === 'world' || seedFrom === 'backup') return hint
+  return `${hint} ${t(seedFrom === 'properties' ? 'crash.fix.rebuildSeedProperties' : 'crash.fix.rebuildNoSeed')}`
 }
 
 function restoreText(p: Params | undefined, server: string, now: Date): FixText {

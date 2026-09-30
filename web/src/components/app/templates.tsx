@@ -226,6 +226,11 @@ function BrowseTemplates() {
   )
 }
 
+/** Pictures of the listed templates' own worlds, the ones playkeeper.io shows, by template id (site/tools/shots.py makes them). */
+const thumbs: Record<string, string> = Object.fromEntries(
+  Object.entries(import.meta.glob<string>('@/assets/template-thumbs/*.webp', { eager: true, query: '?url', import: 'default' })).map(([file, url]) => [file.replace(/^.*\/|\.webp$/g, ''), url]),
+)
+
 /** The templates the machine's release carries, each planned like a file when picked. */
 function LibraryList({ templates, onPick }: { templates: LibraryTemplate[]; onPick: (l: LibraryTemplate) => void }) {
   const id = useId()
@@ -248,7 +253,7 @@ function LibraryList({ templates, onPick }: { templates: LibraryTemplate[]; onPi
               onClick={() => onPick(l)}
               className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-2.5 text-left transition-colors duration-(--motion-fast) ease-standard hover:border-primary hover:bg-selected focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
-              <TemplateArt file={l.art} className="rounded-md" />
+              <TemplateArt file={l.art} thumb={thumbs[l.id]} className="rounded-md" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{l.contents.name}</span>
                 <span className="block truncate text-xs text-muted-foreground">{libraryFacts(l.contents)}</span>

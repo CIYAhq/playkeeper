@@ -597,7 +597,8 @@ func TestChannels(t *testing.T) {
 
 // Whop's ad pixel is on /start alone: only its page names the Whop business
 // and loads start.js, and only its location's Content-Security-Policy lets
-// Whop's origin, the pixel's blob worker and the film in. /start stays out of
+// Whop's origin and the pixel's blob worker in, and its film, as the
+// locations of the pages that play one do (TestFilms). /start stays out of
 // search engines and the sitemap. With no pixel set, no policy names Whop.
 // A page's channel must be one of the settings'.
 func TestStartPage(t *testing.T) {
@@ -611,9 +612,10 @@ func TestStartPage(t *testing.T) {
 		if strings.Contains(html, "t.whop.tw") {
 			t.Errorf("%s names t.whop.tw in its HTML; start.js loads it", p)
 		}
-		// Send to my computer, beside both of /start's Copy buttons.
+		// Send to my computer, beside both Copy buttons on /, /start and the
+		// AI build battle's page, where most visitors are on phones.
 		want := 0
-		if p == "/start" {
+		if p == "/" || p == "/start" || p == "/templates/ai-build-battle" {
 			want = 2
 		}
 		if n := strings.Count(html, share); n != want {
@@ -660,6 +662,74 @@ func TestStartPage(t *testing.T) {
 	noStart.Channels = slices.DeleteFunc(slices.Clone(Default.Channels), func(c Channel) bool { return c.Code == "start" })
 	if _, err := Build(Options{Root: os.DirFS("../.."), Settings: noStart, Now: time.Now()}); err == nil {
 		t.Error("the site builds while /start's channel isn't in Settings.Channels")
+	}
+}
+
+// The AI build battle's page, for people who saw the videos, most on a phone
+// from a reply on X: indexed and in the sitemap, under Templates, with the
+// release the template needs, and Open in my dashboard opens the template
+// itself, once, counted as the template's page. It names no hosted option and says
+// nothing is coming until its hosted setting says where one is; then "Or get
+// it hosted" goes there, under the install command.
+func TestTheAIBuildBattlePage(t *testing.T) {
+	const p = "/templates/ai-build-battle"
+	o := build(t, Default)
+	html := pages(o)[p]
+	if html == "" {
+		t.Fatalf("no page at %s", p)
+	}
+	if strings.Contains(html, `content="noindex"`) || !strings.Contains(string(o.Files["sitemap.xml"]), "<loc>"+Default.BaseURL+p+"</loc>") {
+		t.Errorf("%s isn't indexed, or isn't in the sitemap", p)
+	}
+	if !strings.Contains(html, `<a class="nav-link" href="/templates" aria-current="page">Templates</a>`) {
+		t.Errorf("%s isn't under Templates in the header", p)
+	}
+	main := between(html, "<main", "</main>")
+	for _, want := range []string{
+		`<h1 id="page-title" class="aibb-h1 hero-rise">The AI build battle, on your own server</h1>`,
+		"Needs Playkeeper 0.4.10 or newer.",
+		"<code>/aibuild a castle on a cliff</code>",
+		"<code>/aibattle claude gpt a castle on a cliff</code>",
+		`<div class="install install-shares aibb-install" id="install" data-install>`,
+		`href="/sizing"`,
+		"$0.15 with GPT-6.1 Sol, $0.30 with Claude Sonnet 5.5 and $0.75 with Claude Opus 5.5",
+	} {
+		if !strings.Contains(main, want) {
+			t.Errorf("%s doesn't say %s", p, want)
+		}
+	}
+	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := cards["ai-build-battle"]; c == nil || strings.Count(main, `href="`+c.Link+`" data-template-open="ai-build-battle"`) != 1 || strings.Count(main, `data-template-open=`) != 1 {
+		t.Errorf("%s doesn't open the AI Build Battle template once, with Open in my dashboard", p)
+	}
+	lower := strings.ToLower(html)
+	for _, bad := range []string{`href="/t/`, `href="/cloud`, "playkeeper cloud", "coming soon", "get it hosted", "bedrock"} {
+		if strings.Contains(lower, bad) {
+			t.Errorf("%s says %s", p, bad)
+		}
+	}
+	if img, alt := ogOf(html); !strings.HasPrefix(img, Default.BaseURL+"/assets/og/ai-build-battle.") || !strings.HasPrefix(alt, "The two finished nightmares from the AI build battle video") {
+		t.Errorf("%s's preview is %s, described as %q", p, img, alt)
+	}
+	hosted, err := buildEdited(t, map[string]func(string) string{battlePage: set("hosted", "/pricing")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if under := between(pages(hosted)[p], `id="install"`, "</li>"); !strings.Contains(under, `<p class="aibb-after">Or <a class="link-arrow" href="/pricing">get it hosted`) {
+		t.Errorf("with hosted: /pricing, %s's install step doesn't say Or get it hosted: %q", p, under)
+	}
+	for _, bad := range []string{"pricing", "//pricing.example", "http://pricing.example", "javascript:alert(1)"} {
+		if _, err := parsePage("{{/*\npath: /x\nhosted: " + bad + "\n*/}}"); err == nil {
+			t.Errorf("a page's hosted setting can be %q", bad)
+		}
+	}
+	for _, good := range []string{"/pricing", "https://pricing.example/minecraft"} {
+		if _, err := parsePage("{{/*\npath: /x\nhosted: " + good + "\n*/}}"); err != nil {
+			t.Errorf("a page's hosted setting can't be %q: %v", good, err)
+		}
 	}
 }
 

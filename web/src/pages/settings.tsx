@@ -136,8 +136,17 @@ function GeneralSettings() {
   }, [])
   return (
     <SettingsSection current="settings">
-      <PlaykeeperCard />
-      <UsageStatsCard />
+      {can(ws.me, 'machines.view') ? (
+        <>
+          <PlaykeeperCard />
+          <UsageStatsCard />
+        </>
+      ) : (
+        <Card as="section" aria-labelledby="pk-title">
+          <CardTitle id="pk-title">{t('global.playkeeper')}</CardTitle>
+          <CardHint>{t('machine.version', { version: ws.me.version })}</CardHint>
+        </Card>
+      )}
       {can(ws.me, 'audit.view') && <AuditCard phone={phone} />}
       <Card as="section" aria-labelledby="about-title">
         <CardTitle id="about-title">{t('global.about')}</CardTitle>
@@ -157,7 +166,9 @@ function PlaykeeperCard() {
   const ws = useWorkspace()
   const { info, setInfo, error } = useUpdateInfo(true)
   const [checking, setChecking] = useState(false)
+  const [savingAuto, setSavingAuto] = useState(false)
   const [open, setOpen] = useState(false)
+  const manage = can(ws.me, 'machine.manage')
 
   async function check() {
     if (!ws.machine) return
@@ -168,6 +179,19 @@ function PlaykeeperCard() {
       toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
       setChecking(false)
+    }
+  }
+
+  async function changeAuto(on: boolean) {
+    if (!ws.machine) return
+    setSavingAuto(true)
+    try {
+      setInfo(await put<UpdateInfo>(machineApi(ws.machine.id, '/update/auto'), { on }))
+      toastManager.add({ title: on ? t('update.autoOn') : t('update.autoOff'), type: 'success' })
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setSavingAuto(false)
     }
   }
 
@@ -200,7 +224,7 @@ function PlaykeeperCard() {
             </span>
           )}
         </p>
-        {info?.supported && can(ws.me, 'machine.manage') && (
+        {info?.supported && manage && (
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={check} loading={checking} disabledReason={ws.updating ? t('reason.busy', { what: t('op.update') }) : undefined}>
               <RefreshCwIcon />
@@ -215,6 +239,15 @@ function PlaykeeperCard() {
           </div>
         )}
       </div>
+      {manage && info?.supported && (
+        <div className="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4">
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium">{t('update.auto')}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('update.autoHint')}</p>
+          </div>
+          <Switch checked={info.autoCheck !== false} onCheckedChange={(c) => void changeAuto(c)} aria-label={t('update.auto')} disabled={savingAuto} title={savingAuto ? t('reason.saving') : undefined} />
+        </div>
+      )}
       <UpdateDialog open={open} onOpenChange={setOpen} />
     </Card>
   )

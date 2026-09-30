@@ -42,12 +42,14 @@ type fakeDocker struct {
 	replayAll    bool
 	logDelay     time.Duration // before answering each logs request
 	bootExit     int           // when set, the server exits with it while starting
+	bootLines    []string      // what a server that exits while starting logs first, instead of an unexpected exception
 	failBoots    int           // the next failBoots servers to start exit with code 1
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
 	versionDown  bool          // version requests fail too, as when the daemon itself stops answering
 	selinux      bool          // the daemon runs containers under SELinux labels ("selinux-enabled")
 	beforeStop   func()        // when set, runs before a container stop takes effect
+	beforeBoot   func()        // when set, a server container's boot runs it first, so a test can hold the server starting
 	setupHangs   bool          // setup containers end their log streams but keep running
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
@@ -73,6 +75,12 @@ type fakeDocker struct {
 	networkIPv6   bool
 	networkDriver string
 	networkBridge string
+	// work counts the requests the fake is answering and the containers it
+	// is booting, and closed ends with the test. The fake's cleanup waits
+	// for work, so none of it writes into the test's folders, as a boot's
+	// world does, while they are removed after it.
+	work   sync.WaitGroup
+	closed chan struct{}
 }
 
 // fakeNetworkID is the ID Docker gives Playkeeper's network, which makes its
@@ -118,6 +126,8 @@ func listedPorts(running bool, ports []fakePort) []map[string]any {
 type fakeLine struct {
 	ts   time.Time
 	text string
+	// run is the container's run the line was written in.
+	run int
 }
 
 // pullFail is how a pull fails: the daemon answers with status and msg, or
@@ -138,23 +148,51 @@ type fakeContainer struct {
 	logs     []fakeLine
 	wake     chan struct{}
 	rotated  chan struct{}
+	// runs counts the container's starts.
+	runs int
 }
 
 func startFakeDocker(t *testing.T, sock string) *fakeDocker {
 	t.Helper()
-	fd := &fakeDocker{t: t, images: map[string]bool{}, networks: map[string]map[string]string{}, byName: map[string]*fakeContainer{}, byID: map[string]*fakeContainer{}, jarContent: []byte("fake paper jar"), bootDelay: 30 * time.Millisecond}
+	fd := &fakeDocker{t: t, images: map[string]bool{}, networks: map[string]map[string]string{}, byName: map[string]*fakeContainer{}, byID: map[string]*fakeContainer{}, jarContent: []byte("fake paper jar"), bootDelay: 30 * time.Millisecond, closed: make(chan struct{})}
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: http.HandlerFunc(fd.serve)}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !fd.begin() {
+			jsonOut(w, 503, map[string]string{"message": "fake Docker has stopped"})
+			return
+		}
+		defer fd.work.Done()
+		fd.serve(w, r)
+	})}
 	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() {
+		srv.Close()
+		fd.mu.Lock()
+		close(fd.closed)
+		fd.mu.Unlock()
+		fd.work.Wait()
+	})
 	return fd
 }
 
+// begin counts a request or a boot as work, unless the test has ended.
+func (fd *fakeDocker) begin() bool {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	select {
+	case <-fd.closed:
+		return false
+	default:
+		fd.work.Add(1)
+		return true
+	}
+}
+
 func (fd *fakeDocker) log(c *fakeContainer, text string) {
-	c.logs = append(c.logs, fakeLine{ts: time.Now().UTC(), text: text})
+	c.logs = append(c.logs, fakeLine{ts: time.Now().UTC(), text: text, run: c.runs})
 	close(c.wake)
 	c.wake = make(chan struct{})
 }
@@ -469,7 +507,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 			"Id": c.id, "Name": "/" + c.name, "Image": "sha256:img",
 			"State":           map[string]any{"Status": map[bool]string{true: "running", false: "exited"}[c.running], "Running": c.running, "ExitCode": c.exitCode, "OOMKilled": c.oom, "StartedAt": st, "FinishedAt": fin},
 			"Config":          map[string]any{"Image": c.cfg.Image, "Env": c.cfg.Env, "Labels": c.cfg.Labels},
-			"HostConfig":      map[string]any{"Memory": c.cfg.HostConfig.Memory, "NanoCpus": c.cfg.HostConfig.NanoCPUs},
+			"HostConfig":      map[string]any{"Memory": c.cfg.HostConfig.Memory, "NanoCpus": c.cfg.HostConfig.NanoCPUs, "Binds": c.cfg.HostConfig.Binds},
 			"NetworkSettings": map[string]any{"Networks": map[string]any{networkName: map[string]string{"IPAddress": "127.0.0.1"}}},
 		})
 	case r.Method == "POST" && action == "start":
@@ -487,6 +525,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 			return
 		}
 		c.running, c.started, c.finished, c.exitCode, c.oom = true, time.Now().UTC(), time.Time{}, 0, false
+		c.runs++
 		setup := env(c.cfg, "SETUP_ONLY") == "TRUE"
 		fd.log(c, "[init] Running as uid=1000 gid=1000")
 		fd.log(c, "[init] Resolving type given PAPER")
@@ -495,7 +534,12 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		if started != nil && !setup {
 			started(c)
 		}
-		go fd.boot(c, setup)
+		if fd.begin() {
+			go func() {
+				defer fd.work.Done()
+				fd.boot(c, setup)
+			}()
+		}
 		w.WriteHeader(204)
 	case r.Method == "POST" && action == "update":
 		var body struct {
@@ -557,9 +601,16 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 // prints its startup lines and "Done".
 func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	fd.mu.Lock()
-	delay := fd.bootDelay
+	delay, before := fd.bootDelay, fd.beforeBoot
 	fd.mu.Unlock()
-	time.Sleep(delay)
+	if before != nil && !setup {
+		before()
+	}
+	select {
+	case <-time.After(delay):
+	case <-fd.closed:
+		return
+	}
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 	if !c.running {
@@ -611,7 +662,13 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 		exit = 1
 	}
 	if exit != 0 {
-		fd.log(c, "[12:00:00 ERROR]: Encountered an unexpected exception")
+		lines := fd.bootLines
+		if len(lines) == 0 {
+			lines = []string{"[12:00:00 ERROR]: Encountered an unexpected exception"}
+		}
+		for _, l := range lines {
+			fd.log(c, l)
+		}
 		c.running, c.exitCode, c.finished = false, exit, time.Now().UTC()
 		close(c.wake)
 		c.wake = make(chan struct{})
@@ -658,6 +715,7 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 		since, fd.replayAll = time.Time{}, false
 	}
 	rotated := c.rotated
+	run := c.runs
 	lines := c.logs
 	if tail > 0 && len(lines) > tail {
 		lines = lines[len(lines)-tail:]
@@ -684,11 +742,19 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 	if tail > 0 {
 		return
 	}
+	// A follow stream ends with the run it began in, as Docker's does, even
+	// when it looks only after the next start: the agent's follower learns
+	// of a new run from a new request.
 	for follow {
 		fd.mu.Lock()
-		running := c.running
+		running := c.running && c.runs == run
 		wake := c.wake
-		pending := append([]fakeLine(nil), c.logs[min(sent, len(c.logs)):]...)
+		var pending []fakeLine
+		for _, l := range c.logs[min(sent, len(c.logs)):] {
+			if l.run == run {
+				pending = append(pending, l)
+			}
+		}
 		sent = len(c.logs)
 		fd.mu.Unlock()
 		for _, l := range pending {

@@ -130,7 +130,7 @@ export const me = {
     role: 'admin',
     servers: { all: true },
     twoFactor: true,
-    can: ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'files.view', 'files.edit'],
+    can: ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'files.view', 'files.edit', 'machines.view'],
   },
 }
 
@@ -308,5 +308,6 @@ export function settingsReads(): Record<string, unknown> {
     [`/api/servers/${s.id}/players/sessions`]: { range: '24h', sessions: [] },
     [`/api/servers/${s.id}/metrics`]: { from: new Date(Date.now() - 86_400_000).toISOString(), to: now, bucketSeconds: 3600, sampleIntervalSeconds: 60, buckets: [], gaps: [], source: 'agent' },
     [`/api/servers/${s.id}/public-page`]: { enabled: true, players: false, about: '', stream: '', host: 'alex.playkeeper.me', ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } },
+    [`/api/servers/${s.id}/ai-keys`]: { keys: { openrouter: { set: false } }, pending: false, available: false },
   }
 }

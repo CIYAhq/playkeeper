@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,10 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
-const whopTestApp = "app_pipcloud"
+const (
+	whopTestApp       = "app_pipcloud"
+	whopTestAppSecret = "whop_secret_0123456789wxyz"
+)
 
 // browser is a browser on the dashboard: it keeps cookies and follows no
 // redirect, so each step of a sign-in shows.
@@ -34,7 +38,8 @@ func newBrowser(t *testing.T, e *env) *browser {
 // and answers with where the dashboard sends the browser next.
 func (b *browser) visit(target string) (*http.Response, string) {
 	b.t.Helper()
-	res, err := b.c.Get(b.e.ts.URL + strings.TrimPrefix(target, whopDashboard))
+	target = strings.TrimPrefix(strings.TrimPrefix(target, whopDashboard), "https://beta.playkeeper.me")
+	res, err := b.c.Get(b.e.ts.URL + target)
 	if err != nil {
 		b.t.Fatal(err)
 	}
@@ -46,12 +51,36 @@ func (b *browser) visit(target string) (*http.Response, string) {
 // where the dashboard sends them at the end.
 func (b *browser) signInWithWhop(f *fakeWhop, user string) string {
 	b.t.Helper()
-	res, authorize := b.visit(whopSignInPath)
+	return b.signInWithWhopFrom(f, whopSignInPath, user)
+}
+
+// signInWithWhopFrom is signInWithWhop from start, such as a store's
+// sign-in.
+func (b *browser) signInWithWhopFrom(f *fakeWhop, start, user string) string {
+	b.t.Helper()
+	res, authorize := b.visit(start)
 	if res.StatusCode != http.StatusSeeOther || !strings.HasPrefix(authorize, f.srv.URL+"/oauth/authorize?") {
 		b.t.Fatalf("leaving for Whop: %d to %q", res.StatusCode, authorize)
 	}
 	_, to := b.visit(f.approve(b.t, authorize, user))
 	return to
+}
+
+// signedInAs is the account the browser is signed in to, or "".
+func (b *browser) signedInAs() string {
+	b.t.Helper()
+	res, err := b.c.Get(b.e.ts.URL + "/api/auth/me")
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body struct {
+		User struct{ Username string } `json:"user"`
+	}
+	if res.StatusCode != http.StatusOK || json.NewDecoder(res.Body).Decode(&body) != nil {
+		return ""
+	}
+	return body.User.Username
 }
 
 // sellingWithSignIn is a dashboard selling for Pip Hosting that offers Sign
@@ -60,12 +89,12 @@ func (b *browser) signInWithWhop(f *fakeWhop, user string) string {
 func sellingWithSignIn(t *testing.T) (*fakeWhop, *env, member, *fakeCore, member) {
 	t.Helper()
 	f, e, own := connectedWhop(t)
-	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`"}`, own.auth()); r.status != http.StatusOK {
+	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"`+whopTestAppSecret+`"}`, own.auth()); r.status != http.StatusOK {
 		t.Fatalf("setting up Sign in with Whop: %d %v", r.status, r.body)
 	}
 	core := useFakeCore(e)
 	alex := addMember(t, e, "alex", invites.RoleViewer, "*")
-	core.accounts["user_alex"] = CustomerAccountInfo{UserID: alex.id, Username: "alex", State: CustomerActive, SignIn: true}
+	core.accounts[testStore+"/user_alex"] = CustomerAccountInfo{UserID: alex.id, Username: "alex", State: CustomerActive, SignIn: true}
 	return f, e, own, core, alex
 }
 
@@ -117,6 +146,51 @@ func TestSignInWithWhopOpensTheCustomersAccount(t *testing.T) {
 		t.Fatalf("Whop's refresh token wasn't ended: %q", f.revokedTokens)
 	}
 	if rows := e.auditRows(t, "login"); len(rows) == 0 || rows[len(rows)-1] != "alex panel succeeded signed in with Whop" {
+		t.Fatalf("audit: %v", rows)
+	}
+}
+
+// Someone who bought from two stores signs in to the account of the store
+// the sign-in is for, as the link in that store's messages names it.
+// Without a store they get neither, since which one isn't guessed, and a
+// store they have no account in finds none, whatever they have in another.
+// A sign-in that didn't work goes back to the sign-in page for its store.
+func TestSignInWithWhopOpensTheStoresAccount(t *testing.T) {
+	f, e, _, core, _ := sellingWithSignIn(t)
+	alex2 := addMember(t, e, "alex-2", invites.RoleViewer, "*")
+	core.mu.Lock()
+	core.accounts["biz_other/user_alex"] = CustomerAccountInfo{UserID: alex2.id, Username: "alex-2", State: CustomerActive, SignIn: true}
+	core.mu.Unlock()
+	for store, want := range map[string]string{testStore: "alex", "biz_other": "alex-2"} {
+		b := newBrowser(t, e)
+		if to := b.signInWithWhopFrom(f, whopSignInPath+"?store="+store, "user_alex"); to != "/" || b.signedInAs() != want {
+			t.Fatalf("signing in for %s: to %q as %q, want %s", store, to, b.signedInAs(), want)
+		}
+	}
+	b := newBrowser(t, e)
+	if to := b.signInWithWhop(f, "user_alex"); to != "/login?whop=stores" || b.signedInAs() != "" {
+		t.Fatalf("signing in for no store with accounts in two: to %q as %q", to, b.signedInAs())
+	}
+	b = newBrowser(t, e)
+	if to := b.signInWithWhopFrom(f, whopSignInPath+"?store=biz_nobody", "user_alex"); to != "/login?whop=no_account&store=biz_nobody" || b.signedInAs() != "" {
+		t.Fatalf("signing in for a store with no account there: to %q as %q", to, b.signedInAs())
+	}
+	if _, to := newBrowser(t, e).visit(whopSignInPath + "?store=" + url.QueryEscape("biz_pip&x=1")); to != "/login?whop=failed" {
+		t.Fatalf("signing in for a store that isn't one: %q", to)
+	}
+	// An account on its way is on its way at the store it was bought from.
+	f.mu.Lock()
+	f.users["user_sam"] = "samcrafts"
+	f.mu.Unlock()
+	f.buy("mem_sam1", "user_sam", "plan_starter", "active")
+	core.refuse = errNoHostingCore
+	e.reconcile()
+	for store, want := range map[string]string{testStore: "starting", "biz_nobody": "no_account"} {
+		if to := newBrowser(t, e).signInWithWhopFrom(f, whopSignInPath+"?store="+store, "user_sam"); to != "/login?whop="+want+"&store="+store {
+			t.Fatalf("sam signing in for %s, with a purchase on its way at %s: %q", store, testStore, to)
+		}
+	}
+	if rows := e.auditRows(t, "login"); !slices.Contains(rows, "whop:user_alex panel refused signed in with Whop without saying which of their stores it's for") {
 		t.Fatalf("audit: %v", rows)
 	}
 }
@@ -178,22 +252,22 @@ func TestSignInWithWhopGoesBackWithWhyWhenItCant(t *testing.T) {
 	}
 	// The core decides: a paused account it lets in signs in, a suspended one
 	// never, and the owner's account is never a customer's.
-	alexID := core.accounts["user_alex"].UserID
+	alexID := core.accounts[testStore+"/user_alex"].UserID
 	core.mu.Lock()
-	core.accounts["user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerPaused, SignIn: true}
-	core.accounts["user_own"] = CustomerAccountInfo{UserID: own.id, Username: "siya", State: CustomerActive, SignIn: true}
+	core.accounts[testStore+"/user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerPaused, SignIn: true}
+	core.accounts[testStore+"/user_own"] = CustomerAccountInfo{UserID: own.id, Username: "siya", State: CustomerActive, SignIn: true}
 	core.mu.Unlock()
 	if to := newBrowser(t, e).signInWithWhop(f, "user_alex"); to != "/" {
 		t.Fatalf("a paused account the core lets in: %q", to)
 	}
 	core.mu.Lock()
-	core.accounts["user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerSuspended}
+	core.accounts[testStore+"/user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerSuspended}
 	core.mu.Unlock()
 	if to := newBrowser(t, e).signInWithWhop(f, "user_alex"); to != back("suspended") {
 		t.Fatalf("a suspended account: %q", to)
 	}
 	core.mu.Lock()
-	core.accounts["user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerPaused}
+	core.accounts[testStore+"/user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerPaused}
 	core.mu.Unlock()
 	if to := newBrowser(t, e).signInWithWhop(f, "user_alex"); to != back("paused") {
 		t.Fatalf("an account the core keeps out: %q", to)
@@ -217,7 +291,9 @@ func TestSignInWithWhopNeedsAnAppAndTheMachinesAddress(t *testing.T) {
 	if _, to := newBrowser(t, e).visit(whopSignInPath); to != "/login?whop=off" {
 		t.Fatalf("without an app: %q", to)
 	}
-	e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`"}`, own.auth())
+	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"`+whopTestAppSecret+`"}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("setting up Sign in with Whop: %d %v", r.status, r.body)
+	}
 	e.setAddress(t, "")
 	if _, to := newBrowser(t, e).visit(whopSignInPath); to != "/login?whop=off" {
 		t.Fatalf("without an address: %q", to)
@@ -254,7 +330,7 @@ func TestSignInWithWhopIsSetUpByTheOwnerAlone(t *testing.T) {
 			t.Errorf("%s: %d", bad, r.status)
 		}
 	}
-	r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"whop_secret_0123456789wxyz"}`, own.auth())
+	r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"`+whopTestAppSecret+`"}`, own.auth())
 	if r.status != http.StatusOK {
 		t.Fatalf("setting it up: %d %v", r.status, r.body)
 	}
@@ -274,6 +350,53 @@ func TestSignInWithWhopIsSetUpByTheOwnerAlone(t *testing.T) {
 	var st api.SetupStatus
 	if e.get(t, "/api/setup/status", "", &st); st.WhopSignIn {
 		t.Fatal("still offered once turned off")
+	}
+}
+
+// Whop checks an app's secret before anything else when someone comes back
+// from signing in, so with one Whop refuses, every sign-in fails. Turning
+// it on asks Whop first, and keeps nothing Whop refuses.
+func TestSignInWithWhopTurnsOnOnlyWithAnAppWhopTakes(t *testing.T) {
+	f, e, own := connectedWhop(t)
+	for _, tc := range []struct{ body, why string }{
+		{`{"clientId":"` + whopTestApp + `"}`, "Whop refused this app: client_secret is required."},
+		{`{"clientId":"` + whopTestApp + `","clientSecret":"whop_secret_someone_elses"}`, "Whop refused this app: client_secret is invalid."},
+		{`{"clientId":"app_nope","clientSecret":"` + whopTestAppSecret + `"}`, "Whop refused this app: Unknown client."},
+	} {
+		r := e.do(t, "PUT", "/api/whop/signin", tc.body, own.auth())
+		if r.status != http.StatusBadRequest || r.body["error"] != tc.why {
+			t.Fatalf("%s: %d %v", tc.body, r.status, r.body)
+		}
+	}
+	// The app's own secret, while the app lacks the permission Whop wants
+	// before it trades a code: the answer names it, and where to add it.
+	f.mu.Lock()
+	f.noTokenExchange = true
+	f.mu.Unlock()
+	right := `{"clientId":"` + whopTestApp + `","clientSecret":"` + whopTestAppSecret + `"}`
+	r := e.do(t, "PUT", "/api/whop/signin", right, own.auth())
+	hint, _ := r.body["hint"].(string)
+	if r.status != http.StatusBadRequest || r.body["error"] != "Whop refused this app: client_secret lacks oauth:token_exchange permission." ||
+		!strings.Contains(hint, "add oauth:token_exchange on the app's own Permissions tab, not on an API key") {
+		t.Fatalf("an app without oauth:token_exchange: %d %v", r.status, r.body)
+	}
+	if v := e.whopView(t, own); v.SignIn.ClientID != "" {
+		t.Fatalf("an app Whop refused was kept: %+v", v.SignIn)
+	}
+	if rows := e.auditRows(t, "whop.signin"); len(rows) != 0 {
+		t.Fatalf("audit: %q", rows)
+	}
+	if len(f.grants) != 0 {
+		t.Fatal("the check signed someone in")
+	}
+	f.mu.Lock()
+	f.noTokenExchange = false
+	f.mu.Unlock()
+	if r := e.do(t, "PUT", "/api/whop/signin", right, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("the app's own secret: %d %v", r.status, r.body)
+	}
+	if to := newBrowser(t, e).signInWithWhop(f, "user_alex"); to != "/login?whop=no_account" {
+		t.Fatalf("signing in once it's on: %q", to)
 	}
 }
 

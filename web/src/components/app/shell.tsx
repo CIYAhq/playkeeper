@@ -1,15 +1,15 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, createContext, lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeftIcon, CircleHelpIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, LogOutIcon, PlugIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, SquareTerminalIcon, UsersIcon } from 'lucide-react'
 import type { MachineView, Me, ServerStatus } from '@/api/types'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { BrandMark } from '@/components/app/art'
 import { Dot, Kbd, Spinner } from '@/components/app/bits'
 import { GetStartedCard } from '@/components/app/checklist'
-import { CommandPalette, ShortcutsDialog } from '@/components/app/command-palette'
 import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { StickyHeader } from '@/components/app/sticky-header'
-import { UpdateRow } from '@/components/app/update'
+import { UpdateNotice, UpdateRow, useUpdateNotice } from '@/components/app/update'
+import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can, canCreate, inSettings, roleName, settingsHome } from '@/lib/access'
 import { demo } from '@/lib/demo'
@@ -18,6 +18,30 @@ import { isCreating, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
 import { presenceProps, useAppearAtOnce, useListPresence } from '@/lib/presence'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
+
+// The command palette and the shortcuts load the first time either opens,
+// keeping their search code out of the first screens, and while the
+// browser is idle after sign-in (see App.tsx).
+export const loadPalette = () => import('@/components/app/command-palette')
+const CommandPalette = lazy(() => loadPalette().then((m) => ({ default: m.CommandPalette })))
+const ShortcutsDialog = lazy(() => loadPalette().then((m) => ({ default: m.ShortcutsDialog })))
+
+/** Keeps the dashboard on screen when the palette's code doesn't load, and says so. Only a reload tries again. */
+class PaletteBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch() {
+    toastManager.add({ title: t('load.searchFailed'), description: t('load.failedBody'), type: 'error', actionProps: { children: t('load.reload'), onClick: () => window.location.reload() } })
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children
+  }
+}
 
 const ShellCtx = createContext<{ openPalette: () => void }>({ openPalette: () => undefined })
 
@@ -32,6 +56,16 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
   const { servers, setLastSlug } = useWorkspace()
   const [palette, setPalette] = useState<{ open: boolean; servers?: boolean }>({ open: false })
   const [shortcuts, setShortcuts] = useState(false)
+  // Mounted from the first time either opens, so each closes with its animation.
+  const [used, setUsed] = useState(false)
+  const openPalette = (servers?: boolean) => {
+    setUsed(true)
+    setPalette({ open: true, servers })
+  }
+  const openShortcuts = () => {
+    setUsed(true)
+    setShortcuts(true)
+  }
 
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : undefined
   useEffect(() => {
@@ -40,21 +74,27 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
 
   useJobToasts()
   useShortcuts({
-    palette: () => setPalette({ open: true }),
-    switchServer: () => setPalette({ open: true, servers: true }),
+    palette: () => openPalette(),
+    switchServer: () => openPalette(true),
     home: () => navigate({ name: 'home' }),
-    help: () => setShortcuts(true),
+    help: openShortcuts,
   })
 
   const overlays = (
     <>
-      <CommandPalette open={palette.open} serversOnly={palette.servers} onOpenChange={(open) => setPalette({ open })} route={route} onShortcuts={() => setShortcuts(true)} />
-      <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+      {used && (
+        <PaletteBoundary>
+          <Suspense fallback={null}>
+            <CommandPalette open={palette.open} serversOnly={palette.servers} onOpenChange={(open) => setPalette({ open })} route={route} onShortcuts={openShortcuts} />
+            <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+          </Suspense>
+        </PaletteBoundary>
+      )}
       {demo?.Overlay && <demo.Overlay />}
     </>
   )
 
-  const shell = { openPalette: () => setPalette({ open: true }) }
+  const shell = { openPalette: () => openPalette() }
   if (phone) {
     return (
       <ShellCtx.Provider value={shell}>
@@ -104,6 +144,8 @@ function pageKey(route: Route): string {
       return route.section ? `account/${route.section}` : route.name
     case 'pack':
       return `pack/${route.token}`
+    case 'whop-seller':
+      return `whop-seller/${route.store}`
     case 'home':
     case 'login':
     case 'setup':
@@ -198,7 +240,7 @@ function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
     case 'crashed':
       return <span className="text-xs font-medium text-destructive-foreground">{statusLabel(s)}</span>
     case 'busy':
-      return <span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>
+      return <span className="text-xs text-info-foreground">{statusLabel(s)}</span>
     case 'stopped':
     case 'unknown':
       return <span className="text-xs text-muted-foreground">{phaseLabel(s.phase)}</span>
@@ -241,7 +283,8 @@ function MachineRow({ machine: m, route }: { machine: MachineView; route: Route 
 function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   const ws = useWorkspace()
   const tab: ServerTab = route.name === 'server' ? route.tab : route.name === 'player' ? 'players' : 'overview'
-  const shared = ws.machines.length > 1
+  const sees = can(ws.me, 'machines.view')
+  const shared = sees && ws.machines.length > 1
   const machineRows = useListPresence(shared ? ws.machines : undefined, machineKey)
   const serversOn = new Map(byMachine(ws.servers ?? [], ws.machines).map((g) => [g.machine.id, g.servers]))
   const serverItem = (s: ServerStatus) => {
@@ -288,7 +331,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
           ))
         ) : (
           <div className="flex flex-col gap-0.5">
-            {ws.machine && <MachineRow machine={ws.machine} route={route} />}
+            {ws.machine && sees && <MachineRow machine={ws.machine} route={route} />}
             {(ws.servers ?? []).map(serverItem)}
           </div>
         )}
@@ -307,6 +350,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
       </nav>
       <div className="flex flex-col gap-0.5 pt-2">
         {canCreate(ws.me) && <GetStartedCard route={route} className="mb-2" />}
+        <UpdateNotice className="mb-2" />
         {can(ws.me, 'machine.manage') && <UpdateRow />}
         <SideItem to={settingsHome(ws.me)} active={inSettings(route)} icon={<SettingsIcon />}>
           {t('nav.settings')}
@@ -374,7 +418,8 @@ function PhoneShell({ route, overlays, children }: { route: Route; overlays: Rea
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug
   const current: ServerTab | 'more' | undefined =
     route.name === 'server' ? (route.tab === 'settings' || route.tab === 'map' || route.tab === 'plugins' || route.tab === 'mods' || route.tab === 'files' ? 'more' : route.tab) : route.name === 'player' ? 'players' : underMore ? 'more' : undefined
-  const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating
+  const notice = useUpdateNotice()
+  const updateDot = !!notice || (!!ws.updating && can(ws.me, 'machine.manage'))
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">
       <a href="#main" className="skip-link rounded-lg bg-white px-3 py-2 text-sm font-medium shadow-popup">

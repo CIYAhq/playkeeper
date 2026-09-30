@@ -9,11 +9,13 @@ import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/c
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { alsoInstalls, compactCount, footerFor, keyFrom, libraryMatch, searchPath, sourceNames, updatedAgo, versionPage } from '@/lib/addons'
+import { isAIBuildBattle } from '@/lib/ai-keys'
 import { externalLink } from '@/lib/links'
 import { busyReason, opLabel } from '@/lib/phase'
 import { href, navigate } from '@/lib/router'
 import { softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
+import { PluginKeySection } from './ai-key'
 import { AddonIcon, detailsPath, useAddons, type Detail } from './state'
 
 /** The add-on's details: a sheet on the right, or from the bottom on phone. */
@@ -81,6 +83,7 @@ function DetailBody({ detail }: { detail: Detail }) {
         <Notice tone="error" title={error.message} action={<Button variant="outline" onClick={retry}>{t('common.tryAgain')}</Button>}>
           {error.hint}
         </Notice>
+        {isAIBuildBattle(detail.key) && <PluginKeySection className="mt-6" />}
       </div>
     )
   }
@@ -150,6 +153,7 @@ function DetailBody({ detail }: { detail: Detail }) {
             {pageLink && <SourceLink href={pageLink}>{t('addons.openSourcePage')}</SourceLink>}
           </div>
         )}
+        {isAIBuildBattle(detail.key) && <PluginKeySection className="mt-5" />}
       </SheetPanel>
       <DetailFooter d={d} adoptFile={detail.adoptFile} />
     </div>

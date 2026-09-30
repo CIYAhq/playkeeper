@@ -98,6 +98,11 @@ export function awayOf(reach: Reach): { name: string; since?: string } | undefin
   return reach.state === 'away' ? { name: machineLabel(reach.machine), since: reach.since } : undefined
 }
 
+/** A status pill's words for a server whose machine is away; a creator or customer sees no machine's name. */
+export function awayLabel(away: { name: string }): string {
+  return away.name ? t('machines.away.pill', { name: away.name }) : t('status.unreachable')
+}
+
 /** Whether what the dashboard shows about a server is the last it heard rather than live. */
 export function isStale(s: ServerStatus, stale: boolean): boolean {
   return stale || !!s.lastKnownAt
@@ -131,19 +136,27 @@ export interface Join {
 }
 
 /**
- * Where players join a server. A joined machine's servers join only at the
- * IP the dashboard last saw it at, with their port: free names and own
- * domains stay with the dashboard's machine, and no other host is given for
- * them. The dashboard's own servers join at their name once it works, else
- * at the host the dashboard was opened with. m is the server's machine as
- * machineOf finds it, which is the dashboard's own when it doesn't know the
- * server's.
+ * Where players join a server. A joined machine's servers join at their name
+ * under the dashboard's own domain once the dashboard answers DNS for it,
+ * with no port; until then only at the IP the dashboard last saw the machine
+ * at, with their port, as free names and the machine's own domains stay
+ * with the dashboard's machine. The dashboard's own servers join at their
+ * name once it works, else at the host the dashboard was opened with. m is
+ * the server's machine as machineOf finds it, which is the dashboard's own
+ * when it doesn't know the server's.
  */
-export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort' | 'machineId'>, m: MachineView | undefined, dashboardHost: string = window.location.hostname): Join {
+export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort' | 'machineId' | 'zoneAddress'>, m: MachineView | undefined, dashboardHost: string = window.location.hostname): Join {
   if (s.machineId && m?.id !== s.machineId) return { address: '', reason: t('join.noMachine', { server: s.name }) }
   if (m?.kind !== 'remote') return { address: serverJoinAddress(s, dashboardHost) }
+  if (s.zoneAddress) return { address: s.zoneAddress }
   const ip = joinedIP(m)
-  return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: t('join.noIP', { machine: machineLabel(m) }) }
+  return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: noIP(m) }
+}
+
+/** Why a joined machine's server has no address yet, naming the machine only to those who see it. */
+function noIP(m: MachineView): string {
+  const name = machineLabel(m)
+  return name ? t('join.noIP', { machine: name }) : t('join.noIPYet')
 }
 
 /** GeyserMC's guide to the ways console players get in. */
@@ -168,7 +181,7 @@ export function bedrockOf(s: Pick<ServerStatus, 'name' | 'bedrock' | 'machineId'
   if (s.machineId && m?.id !== s.machineId) return { host: '', port: b.port, reason: t('join.noMachine', { server: s.name }) }
   if (m?.kind !== 'remote') return { host: b.host || dashboardHost, port: b.port }
   const ip = joinedIP(m)
-  return ip ? { host: ip, port: b.port } : { host: '', port: b.port, reason: t('join.noIP', { machine: machineLabel(m) }) }
+  return ip ? { host: ip, port: b.port } : { host: '', port: b.port, reason: noIP(m) }
 }
 
 /** "10 min", "3 h" or "2 days" since a moment, for a status pill. */
@@ -230,6 +243,11 @@ export function olderMachine(p: LinkProblem | undefined): boolean {
   return p?.code === 'version_mismatch' && p.params?.older === 'machine'
 }
 
+/** The Hetzner server a joined machine was found as, when the dashboard confirmed it by itself, from its actor "hetzner:NAME". */
+export function hetznerServer(actor: string | undefined): string | undefined {
+  return actor?.startsWith('hetzner:') ? actor.slice('hetzner:'.length) || undefined : undefined
+}
+
 /**
  * What a machine event says. Events come newest first, so a lost connection
  * can say how long it lasted when a newer event is the reconnection.
@@ -261,6 +279,13 @@ export function machineEventText(events: MachineEvent[], i: number): string {
       return t('machines.event.left')
     case 'machine.server_disputed':
       return t('machines.event.disputed')
+    case 'machine.customers_on': {
+      const found = hetznerServer(e.actor)
+      if (found) return t('machines.event.customersFound', { server: found })
+      return e.actor ? t('machines.event.customersOnBy', { actor: e.actor }) : t('machines.event.customersOn')
+    }
+    case 'machine.customers_off':
+      return e.actor ? t('machines.event.customersOffBy', { actor: e.actor }) : t('machines.event.customersOff')
     default:
       return e.kind
   }

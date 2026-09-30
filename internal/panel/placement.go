@@ -21,10 +21,10 @@ import (
 // servers away from itself. The dashboard's own machine is always the
 // owner's, so a standalone Playkeeper, such as a Whop blueprint seller's,
 // places customers on itself with no Hetzner token and no other machine.
-// Joined machines take none until the owner confirms them, a later step, so
-// a join code that leaked can't pull customers onto a stranger's machine.
-// Of the machines with room for a plan, the fullest gets the customer, so
-// machines fill one at a time.
+// A joined machine takes none until the owner confirms it's theirs (see
+// machinecustomers.go), so a join code that leaked can't pull customers
+// onto a stranger's machine. Of the machines with room for a plan, the
+// fullest gets the customer, so machines fill one at a time.
 
 // errNoRoom is placeCustomer's answer when no machine that takes customers
 // has room for the plan: the customer waits without a home, and the core
@@ -44,8 +44,12 @@ type machineRoom struct {
 	// FreeMB is the memory it can still set aside: what its servers' budgets
 	// leave, less the part of its customers' plans they haven't used yet.
 	FreeMB int
+	// ExceptMB is what the servers there of the customer left out take.
+	ExceptMB int
 	// Guarded says whether Keep servers away from this machine is on.
 	Guarded bool
+	// DiskFree is what its disk has free, when it says.
+	DiskFree *int64
 }
 
 // homeRow is a customer_homes row: the machine, or "" while they wait.
@@ -193,9 +197,13 @@ func (s *Server) machineRoom(ctx context.Context, m machine, local string, excep
 		}
 	}
 	r.FreeMB = live.MemoryFreeMB - aside
+	r.ExceptMB = used[except]
 	r.Guarded = live.Guard != nil && live.Guard.Host
-	switch m.Kind {
-	case localKind:
+	r.DiskFree = live.DiskFreeBytes
+	switch {
+	case m.Kind == localKind:
+		r.Takes = true
+	case m.Kind == remoteKind && !m.customersAt.IsZero():
 		r.Takes = true
 	default:
 		r.Why = "Joined machines take customers once you confirm them."
@@ -232,7 +240,9 @@ func kindRank(kind string) int {
 // plan's memory, and returns it. A customer who has one keeps it. With no
 // room anywhere they wait, and the answer is errNoRoom. A machine that
 // doesn't keep servers away from itself yet gets that turned on first, as
-// a creator invite does, and is passed over if it can't be.
+// a creator invite does, and is passed over if it can't be. The disk limits
+// are sent at once, so the machine has the customer's before they upload a
+// world or backup for their first server.
 func (s *Server) placeCustomer(ctx context.Context, userID int64, plan CustomerPlan) (string, error) {
 	if plan.MemoryMB <= 0 {
 		return "", fmt.Errorf("the plan %q allows no memory", plan.ID)
@@ -259,6 +269,7 @@ func (s *Server) placeCustomer(ctx context.Context, userID int64, plan CustomerP
 			if err := s.setHome(ctx, userID, ""); err != nil {
 				return "", err
 			}
+			s.kickSaleRoom()
 			if !waiting {
 				s.audit(placementActor, "customer.place", fmt.Sprint(userID), "waiting", fmt.Sprintf("no machine has %s free for %s", gbText(plan.MemoryMB), cmp.Or(plan.Name, plan.ID)))
 			}
@@ -274,9 +285,51 @@ func (s *Server) placeCustomer(ctx context.Context, userID int64, plan CustomerP
 		if err := s.setHome(ctx, userID, m.ID); err != nil {
 			return "", err
 		}
+		s.kickDiskLimits()
+		s.kickSaleRoom()
 		s.audit(placementActor, "customer.place", fmt.Sprint(userID), "placed", fmt.Sprintf("on %s, with %s set aside for %s", cmp.Or(m.Name, m.ID), gbText(plan.MemoryMB), cmp.Or(plan.Name, plan.ID)))
 		return m.ID, nil
 	}
+}
+
+// rehomeStranded has the customers whose machine was removed placed again,
+// as new customers are: on the fullest machine with room for their plan, or
+// waiting for room until one has it. Their servers stay on the removed
+// machine, out of reach, unless it joins again.
+func (s *Server) rehomeStranded(ctx context.Context) {
+	const stranded = `machine_id != '' AND machine_id NOT IN (SELECT id FROM machines WHERE revoked_at = 0)`
+	s.placeMu.Lock()
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id FROM customer_homes WHERE `+stranded)
+	if err != nil {
+		s.placeMu.Unlock()
+		s.log.Error("could not read whose machine was removed", "err", err)
+		return
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	if len(ids) > 0 {
+		_, err = s.db.ExecContext(ctx, `UPDATE customer_homes SET machine_id = '', placed_at = ? WHERE `+stranded, s.now().UnixMilli())
+	}
+	s.placeMu.Unlock()
+	if err != nil {
+		s.log.Error("could not place again the customers whose machine was removed", "err", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	for _, id := range ids {
+		s.audit(placementActor, "customer.place", fmt.Sprint(id), "waiting", "the machine they were on was removed")
+	}
+	s.kickRoom()
+	s.kickSaleRoom()
+	s.kickDiskLimits()
 }
 
 // setHome records the customer's home machine, or "" while they wait.

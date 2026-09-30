@@ -1,0 +1,138 @@
+{{/*
+path: /guides/neoforge-server
+title: How to make a NeoForge server: download and setup (Minecraft 26.2)
+description: Make a NeoForge server: download the installer from neoforged.net, install and start it on Java 25, add mods and let friends join. Tested on NeoForge 26.2.
+label: NeoForge server
+h1: How to make a NeoForge server (Minecraft 26.2)
+card: How to make a NeoForge server
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: neoforge-server
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Download the NeoForge installer for your Minecraft version from neoforged.net and run it with --installServer in an empty folder. Set your memory in user_jvm_args.txt, then start it with run.sh, or run.bat on Windows; it stops at the EULA the first time. Put mods made for NeoForge and your version in the mods folder, with the mods they depend on.{{end}}
+
+{{define "closing-title"}}NeoForge, installed and checked for you.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper runs NeoForge's installer on your VPS and adds mods from Modrinth in one click.{{end}}
+
+{{define "side-text"}}Playkeeper runs NeoForge's installer on your VPS and adds mods from Modrinth in one click.{{end}}
+
+{{define "article"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+<section aria-labelledby="download">
+  {{template "h2n" (dict "ID" "download" "N" 1 "Text" "Download the installer" "Toc" "Download")}}
+  <p>neoforged.net lists NeoForge's installer files by Minecraft version: pick yours, then Click Here to Download Installer. A NeoForge version shows its Minecraft version: 26.2.0.88 is for Minecraft 26.2, and older ones leave off the 1, so 21.1.252 is for 1.21.1. On 29 Sep, NeoForge for 26.3 was still in beta, so this guide uses 26.2, the newest with a stable build.</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="System">
+        <button type="button" class="code-tab" role="tab" id="tab-linux" aria-controls="code-linux" aria-selected="true">Linux or macOS</button>
+        <button type="button" class="code-tab" role="tab" id="tab-windows" aria-controls="code-windows" aria-selected="false" tabindex="-1">Windows</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-linux" role="tabpanel" tabindex="0" aria-labelledby="tab-linux"><span class="c"># An empty folder for the server</span>
+mkdir neoforge-server &amp;&amp; cd neoforge-server
+curl -O https://maven.neoforged.net/releases/net/neoforged/neoforge/26.2.0.88/neoforge-26.2.0.88-installer.jar
+java -jar neoforge-26.2.0.88-installer.jar --installServer
+./run.sh nogui</pre>
+<pre id="code-windows" role="tabpanel" tabindex="0" aria-labelledby="tab-windows" hidden><span class="c">:: In an empty folder, with the installer downloaded into it</span>
+java -jar neoforge-26.2.0.88-installer.jar --installServer
+run.bat nogui</pre>
+  </div>
+  <p>When NeoForge's Maven is offline, neoforged.net says so and gives the install command with <code>--mirror https://maven.creeperhost.net</code> added.</p>
+</section>
+
+<section aria-labelledby="installing">
+  {{template "h2n" (dict "ID" "installing" "N" 2 "Text" "Install it" "Toc" "Install")}}
+  <p>The installer is 3.6 MB. On Java 25, ours took 5 seconds and ended with The server installed successfully. It left three files beside the libraries it downloaded, 135 MB of them:</p>
+  <ul>
+    <li><strong><code>run.sh</code> and <code>run.bat</code></strong> start the server: <code>run.sh</code> on Linux and macOS, <code>run.bat</code> on Windows. Each passes Java the arguments in <code>user_jvm_args.txt</code> and in a file NeoForge keeps under libraries.</li>
+    <li><strong><code>user_jvm_args.txt</code></strong> is where your memory goes. It holds only comments at first, among them: A good default for a modded server is 4GB. Uncomment the next line to set it. The line is <code>-Xmx4G</code>.</li>
+  </ul>
+  <p>Minecraft 26.1 and newer need Java 25, and 1.21 Java 21. The installer isn't needed again, and says You can delete this installer file now if you wish.</p>
+</section>
+
+<section aria-labelledby="start">
+  {{template "h2n" (dict "ID" "start" "N" 3 "Text" "Start it, and accept the EULA" "Toc" "First start")}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Run it once" "Text" "It stops with You need to agree to the EULA in order to run the server. NeoForge then adds FatalStartupException: Couldn't find Minecraft server thread. Startup likely failed, which here only means the server stopped at the EULA.")
+    (dict "Title" "Accept the EULA" "Text" "Open eula.txt, change eula=false to eula=true, and save it.")
+    (dict "Title" "Run it again" "Text" "The log says NeoForge mod loading, version 26.2.0.88, for MC 26.2. With -Xmx4G, ours was ready 11 seconds after it started, and used about 770 MB of memory with nobody on.")
+  ))}}
+  <p>Players connect on port 25565: <a href="/guides/port-forward-minecraft-server">port forwarding</a> covers the router and the firewall.</p>
+</section>
+
+<section aria-labelledby="mods">
+  {{template "h2n" (dict "ID" "mods" "N" 4 "Text" "Add mods, and what went wrong" "Toc" "Add mods")}}
+  <p>The first start makes a <code>mods</code> folder. Download mods marked for NeoForge and your exact Minecraft version, from Modrinth or CurseForge, into it, with the mods each depends on, and restart. These are the three mistakes we made on purpose:</p>
+  <div class="error-card reveal">
+    <h3>Waystones, without the two mods it needs</h3>
+    <code class="err">[16:07:45] [main/ERROR] [ne.ne.fm.st.Entrypoint/]: Failed to start FML: net.neoforged.fml.ModLoadingException: Loading errors encountered:
+  - Mod waystones requires balm 26.2.0.7 or above
+    Currently, balm is not installed
+  - Mod waystones requires shogi 26.2.0.5 or above
+    Currently, shogi is not installed</code>
+    <p>{{template "icon" "arrow-right"}}Add each mod it names, in that version or newer. With Balm and Shogi in, it started.</p>
+  </div>
+  <div class="error-card reveal">
+    <h3>Balm built for 26.1, on 26.2</h3>
+    <code class="err">[16:09:05] [modloading-worker-0/ERROR] [ne.ne.fm.ja.FMLModContainer/LOADING]: Failed to create mod instance. ModID: balm, class net.blay09.mods.balm.neoforge.internal.NeoForgeBalm
+java.lang.NoClassDefFoundError: net/neoforged/neoforge/event/level/BlockEvent$BreakEvent</code>
+    <p>{{template "icon" "arrow-right"}}NeoForge didn't refuse this file: it says it works on 26.1 or newer, as many mods' files do. It crashed a few seconds into the start instead, with Mod loading has failed and a crash report ending in <code>-fml.txt</code>. Use the file made for your version.</p>
+  </div>
+  <div class="error-card reveal">
+    <h3>Sodium, a mod for players' games, on the server</h3>
+    <code class="err">java.lang.NoClassDefFoundError: org/lwjgl/Version</code>
+    <p>{{template "icon" "arrow-right"}}LWJGL draws the game on players' screens, and servers don't have it. Take graphics and menu mods off the server. From Playkeeper 0.4.8, the Overview says sodium only runs in players' games, not on servers, and Remove sodium starts the server without it, keeping the file aside. A Fabric server skipped the same mod without a word: <a href="/guides/fabric-server">how Fabric handles it</a>.</p>
+  </div>
+</section>
+
+<section aria-labelledby="players">
+  {{template "h2n" (dict "ID" "players" "N" 5 "Text" "What players need" "Toc" "Players")}}
+  <p>Our test client, which has no mods at all, tried to join NeoForge 26.1.2.112:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Mods on the server</th><th scope="col">A player with the plain game</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">FerriteCore, which only lowers the server's memory use</th><td>Joined</td></tr>
+        <tr><th scope="row">FerriteCore and Nature's Compass, which adds an item</th><td>Turned away: You are trying to connect to a server that is running NeoForge, but you are not. Please install NeoForge Version: 26.1.2.112 to connect to this server.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>So players need NeoForge in the server's version, and every mod that adds blocks, items or mobs, in the same versions. A pack file for the Modrinth App or Prism Launcher gives them all of it at once.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 6 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent, and installs NeoForge for you. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  <ol class="steps shot-steps">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">1</span><div><h3 class="step-title">Choose NeoForge and a version</h3><p>New server offers each Minecraft version's newest stable NeoForge, or its newest beta where there's no stable one yet. It checks the installer against the SHA-512 NeoForge publishes, runs it, and starts the server on the Java it needs.</p></div></li>
+    <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div><h3 class="step-title">Add mods from the Mods tab</h3><p>It lists Modrinth's mods for NeoForge and your version, and adds the mods each needs with it. Each file is checked against Modrinth's checksum.</p></div></li>
+  </ol>
+  {{template "cardshot" (dict "Name" "guide-mods-tab" "Alt" "The Mods tab: mods added by hand, with what friends need of each, and the modpack's own mods." "Sizes" $article)}}
+  <ol class="steps" start="3">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div><h3 class="step-title">When a mod fails to start</h3><p>The Overview names it. For our Balm crash it said Balm failed to start, and offered to update or remove its file. From 0.4.8 it names a mod that only runs in players' games too, like our Sodium, and offers to remove it.</p></div></li>
+    <li class="step reveal"><span class="step-n" aria-hidden="true">4</span><div><h3 class="step-title">Share the mods with friends</h3><p>Share with friends makes one link to a page with a file for the Modrinth App or Prism Launcher. Server-only mods stay out of it.</p></div></li>
+  </ol>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Where do I download the NeoForge server?" "From neoforged.net: download the installer for your Minecraft version and run it with --installServer. There is no separate server download.")
+    (qa "Which NeoForge version goes with my Minecraft version?" "The one that shows it: 26.2.0.88 is for Minecraft 26.2. Older versions leave off the 1, so 21.1.252 is for 1.21.1.")
+    (qa "What does Couldn't find Minecraft server thread mean?" "The server stopped before it started, and NeoForge says so. Read the lines above it: on a first start, it's the EULA.")
+    (qa "Can players join a NeoForge server without NeoForge?" "Yes, when every mod only changes the server, like FerriteCore. A mod that adds blocks or items turns them away until they install NeoForge.")
+    (qa "How much RAM does a NeoForge server need?" `NeoForge's own file suggests 4 GB for a modded server. Ours used about 770 MB with nobody on and no mods; big modpacks use much more: <a href="/guides/modded-minecraft-server-ram">modpack RAM, measured</a>.`)
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/fabric-server" "/guides/modded-minecraft-server-ram" "/guides/add-mods-to-minecraft-server")}}{{end}}

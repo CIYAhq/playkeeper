@@ -121,6 +121,9 @@ type fakeIssuer struct {
 	// plan says, for the nth attempt (from 1), whether the certificate is
 	// due for renewal at once and what error to return instead.
 	plan func(n int) (renewNow bool, err error)
+	// during runs while a DNS-01 check's record is set, as Let's Encrypt
+	// looks it up.
+	during func(fqdn, value string)
 }
 
 func (f *fakeIssuer) issue(ctx context.Context, _ *certs.Issuer, req certs.Request) (*certs.Certificate, error) {
@@ -136,9 +139,15 @@ func (f *fakeIssuer) issue(ctx context.Context, _ *certs.Issuer, req certs.Reque
 		return nil, err
 	}
 	if req.DNS01 != nil {
-		fqdn, value := "_acme-challenge."+req.Names[0], strings.Repeat("v", 43)
+		fqdn, value := "_acme-challenge."+strings.TrimPrefix(req.Names[0], "*."), strings.Repeat("v", 43)
 		if err := req.DNS01.Challenger.SetTXT(ctx, fqdn, value); err != nil {
 			return nil, err
+		}
+		f.mu.Lock()
+		during := f.during
+		f.mu.Unlock()
+		if during != nil {
+			during(fqdn, value)
 		}
 		if err := req.DNS01.Challenger.ClearTXT(ctx, fqdn, value); err != nil {
 			return nil, err
@@ -147,7 +156,7 @@ func (f *fakeIssuer) issue(ctx context.Context, _ *certs.Issuer, req certs.Reque
 	if err := os.MkdirAll(req.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	file := filepath.Join(req.Dir, req.Names[0]+".pem")
+	file := filepath.Join(req.Dir, strings.Replace(req.Names[0], "*.", "_.", 1)+".pem")
 	if err := os.WriteFile(file, []byte("test certificate\n"), 0o600); err != nil {
 		return nil, err
 	}
@@ -832,6 +841,18 @@ func (e *addressEnv) settled() {
 			release()
 		}
 		return err == nil
+	})
+}
+
+// loopSawServers waits until the address loop has taken the change that
+// adding or removing servers made. Until it has, its next look updates or
+// checks the servers' records under whatever address the machine has then.
+func (e *addressEnv) loopSawServers() {
+	e.t.Helper()
+	e.waitFor("the loop to see the servers", func() bool {
+		e.a.addr.mu.Lock()
+		defer e.a.addr.mu.Unlock()
+		return !e.a.addr.serversUp && len(e.a.addr.kick) == 0
 	})
 }
 
@@ -1747,6 +1768,10 @@ func TestOwnDomainChecksTheNameBeforeHTTP01(t *testing.T) {
 	e := newAddressEnv(t, nil)
 	survival := e.addServerNamed("Survival")
 	creative := e.addServerNamed("Creative")
+	// Adding the servers kicked the address loop. Left for a look after the
+	// records are set below, that change makes the loop check them and get
+	// the certificate itself, before the second check can.
+	e.loopSawServers()
 
 	var plan api.AddressPlan
 	if code := e.callInto("GET", "/v1/address/plan?domain=Play.Example.com&panelHost=203.0.113.10:8443", nil, &plan); code != 200 {
@@ -2222,11 +2247,7 @@ func TestServerAddressesCoveredByThePublishAreNotAskedAgain(t *testing.T) {
 	look := func() { e.a.addressTick(t.Context(), false) }
 	// Adding the server kicked the loop; wait until that look has taken
 	// the change, so the one made below stays for the look after the claim.
-	e.waitFor("the loop to see the new server", func() bool {
-		e.a.addr.mu.Lock()
-		defer e.a.addr.mu.Unlock()
-		return !e.a.addr.serversUp && len(e.a.addr.kick) == 0
-	})
+	e.loopSawServers()
 
 	e.a.addr.mu.Lock()
 	e.a.addr.serversUp = true

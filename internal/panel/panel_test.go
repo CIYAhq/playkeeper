@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -171,6 +172,12 @@ func newEnvWith(t *testing.T, tweak func(*Options)) *env {
 	return newEnvConfig(t, nil, tweak)
 }
 
+// countedSlugLetters numbers the slugs of servers new to the dashboard that
+// others show, from 2, so tests can say which slug each server gets. The
+// dashboard itself gives random letters (see
+// TestADuplicateSlugGetsRandomLettersNotANumber).
+func countedSlugLetters(try int) string { return strconv.Itoa(try + 1) }
+
 // newEnvConfig is newEnvWith with the install's configuration changed by
 // mod first.
 func newEnvConfig(t *testing.T, mod func(*config.Config), tweak func(*Options)) *env {
@@ -187,7 +194,7 @@ func newEnvConfig(t *testing.T, mod func(*config.Config), tweak func(*Options)) 
 	names := &fakeResolver{addrs: map[string][]netip.Addr{}}
 	logs := &syncBuffer{}
 	opts := Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(logs, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour,
-		LinkRoutes: agent.LinkRoutes(), LookupIP: names.lookup}
+		LinkRoutes: agent.LinkRoutes(), LookupIP: names.lookup, SlugLetters: countedSlugLetters}
 	if tweak != nil {
 		tweak(&opts)
 		cfg = opts.Config
@@ -278,7 +285,7 @@ const sampleCode = "AbCdEfGhJkMnPqRsTuVwXy"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{sid}", "qrstuvwxyz", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001",
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{sid}", "qrstuvwxyz", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001", "{provider}", "openrouter",
 		"{invite}", "qrstuvwxyz", "{request}", "zyxwvutsrq", "{uid}", "2", "{code}", sampleCode).Replace(p)
 }
 

@@ -226,7 +226,7 @@ func (e *agentEnv) options() Options {
 		},
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false }, UDPPortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
-		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
+		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, MinecraftCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 		DiscordClient: e.discordClient,
 		Addons:        e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
 		UpstreamClient: e.up.client(), PackClient: e.up.client(),
@@ -758,6 +758,34 @@ func TestServeLeavesOtherFilesAlone(t *testing.T) {
 	}
 	if st, err := os.Stat(e.cfg.SocketPath); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("socket must be owner-only outside a root install: %v %v", st.Mode(), err)
+	}
+}
+
+// Close returns once every database connection is closed, the ones
+// database/sql still holds included: it replaces the connections of the
+// queries the cancellation interrupted from a goroutine of its own. A
+// connection given back after Close would write the database's files after
+// the agent is gone.
+func TestCloseWaitsForTheDatabaseConnectionsInUse(t *testing.T) {
+	e := newAgentEnv(t)
+	c, err := e.a.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var givenBack atomic.Bool
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		givenBack.Store(true)
+		c.Close()
+	}()
+	e.stop()
+	if !givenBack.Load() {
+		t.Fatal("Close returned while a database connection was still in use")
+	}
+	for _, f := range []string{"agent.db-wal", "agent.db-shm"} {
+		if _, err := os.Stat(filepath.Join(e.cfg.AgentDir(), f)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s is still there after Close: %v", f, err)
+		}
 	}
 }
 
@@ -1502,6 +1530,27 @@ func TestExternalCleanStopIsRestored(t *testing.T) {
 	e.waitFor("online again", func() bool { return e.status().Phase == api.PhaseOnline })
 	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`); n != 0 {
 		t.Fatalf("a clean external stop was counted as a crash")
+	}
+}
+
+// The automatic start after a clean stop is owed, not lost, while something
+// holds the server's operation lock as the stop is judged, as an operation
+// that has just ended does for a moment: it begins once the lock is free.
+func TestExternalCleanStopIsRestoredOnceTheServerIsFree(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	release := e.holdWhenFree(s)
+	e.fd.externalStop()
+	e.waitFor("the automatic start to be owed", func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.startOwed
+	})
+	release()
+	e.waitFor("online again", e.onlineIdle)
+	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_stopped_externally'`); n != 1 {
+		t.Fatalf("the clean stop was recorded %d times, want once", n)
 	}
 }
 

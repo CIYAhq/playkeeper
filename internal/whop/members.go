@@ -27,11 +27,12 @@ type Membership struct {
 }
 
 // HasAccess reports whether the membership grants access now: a trial, a
-// paid period, the grace period after a failed payment, or a one-time
-// purchase. Cancelled, expired and unresolved ones don't.
+// paid period, one cancelled that runs until its period ends, the grace
+// period after a failed payment, or a one-time purchase. Cancelled, expired,
+// unresolved and drafted ones don't.
 func (m Membership) HasAccess() bool {
 	switch m.Status {
-	case "trialing", "active", "past_due", "completed":
+	case "trialing", "active", "canceling", "past_due", "completed":
 		return true
 	}
 	return false
@@ -113,6 +114,102 @@ func (c *Client) User(ctx context.Context, id string) (User, error) {
 	return u, err
 }
 
+// Owner is the one user who owns the account the key belongs to.
+func (c *Client) Owner(ctx context.Context) (User, error) {
+	return c.ownerAt(ctx, "/accounts/me")
+}
+
+// Business is a business the key reaches by id, as an app's key reads one
+// that installed the app. Its title comes from one of its products, since
+// Whop keeps the business itself behind company:balance:read. Its route,
+// its store's address on Whop, comes from one of its memberships, since a
+// product names the business by id; it's "" while there's none.
+func (c *Client) Business(ctx context.Context, accountID string) (Account, error) {
+	ps, err := c.Products(ctx, accountID)
+	if err != nil {
+		return Account{}, err
+	}
+	if len(ps) == 0 {
+		return Account{}, errors.New("the business has no product to read its name from")
+	}
+	var p struct {
+		Account struct {
+			Title string `json:"title"`
+		} `json:"account"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/products/"+url.PathEscape(ps[0].ID), nil, nil, &p); err != nil {
+		return Account{}, err
+	}
+	var ms struct {
+		Data []struct {
+			Account struct {
+				Route string `json:"route"`
+			} `json:"account"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/memberships", url.Values{"account_id": {accountID}, "first": {"1"}}, nil, &ms); err != nil {
+		return Account{}, err
+	}
+	a := Account{ID: accountID, Title: p.Account.Title}
+	if len(ms.Data) > 0 {
+		a.Route = ms.Data[0].Account.Route
+	}
+	return a, nil
+}
+
+// OwnerOf is the one user who owns an account the key reaches by id, as an
+// app's key reaches each business that installed the app. Whop keeps the
+// account itself behind company:balance:read, so the owner is the one Whop
+// names on one of its products, which the products' list leaves out.
+func (c *Client) OwnerOf(ctx context.Context, accountID string) (User, error) {
+	ps, err := c.Products(ctx, accountID)
+	if err != nil {
+		return User{}, err
+	}
+	if len(ps) == 0 {
+		return User{}, errors.New("the business has no product to read its owner from")
+	}
+	var p struct {
+		Owner User `json:"owner_user"`
+	}
+	err = c.do(ctx, http.MethodGet, "/products/"+url.PathEscape(ps[0].ID), nil, nil, &p)
+	if err == nil && p.Owner.ID == "" {
+		err = errors.New("Whop didn't say who owns the business")
+	}
+	return p.Owner, err
+}
+
+func (c *Client) ownerAt(ctx context.Context, path string) (User, error) {
+	var a struct {
+		Owner User `json:"owner"`
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, nil, &a)
+	if err == nil && a.Owner.ID == "" {
+		err = errors.New("Whop didn't say who owns the account")
+	}
+	return a.Owner, err
+}
+
+// MessageAction is what a token needs to send messages in support chats.
+const MessageAction = "support_chat:message:create"
+
+// UserToken gets a token that acts as userID inside the account and may do
+// actions alone, for the hour Whop keeps it good. Whop gives a token asked
+// for no actions every one the key has, so one is never asked for.
+func (c *Client) UserToken(ctx context.Context, accountID, userID string, actions ...string) (string, error) {
+	if len(actions) == 0 {
+		return "", errors.New("a token needs the actions it may do")
+	}
+	var t struct {
+		Token string `json:"token"`
+	}
+	err := c.do(ctx, http.MethodPost, "/access_tokens", nil, map[string]any{"account_id": accountID, "user_id": userID, "scoped_actions": actions}, &t)
+	if err == nil && t.Token == "" {
+		err = errors.New("Whop's answer had no token")
+	}
+	return t.Token, err
+}
+
 // OpenSupportChat opens the account's support chat with a buyer, or finds
 // the one there is, and returns its channel.
 func (c *Client) OpenSupportChat(ctx context.Context, accountID, userID string) (string, error) {
@@ -123,7 +220,11 @@ func (c *Client) OpenSupportChat(ctx context.Context, accountID, userID string) 
 	return ch.ID, err
 }
 
-// SendMessage posts text, in Markdown, to a channel.
-func (c *Client) SendMessage(ctx context.Context, channelID, text string) error {
-	return c.do(ctx, http.MethodPost, "/messages", nil, map[string]any{"channel_id": channelID, "content": text}, nil)
+// SendMessage posts text, in Markdown, to a channel as the user token acts
+// as (see UserToken). Whop takes messages from people alone, so the key
+// itself can't send one.
+func (c *Client) SendMessage(ctx context.Context, token, channelID, text string) error {
+	as := *c
+	as.Key = token
+	return as.do(ctx, http.MethodPost, "/messages", nil, map[string]any{"channel_id": channelID, "content": text}, nil)
 }

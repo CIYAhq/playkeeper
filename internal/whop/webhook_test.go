@@ -1,6 +1,7 @@
 package whop
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -81,9 +82,76 @@ func TestMembershipsReadBothShapes(t *testing.T) {
 	if nested.PlanID != "plan_b" || nested.ProductID != "prod_mc" || nested.UserID != "user_y" || !nested.PeriodEnd.IsZero() || nested.HasAccess() {
 		t.Fatalf("nested shape: %+v", nested)
 	}
-	for status, access := range map[string]bool{"active": true, "past_due": true, "completed": true, "expired": false, "unresolved": false, "": false} {
+	for status, access := range map[string]bool{"active": true, "canceling": true, "past_due": true, "completed": true, "expired": false, "unresolved": false, "drafted": false, "": false} {
 		if (Membership{Status: status}).HasAccess() != access {
 			t.Errorf("%q: access %v", status, !access)
 		}
+	}
+}
+
+// Whop refuses api_version on a new webhook; the payloads are pinned by
+// api_version_date alone.
+func TestCreateWebhookPinsItsPayloadsByDateAlone(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"POST /webhooks": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("body: %v", err)
+			}
+			if _, ok := body["api_version"]; ok {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","message":"api_version is no longer supported. New webhooks always use the v1 events; pin payload shapes with api_version_date instead."}}`))
+				return
+			}
+			events, _ := body["events"].([]any)
+			if body["url"] != "https://beta.playkeeper.me:8443/api/public/whop/webhook" || body["api_version_date"] != APIVersion || body["resource_id"] != "biz_pip" ||
+				body["enabled"] != true || len(events) != len(Events) {
+				t.Errorf("body %v", body)
+			}
+			answer(map[string]any{"id": "hook_1", "url": body["url"], "api_version": "v1", "api_version_date": APIVersion, "webhook_secret": "ws_abc"})(w, r)
+		},
+	})
+	hook, err := c.CreateWebhook(context.Background(), "biz_pip", "https://beta.playkeeper.me:8443/api/public/whop/webhook")
+	if err != nil || hook != (Webhook{ID: "hook_1", URL: "https://beta.playkeeper.me:8443/api/public/whop/webhook", Secret: "ws_abc"}) {
+		t.Fatalf("CreateWebhook = %+v, %v", hook, err)
+	}
+}
+
+// The v1 envelope as Whop documents it for a webhook pinned since
+// 2026-08-14, with a membership as the pinned version reads it.
+func TestVerifyWebhookReadsTheV1Envelope(t *testing.T) {
+	const secret = "ws_0123456789abcdef"
+	now := time.Date(2026, 9, 30, 10, 25, 23, 0, time.UTC)
+	body := []byte(`{"type":"membership.activated","api_version":"v1","api_version_date":"2026-09-29","timestamp":"2026-09-30T10:25:22.795Z",
+		"account_id":"biz_pip","data":{"id":"mem_1","status":"completed","user_id":"user_x","product_id":"prod_mc","plan_id":"plan_a",
+		"cancel_at_period_end":false,"current_period_start":null,"current_period_end":null,"metadata":{"playkeeper_servers":"1"}}}`)
+	ev, err := VerifyWebhook(secret, SignWebhook(secret, "msg_1", now, body), body, now)
+	if err != nil || ev.Type != EventMembershipActivated || ev.AccountID != "biz_pip" {
+		t.Fatalf("VerifyWebhook = %+v, %v", ev, err)
+	}
+	var m Membership
+	if err := json.Unmarshal(ev.Data, &m); err != nil || m.ID != "mem_1" || m.PlanID != "plan_a" || m.UserID != "user_x" || !m.HasAccess() || !m.PeriodEnd.IsZero() {
+		t.Fatalf("its membership: %+v, %v", m, err)
+	}
+}
+
+// A webhook pinned before 2026-08-14, or not pinned at all, names the
+// business company_id, and its membership nests the plan and the user.
+func TestVerifyWebhookReadsTheBusinessOfAWebhookWithoutAPin(t *testing.T) {
+	const secret = "ws_0123456789abcdef"
+	now := time.Date(2026, 9, 30, 10, 25, 23, 0, time.UTC)
+	body := []byte(`{"type":"membership.activated","api_version":"v1","timestamp":"2026-09-30T10:25:22.795Z",
+		"company_id":"biz_seller","data":{"id":"mem_1","status":"active","user":{"id":"user_x"},"product":{"id":"prod_mc"},"plan":{"id":"plan_a"}}}`)
+	ev, err := VerifyWebhook(secret, SignWebhook(secret, "msg_1", now, body), body, now)
+	if err != nil || ev.ID != "msg_1" || ev.Type != EventMembershipActivated || ev.AccountID != "biz_seller" {
+		t.Fatalf("VerifyWebhook = %+v, %v", ev, err)
+	}
+	var m Membership
+	if err := json.Unmarshal(ev.Data, &m); err != nil || m.ID != "mem_1" || m.PlanID != "plan_a" || m.UserID != "user_x" {
+		t.Fatalf("its membership: %+v, %v", m, err)
+	}
+	body = []byte(`{"type":"membership.activated","account_id":"biz_seller","company_id":"biz_old","data":{}}`)
+	if ev, err := VerifyWebhook(secret, SignWebhook(secret, "msg_2", now, body), body, now); err != nil || ev.AccountID != "biz_seller" {
+		t.Fatalf("with both names: %+v, %v", ev, err)
 	}
 }

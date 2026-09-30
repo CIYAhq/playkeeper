@@ -64,6 +64,11 @@ type Manifest struct {
 	// Build is the build of a type other than Paper: a Purpur build, a
 	// Fabric or Quilt loader, or a NeoForge or Forge version.
 	Build string `json:"build,omitempty"`
+
+	// Whole says the archive holds a server's whole folder, for its move to
+	// another machine (CreateWhole), rather than a backup's allowlist. It
+	// may have no world yet.
+	Whole bool `json:"whole,omitempty"`
 }
 
 // Limits bound what an (untrusted) archive may make the agent write. Create
@@ -98,10 +103,20 @@ func (e *RefusedError) Error() string {
 
 func (e *RefusedError) Unwrap() error { return e.Reason }
 
-// archiveLimitError is a limit on the archive as a whole, not on one file.
-type archiveLimitError string
+// ErrTooLarge is wrapped by the refusal of an archive whose files add up
+// to more than Limits.MaxTotalBytes.
+var ErrTooLarge = errors.New("the archive's files add up to more than its limit")
 
-func (e archiveLimitError) Error() string { return string(e) }
+// archiveLimitError is a limit on the archive as a whole, not on one file;
+// err is ErrTooLarge for its total size.
+type archiveLimitError struct {
+	msg string
+	err error
+}
+
+func (e archiveLimitError) Error() string { return e.msg }
+
+func (e archiveLimitError) Unwrap() error { return e.err }
 
 // fileTally applies the rules a restore enforces on each data file and on
 // their running count and size. walk and Create share it so they agree.
@@ -123,11 +138,11 @@ func (t *fileTally) add(rel string, size int64) error {
 	}
 	t.files++
 	if t.files > t.lim.MaxFiles {
-		return archiveLimitError(fmt.Sprintf("archive has more than %d files", t.lim.MaxFiles))
+		return archiveLimitError{msg: fmt.Sprintf("archive has more than %d files", t.lim.MaxFiles)}
 	}
 	t.total += size
 	if t.total > t.lim.MaxTotalBytes {
-		return archiveLimitError(fmt.Sprintf("archive expands beyond the %d byte limit", t.lim.MaxTotalBytes))
+		return archiveLimitError{msg: fmt.Sprintf("archive expands beyond the %d byte limit", t.lim.MaxTotalBytes), err: ErrTooLarge}
 	}
 	return nil
 }
@@ -189,15 +204,38 @@ func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, e
 	if err != nil {
 		return meta, err
 	}
-	meta.Format = FormatVersion
-	meta.LevelName = level
-	meta.Files = nil
-	meta.TotalBytes = 0
-
 	rels, err := archiveFiles(dataDir, level)
 	if err != nil {
 		return meta, err
 	}
+	meta.Whole = false
+	return create(w, dataDir, level, rels, meta, lim)
+}
+
+// CreateWhole archives dataDir to w as Create does, but all of it, for the
+// server's move to another machine: every file but what wholeFiles leaves
+// behind, and no world needed, as before a server's first start. Nothing is
+// written when dataDir can't be listed.
+func CreateWhole(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, error) {
+	level, err := levelName(dataDir)
+	if err != nil {
+		return meta, err
+	}
+	rels, err := wholeFiles(dataDir)
+	if err != nil {
+		return meta, err
+	}
+	meta.Whole = true
+	return create(w, dataDir, level, rels, meta, lim)
+}
+
+// create writes the files rels of dataDir, whose world is level, to w as an
+// archive, and returns its manifest.
+func create(w io.Writer, dataDir, level string, rels []string, meta Manifest, lim Limits) (Manifest, error) {
+	meta.Format = FormatVersion
+	meta.LevelName = level
+	meta.Files = nil
+	meta.TotalBytes = 0
 	root, err := os.OpenRoot(dataDir)
 	if err != nil {
 		return meta, err
@@ -316,6 +354,54 @@ func archiveFiles(dataDir, level string) ([]string, error) {
 	}
 	if len(rels) == 0 || !containsPrefix(rels, level+"/") {
 		return nil, &NoWorldError{Level: level, DataDir: dataDir}
+	}
+	sort.Strings(rels)
+	return rels, nil
+}
+
+// wholeSkippedDirs are the folders at the top of a server's folder a move
+// leaves behind: what the server downloads again at its first start where
+// it goes, its logs and its crash reports.
+var wholeSkippedDirs = map[string]bool{"libraries": true, "versions": true, "cache": true, ".cache": true, "logs": true, "crash-reports": true}
+
+// wholeSkippedFile reports whether a move leaves behind the file name at
+// the top of a server's folder: a server jar, downloaded again, eula.txt,
+// which the machine it goes to writes from the acceptance it's told, and
+// the image's files holding the RCON password (server.properties loses its
+// secret lines instead, see SanitizeProperties).
+func wholeSkippedFile(name string) bool {
+	return name == "eula.txt" || strings.HasPrefix(name, ".rcon-cli") || strings.HasSuffix(name, ".jar")
+}
+
+// wholeFiles lists the files of dataDir a move carries, sorted: every
+// regular file but those wholeSkippedDirs and wholeSkippedFile leave behind
+// at the top, and those in folders skipDirNames names anywhere. Links and
+// special files are left out, as a backup leaves them.
+func wholeFiles(dataDir string) ([]string, error) {
+	var rels []string
+	err := filepath.WalkDir(dataDir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == dataDir {
+			return nil
+		}
+		rel, err := filepath.Rel(dataDir, p)
+		if err != nil {
+			return err
+		}
+		top := !strings.ContainsRune(rel, filepath.Separator)
+		switch {
+		case e.IsDir() && (skipDirNames[e.Name()] || top && wholeSkippedDirs[e.Name()]):
+			return filepath.SkipDir
+		case !e.Type().IsRegular(), top && wholeSkippedFile(e.Name()):
+			return nil
+		}
+		rels = append(rels, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	sort.Strings(rels)
 	return rels, nil
@@ -607,10 +693,108 @@ func walk(r io.Reader, lim Limits, write sink) (Manifest, error) {
 	if m.LevelName == "" || !validRel(m.LevelName) || strings.Contains(m.LevelName, "/") {
 		return m, errors.New("manifest has an invalid level name")
 	}
-	if !containsPrefix(sortedKeys(seen), m.LevelName+"/") {
+	if !m.Whole && !containsPrefix(sortedKeys(seen), m.LevelName+"/") {
 		return m, fmt.Errorf("archive does not contain the world %q", m.LevelName)
 	}
 	return m, nil
+}
+
+// ReadFile reads the file rel of the server's data directory, at most max
+// bytes, from an archive; fs.ErrNotExist when the archive doesn't hold it.
+// It reads the archive only as far as that file, so it checks no hashes:
+// read a backup that was verified.
+func ReadFile(r io.Reader, rel string, max int64) ([]byte, error) {
+	gz, err := gzip.NewReader(bufio.NewReaderSize(r, 256<<10))
+	if err != nil {
+		return nil, fmt.Errorf("not a gzip archive: %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, fs.ErrNotExist
+		}
+		if err != nil {
+			return nil, fmt.Errorf("archive is corrupt: %w", err)
+		}
+		if hdr.Name != dataPrefix+rel || hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		if hdr.Size > max {
+			return nil, fmt.Errorf("%s is larger than %d bytes", rel, max)
+		}
+		b, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
+		if err == nil && int64(len(b)) != hdr.Size {
+			err = fmt.Errorf("entry %q is truncated", rel)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("archive is corrupt: %w", err)
+		}
+		return b, nil
+	}
+}
+
+// ReadFiles reads, in one pass, those of the files rels of the server's data
+// directory that an archive holds, at most max bytes each. Create writes the
+// files in sorted order, so the pass stops once it is past every name asked
+// for, and a missing one doesn't cost a read of the whole archive; an archive
+// out of that order is read to its end. enough, when given, ends the pass as
+// soon as it says the files read so far will do. Like ReadFile, it checks no
+// hashes.
+func ReadFiles(r io.Reader, rels []string, max int64, enough func(read map[string][]byte) bool) (map[string][]byte, error) {
+	want := map[string]bool{}
+	last := ""
+	for _, rel := range rels {
+		name := dataPrefix + rel
+		want[name] = true
+		if name > last {
+			last = name
+		}
+	}
+	gz, err := gzip.NewReader(bufio.NewReaderSize(r, 256<<10))
+	if err != nil {
+		return nil, fmt.Errorf("not a gzip archive: %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	out := map[string][]byte{}
+	prev, sorted := "", true
+	for len(out) < len(want) {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("archive is corrupt: %w", err)
+		}
+		if strings.HasPrefix(hdr.Name, dataPrefix) {
+			sorted = sorted && hdr.Name >= prev
+			prev = hdr.Name
+			if sorted && hdr.Name > last {
+				break
+			}
+		}
+		if !want[hdr.Name] || hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		rel := strings.TrimPrefix(hdr.Name, dataPrefix)
+		if hdr.Size > max {
+			return nil, fmt.Errorf("%s is larger than %d bytes", rel, max)
+		}
+		b, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
+		if err == nil && int64(len(b)) != hdr.Size {
+			err = fmt.Errorf("entry %q is truncated", rel)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("archive is corrupt: %w", err)
+		}
+		out[rel] = b
+		if enough != nil && enough(out) {
+			break
+		}
+	}
+	return out, nil
 }
 
 func sortedKeys(m map[string]FileEntry) []string {

@@ -68,7 +68,8 @@ type Step struct {
 	// Replaces is the installed add-on an update replaces.
 	Replaces *Installed `json:"replaces,omitempty"`
 	// url is unexported so that a plan which went through JSON cannot be
-	// carried out: Install and Update always plan again.
+	// carried out: Install and Update always plan again. It's empty for
+	// Playkeeper's own plugins, which come from the binary.
 	url string
 	// geyser marks a GeyserMC project's file, which comes from GeyserMC's
 	// server rather than the source's.
@@ -631,7 +632,7 @@ func (r *resolver) finish() *Plan {
 			r.block(fileExists(s, r.t))
 		}
 		seen[s.FileName] = true
-		if _, err := r.l.stepHosts(s).Check(s.url); err != nil {
+		if _, err := r.l.stepHosts(s).Check(s.url); err != nil && s.Source != Playkeeper {
 			r.block(hostNotAllowed(s).Notice)
 		}
 		if old := s.Replaces; old != nil {

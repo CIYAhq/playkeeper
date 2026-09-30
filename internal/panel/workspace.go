@@ -82,10 +82,17 @@ const (
 // server stay actCreateServers.
 const actCreateOwnServers action = "servers.create_own"
 
+// actViewMachines looks at the machines themselves: their names, details,
+// events and addresses. Everyone on the team may but creators and
+// customers, who see their servers and never the machines they run on (see
+// access.hidesMachines).
+const actViewMachines action = "machines.view"
+
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actCreateOwnServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock}
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock, actTakeCustomers,
+	actViewMachines, actSuspendCustomers}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
@@ -108,6 +115,7 @@ var actNeeds = map[action]string{
 	actViewAuditTrail:   invites.RoleAdmin,
 	actViewFiles:        invites.RoleAdmin,
 	actEditFiles:        invites.RoleAdmin,
+	actViewMachines:     invites.RoleViewer,
 }
 
 // machineWide actions reach past single servers, so an admin needs all of
@@ -153,6 +161,9 @@ var (
 	// sign-in is on but whose Admin rights nobody has confirmed yet.
 	errAdminUnconfirmed = &invites.Error{Code: api.CodeAdminUnconfirmed, Status: http.StatusForbidden,
 		Msg: "The owner or an admin needs to confirm your Admin rights.", Hint: "Until then, you have Moderator rights."}
+	// errMachinesHidden refuses a creator or customer the machines
+	// themselves (see access.hidesMachines).
+	errMachinesHidden = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "Your account sees its servers, not the machines they run on."}
 )
 
 // mayHoldBackupKeys reports whether an account may change where backup
@@ -191,6 +202,12 @@ func permit(a access, act action, serverID string) error {
 		return errForbidden
 	case serverID != "" && !a.covers(serverID):
 		return errNoServer
+	case act == actViewMachines && a.hidesMachines():
+		return errMachinesHidden
+	case a.Customer == CustomerSuspended:
+		return errCustomerSuspended
+	case a.Customer == CustomerPaused && !pausedMay[act]:
+		return errCustomerPaused
 	case keyActions[act]:
 		return keysRefusal(a, act)
 	case a.owner():
@@ -218,10 +235,27 @@ func permit(a access, act action, serverID string) error {
 	return nil
 }
 
+// permitOn is permit, and then heldRefusal for a server whose customer's
+// plan no longer covers act.
+func (s *Server) permitOn(a access, act action, serverID string) error {
+	if err := permit(a, act, serverID); err != nil {
+		return err
+	}
+	return s.heldRefusal(a, act, serverID)
+}
+
 // creator reports whether a creates servers inside an allowance (see
 // invites.Allowance) rather than as an admin of every server.
 func (a access) creator() bool {
 	return !a.owner() && !a.Servers.All && !a.Allowance.IsZero()
+}
+
+// hidesMachines reports whether the dashboard keeps its machines from a:
+// creators, and customers whatever their plan, see their servers and their
+// plan, never which machine or how many machines there are, or their names
+// or addresses (see hiddenMachines).
+func (a access) hidesMachines() bool {
+	return a.creator() || a.Customer != ""
 }
 
 // access reads what u may do: their project role and servers, and whether
@@ -355,13 +389,26 @@ type machine struct {
 	joinedAt   time.Time
 	joinedFrom string
 	addedBy    string
+	// customersAt and customersBy say when and by whom the owner confirmed
+	// a joined machine takes customers (see machinecustomers.go), zero
+	// until they do, and customersStopped when the owner last stopped it
+	// (see autoconfirm.go).
+	customersAt      time.Time
+	customersBy      string
+	customersStopped time.Time
 }
 
 var reMachineID = regexp.MustCompile(`^[a-z2-9]{10}$`)
 
 func randomID() string {
+	return randomLetters(10)
+}
+
+// randomLetters is n random lower-case letters and digits, none easily
+// taken for another.
+func randomLetters(n int) string {
 	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
-	b := make([]byte, 10)
+	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	for i := range b {
 		b[i] = alphabet[int(b[i])%len(alphabet)]
@@ -409,7 +456,7 @@ func (s *Server) ensureOwnerMember(userID int64) {
 // machines lists the machines the panel manages, the local one first and
 // removed ones left out.
 func (s *Server) machines() ([]machine, error) {
-	rows, err := s.db.Query(`SELECT id, project_id, name, kind, endpoint, created_at, joined_from, created_by FROM machines
+	rows, err := s.db.Query(`SELECT id, project_id, name, kind, endpoint, created_at, joined_from, created_by, customers_at, customers_by, customers_stopped_at FROM machines
 		WHERE revoked_at = 0 ORDER BY kind != ?, created_at, id`, localKind)
 	if err != nil {
 		return nil, err
@@ -418,16 +465,18 @@ func (s *Server) machines() ([]machine, error) {
 	var out []machine
 	for rows.Next() {
 		var m machine
-		var created int64
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Kind, &m.dials, &created, &m.joinedFrom, &m.addedBy); err != nil {
+		var created, customers, stopped int64
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Kind, &m.dials, &created, &m.joinedFrom, &m.addedBy, &customers, &m.customersBy, &stopped); err != nil {
 			return nil, err
 		}
+		m.customersStopped = fromMillis(stopped)
 		switch m.Kind {
 		case localKind:
 			m.agent = s.agent
 		case remoteKind:
 			m.agent = agentclient.Via(s.machineTransport(m.ID))
 			m.joinedAt = fromMillis(created)
+			m.customersAt = fromMillis(customers)
 		default:
 			continue
 		}
@@ -466,8 +515,8 @@ var errServerMachine = errors.New("could not look up the machine that runs the s
 // machine only if that machine listed it last or no joined machine did: a
 // joined machine's server whose record couldn't be saved goes to none. A
 // server whose record names a removed machine is unknown, unless the
-// dashboard's machine listed it last. A disputed server has none. It never
-// asks the machines.
+// dashboard's machine listed it last. A disputed server has none, and so
+// has one being moved (see moves.go). It never asks the machines.
 func (s *Server) machineForServer(serverID string) (machine, error) {
 	list, err := s.machines()
 	if err != nil {
@@ -476,6 +525,14 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 	}
 	if len(list) == 0 {
 		return machine{}, errUnknownServer
+	}
+	var moving int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM server_moves WHERE server_id = ?`, serverID).Scan(&moving); err != nil {
+		s.log.Error("look up the machine that runs a server", "server", serverID, "err", err)
+		return machine{}, errServerMachine
+	}
+	if moving > 0 {
+		return machine{}, errServerMoving
 	}
 	var owner, disputedBy string
 	err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
@@ -554,6 +611,11 @@ type machineView struct {
 	JoinedAt   *time.Time          `json:"joinedAt,omitempty"`
 	JoinedFrom string              `json:"joinedFrom,omitempty"`
 	AddedBy    string              `json:"addedBy,omitempty"`
+	// TakesCustomers is set on a joined machine the owner confirmed takes
+	// customers, and Customers is how many customers placement gave the
+	// machine (see machinecustomers.go).
+	TakesCustomers *takesCustomers `json:"takesCustomers,omitempty"`
+	Customers      int             `json:"customers,omitempty"`
 }
 
 // machineTimeout bounds how long one machine may take to answer a list, so
@@ -562,9 +624,17 @@ const machineTimeout = 8 * time.Second
 
 func (s *Server) machineView(ctx context.Context, m machine, link *machinelink.Status) machineView {
 	v := machineView{machine: m, Link: link}
+	if n, err := s.customersOn(ctx, m.ID); err != nil {
+		s.log.Error("count a machine's customers", "machine", m.ID, "err", err)
+	} else {
+		v.Customers = n
+	}
 	if m.Kind == remoteKind {
 		v.Dials, v.JoinedFrom, v.AddedBy = m.dials, m.joinedFrom, m.addedBy
 		v.JoinedAt = &m.joinedAt
+		if !m.customersAt.IsZero() {
+			v.TakesCustomers = &takesCustomers{Since: m.customersAt, By: m.customersBy}
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, machineTimeout)
 	defer cancel()
@@ -616,6 +686,10 @@ func (s *Server) hMachines(w http.ResponseWriter, r *http.Request, sess *session
 		return
 	}
 	links := s.linkStatuses(r.Context())
+	if permit(sess.Access, actViewMachines, "") != nil {
+		writeJSON(w, http.StatusOK, s.hiddenMachines(r.Context(), sess.Access, list, links))
+		return
+	}
 	out := make([]machineView, len(list))
 	var wg sync.WaitGroup
 	for i, m := range list {
@@ -667,6 +741,12 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 		}
 		out = append(out, sv)
 	}
+	if sess.Access.hidesMachines() {
+		used := s.ownMemory(sess.Access, out)
+		for _, sv := range out {
+			s.planFigures(sess.Access, sv, used)
+		}
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -701,7 +781,7 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 	}
 	for i, m := range list {
 		if m.Kind == localKind && got[i].err == nil {
-			s.claimLocal(m, got[i].servers)
+			got[i].servers = s.claimLocal(m, got[i].servers, listedAt)
 		}
 	}
 	out := []map[string]any{}
@@ -729,9 +809,15 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 		}
 		for _, sv := range servers {
 			sv["machineId"] = m.ID
+			if id, _ := sv["id"].(string); m.Kind == remoteKind && id != "" {
+				if a := s.zoneAddress(id); a != "" {
+					sv["zoneAddress"] = a
+				}
+			}
 			out = append(out, sv)
 		}
 	}
+	s.markMoving(ctx, out)
 	s.stableSlugs(ctx, out, list)
 	if everyMachine && len(ids) > 0 {
 		s.forgetDeletedServers(ids)
@@ -746,8 +832,9 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 // which its Discord links use. Every other server keeps the slug its record
 // keeps, as a removed machine's servers do for when the same host joins
 // again. A server new to the dashboard gets its agent's slug when no server
-// has it, else a number, as the agent numbers its own ("my-server-2"),
-// skipping every slug a server has or its agent gave it; servers new at once
+// has it, else that with a few random letters after it, as the agent gives
+// its own, since a number would count the servers with it, skipping every
+// slug a server has or its agent gave it; servers new at once
 // go in the order the dashboard first saw them. The dashboard's machine then
 // hears of the slugs shown for other machines' servers, so that a server it
 // makes gets none of them.
@@ -815,6 +902,10 @@ func (s *Server) stableSlugs(ctx context.Context, servers []map[string]any, list
 	for _, e := range entries {
 		avoid[e.agentSlug], avoid[e.kept] = true, true
 	}
+	letters := s.opts.SlugLetters
+	if letters == nil {
+		letters = func(int) string { return randomLetters(4) }
+	}
 	choose := func(e *entry, want string) {
 		slug := want
 		if taken[slug] {
@@ -822,8 +913,8 @@ func (s *Server) stableSlugs(ctx context.Context, servers []map[string]any, list
 			if base == "" {
 				base = want
 			}
-			for i := 2; ; i++ {
-				if next := fmt.Sprintf("%s-%d", base, i); !taken[next] && !avoid[next] {
+			for try := 1; ; try++ {
+				if next := base + "-" + letters(try); !taken[next] && !avoid[next] {
 					slug = next
 					break
 				}

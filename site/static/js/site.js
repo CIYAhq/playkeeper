@@ -1,10 +1,11 @@
 // playkeeper.io on every page: the header's scrolled look and menus, the
 // analytics' custom events, the landing page's install command for the
 // channel a visitor came from, Copy and Send to my computer, the FAQ's
-// animation where the browser has none, scroll reveals, the phone footer's
-// groups, a guide's contents, code tabs, the star count, and Open in my
-// dashboard on template links. Nothing here is needed to read or use a page;
-// without it, everything is shown, and template links go to the share page.
+// animation where the browser has none, scroll reveals, a film that plays
+// while it's in view, the phone footer's groups, a guide's contents, code
+// tabs, the star count, and Open in my dashboard on template links. Nothing
+// here is needed to read or use a page; without it, everything is shown, and
+// template links go to the share page.
 (function () {
   var doc = document.documentElement;
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -328,6 +329,18 @@
     }, { threshold: 0.5 });
     wave.observe(closing);
   }
+
+  // A film (a page's film setting) plays, muted, while half of it is in
+  // view, unless the visitor asks for less motion; its controls play it
+  // either way.
+  $$('[data-film]').forEach(function (film) {
+    if (!('IntersectionObserver' in window) || reduce.matches) return;
+    new IntersectionObserver(function (entries) {
+      if (!entries[entries.length - 1].isIntersecting) { film.pause(); return; }
+      var playing = film.play();
+      if (playing) playing.catch(function () { /* autoplay refused: its controls still play it */ });
+    }, { threshold: 0.5 }).observe(film);
+  });
 
   // On phones the footer's link groups open and close like the FAQ.
   var cols = $$('[data-footer-col]');

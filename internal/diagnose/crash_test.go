@@ -66,6 +66,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		in          CrashInput
 		kind        CrashKind
 		certain     bool
+		repeats     bool // a restart can only crash it again
 		params      map[string]any
 		fixes       string
 		explanation []string
@@ -279,6 +280,72 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			explanation: []string{"it is a Fabric mod, not a NeoForge mod", "skips files like this and keeps running"},
 		},
 		{
+			name: "NeoForge mod made for players' games, in NeoForge's early window",
+			in:   moddedCrash("neoforge", "26.2", crashConsole(t, "neoforge_client_only.txt"), "sodium-neoforge-0.9.2+mc26.2.jar", "lithium-neoforge-0.21.0+mc26.2.jar"),
+			kind: CrashIncompatibleAddon, certain: true, repeats: true,
+			params:      map[string]any{"reason": "client_only", "addon": "sodium", "jar": "sodium-neoforge-0.9.2+mc26.2.jar", "class": "org.lwjgl.Version"},
+			fixes:       "remove_addon* jar=sodium-neoforge-0.9.2+mc26.2.jar",
+			explanation: []string{"NeoForge stopped because sodium needs LWJGL, which draws the game on players' screens", "It only runs in the game itself"},
+			evidence:    []string{"Running graphics bootstrap plugin sodium", "java.lang.NoClassDefFoundError: org/lwjgl/Version"},
+		},
+		{
+			name: "NeoForge mod made for players' games, in its mixin plugin",
+			in:   moddedCrash("neoforge", "26.2", crashConsole(t, "neoforge_client_only_mixin.txt"), "ImmediatelyFast-NeoForge-1.16.5+26.2.jar", "entityculling-neoforge-1.11.2-mc26.2.jar"),
+			kind: CrashIncompatibleAddon, certain: true, repeats: true,
+			params:   map[string]any{"reason": "client_only", "addon": "immediatelyfast", "jar": "ImmediatelyFast-NeoForge-1.16.5+26.2.jar", "class": "org.lwjgl.system.MathUtil"},
+			fixes:    "remove_addon* jar=ImmediatelyFast-NeoForge-1.16.5+26.2.jar",
+			evidence: []string{"Caused by: java.lang.NoClassDefFoundError: org/lwjgl/system/MathUtil"},
+		},
+		{
+			name: "NeoForge mod that needs Minecraft's client code to be made",
+			in: moddedCrash("neoforge", "1.21.1", []string{
+				"[10:02:11] [modloading-worker-0/ERROR] [ne.ne.fm.ja.FMLModContainer/LOADING]: Failed to create mod instance. ModID: bettergrassify, class dev.example.bettergrassify.BetterGrassify",
+				"java.lang.NoClassDefFoundError: net/minecraft/client/ParticleStatus",
+				"\tat TRANSFORMER/bettergrassify@1.6.0/dev.example.bettergrassify.BetterGrassify.<init>(BetterGrassify.java:31)",
+				"[10:02:12] [main/FATAL] [ne.ne.fm.ModLoader/]: Mod loading has failed",
+			}, "BetterGrassify-1.6.0+neoforge.1.21.1.jar"),
+			kind: CrashIncompatibleAddon, certain: true, repeats: true,
+			params:      map[string]any{"reason": "client_only", "addon": "bettergrassify", "jar": "BetterGrassify-1.6.0+neoforge.1.21.1.jar", "class": "net.minecraft.client.ParticleStatus"},
+			fixes:       "remove_addon* jar=BetterGrassify-1.6.0+neoforge.1.21.1.jar",
+			explanation: []string{"needs Minecraft's client code (net.minecraft.client.ParticleStatus), which only players' games have"},
+			evidence:    []string{"Failed to create mod instance. ModID: bettergrassify", "NoClassDefFoundError: net/minecraft/client/ParticleStatus"},
+		},
+		{
+			name: "Forge mod loading a client class, named by its frame past Forge's own",
+			in: moddedCrash("forge", "1.20.1", []string{
+				"[10:05:40] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server",
+				"java.lang.RuntimeException: Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER",
+				"\tat TRANSFORMER/forge@47.4.10/net.minecraftforge.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57)",
+				"\tat TRANSFORMER/zoomify@2.14.2/dev.isxander.zoomify.Zoomify.onInitialize(Zoomify.java:40)",
+			}, "zoomify-2.14.2+1.20.1-forge.jar", "ForgeConfigAPIPort-v8.0.2-1.20.1-Forge.jar"),
+			kind: CrashIncompatibleAddon, certain: true, repeats: true, params: map[string]any{"addon": "zoomify", "class": "net.minecraft.client.Minecraft"},
+			fixes:       "remove_addon* jar=zoomify-2.14.2+1.20.1-forge.jar",
+			explanation: []string{"Forge stopped because zoomify needs Minecraft's client code"},
+		},
+		{
+			name: "NeoForge mod loading a client class under the loader's own modules",
+			in: moddedCrash("neoforge", "1.21.1", []string{
+				"[10:05:40] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server",
+				"java.lang.RuntimeException: Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER",
+				"\tat MC-BOOTSTRAP/fml_loader@4.0.24/net.neoforged.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57)",
+				"\tat MC-BOOTSTRAP/cpw.mods.modlauncher@11.0.4/cpw.mods.modlauncher.LaunchPluginHandler.offerClassNodeToPlugins(LaunchPluginHandler.java:88)",
+				"\tat TRANSFORMER/javafmllanguage@4.0.24/net.neoforged.fml.javafmlmod.FMLModContainer.constructMod(FMLModContainer.java:115)",
+				"\tat TRANSFORMER/zoomify@2.14.2/dev.isxander.zoomify.Zoomify.<init>(Zoomify.java:40)",
+			}, "zoomify-2.14.2+1.21.1-neoforge.jar"),
+			kind: CrashIncompatibleAddon, certain: true, repeats: true, params: map[string]any{"addon": "zoomify", "jar": "zoomify-2.14.2+1.21.1-neoforge.jar"},
+			fixes: "remove_addon* jar=zoomify-2.14.2+1.21.1-neoforge.jar",
+		},
+		{
+			name: "mod made for players' games that the log doesn't name",
+			in: moddedCrash("neoforge", "26.2", []string{
+				"[16:59:11] [main/INFO] [ne.ne.fm.ModLoader/]: Clearing ModLoader",
+				"java.lang.NoClassDefFoundError: org/lwjgl/glfw/GLFW",
+				"\tat net.neoforged.fml.startup.Server.main(Server.java:17)",
+			}, "sodium-neoforge-0.9.2+mc26.2.jar"),
+			kind: CrashIncompatibleAddon, certain: true, repeats: true, params: map[string]any{"reason": "client_only", "class": "org.lwjgl.glfw.GLFW"}, fixes: "",
+			explanation: []string{"a mod needs LWJGL", "The log doesn't say which mod"},
+		},
+		{
 			name: "NeoForge mod failing while starting",
 			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_mod_failed.txt"), "FarmersDelight-1.21.1-1.2.7.jar"),
 			kind: CrashAddonFailed, certain: true, params: map[string]any{"addon": "Farmer's Delight", "jar": "FarmersDelight-1.21.1-1.2.7.jar"},
@@ -339,13 +406,30 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "damaged level.dat with a backup", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.txt")),
-			kind: CrashCorruptWorld, certain: true, params: map[string]any{"file": "level.dat"}, fixes: "restore_backup*",
+			kind: CrashCorruptWorld, certain: true, repeats: true, params: map[string]any{"file": "level.dat", "world": "world"}, fixes: "restore_backup*; rebuild_level world=world",
+			explanation: []string{"a new level.dat keeps them"},
 		},
 		{
 			name: "damaged level.dat without a backup",
 			in:   with(moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.txt")), func(in *CrashInput) { in.HasBackup = false }),
-			kind: CrashCorruptWorld, certain: true, fixes: "",
+			kind: CrashCorruptWorld, certain: true, repeats: true, fixes: "rebuild_level* world=world",
 			explanation: []string{"There is no backup to restore."},
+		},
+		{
+			name: "damaged level.dat on Minecraft 26.1 and newer, whose last line names no file",
+			in:   moddedCrash("vanilla", "26.3", crashConsole(t, "vanilla_level_dat_26.txt")),
+			kind: CrashCorruptWorld, certain: true, repeats: true, params: map[string]any{"file": "level.dat", "world": "world"}, fixes: "restore_backup*; rebuild_level world=world",
+			evidence: []string{"Failed to load world data. World files may be corrupted. Shutting down."},
+		},
+		{
+			name: "damaged level.dat of a world with a name of its own",
+			in: moddedCrash("vanilla", "26.3", []string{
+				"[12:00:02] [ServerMain/WARN]: Failed to load world data from ./Survival-2024/level.dat",
+				"java.util.zip.ZipException: Not in GZIP format",
+				"[12:00:02] [ServerMain/INFO]: Attempting to use fallback ./Survival-2024/level.dat_old",
+				"[12:00:02] [ServerMain/ERROR]: Failed to load world data. World files may be corrupted. Shutting down.",
+			}),
+			kind: CrashCorruptWorld, certain: true, repeats: true, params: map[string]any{"world": "Survival-2024"}, fixes: "restore_backup*; rebuild_level world=Survival-2024",
 		},
 		{
 			name: "unreadable chunk is only the likely cause", in: paperCrash(crashConsole(t, "paper_chunk.txt")),
@@ -430,6 +514,9 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 					t.Errorf("params[%s] = %v, want %v (all: %v)", k, d.Params[k], v, d.Params)
 				}
 			}
+			if d.Repeats != tt.repeats {
+				t.Errorf("repeats = %v, want %v", d.Repeats, tt.repeats)
+			}
 			if got := actionSummary(d.Fixes); got != tt.fixes {
 				t.Errorf("fixes = %q, want %q", got, tt.fixes)
 			}
@@ -457,6 +544,123 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 	}
 }
 
+// tickingCrash is a server that stopped over something it ticked, with the
+// console and crash report of a real run; change edits the report first.
+func tickingCrash(t *testing.T, serverType, console, report string, change func(string) string, jars ...string) CrashInput {
+	t.Helper()
+	in := moddedCrash(serverType, "26.3", crashConsole(t, console), jars...)
+	in.CrashReport, in.CrashReportName = strings.Join(crashConsole(t, report), "\n"), report
+	if change != nil {
+		in.CrashReport = change(in.CrashReport)
+	}
+	return in
+}
+
+// Something that throws each time the game ticks it is named with where it
+// is, and taking just that one out is the fix, never a plain restart, which
+// runs it again. Real runs: a minecart on Minecraft 26.3, a hopper on
+// NeoForge 26.2.
+func TestExplainCrashNamesWhatCrashesEachTimeItTicks(t *testing.T) {
+	const entity, block = "vanilla_ticking_entity.txt", "neoforge_ticking_block_entity.txt"
+	const entityReport, blockReport = "crash-2026-09-29_17.42.52-server.txt", "crash-2026-09-29_17.45.31-server.txt"
+	tests := []struct {
+		name        string
+		in          CrashInput
+		params      map[string]any
+		fixes       string
+		explanation []string
+		evidence    []string
+	}{
+		{
+			name:        "a minecart on Minecraft",
+			in:          tickingCrash(t, "vanilla", entity, entityReport, nil),
+			params:      map[string]any{"what": "entity", "type": "minecraft:minecart", "name": "Minecart", "x": 6, "y": 120, "z": 6, "dimension": "minecraft:overworld"},
+			fixes:       "remove_entity* what=entity type=minecraft:minecart; restore_backup",
+			explanation: []string{"the minecart at x 6, y 120, z 6 in the Overworld hit an error each time the game ran it", "starting again crashes again", "Removing that minecart fixes it"},
+			evidence:    []string{"Description: Ticking entity", "net.minecraft.ReportedException: Ticking entity", "Caused by: java.lang.NullPointerException: Test error"},
+		},
+		{
+			name:        "a hopper on NeoForge, whose frames are the game's own",
+			in:          tickingCrash(t, "neoforge", block, blockReport, nil, "minecraft-transit-railway-neoforge-26.2-4.0.0.jar"),
+			params:      map[string]any{"what": "block_entity", "type": "minecraft:hopper", "x": 10, "y": 120, "z": 10},
+			fixes:       "remove_entity* what=block_entity type=minecraft:hopper; restore_backup",
+			explanation: []string{"NeoForge stopped because the hopper at x 10, y 120, z 10", "the block stays, and what it held goes"},
+		},
+		{
+			name: "a mod's entity, in the Nether",
+			in: tickingCrash(t, "neoforge", entity, entityReport, func(r string) string {
+				r = strings.Replace(r, "Entity Type: minecraft:minecart (net.minecraft.world.entity.vehicle.minecart.Minecart)", "Entity Type: create:carriage_contraption (com.simibubi.create.content.trains.entity.CarriageContraptionEntity)", 1)
+				return strings.Replace(r, "Level dimension: minecraft:overworld", "Level dimension: minecraft:the_nether", 1)
+			}, "create-26.2-6.1.0.jar", "sodium-neoforge-0.9.2+mc26.2.jar"),
+			params:      map[string]any{"type": "create:carriage_contraption", "dimension": "minecraft:the_nether", "addon": "create", "jar": "create-26.2-6.1.0.jar"},
+			fixes:       "remove_entity* what=entity type=create:carriage_contraption; restore_backup; update_addon jar=create-26.2-6.1.0.jar; remove_addon jar=create-26.2-6.1.0.jar",
+			explanation: []string{"the carriage contraption at x 6, y 120, z 6 in the Nether", "It comes from create, so if more of them fail, update or remove that mod"},
+		},
+		{
+			name: "a block whose error's stack names an installed mod",
+			in: tickingCrash(t, "neoforge", block, blockReport, func(r string) string {
+				return strings.Replace(r, "at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.block.entity.HopperBlockEntity.pushItemsTick(HopperBlockEntity.java)",
+					"at TRANSFORMER/hopperhelper@2.1.0/dev.example.hopperhelper.HopperTicks.push(HopperTicks.java:44)", 1)
+			}, "HopperHelper-2.1.0+neoforge-26.2.jar"),
+			params: map[string]any{"addon": "hopperhelper", "jar": "HopperHelper-2.1.0+neoforge-26.2.jar"},
+			fixes:  "remove_entity* what=block_entity type=minecraft:hopper; restore_backup; update_addon jar=HopperHelper-2.1.0+neoforge-26.2.jar; remove_addon jar=HopperHelper-2.1.0+neoforge-26.2.jar",
+		},
+		{
+			name: "no crash report, only the console",
+			in: func() CrashInput {
+				in := moddedCrash("vanilla", "26.3", crashConsole(t, entity))
+				return in
+			}(),
+			params:      map[string]any{"what": "entity"},
+			fixes:       "restore_backup*",
+			explanation: []string{"without its crash report Playkeeper can't tell what or where", "starting again crashes again"},
+			evidence:    []string{"Caused by: java.lang.NullPointerException: Test error"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := ExplainCrash(tt.in)
+			if d.Kind != CrashTickingEntity || !d.Certain {
+				t.Fatalf("got %s certain=%v: %s %s\n%s", d.Kind, d.Certain, d.Title, d.Explanation, evidenceText(d))
+			}
+			if !d.Repeats {
+				t.Error("a crash that ticks again at every start doesn't say it repeats")
+			}
+			for k, v := range tt.params {
+				if fmt.Sprint(d.Params[k]) != fmt.Sprint(v) {
+					t.Errorf("params[%s] = %v, want %v (all: %v)", k, d.Params[k], v, d.Params)
+				}
+			}
+			if got := actionSummary(d.Fixes); got != tt.fixes {
+				t.Errorf("fixes = %q, want %q", got, tt.fixes)
+			}
+			for _, f := range d.Fixes {
+				if f.Kind == ActionRestart {
+					t.Errorf("a plain restart is offered: %+v", d.Fixes)
+				}
+			}
+			for _, s := range tt.explanation {
+				if !strings.Contains(d.Explanation, s) {
+					t.Errorf("explanation %q lacks %q", d.Explanation, s)
+				}
+			}
+			ev := evidenceText(d)
+			for _, s := range tt.evidence {
+				if !strings.Contains(ev, s) {
+					t.Errorf("evidence lacks %q:\n%s", s, ev)
+				}
+			}
+		})
+	}
+	d := ExplainCrash(tickingCrash(t, "vanilla", entity, entityReport, nil))
+	if p := d.Fixes[0].Params; fmt.Sprint(p["pos"]) != "[6.5 120 6.5]" || p["dimension"] != "minecraft:overworld" || p["level"] != "world" || p["x"] != 6 || p["y"] != 120 || p["z"] != 6 {
+		t.Errorf("the remove fix says %v", p)
+	}
+	if got := shownText(d.Lines); got != "17:42:52 ERROR net.minecraft.ReportedException: Ticking entity\n17:42:52 ERROR Caused by: java.lang.NullPointerException: Test error: this entity is set to fail when it ticks\n17:42:52 Stopping server" {
+		t.Errorf("lines:\n%s", got)
+	}
+}
+
 func TestExplainCrashIgnoresCausesPlayersTypeInChat(t *testing.T) {
 	console := crashConsole(t, "paper_chat_spoof.txt")
 	jars := []string{"EssentialsX-2.21.0.jar", "FarmersDelight-1.21.1-1.2.7.jar", "better-end-4.0.11.jar", "Shopkeepers-2.23.3.jar"}
@@ -465,6 +669,47 @@ func TestExplainCrashIgnoresCausesPlayersTypeInChat(t *testing.T) {
 		if d.Kind != CrashUnknown || len(d.Evidence) != 1 || d.Evidence[0].Kind != EvidenceExitCode {
 			t.Errorf("%s: chat lines were taken as evidence: %s %s\n%s", serverType, d.Kind, d.Explanation, evidenceText(d))
 		}
+	}
+}
+
+// A mod that reached for a class only players' games have, then carried on
+// while the server started, didn't stop it: the server killed later on
+// stopped for something else.
+func TestExplainCrashPassesOverAClientClassTheServerStartedPast(t *testing.T) {
+	in := moddedCrash("neoforge", "26.2", []string{
+		"[09:14:02] [modloading-worker-0/WARN] [dynamic_fps/]: Couldn't set up an optional client feature",
+		"java.lang.NoClassDefFoundError: org/lwjgl/glfw/GLFW",
+		"[09:14:09] [Server thread/INFO] [minecraft/DedicatedServer]: Done (7.113s)! For help, type \"help\"",
+		"[09:40:51] [Server thread/INFO] [minecraft/MinecraftServer]: PkBotBuilder joined the game",
+	}, "dynamic-fps-3.11.9+minecraft-26.2.0-neoforge.jar")
+	in.ExitCode = 137
+	if d := ExplainCrash(in); d.Kind != CrashKilled {
+		t.Fatalf("a client class the server started past was blamed: %s %s", d.Title, d.Explanation)
+	}
+}
+
+// A client class a mod only warned about, before another mod failed to
+// start, is passed over for the error that stopped the server; and a
+// client class error under the loader's own frames alone names no mod.
+func TestExplainCrashBlamesTheClientClassOnlyWhenItStoppedTheServer(t *testing.T) {
+	d := ExplainCrash(moddedCrash("neoforge", "26.2", []string{
+		"[09:14:02] [modloading-worker-0/WARN] [dynamic_fps/]: Couldn't set up an optional client feature",
+		"java.lang.NoClassDefFoundError: org/lwjgl/glfw/GLFW",
+		"[09:14:03] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: Farmer's Delight (farmersdelight) has failed to load correctly",
+		"java.lang.NullPointerException: Cannot invoke \"Object.toString()\" because \"x\" is null",
+		"[09:14:03] [main/FATAL] [ne.ne.fm.ModLoader/]: Mod loading has failed",
+	}, "dynamic-fps-3.11.9+minecraft-26.2.0-neoforge.jar", "FarmersDelight-26.2-1.3.0.jar"))
+	if d.Kind != CrashAddonFailed || d.Params["addon"] != "Farmer's Delight" {
+		t.Errorf("an earlier warning was blamed over the mod that failed: %s %v", d.Kind, d.Params)
+	}
+	d = ExplainCrash(moddedCrash("neoforge", "1.21.1", []string{
+		"[10:05:40] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server",
+		"java.lang.RuntimeException: Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER",
+		"\tat MC-BOOTSTRAP/fml_loader@4.0.24/net.neoforged.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57)",
+		"\tat TRANSFORMER/javafmllanguage@4.0.24/net.neoforged.fml.javafmlmod.FMLModContainer.constructMod(FMLModContainer.java:115)",
+	}, "sodium-neoforge-0.6.13+mc1.21.1.jar"))
+	if d.Kind != CrashIncompatibleAddon || d.Params["addon"] != nil || len(d.Fixes) != 0 {
+		t.Errorf("the loader's own module was named: %v %+v", d.Params, d.Fixes)
 	}
 }
 

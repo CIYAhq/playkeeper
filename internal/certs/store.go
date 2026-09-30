@@ -21,8 +21,8 @@ const maxStoreFiles = 64
 
 // StoreOptions configures a Store.
 type StoreOptions struct {
-	// Dir holds the certificates Issue saved, as "<name>.pem". A missing
-	// Dir holds none.
+	// Dir holds the certificates Issue saved, as "<name>.pem" ("_.<name>.pem"
+	// for a wildcard, *.<name>). A missing Dir holds none.
 	Dir string
 	// FallbackCert and FallbackKey are the PEM files of the certificate
 	// served when none in Dir fits, such as the panel's self-signed one for
@@ -39,10 +39,11 @@ type StoreOptions struct {
 
 // Store serves certificates to a TLS server by SNI: set tls.Config's
 // GetCertificate to Store.GetCertificate and leave Certificates empty. For
-// a name it serves a certificate from Dir that covers the name and is valid
-// now, the one valid longest if several do; otherwise, and for clients that
-// send no name (access by IP address), the fallback. It notices new,
-// renewed and removed files by itself.
+// a name it serves a certificate from Dir that covers the name, itself or
+// by a wildcard for the name above it, and is valid now, the one valid
+// longest if several do; otherwise, and for clients that send no name
+// (access by IP address), the fallback. It notices new, renewed and removed
+// files by itself.
 type Store struct {
 	opts      StoreOptions
 	state     atomic.Pointer[storeState]
@@ -96,7 +97,7 @@ func (s *Store) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, er
 
 // Trusted reports whether a client that trusts roots (nil: the system's)
 // accepts the certificate the store serves for name, now and still after
-// margin. Like the store, it matches the name exactly, never by a wildcard.
+// margin.
 func (s *Store) Trusted(name string, roots *x509.CertPool, margin time.Duration) bool {
 	s.maybeReload()
 	name, now := storeName(name), s.now()
@@ -134,7 +135,7 @@ func (st *storeState) serving(name string, now time.Time) *storeEntry {
 	var best *storeEntry
 	for i := range st.entries {
 		e := &st.entries[i]
-		if !slices.Contains(e.info.Names, name) || now.Before(e.info.NotBefore) || !now.Before(e.info.NotAfter) {
+		if !covers(e.info.Names, name) || now.Before(e.info.NotBefore) || !now.Before(e.info.NotAfter) {
 			continue
 		}
 		if best == nil || e.info.NotAfter.After(best.info.NotAfter) {
@@ -142,6 +143,17 @@ func (st *storeState) serving(name string, now time.Time) *storeEntry {
 		}
 	}
 	return best
+}
+
+// covers reports whether a certificate for names serves name: one of them is
+// name, or a wildcard for the name just above it (*.example.com covers
+// alex.example.com, but not example.com or a.alex.example.com).
+func covers(names []string, name string) bool {
+	if slices.Contains(names, name) {
+		return true
+	}
+	_, above, ok := strings.Cut(name, ".")
+	return ok && slices.Contains(names, "*."+above)
 }
 
 // Loaded describes the certificates loaded from Dir, including any that
@@ -234,8 +246,8 @@ func (s *Store) reload(force bool) *storeState {
 }
 
 // scan lists the certificate files in Dir: regular files named after the
-// name they are for, "<name>.pem". The stamp changes whenever one of them
-// or the fallback is replaced.
+// name they are for, "<name>.pem" or "_.<name>.pem" for a wildcard. The stamp
+// changes whenever one of them or the fallback is replaced.
 func (s *Store) scan() (files []string, stamp string, err error) {
 	var b strings.Builder
 	for _, p := range []string{s.opts.FallbackCert, s.opts.FallbackKey} {
@@ -257,7 +269,7 @@ func (s *Store) scan() (files []string, stamp string, err error) {
 		if !ok || !e.Type().IsRegular() {
 			continue
 		}
-		if n, err := NormalizeName(stem); err != nil || n != stem {
+		if _, ok := stemName(stem); !ok {
 			continue
 		}
 		info, err := e.Info()
@@ -301,7 +313,7 @@ func loadEntry(dir, file string) (storeEntry, error) {
 		return storeEntry{}, fmt.Errorf("%s: %w", path, err)
 	}
 	info := certificateInfo(path, cert.Leaf)
-	if name := strings.TrimSuffix(file, ".pem"); !slices.Contains(info.Names, name) {
+	if name, _ := stemName(strings.TrimSuffix(file, ".pem")); !slices.Contains(info.Names, name) {
 		return storeEntry{}, fmt.Errorf("%s: the certificate does not cover %s", path, name)
 	}
 	return storeEntry{cert: cert, info: info}, nil

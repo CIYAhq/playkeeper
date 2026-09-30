@@ -1,6 +1,10 @@
 package api
 
-import "time"
+import (
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/dnszone"
+)
 
 // Wave 7 (0.4.0): schedules, sleep when nobody's playing, backup rules with
 // copies somewhere else, and disk space. The routes' own shapes come from the
@@ -54,12 +58,15 @@ type BackupRefusal struct {
 // take on the machine between them, counted as the Disk space page counts
 // it. UsedBytes, in answers, is what they take at the last scan.
 // CPUMilliPerGB, when set, caps each of the servers' processor use at that
-// many thousandths of a core for each GB of its memory.
+// many thousandths of a core for each GB of its memory. Hold, when set,
+// keeps the servers from starting, whoever or whatever asks, and says why,
+// as when the customer's plan has ended.
 type DiskLimit struct {
 	ID            string   `json:"id"`
 	LimitBytes    int64    `json:"limitBytes"`
 	Servers       []string `json:"servers"`
 	CPUMilliPerGB int      `json:"cpuMilliPerGB,omitempty"`
+	Hold          string   `json:"hold,omitempty"`
 	UsedBytes     int64    `json:"usedBytes"`
 }
 
@@ -68,3 +75,54 @@ type DiskLimitsRequest struct {
 	Limits []DiskLimit `json:"limits"`
 	Actor  string      `json:"actor"`
 }
+
+// DNSZoneRequest sets the zone the machine answers DNS for, as the
+// dashboard builds it for port-free addresses (see internal/dnszone). A
+// zone with no name turns the answers off. The machine numbers its versions
+// itself.
+type DNSZoneRequest struct {
+	Zone  dnszone.Zone `json:"zone"`
+	Actor string       `json:"actor"`
+}
+
+// DNSZoneStatus is the zone a machine answers DNS for, the addresses it
+// answers on, and what keeps it from answering on others, if anything.
+type DNSZoneStatus struct {
+	Zone      dnszone.Zone `json:"zone"`
+	Listening []string     `json:"listening"`
+	Problem   string       `json:"problem,omitempty"`
+}
+
+// DNSAnswers is whether the dashboard's machine answers DNS for its own
+// domain, for port-free addresses, and what the owner adds for it at the
+// domain's parent.
+type DNSAnswers struct {
+	// On is the owner's switch.
+	On bool `json:"on"`
+	// Zone is the machine's own domain and Nameserver the name its parent
+	// delegates it to. Unavailable says why the machine can't answer for its
+	// address, when it can't (the DNSUnavailable reasons).
+	Zone        string `json:"zone,omitempty"`
+	Nameserver  string `json:"nameserver,omitempty"`
+	Unavailable string `json:"unavailable,omitempty"`
+	// Add are the records the owner adds at the parent's DNS, and Remove
+	// the ones there that the zone takes over.
+	Add    []DNSRecord `json:"add"`
+	Remove []DNSRecord `json:"remove"`
+	// Answering is the zone the machine answers now, if any, and Servers
+	// how many servers have an SRV record in it; Listening and Problem are
+	// its DNSZoneStatus's.
+	Answering string   `json:"answering,omitempty"`
+	Servers   int      `json:"servers"`
+	Listening []string `json:"listening"`
+	Problem   string   `json:"problem,omitempty"`
+}
+
+// Why the dashboard's machine can't answer DNS for its address
+// (DNSAnswers.Unavailable): it has no own domain, the domain isn't a name
+// under another that could delegate it, or its IP address isn't known.
+const (
+	DNSUnavailableOwnDomain = "own_domain"
+	DNSUnavailableSubdomain = "subdomain"
+	DNSUnavailableAddress   = "address"
+)

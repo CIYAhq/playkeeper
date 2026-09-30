@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import type { ServerStatus } from '@/api/types'
 import { addonKind, addonTab } from '@/lib/addons'
 import { navigate, type ServerSub } from '@/lib/router'
+import { PluginKeyDialog } from './ai-key'
 import { BrowseView } from './browse'
 import { DetailSheet } from './detail'
 import { JobDialog, RemoveDialog, UpdateAskDialog } from './dialogs'
@@ -33,6 +34,7 @@ export function PluginsPage({ server, tab, sub }: { server: ServerStatus; tab: A
       <RemoveDialog />
       <UpdateAskDialog />
       <VoiceChatDialog />
+      <PluginKeyDialog />
     </AddonsProvider>
   )
 }

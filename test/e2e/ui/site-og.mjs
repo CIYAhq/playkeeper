@@ -1,8 +1,10 @@
 // Social previews for playkeeper.io (site/static/og): 1200 × 630 PNGs with
 // the page's title and Pip on pixel ground, drawn from the site's own art.
-// The 0.4.0 post's preview is its cover; the live demo's goes with the demo,
-// which serves it itself (web/src/demo/vite.ts). The titles are Inter
-// ExtraBold, so draw them where Inter has that weight. Run from test/e2e/ui:
+// A page with a film can show a still from it where Pip goes, as the AI build
+// battle's does. The 0.4.0 post's preview is its cover; the live demo's goes
+// with the demo, which serves it itself (web/src/demo/vite.ts). The titles
+// are Inter ExtraBold, so draw them where Inter has that weight. Run from
+// test/e2e/ui:
 //   node site-og.mjs            (writes ../../../site/static/og/*.png)
 //   node site-og.mjs demo docs  (draws only those)
 import { chromium } from '@playwright/test'
@@ -12,7 +14,8 @@ import { fileURLToPath } from 'node:url'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const out = path.join(repo, 'site/static/og')
-const art = (p) => 'data:image/svg+xml;base64,' + fs.readFileSync(path.join(repo, p)).toString('base64')
+const types = { '.svg': 'image/svg+xml', '.webp': 'image/webp', '.png': 'image/png' }
+const art = (p) => `data:${types[path.extname(p)]};base64,` + fs.readFileSync(path.join(repo, p)).toString('base64')
 
 const previews = {
   default: { title: 'Host your own Minecraft server. Online 24/7.', pip: 'pip-wave' },
@@ -22,6 +25,8 @@ const previews = {
   pterodactyl: { eyebrow: 'Compare', title: 'A Pterodactyl alternative for one VPS and a few friends', pip: 'pip-box' },
   'modded-minecraft-server': { eyebrow: 'Guide', title: 'How to make a modded Minecraft server', pip: 'pip-hardhat' },
   'add-mods-to-minecraft-server': { eyebrow: 'Guide', title: 'How to add mods to a Minecraft server', pip: 'pip-box' },
+  'fabric-server': { eyebrow: 'Guide', title: 'How to make a Fabric server', pip: 'pip-hardhat' },
+  'neoforge-server': { eyebrow: 'Guide', title: 'How to make a NeoForge server', pip: 'pip-hardhat' },
   'play-minecraft-with-friends': { eyebrow: 'Guide', title: 'How to play Minecraft Java with friends', pip: 'pip-cheer' },
   'can-java-and-bedrock-play-together': { eyebrow: 'Guide', title: 'Can Java and Bedrock play together?', pip: 'pip-search' },
   'minecraft-crossplay-server': { eyebrow: 'Guide', title: 'How to make a Minecraft crossplay server', pip: 'pip-hardhat' },
@@ -33,6 +38,7 @@ const previews = {
   'digitalocean-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on DigitalOcean', pip: 'pip-hardhat' },
   'vultr-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on Vultr', pip: 'pip-hardhat' },
   'port-forward-minecraft-server': { eyebrow: 'Guide', title: 'How to port forward a Minecraft server', pip: 'pip-hardhat' },
+  'make-a-minecraft-server': { eyebrow: 'Guide', title: 'How to make a Minecraft server', pip: 'pip-hardhat' },
   'start-a-minecraft-hosting-company': { eyebrow: 'Guide', title: 'How to start a Minecraft hosting company', pip: 'pip-box' },
   errors: { eyebrow: 'Guide', title: 'Minecraft server errors, and how to fix them', pip: 'pip-hurt' },
   'error-connection-refused': { eyebrow: 'Error fix', title: 'Connection refused: what it means, and the fix', pip: 'pip-hurt' },
@@ -43,10 +49,13 @@ const previews = {
   'error-agree-to-the-eula': { eyebrow: 'Error fix', title: 'You need to agree to the EULA: the fix', pip: 'pip-hurt' },
   'error-outdated-server': { eyebrow: 'Error fix', title: 'Outdated server or Incompatible client: the fix', pip: 'pip-hurt' },
   'error-timed-out': { eyebrow: 'Error fix', title: 'Timed out on a Minecraft server: what it means', pip: 'pip-hurt' },
+  'error-ticking-entity': { eyebrow: 'Error fix', title: 'Ticking entity: what the crash means, and the fix', pip: 'pip-hurt' },
+  'error-world-corrupted': { eyebrow: 'Error fix', title: 'Minecraft world corrupted: what the server says, and the fix', pip: 'pip-hurt' },
   docs: { eyebrow: 'Docs', title: 'Playkeeper docs', pip: 'pip-letter' },
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
   t: { eyebrow: 'Server template', title: 'A Minecraft server setup, shared from Playkeeper', pip: 'pip-search' },
+  'ai-build-battle': { eyebrow: 'Server template', title: 'The AI build battle, on your own server', still: 'site/static/film/ai-build-battle-poster.webp' },
   demo: { eyebrow: 'Live demo', title: 'Try the dashboard in your browser', pip: 'pip-wave', file: 'web/src/demo/social.png' },
   tools: { eyebrow: 'Free tools', title: 'Free Minecraft server tools', pip: 'pip-box' },
   'server-icon': { eyebrow: 'Free tool', title: 'Minecraft server icon maker', pip: 'pip-cheer' },
@@ -68,14 +77,16 @@ const page = (p) => `<!doctype html><html><head><style>
   .eyebrow { position: absolute; left: 72px; top: 196px; font-size: 22px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #166534; }
   h1 { position: absolute; left: 72px; top: 236px; width: 760px; margin: 0; font-size: 68px; line-height: 1.02; font-weight: 800; letter-spacing: -0.045em; }
   .pip { position: absolute; right: 120px; bottom: 96px; width: 230px; }
+  h1.beside { width: 480px; font-size: 60px; }
+  .still { position: absolute; right: 72px; top: 164px; width: 560px; height: 315px; object-fit: cover; border-radius: 18px; box-shadow: 0 2px 4px rgb(29 33 28 / 0.06), 0 24px 56px -20px rgb(29 33 28 / 0.32); }
   .ground { position: absolute; left: 0; right: 0; bottom: 0; height: 108px; background: url("${art('site/static/img/ground-hills.svg')}") repeat-x left bottom / 720px 108px; image-rendering: pixelated; }
   .url { position: absolute; right: 72px; top: 76px; font-size: 24px; color: #5c6157; font-weight: 500; }
 </style></head><body>
   <div class="brand"><img src="${art('web/src/assets/brand/playkeeper-mark.svg')}"><span>Playkeeper</span></div>
   <div class="url">playkeeper.io</div>
   ${p.frame ? '' : `${p.eyebrow ? `<div class="eyebrow">${p.eyebrow}</div>` : ''}
-  <h1${p.eyebrow ? '' : ' style="top:200px"'}>${p.title}</h1>
-  <img class="pip" src="${art(`web/src/assets/pip/${p.pip}.svg`)}">`}
+  <h1${p.still ? ' class="beside"' : ''}${p.eyebrow ? '' : ' style="top:200px"'}>${p.title}</h1>
+  ${p.still ? `<img class="still" src="${art(p.still)}">` : `<img class="pip" src="${art(`web/src/assets/pip/${p.pip}.svg`)}">`}`}
   <div class="ground"></div>
 </body></html>`
 

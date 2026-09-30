@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/addons/firstparty"
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/templates"
@@ -40,6 +41,8 @@ type fakeAgent struct {
 	// crossplaySlowDown makes the first crossplay operation fail with a
 	// reason that passes, after crossplay went on.
 	crossplaySlowDown bool
+	// more are add-on files the server lists after its usual three.
+	more []api.AddonFile
 }
 
 func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +107,7 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			{FileName: "CoreProtect.jar", Addon: &api.Addon{Source: "modrinth", ProjectID: "Lu3KuzdV", Slug: "coreprotect", Name: "CoreProtect", VersionNumber: "24.1"}},
 			{FileName: "Dep.jar", Addon: &api.Addon{Source: "modrinth", ProjectID: "P8hQ7pUj", Slug: "dep", Name: "A dependency", VersionNumber: "2.0", DependencyOf: "Lu3KuzdV"}},
 		}
+		files = append(files, f.more...)
 		if f.missing != "" {
 			files = slices.DeleteFunc(files, func(a api.AddonFile) bool { return a.Addon.Slug == f.missing })
 		}
@@ -291,6 +295,55 @@ func TestACheckRecordsWhatInstalled(t *testing.T) {
 	}
 	if len(agent.deleted) != 1 || !agent.deleted[0].ForgetKey || agent.deleted[0].Confirm != "check-survival" {
 		t.Errorf("the server wasn't removed with its key: %+v", agent.deleted)
+	}
+}
+
+const aiBuildBattle = `{
+  "playkeeperTemplate": 1,
+  "name": "AI Build Battle",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "1.21.8" },
+  "settings": {
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "playkeeper", "project": "ai-build-battle", "slug": "ai-build-battle", "name": "AI Build Battle", "latest": true }
+  ]
+}
+`
+
+// One of Playkeeper's own plugins is recorded with the licence its registry
+// gives and no downloads, since nothing counts them, and no source is asked
+// about it.
+func TestPlaykeepersOwnPluginIsRecordedFromItsRegistry(t *testing.T) {
+	fp := firstparty.Lookup("ai-build-battle")
+	jar, err := fp.Jar()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl, err := templates.Decode([]byte(aiBuildBattle))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &templateFile{path: filepath.Join(t.TempDir(), "ai-build-battle.json"), raw: []byte(aiBuildBattle), t: tpl}
+	agent := &fakeAgent{ready: true, log: []string{"[Server thread/INFO]: Done (9.02s)! For help, type \"help\""}, more: []api.AddonFile{
+		{FileName: jar.FileName, Addon: &api.Addon{Source: "playkeeper", ProjectID: fp.ID, Slug: fp.Slug, Name: fp.Name, VersionNumber: jar.Version}},
+	}}
+	c := newTestChecker(t, agent)
+	c.sources.hc = &http.Client{Transport: through{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("%s %s was requested", r.Method, r.URL)
+		http.Error(w, "no requests", http.StatusTeapot)
+	})}}
+	r := c.check(context.Background(), "ai-build-battle", f, false, false)
+	if r.Status != statusPassing {
+		t.Fatalf("got %s: %s", r.Status, r.Failure)
+	}
+	want := checks.Addon{Name: fp.Name, Source: "playkeeper", Slug: fp.Slug, Version: jar.Version, Licence: fp.License}
+	if len(r.Check.Addons) != 1 || r.Check.Addons[0] != want || want.Licence == "" {
+		t.Errorf("recorded %+v, want %+v", r.Check.Addons, want)
+	}
+	if err := r.Check.Valid(); err != nil {
+		t.Errorf("the check isn't one the site reads: %v", err)
 	}
 }
 

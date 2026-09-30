@@ -559,6 +559,8 @@ func (s *Server) hJoinAccept(w http.ResponseWriter, r *http.Request, _ *session)
 	detail := fmt.Sprintf("%s of %s", grant.Role, scopeText(grant.Servers, servers))
 	if !grant.Allowance.IsZero() {
 		detail = allowanceText(grant.Allowance)
+		// A creator's allowance is set aside on the dashboard's machine.
+		s.kickSaleRoom()
 	}
 	s.audit(inv.Actor(), "invite.accept", grant.Username, "succeeded", detail)
 	s.setSessionCookie(w, token)

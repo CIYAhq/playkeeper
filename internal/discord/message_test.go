@@ -101,6 +101,7 @@ func allKindsEvents() []Event {
 	return []Event{
 		Crashed("The server ran out of memory and was killed.", true),
 		Crashed("It crashed 3 times in 10 minutes.", false),
+		Repeating("The minecart at 6, 120, 6 crashes the server."),
 		{Kind: KindCrash, Detail: "It was meant to be off."},
 		StartFailed("Port 25565 is already in use by another program, so the server cannot accept players."),
 		Recovered(),
@@ -120,6 +121,7 @@ func TestAlertEmbedsReadWell(t *testing.T) {
 	want := []struct{ title, text string }{
 		{"Server crashed", "**Survival** stopped unexpectedly. Playkeeper is restarting it.\n\nThe server ran out of memory and was killed."},
 		{"Server crashed and stays off", "**Survival** kept crashing, so Playkeeper stopped restarting it. Open the dashboard to see what went wrong.\n\nIt crashed 3 times in 10 minutes."},
+		{"Server crashed and stays off", "**Survival** would crash the same way if it started again, so Playkeeper didn't restart it. Open the dashboard to see how to fix it.\n\nThe minecart at 6, 120, 6 crashes the server."},
 		{"Server crashed", "**Survival** stopped unexpectedly. Open the dashboard to see what went wrong.\n\nIt was meant to be off."},
 		{"Server didn't start", "Playkeeper couldn't start **Survival**, so it stopped trying. Open the dashboard to see what went wrong.\n\nPort 25565 is already in use by another program, so the server cannot accept players."},
 		{"Back online", "**Survival** is running again after the crash."},

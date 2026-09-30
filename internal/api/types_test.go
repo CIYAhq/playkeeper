@@ -57,7 +57,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"Address": Address{}, "AddressCheck": AddressCheck{}, "AddressPlan": AddressPlan{}, "AddrRecord": AddrRecord{},
 		"CertificateStatus": CertificateStatus{}, "DNSRecord": DNSRecord{}, "FreeAddress": FreeAddress{}, "JoinAddress": JoinAddress{},
 		"NameAvailability": NameAvailability{}, "NamesService": NamesService{}, "Note": Note{}, "SRVParts": SRVParts{},
-		"NameCheck": NameCheck{}, "RecordCheck": RecordCheck{}, "CertificateProblem": CertificateProblem{},
+		"NameCheck": NameCheck{}, "RecordCheck": RecordCheck{}, "CertificateProblem": CertificateProblem{}, "Dashboard443": Dashboard443{},
 		"Challenge": twofactor.Challenge{}, "SignInNotice": twofactor.Notice{}, "TwoFactorSetup": twofactor.Setup{}, "TwoFactorStatus": twofactor.Status{},
 		"Crash": Crash{}, "CrashLine": CrashLine{}, "DiagnosisAction": DiagnosisAction{}, "DiagnosisEvidence": DiagnosisEvidence{}, "FileRefusal": FileRefusal{},
 		"LagCause": LagCause{}, "MemoryAdvice": MemoryAdvice{}, "MemoryDay": MemoryDay{}, "MemoryOption": MemoryOption{}, "Running": Running{},
@@ -81,12 +81,12 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"MemoryBudget": MemoryBudget{}, "MemorySizing": MemorySizing{}, "MemorySuggestion": MemorySuggestion{},
 		"LinkProblem": machinelink.Problem{}, "MachineLink": machinelink.Status{},
 		"Files": Files{}, "FileEntry": FileEntry{}, "FileInfo": FileInfo{}, "FileContent": FileContent{}, "FileUpload": FileUpload{}, "FileUploadFile": FileUploadFile{},
-		"FileDeleteResult": FileDeleteResult{},
+		"FileDeleteResult": FileDeleteResult{}, "AIKeys": AIKeys{}, "AIKey": AIKey{},
 	}
 	// Fields the panel adds to what the agent sends, and rttMs, which
 	// machinelink.Status's MarshalJSON adds.
 	addedByPanel := map[string]bool{
-		"ServerStatus.machineId": true, "ServerStatus.lastKnownAt": true, "ServerStatus.disputed": true, "ServerStatus.unsaved": true,
+		"ServerStatus.machineId": true, "ServerStatus.lastKnownAt": true, "ServerStatus.disputed": true, "ServerStatus.unsaved": true, "ServerStatus.zoneAddress": true, "ServerStatus.moving": true,
 		"AuditEntry.source": true, "AuditEntry.machineId": true, "AuditEntry.actorKind": true, "AuditEntry.actorName": true,
 		"Activity.actorKind": true, "Activity.actorName": true, "MachineLink.rttMs": true,
 	}
@@ -134,9 +134,9 @@ func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	codes := map[string]bool{}
 	sent := []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer,
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
-		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed, CodeWhopKeyRefused, CodeWhopPermissions, CodeWhopOtherSeller, CodeHetznerTokenRefused,
+		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed, CodeWhopKeyRefused, CodeWhopPermissions, CodeWhopOtherSeller, CodeWhopToken, CodeWhopNotTeam, CodeWhopNotApproved, CodeHetznerTokenRefused,
 		diskusage.CodeDiskSpace, diskusage.CodeRestoresUnknown, retention.CodeEstimateOff,
-		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout, CodeWorldInUse, CodeFileChanged}
+		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout, CodeWorldInUse, CodeFileChanged, CodePortInUse}
 	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName,
 		gamefiles.KindExists, gamefiles.KindIntoItself} {
 		sent = append(sent, string(k))

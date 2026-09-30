@@ -18,7 +18,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   post: vi.fn(() => Promise.resolve({})),
 }))
 
-const everything: Action[] = ['view', 'servers.run', 'players.manage', 'servers.manage']
+const everything: Action[] = ['view', 'servers.run', 'players.manage', 'servers.manage', 'machines.view']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',
@@ -204,6 +204,21 @@ describe('the public page’s Bedrock line', () => {
     await render(<PublicServerPage />, undefined, { [serverPageApi]: page({}) })
     expect(document.body.textContent).toContain('Server address')
     expect(document.body.textContent).not.toContain('Bedrock')
+  })
+})
+
+describe('the public page at the dashboard’s own address', () => {
+  const page = (): PublicPage => ({
+    address: 'alex.playkeeper.me',
+    servers: [{ slug: 'survival', name: 'Survival', motd: 'Hi', address: 'alex.playkeeper.me', state: 'online', minecraftVersion: '26.2', type: 'paper', inviteOnly: false, hasIcon: false }],
+  })
+
+  it('offers the dashboard’s sign-in, and only there', async () => {
+    await render(<PublicServerPage signIn />, undefined, { [serverPageApi]: page() })
+    const link = [...document.querySelectorAll('a')].find((a) => a.textContent === 'Sign in')
+    expect(link?.getAttribute('href')).toBe('/login')
+    await render(<PublicServerPage />, undefined, { [serverPageApi]: page() })
+    expect([...document.querySelectorAll('a')].some((a) => a.textContent === 'Sign in')).toBe(false)
   })
 })
 

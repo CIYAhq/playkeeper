@@ -1,0 +1,135 @@
+{{/*
+path: /guides/fabric-server
+title: How to make a Fabric server: download and setup (Minecraft 26.3)
+description: Make a Fabric server: download the server jar from Fabric, start it on Java 25, add Fabric API and mods, and let friends join. Tested on Minecraft 26.3.
+label: Fabric server
+h1: How to make a Fabric server (Minecraft 26.3)
+card: How to make a Fabric server
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: fabric-server
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Download the server launcher for your Minecraft version from fabricmc.net, put it in an empty folder and run it with Java: Java 25 for Minecraft 26.1 and newer. It downloads Minecraft and stops at the EULA; set eula=true and run it again. Then put mods made for Fabric and your version in the mods folder, with Fabric API, which most mods need.{{end}}
+
+{{define "closing-title"}}A Fabric server, without the jar hunting.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper sets up Fabric on your VPS and adds mods from Modrinth in one click.{{end}}
+
+{{define "side-text"}}Playkeeper sets up Fabric on your VPS and adds mods from Modrinth in one click.{{end}}
+
+{{define "article"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+<section aria-labelledby="download">
+  {{template "h2n" (dict "ID" "download" "N" 1 "Text" "Download the server launcher" "Toc" "Download")}}
+  <p>Fabric's server page, fabricmc.net/use/server, offers an Executable Server (.jar) for each Minecraft version. It's a small launcher that downloads Minecraft and the Fabric Loader the first time it runs. For Minecraft 26.3, with Fabric Loader 0.19.5 and installer 1.1.2, it's a 182 KB file named after those three versions.</p>
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Pick your Minecraft version" "Text" "The page starts on the newest release, with the newest stable loader and installer. Loader 0.19.5 ran our 26.3, 26.1 and 1.21.1 servers alike.")
+    (dict "Title" "Download it into an empty folder" "Text" "Everything the server makes goes in that folder: the world, the mods and the settings.")
+    (dict "Title" "Or fetch it from a terminal" "Text" "The page shows the same curl command as below, for your choice of versions.")
+  ))}}
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="How to install">
+        <button type="button" class="code-tab" role="tab" id="tab-launcher" aria-controls="code-launcher" aria-selected="true">Launcher</button>
+        <button type="button" class="code-tab" role="tab" id="tab-installer" aria-controls="code-installer" aria-selected="false" tabindex="-1">Installer</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-launcher" role="tabpanel" tabindex="0" aria-labelledby="tab-launcher"><span class="c"># An empty folder for the server</span>
+mkdir fabric-server &amp;&amp; cd fabric-server
+curl -OJ https://meta.fabricmc.net/v2/versions/loader/26.3/0.19.5/1.1.2/server/jar
+java -Xmx2G -jar fabric-server-mc.26.3-loader.0.19.5-launcher.1.1.2.jar nogui</pre>
+<pre id="code-installer" role="tabpanel" tabindex="0" aria-labelledby="tab-installer" hidden><span class="c"># The same with Fabric's installer, in two steps</span>
+curl -O https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.2/fabric-installer-1.1.2.jar
+java -jar fabric-installer-1.1.2.jar server -mcversion 26.3 -downloadMinecraft
+java -Xmx2G -jar fabric-server-launch.jar nogui</pre>
+  </div>
+  <p>The installer printed <code>Done, start server by running fabric-server-launch.jar</code>, and left that 616-byte file beside Minecraft's <code>server.jar</code>. Both ways start the same server.</p>
+</section>
+
+<section aria-labelledby="start">
+  {{template "h2n" (dict "ID" "start" "N" 2 "Text" "Start it, and accept the EULA" "Toc" "First start")}}
+  <p>Minecraft 26.1 and newer need Java 25, 1.21 needs Java 21, and 1.20.1 Java 17. On Java 21, our 26.3 server stopped at once:</p>
+  <div class="error-card reveal">
+    <h3>Fabric 26.3 started on Java 21</h3>
+    <code class="err">java.lang.UnsupportedClassVersionError: net/minecraft/bundler/Main has been compiled by a more recent version of the Java Runtime (class file version 69.0), this version of the Java Runtime only recognizes class file versions up to 65.0</code>
+    <p>{{template "icon" "arrow-right"}}Class file version 69 is Java 25, and 65 is Java 21. Install Java 25 and start it again.</p>
+  </div>
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Run it once" "Text" "Ours downloaded Minecraft and Fabric's libraries, about 130 MB, in 7 seconds, then stopped with You need to agree to the EULA in order to run the server.")
+    (dict "Title" "Accept the EULA" "Text" "Open eula.txt, change eula=false to eula=true, and save it.")
+    (dict "Title" "Run it again" "Text" "The log names Fabric: Loading Minecraft 26.3 with Fabric Loader 0.19.5. Ours was ready 7 seconds after it started, and used about 690 MB of memory with nobody on.")
+  ))}}
+  <p>Players connect on port 25565. If they're not on your network, <a href="/guides/port-forward-minecraft-server">port forwarding</a> covers the router and the firewall.</p>
+</section>
+
+<section aria-labelledby="mods">
+  {{template "h2n" (dict "ID" "mods" "N" 3 "Text" "Add Fabric API and mods" "Toc" "Add mods")}}
+  <p>The first start makes a <code>mods</code> folder. Download mods marked for Fabric and your exact Minecraft version, from Modrinth or CurseForge, into it, and restart. Fabric's own page says most mods need Fabric API too, and it's one file.</p>
+  <p>With Fabric API, Lithium and FerriteCore, our server logged <code>Loading 44 mods</code>. Fabric API alone is 38 of them, itself and its 37 modules, and the loader, Minecraft and Java count too. It used about 670 MB with nobody on.</p>
+  <div class="error-card reveal">
+    <h3>A mod that needs Fabric API, without it</h3>
+    <code class="err">[15:50:34] [main/ERROR]: Incompatible mods found!
+net.fabricmc.loader.impl.FormattedException: Some of your mods are incompatible with the game or each other!
+A potential solution has been determined, this may resolve your problem:
+  - Install fabric-api, any version.
+More details:
+  - Mod 'Chunky' (chunky) 1.5.3 requires any version of fabric-api, which is missing!</code>
+    <p>{{template "icon" "arrow-right"}}Add Fabric API for your Minecraft version.</p>
+  </div>
+  <div class="error-card reveal">
+    <h3>A mod made for another Minecraft version</h3>
+    <code class="err">  - Mod 'Lithium' (lithium) 0.25.3+mc26.2 requires any version between 26.2 (inclusive) and 26.3- (exclusive) of 'Minecraft' (minecraft), but only the wrong version is present: 26.3!</code>
+    <p>{{template "icon" "arrow-right"}}Download the file made for your version. Both errors stopped the server before it loaded the world.</p>
+  </div>
+  <p>A mod for players' games only is no harm: we added Sodium, and the server loaded the same 44 mods and started, without a word about it. Sodium's own file marks it client-only. On NeoForge the same mod stopped the server: <a href="/guides/neoforge-server">what NeoForge said</a>.</p>
+</section>
+
+<section aria-labelledby="players">
+  {{template "h2n" (dict "ID" "players" "N" 4 "Text" "What players need" "Toc" "Players")}}
+  <p>It depends on the mods. Our test client, which has no mods at all, tried to join:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Mods on the server</th><th scope="col">A player with the plain game</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Fabric API, Lithium and FerriteCore, on 26.1 and on 1.21.1</th><td>Joined</td></tr>
+        <tr><th scope="row">The same, and Nature's Compass, which adds an item, on 26.1</th><td>Turned away: This server requires Fabric Loader and Fabric API installed on your client!</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The message went on to name the mod, under The following registry entry namespaces may be related: <code>naturescompass</code>. So players need Fabric Loader, Fabric API and the same version of every mod that adds blocks, items or mobs. Mods that only change the server, like Lithium, they can go without.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 5 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent, and sets up Fabric for you. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  <ol class="steps shot-steps">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">1</span><div><h3 class="step-title">Choose Fabric and a version</h3><p>New server lists the Minecraft versions Fabric supports, from 1.20.1 on, with the newest loader, and runs each on the Java it needs. The loader and its libraries are checked against the checksums Fabric publishes.</p></div></li>
+    <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div><h3 class="step-title">Add mods from the Mods tab</h3><p>It lists Modrinth's mods for Fabric and your version, and adds what a mod needs, like Fabric API, with it. Each file is checked against Modrinth's checksum.</p></div></li>
+  </ol>
+  {{template "cardshot" (dict "Name" "guide-mods-tab" "Alt" "The Mods tab: mods added by hand, with what friends need of each, and the modpack's own mods." "Sizes" $article)}}
+  <ol class="steps" start="3">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div><h3 class="step-title">Share the mods with friends</h3><p>Share with friends makes one link to a page with a file for the Modrinth App or Prism Launcher. Server-only mods stay out of it.</p></div></li>
+  </ol>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Where do I download the Fabric server jar?" "From fabricmc.net/use/server: pick your Minecraft version and download the Executable Server (.jar). It's a launcher that downloads Minecraft and Fabric the first time it runs.")
+    (qa "Do I need Fabric API on the server?" "For most mods, yes. A mod that needs it stops the server with a message naming fabric-api, and it's one file in the mods folder.")
+    (qa "Can players join a Fabric server without Fabric?" "Yes, when every mod only changes the server, like Lithium. A mod that adds blocks or items turns them away until they install Fabric and the same mods.")
+    (qa "How much RAM does a Fabric server need?" `Ours used about 690 MB with nobody on and 2 GB allowed. Players, view distance and mods add to it: <a href="/sizing">the sizing guide</a> suggests a size.`)
+    (qa "Which Java does a Fabric server need?" "The one its Minecraft version needs: Java 25 for 26.1 and newer, 21 for 1.21, and 17 for 1.20.1.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/add-mods-to-minecraft-server" "/guides/modded-minecraft-server" "/sizing")}}{{end}}

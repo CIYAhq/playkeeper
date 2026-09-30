@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -91,6 +92,8 @@ type server struct {
 	crashes         []time.Time
 	crashed         bool
 	runCrashed      bool // a run crashed and the server hasn't been online since; a failed automatic start sets only crashed
+	repeats         bool // the crash repeats at every start, so nothing starts the server until someone does
+	runs            int  // starts so far; a crash a start came after while it was explained no longer holds the server
 	runReady        bool // this agent has taken the current run's "Done" line
 	crash           *api.Crash
 	recovered       *api.Crash // the crash an automatic restart brought the server back from
@@ -102,6 +105,7 @@ type server struct {
 	listExtra       map[string]int
 	uuids           map[string]string
 	nextAutoRestart time.Time
+	startOwed       bool // the reconcile loop decided to start the server after it stopped without crashing, and tries again until a start begins
 	worldBytes      int64
 	worldAt         time.Time
 	// sampled is the state the latest sample recorded (online, starting,
@@ -264,13 +268,7 @@ func (s *server) startLoops() {
 }
 
 func newServerID() string {
-	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
-	b := make([]byte, 10)
-	_, _ = rand.Read(b)
-	for i := range b {
-		b[i] = alphabet[int(b[i])%len(alphabet)]
-	}
-	return string(b)
+	return randomLetters(10)
 }
 
 // validName checks a server name: 1 to 32 printable characters.
@@ -314,24 +312,45 @@ func slugFor(name string) string {
 	return out
 }
 
-// uniqueSlug and uniqueName pick a slug or name not used by another server.
-// A slug is not used by a server the dashboard shows from another machine
-// either (see hSlugsElsewhere).
+// uniqueSlug picks base, or base with a few random letters and digits after
+// it while another server has base: a number would tell a customer how
+// many servers have it. A slug is not used by a server the dashboard shows
+// from another machine either (see hSlugsElsewhere).
 func (a *Agent) uniqueSlug(base string) string {
 	elsewhere := a.slugsElsewhere()
-	for i := 1; ; i++ {
-		s := base
-		if i > 1 {
-			s = fmt.Sprintf("%s-%d", base, i)
-		}
-		if elsewhere[s] {
-			continue
-		}
+	free := func(s string) bool {
 		var n int
-		if a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE slug = ?`, s).Scan(&n) == nil && n == 0 {
+		return !elsewhere[s] && a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE slug = ?`, s).Scan(&n) == nil && n == 0
+	}
+	if free(base) {
+		return base
+	}
+	letters := a.opts.SlugLetters
+	if letters == nil {
+		letters = randomSlugLetters
+	}
+	for try := 1; try <= 100; try++ {
+		if s := base + "-" + letters(try); free(s) {
 			return s
 		}
 	}
+	return base + "-" + randomLetters(10)
+}
+
+// randomSlugLetters is what a slug another server has gets after it: a few
+// random letters and digits, whatever the try.
+func randomSlugLetters(int) string { return randomLetters(4) }
+
+// randomLetters is n random lower-case letters and digits, none easily
+// taken for another.
+func randomLetters(n int) string {
+	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return string(b)
 }
 
 // kvSlugsElsewhere holds the slugs of the servers the dashboard shows from
@@ -395,22 +414,62 @@ func (a *Agent) slugsElsewhere() map[string]bool {
 	return out
 }
 
-func (a *Agent) nameTaken(name, except string) bool {
+// nameTaken reports whether a server of account, other than except, has
+// name. Names are unique within an account, a customer's servers (see
+// api.CreateServerRequest), so a customer never learns another's.
+func (a *Agent) nameTaken(name, except, account string) bool {
 	var n int
-	_ = a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE lower(name) = lower(?) AND id != ?`, name, except).Scan(&n)
+	_ = a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE lower(name) = lower(?) AND id != ? AND account = ?`, name, except, account).Scan(&n)
 	return n > 0
 }
 
-func (a *Agent) defaultName() string {
-	for i := 1; ; i++ {
-		n := "My server"
-		if i > 1 {
-			n = fmt.Sprintf("My server %d", i)
-		}
-		if !a.nameTaken(n, "") {
-			return n
-		}
+// errNameTaken refuses name, which a server of account has.
+func errNameTaken(name, account string) error {
+	if account != "" {
+		return errConflict(fmt.Sprintf("You already have a server named %q.", name), "Pick another name.")
 	}
+	return errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+}
+
+// accountOf is the account server id is one of, or "".
+func (a *Agent) accountOf(id string) string {
+	var account string
+	_ = a.db.QueryRow(`SELECT account FROM servers WHERE id = ?`, id).Scan(&account)
+	return account
+}
+
+// validAccount checks an account a request names: a disk limit's id, or
+// empty for none.
+func validAccount(account string) error {
+	if account != "" && !reDiskLimitID.MatchString(account) {
+		return errInvalid("An account is named by its disk limit.")
+	}
+	return nil
+}
+
+// idTaken reports whether a server moved in may not have id here: one of
+// this machine's servers has it, or files of one are where its would go.
+// When that can't be told, it's taken.
+func (a *Agent) idTaken(id string) bool {
+	if a.serverByID(id) != nil {
+		return true
+	}
+	var n int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE id = ?`, id).Scan(&n); err != nil || n > 0 {
+		return true
+	}
+	_, err := os.Lstat(filepath.Join(a.cfg.DataDir, "servers", id))
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+// slugTaken reports whether one of this machine's servers has slug.
+func (a *Agent) slugTaken(slug string) bool {
+	var n int
+	return a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE slug = ?`, slug).Scan(&n) != nil || n > 0
+}
+
+func (a *Agent) defaultName(account string) string {
+	return a.uniqueName("My server", account)
 }
 
 // Memory and ports.
@@ -473,7 +532,12 @@ func (a *Agent) nextGamePort() (int, error) {
 }
 
 type newServerSpec struct {
+	// id and slug are those of a server moved in (see movein.go); empty
+	// gives a new id, and a slug from the name.
+	id, slug string
 	name     string
+	// account is the one it's one of (see nameTaken).
+	account  string
 	typ      string
 	config   api.ServerConfig
 	desired  string
@@ -500,9 +564,9 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 	}
 	name := spec.name
 	if name == "" {
-		name = a.defaultName()
-	} else if a.nameTaken(name, "") {
-		return nil, nil, errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+		name = a.defaultName(spec.account)
+	} else if a.nameTaken(name, "", spec.account) {
+		return nil, nil, errNameTaken(name, spec.account)
 	}
 	if err := a.validMemory(spec.config.MemoryMB, ""); err != nil {
 		return nil, nil, err
@@ -511,8 +575,17 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 	if err != nil {
 		return nil, nil, err
 	}
-	id := newServerID()
-	slug := a.uniqueSlug(slugFor(name))
+	id := spec.id
+	switch {
+	case id == "":
+		id = newServerID()
+	case a.idTaken(id):
+		return nil, nil, errConflict("This machine already has a server with that id, or its files.", "")
+	}
+	slug := spec.slug
+	if slug == "" || a.slugTaken(slug) {
+		slug = a.uniqueSlug(cmp.Or(slug, slugFor(name)))
+	}
 	cfgJSON, err := json.Marshal(spec.config)
 	if err != nil {
 		return nil, nil, err
@@ -525,8 +598,8 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 		return nil, nil, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, api.GameMinecraftJava, spec.typ, layoutV2, port, string(cfgJSON), spec.desired, pos, now.UnixMilli(), now.UnixMilli()); err != nil {
+	if _, err := tx.Exec(`INSERT INTO servers(id, name, slug, account, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, spec.account, api.GameMinecraftJava, spec.typ, layoutV2, port, string(cfgJSON), spec.desired, pos, now.UnixMilli(), now.UnixMilli()); err != nil {
 		return nil, nil, err
 	}
 	if spec.record != nil {
@@ -624,10 +697,33 @@ func (a *Agent) migrateSingleServer() error {
 }
 
 // deleteServer removes a stopped server's container, world, backups and
-// records. It runs as the server's last operation.
-func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) error {
+// records, all but the final backup keep asks for. It runs as the server's
+// last operation.
+func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string, keep keepFinal) error {
 	if err := s.stopServer(ctx, h); err != nil {
 		return err
+	}
+	var final *api.Backup
+	var unkept error
+	moved := false
+	if keep.days > 0 {
+		h.phase("keeping its final backup")
+		b, fresh, err := s.finalBackup(actor, keep.whole)
+		switch {
+		case err != nil && keep.whole:
+			// A move's copy: its folder is where the server went.
+			unkept = err
+		case err != nil:
+			return fmt.Errorf("%s wasn't deleted: %s", s.name(), sentence(clause(err)))
+		}
+		final = b
+		if fresh {
+			defer func() {
+				if !moved {
+					s.dropBackup(b)
+				}
+			}()
+		}
 	}
 	h.phase("deleting")
 	for _, name := range []string{s.containerName(), s.containerName() + "-setup"} {
@@ -639,15 +735,34 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	if err != nil {
 		return err
 	}
+	var kept *api.KeptBackup
+	if final != nil {
+		if kept, err = s.keep(final, keep); err != nil {
+			return err
+		}
+	}
 	// The world moves aside before anything is deleted, so a server whose
-	// files can't be moved keeps its backups.
+	// files can't be moved keeps its backups, and keeps no final one apart.
 	trash := s.dir() + ".deleting-" + s.now().UTC().Format("20060102-150405")
 	if err := renameDir(s.dir(), trash); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if kept != nil {
+			_, _ = s.db.Exec(`DELETE FROM kept_backups WHERE id = ?`, kept.ID)
+		}
 		return err
 	}
+	moved = true
+	// The owner's AI keys go first, whatever else can't be removed.
+	if err := removeSecretsDir(filepath.Join(trash, secretsFolder)); err != nil {
+		s.log.Warn("could not remove a deleted server's AI keys", "path", filepath.Join(trash, secretsFolder), "err", err)
+	}
+	deleted := 0
 	for _, b := range backups {
+		if kept != nil && b.ID == kept.ID {
+			continue
+		}
 		os.Remove(s.backupPath(b.FileName))
 		os.Remove(s.backupPath(b.FileName) + ".sha256")
+		deleted++
 	}
 	if err := os.RemoveAll(trash); err != nil {
 		s.log.Warn("could not remove a deleted server's files", "path", trash, "err", err)
@@ -694,7 +809,14 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	if wild != own {
 		s.forgetCertificate(wild)
 	}
-	s.audit(actor, "server.deleted", s.id, "succeeded", fmt.Sprintf("%d backup(s) deleted with it", len(backups)))
+	detail := fmt.Sprintf("%d backup(s) deleted with it", deleted)
+	switch {
+	case kept != nil:
+		detail += fmt.Sprintf(", its final backup %s kept until %s", kept.ID, kept.ExpiresAt.Format(time.DateOnly))
+	case unkept != nil:
+		detail += fmt.Sprintf(", no final backup kept, as its folder went where it moved: %s", clause(unkept))
+	}
+	s.audit(actor, "server.deleted", s.id, "succeeded", detail)
 	s.serversChanged()
 	return nil
 }

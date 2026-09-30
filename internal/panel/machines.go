@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,6 +103,9 @@ func failureOf(err error) (int, api.Error) {
 		return http.StatusConflict, api.Error{Error: "Two machines say they run this server, so the dashboard sends its requests to neither.",
 			Code: codeServerDisputed, Hint: "Remove the machine that shouldn't list it in Settings › Machines."}
 	}
+	if errors.Is(err, errServerMoving) {
+		return http.StatusConflict, api.Error{Error: serverMovingText, Code: codeServerMoving}
+	}
 	if errors.Is(err, errUnknownServer) {
 		return http.StatusNotFound, api.Error{Error: "Server not found.", Code: api.CodeNotFound}
 	}
@@ -129,8 +133,14 @@ func (s *Server) onMachineEvent(e machinelink.Event) {
 		s.machineEvent(e.MachineID, e.At, string(e.Kind), e.Actor, e.Address, e.Code)
 	}
 	switch e.Kind {
+	case machinelink.EventConnected, machinelink.EventDisconnected, machinelink.EventRemoved, machinelink.EventLeft:
+		// A machine that comes or goes brings or takes its room.
+		s.kickSaleRoom()
+	}
+	switch e.Kind {
 	case machinelink.EventConnected:
 		go s.carryUsageOff(e.MachineID)
+		s.movesReconnected(e.MachineID)
 	case machinelink.EventJoined:
 		s.audit(orUnknown(e.Actor), string(e.Kind), e.Name, "succeeded", "from "+e.Address)
 	case machinelink.EventJoinRefused:
@@ -144,6 +154,7 @@ func (s *Server) onMachineEvent(e machinelink.Event) {
 		if _, err := s.db.Exec(`UPDATE server_machines SET disputed_by = '' WHERE disputed_by = ?`, e.MachineID); err != nil {
 			s.log.Error("forget a removed machine's servers", "err", err)
 		}
+		s.rehomeStranded(context.Background())
 	}
 }
 
@@ -236,6 +247,15 @@ func (s *Server) hMachineRemove(w http.ResponseWriter, r *http.Request, sess *se
 	}
 	if m.Kind != remoteKind || s.hub == nil {
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "This is the dashboard's own machine, so it can't be removed.", "")
+		return
+	}
+	// Removing a machine places its customers again, which is the owner's to
+	// do, as moving them is.
+	if n, err := s.customersOn(r.Context(), m.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	} else if n > 0 && !sess.Access.owner() {
+		writeErr(w, http.StatusForbidden, api.CodeForbidden, "Only the owner removes a machine customers are on.", "")
 		return
 	}
 	if err := s.hub.Remove(r.Context(), m.ID, sess.User.Username); err != nil {
@@ -445,6 +465,11 @@ func (s *Server) hMachineLink(w http.ResponseWriter, r *http.Request, sess *sess
 		"sizingUrl": "https://playkeeper.io/sizing",
 		"available": s.hub != nil,
 	}
+	// AI agents connect where the dashboard's address is, without a port
+	// while it answers on port 443; machines keep dialing the panel's port.
+	if dash, err := s.dashboardURL(r.Context()); err == nil && dash != "" {
+		out["dashboard"] = dash
+	}
 	if s.hub != nil {
 		out["fingerprint"] = s.hub.Fingerprint()
 		out["joinPausedSeconds"] = int((s.hub.JoinPause() + time.Second - 1) / time.Second)
@@ -594,14 +619,29 @@ const codeServerDisputed = "server_disputed"
 
 // claimLocal records the servers the dashboard's own machine lists, taking
 // them over from joined machines, keeps their statuses for when its agent
-// stops answering, and forgets those it no longer lists. It writes only what
-// changed.
-func (s *Server) claimLocal(m machine, servers []map[string]any) {
-	s.listings.note(m.ID, servers)
+// stops answering, and forgets those it no longer lists whose records are
+// from up to listedAt, when the list was asked for. It writes only what
+// changed, and returns the servers it runs: a copy a move makes or leaves
+// is none (see hiddenCopies), and isn't noted as listed either, so no
+// request goes to it.
+func (s *Server) claimLocal(m machine, all []map[string]any, listedAt time.Time) []map[string]any {
+	copies, err := hiddenCopies(context.Background(), s.db, m.ID)
+	if err != nil {
+		s.log.Error("record server machines", "err", err)
+		return all
+	}
+	shown := slices.DeleteFunc(slices.Clone(all), func(sv map[string]any) bool {
+		id, _ := sv["id"].(string)
+		return copyHidden(copies, id, listedAt)
+	})
+	s.listings.note(m.ID, shown)
+	if err := s.forgetLeft(context.Background(), s.db, m.ID, listedAt); err != nil {
+		s.log.Error("record server machines", "err", err)
+	}
 	rows, err := s.db.Query(`SELECT server_id FROM server_machines WHERE machine_id = ?`, m.ID)
 	if err != nil {
 		s.log.Error("record server machines", "err", err)
-		return
+		return shown
 	}
 	had := map[string]bool{}
 	for rows.Next() {
@@ -613,7 +653,7 @@ func (s *Server) claimLocal(m machine, servers []map[string]any) {
 	rows.Close()
 	now := s.now()
 	listed := map[string]bool{}
-	for _, sv := range servers {
+	for _, sv := range shown {
 		id, _ := sv["id"].(string)
 		if !reMachineID.MatchString(id) {
 			continue
@@ -635,10 +675,11 @@ func (s *Server) claimLocal(m machine, servers []map[string]any) {
 		if listed[id] {
 			continue
 		}
-		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE server_id = ? AND machine_id = ?`, id, m.ID); err != nil {
+		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE server_id = ? AND machine_id = ? AND seen_at <= ?`, id, m.ID, millis(listedAt)); err != nil {
 			s.log.Error("record server machines", "err", err)
 		}
 	}
+	return shown
 }
 
 // takeServer gives a server to the dashboard's own machine.
@@ -813,10 +854,14 @@ var errMachineGone = errors.New("the machine was removed")
 // recordServers is claimServers' record in one transaction that takes the
 // write lock first. It returns the servers the machine runs and those it
 // newly disputes, or errMachineGone for a machine that is no longer joined.
-// A server whose record names a removed machine goes to this one, as when
-// the same host joins again. Only records from up to listedAt, when the
-// listing was asked for, can be forgotten, so a server made meanwhile keeps
-// its record.
+// A server listed that's surely a copy a move left on a machine since
+// removed is taken for that copy (adoptLeftCopy). Otherwise one whose record
+// names a removed machine goes to this one, as when the same host joins
+// again, unless a move left a copy of it on a machine removed too, which it
+// can't surely be told from: then, as for one another machine runs, this
+// machine disputes it. Only records from up to listedAt, when the listing
+// was asked for, can be forgotten, so a server made meanwhile keeps its
+// record.
 func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, now time.Time) (out []map[string]any, disputed []string, err error) {
 	ctx := context.Background()
 	err = s.immediate(ctx, func(c *sql.Conn) error {
@@ -830,10 +875,20 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 		case revoked != 0:
 			return errMachineGone
 		}
+		copies, err := hiddenCopies(ctx, c, m.ID)
+		if err != nil {
+			return err
+		}
+		if err := s.forgetLeft(ctx, c, m.ID, listedAt); err != nil {
+			return err
+		}
 		var runs, disputes []any
 		for _, sv := range servers {
 			id, _ := sv["id"].(string)
 			if !reMachineID.MatchString(id) {
+				continue
+			}
+			if copyHidden(copies, id, listedAt) {
 				continue
 			}
 			if len(runs)+len(disputes) == maxMachineServers {
@@ -844,29 +899,50 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 			if err != nil {
 				continue
 			}
-			var owner, disputedBy string
+			var owner, disputedBy, ownerKind string
 			var ownerActive bool
-			switch err := c.QueryRowContext(ctx, `SELECT sm.machine_id, sm.disputed_by, EXISTS(SELECT 1 FROM machines WHERE id = sm.machine_id AND revoked_at = 0)
-				FROM server_machines sm WHERE sm.server_id = ?`, id).Scan(&owner, &disputedBy, &ownerActive); {
+			switch err := c.QueryRowContext(ctx, `SELECT sm.machine_id, sm.disputed_by, EXISTS(SELECT 1 FROM machines WHERE id = sm.machine_id AND revoked_at = 0),
+				COALESCE((SELECT kind FROM machines WHERE id = sm.machine_id), '')
+				FROM server_machines sm WHERE sm.server_id = ?`, id).Scan(&owner, &disputedBy, &ownerActive, &ownerKind); {
 			case isNoRows(err):
 				if _, err := c.ExecContext(ctx, `INSERT INTO server_machines(server_id, machine_id, status, seen_at) VALUES(?,?,?,?)`, id, m.ID, string(b), millis(now)); err != nil {
 					return err
 				}
 			case err != nil:
 				return err
-			case owner != m.ID && !ownerActive:
-				if _, err := c.ExecContext(ctx, `UPDATE server_machines SET machine_id = ?, status = ?, seen_at = ?, disputed_by = '' WHERE server_id = ?`, m.ID, string(b), millis(now), id); err != nil {
+			case owner != m.ID:
+				ownerOnline := ownerActive && (ownerKind == localKind || s.hub.Connected(owner))
+				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerOnline)
+				if err != nil {
 					return err
 				}
-				s.log.Info("a machine takes over a server of a removed machine", "machine", m.ID, "server", id, "removed", owner)
-			case owner != m.ID:
+				if adopted {
+					continue
+				}
+				unsure := false
+				if !ownerActive {
+					if unsure, err = copiesLeftOnRemoved(ctx, c, id); err != nil {
+						return err
+					}
+				}
+				if !ownerActive && !unsure {
+					if _, err := c.ExecContext(ctx, `UPDATE server_machines SET machine_id = ?, status = ?, seen_at = ?, disputed_by = '' WHERE server_id = ?`, m.ID, string(b), millis(now), id); err != nil {
+						return err
+					}
+					s.log.Info("a machine takes over a server of a removed machine", "machine", m.ID, "server", id, "removed", owner)
+					break
+				}
 				disputes = append(disputes, id)
 				if disputedBy != m.ID {
 					if _, err := c.ExecContext(ctx, `UPDATE server_machines SET disputed_by = ? WHERE server_id = ?`, m.ID, id); err != nil {
 						return err
 					}
 					disputed = append(disputed, id)
-					s.log.Warn("a machine lists a server another machine runs", "machine", m.ID, "server", id, "runs on", owner)
+					if unsure {
+						s.log.Warn("a machine lists a server whose machine was removed, which can't surely be told from a copy a move left on a machine removed too", "machine", m.ID, "server", id)
+					} else {
+						s.log.Warn("a machine lists a server another machine runs", "machine", m.ID, "server", id, "runs on", owner)
+					}
 				}
 				continue
 			default:

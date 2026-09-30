@@ -1,4 +1,5 @@
 {
+  "ai-build-battle": { "art": "app/pixel-art/play-creative.svg", "categories": ["creative"], "added": "2026-09-30", "popularity": 0 },
   "atm10": { "art": "app/pixel-art/world-normal.svg", "mods": 464, "categories": ["kitchen-sink"], "added": "2026-09-28", "popularity": 3500 },
   "atm10-to-the-sky": { "art": "app/pixel-art/world-flat.svg", "mods": 316, "categories": ["skyblock", "kitchen-sink"], "added": "2026-09-28", "popularity": 450 },
   "atm9": { "art": "app/pixel-art/world-big-biomes.svg", "mods": 418, "categories": ["kitchen-sink"], "added": "2026-09-28", "popularity": 250 },
