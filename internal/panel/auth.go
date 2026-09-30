@@ -523,6 +523,12 @@ ALTER TABLE machines ADD COLUMN customers_by TEXT    NOT NULL DEFAULT '';
 	`
 ALTER TABLE machines ADD COLUMN customers_stopped_at INTEGER NOT NULL DEFAULT 0;
 `,
+	// The redirect URI each sign-in with Whop left with, which trading its
+	// code names again: the dashboard's address, or its address at the
+	// panel's port while Whop lists only that one (see signInRedirect).
+	`
+ALTER TABLE whop_signins ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
+`,
 }
 
 const (

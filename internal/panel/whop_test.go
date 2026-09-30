@@ -75,6 +75,9 @@ type fakeWhop struct {
 	grants          map[string]oauthGrant
 	revokedTokens   []string
 	noTokenExchange bool
+	// redirects are the redirect URLs the sign-in app lists; nil lists the
+	// dashboard's address at the panel's port alone.
+	redirects []string
 }
 
 // oauthGrant is one sign-in Whop approved: who, for which app and
@@ -124,6 +127,22 @@ func (f *fakeWhop) serveOAuth(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client", "error_description": why})
 	}
 	switch r.Method + " " + r.URL.Path {
+	case "GET /oauth/authorize":
+		// A browser leaving to sign in goes on to Whop's sign-in page, when
+		// the app lists the redirect URL it names.
+		q := r.URL.Query()
+		listed := f.redirects
+		if listed == nil {
+			listed = []string{whopDashboard + whopSignInCallback}
+		}
+		switch {
+		case q.Get("client_id") != whopTestApp:
+			refuse("invalid_request", "client_id is invalid")
+		case !slices.Contains(listed, q.Get("redirect_uri")):
+			refuse("invalid_request", "redirect_uri is invalid")
+		default:
+			http.Redirect(w, r, "https://whop.com/oauth/authorize?"+r.URL.RawQuery, http.StatusFound)
+		}
 	case "POST /oauth/token":
 		// Whop checks the app before the code, and wants the app's secret.
 		switch {
