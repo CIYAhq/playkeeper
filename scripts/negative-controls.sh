@@ -9725,6 +9725,10 @@ control "disk limits: a sync that counts has a split made from its counts at onc
   '			if split {' \
   '			if split && false {' \
   ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "disk limits: a count under way when a move ends doesn't stand for the count it asks for" internal/panel/disklimits.go \
+  '		if s.diskUse.recounts == recounts {' \
+  '		if s.diskUse.recounts == recounts || true {' \
+  ./internal/panel '^TestACountUnderWayWhenAMoveEndsIsntTakenForTheCountAfter$'
 control "moving customers: a sync of the disk limits during a switch doesn't leave the server out of its limit" internal/panel/disklimits.go \
   '		s.diskSending.Lock()
 		got, err := s.sendDiskLimits(ctx, m, in, count, "")
