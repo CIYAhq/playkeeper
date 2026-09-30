@@ -7001,7 +7001,7 @@ control "only the page's ports may frame the stream players" internal/panel/serv
   "\"+s.reachSource()+\"; font-src 'self'; object-src 'none';" \
   "\"+s.reachSource()+\"; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
   ./internal/panel '^TestThePageHasALiveShareCardAndMayFrameAStream$'
-# 0.4.12: the page of a server on a joined machine, which the dashboard's
+# 0.4.13: the page of a server on a joined machine, which the dashboard's
 # machine serves at the server's name: only while the machine says it's on
 # the page, that server alone, and nothing that says which machine runs it.
 control "joined page: a server's name answers only while its machine says it's on the page" internal/panel/joinedpage.go \

@@ -3171,7 +3171,7 @@ type PublicServer struct {
 	Board  *PublicBoard  `json:"board,omitempty"`
 }
 
-// PublicServerShown (from 0.4.12) is what the public page shows of one
+// PublicServerShown (from 0.4.13) is what the public page shows of one
 // server, for the page the dashboard serves at the name of a server on a
 // joined machine: where players join, Bedrock included, and the links'
 // addresses are the dashboard's to say, so Address, Bedrock, Map and Pack
