@@ -31,11 +31,11 @@
           "slug": "ai-build-battle",
           "name": "AI Build Battle",
           "pin": {
-            "versionId": "0.1.0",
-            "versionNumber": "0.1.0",
+            "versionId": "0.2.0",
+            "versionNumber": "0.2.0",
             "channel": "release",
             "hashAlgo": "sha256",
-            "hash": "c1fa520dff7269d295034e59dd19045aa0cb4d97efc0b58859f45e35089c23fa"
+            "hash": "c6a92af1e165992768acbb8d77b190455999091965fb2692569407014b853531"
           }
         }
       ]

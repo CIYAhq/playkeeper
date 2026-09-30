@@ -43,8 +43,12 @@ final class Session {
     private long startedAt;
     private long deadline;
     private BukkitTask barTask;
+    private volatile String result;
 
-    Session(AIBuildBattlePlugin plugin, World world, Frame frame, OpenRouter.Model model, String prompt, String requester, double capUSD, Settings settings) {
+    /** "A" or "B" in a battle, null for one build. */
+    private final String side;
+
+    Session(AIBuildBattlePlugin plugin, World world, Frame frame, OpenRouter.Model model, String prompt, String requester, double capUSD, Settings settings, String side) {
         this.plugin = plugin;
         this.world = world;
         this.frame = frame;
@@ -53,16 +57,38 @@ final class Session {
         this.requester = requester;
         this.capUSD = capUSD;
         this.settings = settings;
-        this.bar = BossBar.bossBar(Component.text(model.name()), 0f, BossBar.Color.GREEN, BossBar.Overlay.PROGRESS);
+        this.side = side;
+        this.bar = BossBar.bossBar(Component.text(model.name()), 0f, "B".equals(side) ? BossBar.Color.BLUE : BossBar.Color.GREEN, BossBar.Overlay.PROGRESS);
     }
 
     String modelName() {
         return model.name();
     }
 
+    String modelId() {
+        return model.id();
+    }
+
+    World world() {
+        return world;
+    }
+
+    /** The model's name, with its side in a battle: "A · Claude Sonnet 5.5". */
+    String who() {
+        return side == null ? model.name() : side + " · " + model.name();
+    }
+
     String status() {
-        return model.name() + " is building \"" + prompt + "\": step " + step + " of " + settings.buildCalls() + ", "
+        if (result != null) {
+            return who() + " is done: " + result + ".";
+        }
+        return who() + " is building \"" + prompt + "\": step " + step + " of " + settings.buildCalls() + ", "
                 + Text.count(placedTotal) + " blocks, " + Text.clock(System.currentTimeMillis() - startedAt) + ", " + Text.money(spent) + " of " + Text.money(capUSD) + ".";
+    }
+
+    /** How it went, once it ended: "4 steps, 3,678 blocks, 12:34, $0.30". */
+    String result() {
+        return result;
     }
 
     /** Main thread. */
@@ -79,9 +105,11 @@ final class Session {
             }
         }
         barTask = Bukkit.getScheduler().runTaskTimer(plugin, this::refreshBar, 0, 20);
-        plugin.announce(world, Component.text(requester + " asked ", NamedTextColor.GRAY)
-                .append(Component.text(model.name(), NamedTextColor.GREEN))
-                .append(Component.text(" to build \"" + prompt + "\".", NamedTextColor.GRAY)), false);
+        if (side == null) {
+            plugin.announce(world, Component.text(requester + " asked ", NamedTextColor.GRAY)
+                    .append(Component.text(model.name(), NamedTextColor.GREEN))
+                    .append(Component.text(" to build \"" + prompt + "\".", NamedTextColor.GRAY)), false);
+        }
         String system = Prompts.system(Bukkit.getMinecraftVersion(), settings, model.pictures());
         String user = Prompts.user(prompt);
         Agent agent = new Agent(plugin.api(), model, settings, plugin.ledger(), id, capUSD, apiKey);
@@ -144,7 +172,9 @@ final class Session {
             public void building(int n, String note) {
                 step = n;
                 phase = note.isEmpty() ? "Building" : note;
-                sync(() -> plugin.announce(world, Component.text("Step " + n + " of " + settings.buildCalls() + (note.isEmpty() ? "" : ": " + note), NamedTextColor.GRAY), false));
+                String line = "Step " + n + " of " + settings.buildCalls() + (note.isEmpty() ? "" : ": " + note);
+                sync(() -> plugin.announce(world, side == null ? Component.text(line, NamedTextColor.GRAY)
+                        : Component.text(who() + "  ", colour()).append(Component.text(line, NamedTextColor.GRAY)), false));
             }
 
             @Override
@@ -197,9 +227,13 @@ final class Session {
 
             @Override
             public void error(String message) {
-                sync(() -> plugin.announce(world, Component.text("OpenRouter: " + message, NamedTextColor.RED), true));
+                sync(() -> plugin.announce(world, Component.text((side == null ? "" : who() + ": ") + "OpenRouter: " + message, NamedTextColor.RED), true));
             }
         };
+    }
+
+    private NamedTextColor colour() {
+        return "B".equals(side) ? NamedTextColor.AQUA : NamedTextColor.GREEN;
     }
 
     private void sync(Runnable r) {
@@ -211,7 +245,7 @@ final class Session {
     private void refreshBar() {
         long elapsed = System.currentTimeMillis() - startedAt;
         String p = phase.equals("Thinking") ? "Thinking…" : phase;
-        bar.name(Component.text(model.name(), NamedTextColor.GREEN)
+        bar.name(Component.text(who(), colour())
                 .append(Component.text("  ·  " + (step == 0 ? "" : "Step " + step + " of " + settings.buildCalls() + "  ·  ") + p
                         + "  ·  " + Text.count(placedTotal) + " blocks  ·  " + Text.clock(elapsed) + "  ·  " + Text.money(spent), NamedTextColor.WHITE)));
         bar.progress((float) Math.max(0, Math.min(1, elapsed / (double) (deadline - startedAt))));
@@ -244,21 +278,23 @@ final class Session {
         String reason = r == null ? "failed" : r.reason();
         double cost = r == null ? spent : r.totals().cost;
         int builds = r == null ? step : r.builds();
+        String name = who();
         String head = switch (reason) {
-            case "called finish" -> model.name() + " called it done";
+            case "called finish" -> name + " called it done";
             case "stopped" -> "Stopped by " + (stoppedBy == null ? "an operator" : stoppedBy);
-            case "spend cap reached" -> model.name() + " stopped: its next step could pass this build's " + Text.money(capUSD) + " cap";
-            case "daily cap reached" -> model.name() + " stopped: its next step could pass today's " + Text.money(settings.perDayUSD()) + " cap";
-            case "time budget used up" -> model.name() + " ran out of its " + settings.minutes() + " minutes";
-            case "block budget used up" -> model.name() + " used all " + Text.count(settings.blocks()) + " blocks";
-            default -> model.name() + " stopped (" + reason + ")";
+            case "spend cap reached" -> name + " stopped: its next step could pass this build's " + Text.money(capUSD) + " cap";
+            case "daily cap reached" -> name + " stopped: its next step could pass today's " + Text.money(settings.perDayUSD()) + " cap";
+            case "time budget used up" -> name + " ran out of its " + settings.minutes() + " minutes";
+            case "block budget used up" -> name + " used all " + Text.count(settings.blocks()) + " blocks";
+            default -> name + " stopped (" + reason + ")";
         };
-        plugin.announce(world, Component.text(head + ": ", NamedTextColor.GREEN)
+        plugin.announce(world, Component.text(head + ": ", colour())
                 .append(Component.text(builds + (builds == 1 ? " step, " : " steps, ") + Text.count(placedTotal) + " blocks, "
                         + Text.clock(took) + ", " + Text.money(cost) + ".", NamedTextColor.GRAY)), false);
         if (r != null && r.summary() != null && !r.summary().isEmpty()) {
             plugin.announce(world, Component.text("\"" + r.summary() + "\"", NamedTextColor.GRAY), false);
         }
+        result = builds + (builds == 1 ? " step, " : " steps, ") + Text.count(placedTotal) + " blocks, " + Text.clock(took) + ", " + Text.money(cost);
         plugin.getLogger().info("AI build " + id + " (" + model.id() + ", \"" + prompt + "\") ended: " + reason + ", " + builds + " build calls, "
                 + placedTotal + " blocks, " + Text.clock(took) + ", $" + String.format(java.util.Locale.ROOT, "%.4f", cost)
                 + (r == null ? "" : ", " + r.totals().totalTokens + " tokens"));

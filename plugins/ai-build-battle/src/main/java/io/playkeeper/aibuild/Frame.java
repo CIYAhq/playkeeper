@@ -20,9 +20,20 @@ record Frame(int ox, int oy, int oz, BlockFace facing, int half, int height) {
 
     /** The plot {@code dist} blocks ahead of a player at x, z looking along yaw, turned so they see it from its south-east. */
     static Frame inFrontOf(double px, double pz, float yaw, int dist, int oy, int half, int height) {
+        return ahead(px, pz, yaw, dist, 0, oy, half, height);
+    }
+
+    /**
+     * A plot {@code dist} blocks ahead and {@code side} blocks to the right
+     * (left when negative) of a player at x, z looking along yaw, turned so
+     * they see it from its south-east.
+     */
+    static Frame ahead(double px, double pz, float yaw, int dist, int side, int oy, int half, int height) {
         double a = Math.toRadians(yaw);
-        int cx = (int) Math.floor(px - Math.sin(a) * dist);
-        int cz = (int) Math.floor(pz + Math.cos(a) * dist);
+        double lx = -Math.sin(a), lz = Math.cos(a);
+        // The player's right is the look direction turned a quarter clockwise, seen from above.
+        int cx = (int) Math.floor(px + lx * dist - lz * side);
+        int cz = (int) Math.floor(pz + lz * dist + lx * side);
         double vx = px - (cx + 0.5), vz = pz - (cz + 0.5);
         BlockFace north = vx >= 0 ? (vz >= 0 ? BlockFace.NORTH : BlockFace.WEST) : (vz >= 0 ? BlockFace.EAST : BlockFace.SOUTH);
         return new Frame(cx, oy, cz, north, half, height);

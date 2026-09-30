@@ -27,6 +27,20 @@ class FrameTest {
         }
     }
 
+    /** A battle's two plots: side by side ahead of the player, apart, each seen from its south-east. */
+    @Test
+    void aBattlesPlotsAreSideBySide() {
+        // Looking north from 0.5, 0.5: A to the north-west, B to the north-east.
+        Frame a = Frame.ahead(0.5, 0.5, 180, 60, -36, 64, 30, 80);
+        Frame b = Frame.ahead(0.5, 0.5, 180, 60, 36, 64, 30, 80);
+        assertEquals(-60, a.oz(), 1);
+        assertEquals(-60, b.oz(), 1);
+        assertTrue(a.ox() <= -35 && b.ox() >= 35, a.ox() + " " + b.ox());
+        assertTrue(b.ox() - a.ox() > 2 * 30 + 1, "the plots don't overlap");
+        assertEquals(BlockFace.NORTH, a.facing());
+        assertEquals(BlockFace.EAST, b.facing());
+    }
+
     /** Each turn maps the model's axes and block states onto the world. */
     @Test
     void theModelsSouthFacesThePlayer() {
