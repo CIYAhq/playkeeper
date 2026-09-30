@@ -196,6 +196,11 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	case "POST /webhooks":
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
+		if _, ok := body["api_version"]; ok {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"api_version is no longer supported. New webhooks always use the v1 events; pin payload shapes with api_version_date instead."}}`)
+			return
+		}
 		id := "hook_" + strings.Repeat("x", len(f.webhooks)+1)
 		body["id"] = id
 		f.webhooks[id] = body

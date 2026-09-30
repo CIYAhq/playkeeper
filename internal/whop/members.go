@@ -27,11 +27,12 @@ type Membership struct {
 }
 
 // HasAccess reports whether the membership grants access now: a trial, a
-// paid period, the grace period after a failed payment, or a one-time
-// purchase. Cancelled, expired and unresolved ones don't.
+// paid period, one cancelled that runs until its period ends, the grace
+// period after a failed payment, or a one-time purchase. Cancelled, expired,
+// unresolved and drafted ones don't.
 func (m Membership) HasAccess() bool {
 	switch m.Status {
-	case "trialing", "active", "past_due", "completed":
+	case "trialing", "active", "canceling", "past_due", "completed":
 		return true
 	}
 	return false
