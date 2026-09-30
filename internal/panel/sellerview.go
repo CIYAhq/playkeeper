@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/api"
 )
 
 // A seller's view of their store on Playkeeper Cloud (the hosted
@@ -155,6 +158,30 @@ func (s *Server) sellerStoreView(ctx context.Context, storeID string) (sellerVie
 		return sellerView{}, err
 	}
 	return v, nil
+}
+
+// hWhopSellerView is a seller's page reading the seller's view of their
+// store, as it does once the store is open: for the business's team alone,
+// with Whop's token, from the page itself.
+func (s *Server) hWhopSellerView(w http.ResponseWriter, r *http.Request, store string) {
+	if !fromSellerPage(r) {
+		writeErr(w, http.StatusForbidden, api.CodeForbidden, "Open this page inside your Whop dashboard.", "")
+		return
+	}
+	if _, err := s.sellerAuth(r, store); err != nil {
+		s.sellerRefusal(w, err)
+		return
+	}
+	v, err := s.sellerStoreView(r.Context(), store)
+	switch {
+	case errors.Is(err, errNoSellerView):
+		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Playkeeper Cloud doesn't sell for this business from this dashboard.", "")
+	case err != nil:
+		s.log.Error("could not read a seller's view of their store", "store", store, "err", err)
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+	default:
+		writeJSON(w, http.StatusOK, v)
+	}
 }
 
 // sellerPlans lists the store's plans that grant servers, as the store

@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -180,5 +181,109 @@ func TestAStoresEarningsAddUpByMonth(t *testing.T) {
 	}
 	if pip, err := e.srv.storeEarnings(ctx, testStore); err != nil || len(pip) != 0 {
 		t.Fatalf("Pip's earnings: %+v, %v", pip, err)
+	}
+}
+
+// viewAsSeller is the seller's page reading the seller's view of the store,
+// as it does through Whop's proxy: with the token, from the page itself.
+func (e *env) viewAsSeller(t *testing.T, biz, token string, hdr map[string]string) resp {
+	t.Helper()
+	h := map[string]string{whop.UserTokenHeader: token, "X-Requested-With": "playkeeper", "Sec-Fetch-Site": "same-origin", "Origin": ""}
+	for k, v := range hdr {
+		h[k] = v
+	}
+	return e.do(t, "GET", whopSellerPrefix+biz, "", h)
+}
+
+// sellerViewOf is the seller's view a page read.
+func sellerViewOf(t *testing.T, r resp) sellerView {
+	t.Helper()
+	var v sellerView
+	b, err := json.Marshal(r.body)
+	if err == nil {
+		err = json.Unmarshal(b, &v)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// Once a seller opened their store from their Whop dashboard, their page
+// reads the seller's view of it: closed until they open it, so its plan has
+// no stock; the customer who bought it, who waits to be set up meanwhile;
+// and what it earned. Before the store is open there's none.
+func TestASellersPageReadsTheirStoresView(t *testing.T) {
+	f, e := sellerEnv(t)
+	token := f.sellerToken(e, whopTestApp, "user_otherowner")
+	if r := e.viewAsSeller(t, "biz_other", token, nil); r.status != http.StatusNotFound || r.body["code"] != "not_found" {
+		t.Fatalf("before the store is open: %d %v", r.status, r.body)
+	}
+	if r := e.openAsSeller(t, "biz_other", token, nil); r.status != http.StatusOK {
+		t.Fatalf("opening the store: %d %v", r.status, r.body)
+	}
+	f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
+	e.reconcile()
+	paid := e.clock.now()
+	if err := e.srv.keepWhopPayment(t.Context(), whopPayment{ID: "pay_other1", Store: "biz_other", WhopUserID: "user_alex", PlanID: "plan_other", Currency: "usd", Amount: 1200, Share: 850, PaidAt: paid}); err != nil {
+		t.Fatal(err)
+	}
+	r := e.viewAsSeller(t, "biz_other", token, nil)
+	if r.status != http.StatusOK {
+		t.Fatalf("the view: %d %v", r.status, r.body)
+	}
+	v := sellerViewOf(t, r)
+	if v.Store.ID != "biz_other" || v.Store.Title != "Other Hosting" || v.Store.State != "closed" || v.Store.Why != whopNotOpenYetWhy {
+		t.Fatalf("the store: %+v", v.Store)
+	}
+	if len(v.Plans) != 1 || v.Plans[0].ID != "plan_other" || v.Plans[0].Customers != 1 || v.Plans[0].Servers != 1 || v.Plans[0].MemoryMB != 4096 || v.Plans[0].Stock != 0 || v.Plans[0].UnlimitedStock {
+		t.Fatalf("the plans: %+v", v.Plans)
+	}
+	if len(v.Customers) != 1 || v.Customers[0].Handle == "" || v.Customers[0].Status != "starting" {
+		t.Fatalf("the customers: %+v", v.Customers)
+	}
+	want := []sellerMonth{{Month: paid.UTC().Format("2006-01"), Currency: "usd", Sales: 1200, Share: 850, Kept: 350}}
+	if !slices.Equal(v.Earnings, want) {
+		t.Fatalf("the earnings: %+v", v.Earnings)
+	}
+}
+
+// Only the business's team reads its store's view, only through Whop's
+// proxy with the app's token, only from the page itself, and only by GET.
+func TestOnlyTheBusinesssTeamReadsItsStoresView(t *testing.T) {
+	f, e := sellerEnv(t)
+	owner := f.sellerToken(e, whopTestApp, "user_otherowner")
+	if r := e.openAsSeller(t, "biz_other", owner, nil); r.status != http.StatusOK {
+		t.Fatalf("opening the store: %d %v", r.status, r.body)
+	}
+	f.buyAt("biz_other", "mem_other1", "user_alex", "plan_other", "active")
+	for name, c := range map[string]struct {
+		biz, token string
+		hdr        map[string]string
+		status     int
+		code       string
+	}{
+		"no token":            {"biz_other", "", nil, http.StatusUnauthorized, "whop_token"},
+		"another app's token": {"biz_other", f.sellerToken(e, "app_someoneelse", "user_otherowner"), nil, http.StatusUnauthorized, "whop_token"},
+		"a buyer":             {"biz_other", f.sellerToken(e, whopTestApp, "user_alex"), nil, http.StatusForbidden, "whop_not_team"},
+		"another business":    {"biz_pip", owner, nil, http.StatusForbidden, "whop_not_team"},
+		"not from the page":   {"biz_other", owner, map[string]string{"X-Requested-With": ""}, http.StatusForbidden, "forbidden"},
+		"from another site":   {"biz_other", owner, map[string]string{"Sec-Fetch-Site": "cross-site"}, http.StatusForbidden, "forbidden"},
+		"not a business":      {"user_otherowner", owner, nil, http.StatusNotFound, ""},
+		"a path under it":     {"biz_other/", owner, nil, http.StatusNotFound, ""},
+	} {
+		r := e.viewAsSeller(t, c.biz, c.token, c.hdr)
+		if r.status != c.status || (c.code != "" && r.body["code"] != c.code) {
+			t.Errorf("%s: %d %v", name, r.status, r.body)
+		}
+	}
+	f.mu.Lock()
+	f.team["biz_other"] = []string{"user_mod"}
+	f.mu.Unlock()
+	if r := e.viewAsSeller(t, "biz_other", f.sellerToken(e, whopTestApp, "user_mod"), nil); r.status != http.StatusOK || sellerViewOf(t, r).Store.ID != "biz_other" {
+		t.Fatalf("someone on the team: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "POST", whopSellerPrefix+"biz_other", `{}`, map[string]string{whop.UserTokenHeader: owner, "X-Requested-With": "playkeeper", "Origin": ""}); r.status != http.StatusMethodNotAllowed || r.header.Get("Allow") != http.MethodGet {
+		t.Fatalf("POST to the view: %d %v", r.status, r.header)
 	}
 }
