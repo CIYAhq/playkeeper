@@ -38,10 +38,11 @@ export function StoreSuspensions() {
   )
 }
 
-/** Where a store stands: it left, or it's suspended, needs a look or sells. */
+/** Where a store stands: it left, or it's suspended, closed, needs a look or sells. */
 function storeState(s: SuspendableStore): string {
   if (s.leftAt) return s.leftWhy ? t('whop.stores.left', { why: s.leftWhy }) : t('whop.stores.leftNoWhy')
   if (s.suspendedAt) return t('whop.stores.suspended', { reason: s.suspendReason ?? '' })
+  if (s.closedWhy) return t('whop.stores.closed', { why: s.closedWhy })
   if (s.problem) return t('whop.stores.needsLook', { problem: s.problem })
   return t('whop.stores.selling')
 }
@@ -51,7 +52,7 @@ function StoreRow({ store: s, onPick }: { store: SuspendableStore; onPick: () =>
     <li className="flex items-center justify-between gap-3 py-2.5">
       <span className="min-w-0">
         <span className="block truncate text-[13px] font-semibold">{s.title}</span>
-        <span className={cn('block truncate text-xs', s.leftAt || s.suspendedAt || s.problem ? 'text-warning-foreground' : 'text-muted-foreground')}>
+        <span className={cn('block truncate text-xs', s.leftAt || s.suspendedAt || s.closedWhy || s.problem ? 'text-warning-foreground' : 'text-muted-foreground')}>
           {t('whop.stores.customers', { count: s.customers })}
           {t('common.dot')}
           {storeState(s)}
