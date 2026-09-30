@@ -124,6 +124,7 @@ func (s *server) hMoveStatePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reloadSchedules()
+	s.reloadSleep()
 	s.serversChanged()
 	s.audit(actor, "server.moved_in", s.id, "settings", fmt.Sprintf("kept what it had where it was%s", leftDetail(res.Left)))
 	writeJSON(w, http.StatusOK, res)

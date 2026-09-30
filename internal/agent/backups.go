@@ -111,6 +111,16 @@ func (s *server) archiveMeta(sc api.ServerConfig, now time.Time) backup.Manifest
 
 // createArchive writes a verified archive of the (stopped) server's data.
 func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*api.Backup, error) {
+	return s.writeArchive(sc, kind, actor, note, backup.Create)
+}
+
+// archiver writes an archive of a data folder: backup.Create, or
+// backup.CreateWhole for the whole folder.
+type archiver func(w io.Writer, dataDir string, meta backup.Manifest, lim backup.Limits) (backup.Manifest, error)
+
+// writeArchive writes the archive create makes of the (stopped) server's
+// data as one of its backups.
+func (s *server) writeArchive(sc api.ServerConfig, kind, actor, note string, create archiver) (*api.Backup, error) {
 	now := s.now().UTC()
 	id, fileName := s.archiveName(now)
 	tmp := s.backupPath("." + fileName + ".partial")
@@ -121,7 +131,7 @@ func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*
 	h := sha256.New()
 	meta := s.archiveMeta(sc, now)
 	meta.Consistency = "server stopped during archive"
-	m, err := backup.Create(io.MultiWriter(f, h), s.dataDir(), meta, archiveLimits())
+	m, err := create(io.MultiWriter(f, h), s.dataDir(), meta, archiveLimits())
 	if err == nil {
 		err = f.Sync()
 	}

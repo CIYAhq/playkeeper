@@ -987,6 +987,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/backups/{bid}/verify", srv((*server).hBackupVerify)},
 		{"GET", "/v1/servers/{id}/backups/{bid}/download", srv((*server).hBackupDownload)},
 		{"GET", "/v1/servers/{id}/move-out", srv((*server).hMoveOut)},
+		{"GET", "/v1/servers/{id}/move-check", srv((*server).hMoveCheck)},
 		{"GET", "/v1/servers/{id}/move-state", srv((*server).hMoveStateGet)},
 		{"PUT", "/v1/servers/{id}/move-state", srv((*server).hMoveStatePut)},
 		{"DELETE", "/v1/servers/{id}/backups/{bid}", srv((*server).hBackupDelete)},

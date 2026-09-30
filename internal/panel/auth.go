@@ -673,6 +673,12 @@ CREATE INDEX whop_plans_store ON whop_plans(store_id, position);
 CREATE INDEX whop_messages_store ON whop_messages(store_id, sent_at, id);
 DROP TABLE whop_account;
 `,
+	// The Playkeeper Cloud app's webhook (see whop_app.go): the secret of
+	// the one the owner made on Whop, and when they pasted it.
+	`
+ALTER TABLE whop_app ADD COLUMN webhook_secret TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_app ADD COLUMN hooked_at      INTEGER NOT NULL DEFAULT 0;
+`,
 	// The redirect URI each sign-in with Whop left with, which trading its
 	// code names again: the dashboard's address, or its address at the
 	// panel's port while Whop lists only that one (see signInRedirect).

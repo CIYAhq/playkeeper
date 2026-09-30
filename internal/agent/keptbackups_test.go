@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestDeletingAServerKeepsAFinalBackup(t *testing.T) {
 	if err != nil || len(older) != 1 {
 		t.Fatalf("the backups before: %+v, %v", older, err)
 	}
-	for _, bad := range []map[string]any{{"keepFinalBackupDays": 91}, {"keepFinalBackupDays": -1}, {"keepFinalBackupDays": 30, "keptFor": "Account 6"}, {"keptFor": "account-6"}} {
+	for _, bad := range []map[string]any{{"keepFinalBackupDays": 91}, {"keepFinalBackupDays": -1}, {"keepFinalBackupDays": 30, "keptFor": "Account 6"}, {"keptFor": "account-6"}, {"keepWhole": true}} {
 		bad["confirm"], bad["actor"] = e.srv().name(), "admin"
 		if code, out := e.call("POST", e.sp("/delete"), bad); code != 400 {
 			t.Fatalf("deleting with %v: %d %v", bad, code, out)
@@ -180,6 +181,88 @@ func TestAServerNoBackupOfWhichCanBeKeptStays(t *testing.T) {
 	}
 	if code, _, body := e.getBytes("/v1/kept-backups?keptFor=Account%206"); code != 400 {
 		t.Fatalf("listing a label that can't be one: %d %s", code, body)
+	}
+}
+
+// deleteWhole deletes the current server as the dashboard deletes the copy
+// a move left: its whole folder kept for days with the label keptFor.
+func (e *agentEnv) deleteWhole(days int, keptFor string) *api.Operation {
+	e.t.Helper()
+	code, out := e.callWhenFree("POST", e.sp("/delete"), map[string]any{"confirm": e.srv().name(), "actor": "playkeeper", "forgetKey": true,
+		"keepFinalBackupDays": days, "keptFor": keptFor, "keepWhole": true})
+	if code != 202 {
+		e.t.Fatalf("delete keeping its whole folder: %d %v", code, out)
+	}
+	return e.waitOp(out["id"].(string))
+}
+
+// The copy a move left keeps its whole folder as its final backup, as the
+// move carried it, so what a backup leaves out is kept too, and a copy with
+// no world, as a server that never started, is deleted keeping one. A copy
+// whose whole folder can't be kept is deleted all the same, keeping none of
+// its backups either, since its folder went where it moved, and the audit
+// says so.
+func TestACopyAMoveLeftKeepsItsWholeFolder(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"name": "Survival", "playStyle": "friends"})
+	files := map[string]string{"creative/level.dat": "a plugin's world", "purpur.yml": "purpur: true"}
+	for rel, body := range files {
+		p := filepath.Join(e.dataDir(), rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if op := e.deleteWhole(7, "moved-account-7"); op.Status != api.OpSucceeded {
+		t.Fatalf("deleting the copy a move left: %+v", op)
+	}
+	kept := e.kept("moved-account-7")
+	if len(kept) != 1 {
+		t.Fatalf("kept: %+v", kept)
+	}
+	code, _, body := e.getBytes("/v1/kept-backups/" + kept[0].ID + "/download")
+	if code != 200 {
+		t.Fatalf("download: %d", code)
+	}
+	if m, err := backup.Verify(bytes.NewReader(body), backup.DefaultLimits()); err != nil || !m.Whole {
+		t.Fatalf("the kept copy isn't its whole folder: %v, %v", m.Whole, err)
+	}
+	for rel, want := range files {
+		if got, err := backup.ReadFile(bytes.NewReader(body), rel, 1<<20); err != nil || string(got) != want {
+			t.Errorf("%s in the kept copy: %q, %v", rel, got, err)
+		}
+	}
+
+	e.createWith(map[string]any{"name": "Creative"})
+	if err := os.RemoveAll(filepath.Join(e.dataDir(), "world")); err != nil {
+		t.Fatal(err)
+	}
+	if op := e.deleteWhole(7, "moved-account-7"); op.Status != api.OpSucceeded {
+		t.Fatalf("deleting the copy a move left of a server with no world: %+v", op)
+	}
+	if kept := e.kept("moved-account-7"); len(kept) != 2 {
+		t.Fatalf("kept once the copy with no world went: %+v", kept)
+	}
+
+	e.createWith(map[string]any{"name": "Skyblock"})
+	sid := e.sid
+	if op := e.backupNow(nil); op.Status != api.OpSucceeded {
+		t.Fatalf("a backup of Skyblock: %+v", op)
+	}
+	e.diskFree.Store(1 << 20)
+	if op := e.deleteWhole(7, "moved-account-7"); op.Status != api.OpSucceeded {
+		t.Fatalf("deleting the copy a move left, without the room to keep it: %+v", op)
+	}
+	if e.a.serverByID(sid) != nil {
+		t.Fatal("the copy nothing could be kept of is still there")
+	}
+	if kept := e.kept("moved-account-7"); len(kept) != 2 {
+		t.Fatalf("kept once the copy whose whole folder couldn't be kept went, rather than none: %+v", kept)
+	}
+	if !e.auditHas("server.deleted", "succeeded", "no final backup kept") {
+		t.Error("the audit doesn't say the copy went without a final backup")
 	}
 }
 

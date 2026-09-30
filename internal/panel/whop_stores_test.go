@@ -54,6 +54,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 			biz = b
 		case strings.HasPrefix(route, "PATCH /variants/") && fb.plan(id) != nil:
 			biz = b
+		case strings.HasPrefix(route, "GET /products/") && fb.products[id] != nil:
+			biz = b
 		}
 	}
 	b := f.installed[biz]
@@ -82,7 +84,11 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such membership"}}`)
 	case route == "GET /accounts/"+biz:
-		json.NewEncoder(w).Encode(b.account)
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the company:balance:read scope."}}`)
+	case strings.HasPrefix(route, "GET /products/"):
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": "Minecraft server", "metadata": b.products[id], "owner_user": b.account["owner"],
+			"account": map[string]any{"id": biz, "title": b.account["title"], "route": biz}})
 	case route == "GET /products":
 		var data []map[string]any
 		for _, p := range slices.Sorted(maps.Keys(b.products)) {

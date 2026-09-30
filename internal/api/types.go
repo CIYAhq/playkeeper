@@ -542,6 +542,11 @@ type DeleteServerRequest struct {
 	// dashboard's account ids do.
 	KeepFinalBackupDays int    `json:"keepFinalBackupDays,omitempty"`
 	KeptFor             string `json:"keptFor,omitempty"`
+	// KeepWhole keeps the server's whole folder as its final backup, as a
+	// move carries it, rather than a backup's files, and none of its
+	// backups when that can't be made: for the copy a move left, whose
+	// folder went where the server moved.
+	KeepWhole bool `json:"keepWhole,omitempty"`
 }
 
 // KeptBackup is a deleted server's final backup, kept until ExpiresAt, as a
@@ -1070,6 +1075,14 @@ type MoveStateRequest struct {
 // address.
 type MoveStateResult struct {
 	Left []string `json:"left,omitempty"`
+}
+
+// MoveCheck is what a server's whole folder takes where it moves, as the
+// dashboard checks before any of a customer's servers stops: DiskBytes
+// once unpacked there, and ArchiveBytes at most for the upload meanwhile.
+type MoveCheck struct {
+	DiskBytes    int64 `json:"diskBytes"`
+	ArchiveBytes int64 `json:"archiveBytes"`
 }
 
 type AuditEntry struct {

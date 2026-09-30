@@ -437,9 +437,9 @@ func (s *Server) Routes() []Route {
 		view("/api/machines/{mid}/operations/{op}", s.hOperation),
 		view("/api/servers", s.hServers),
 		view("/api/servers/{id}", s.hServer),
-		smAs(actRunServers, "POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
-		smAs(actRunServers, "POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
-		smAs(actRunServers, "POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
+		{"POST", "/api/servers/{id}/start", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/start")},
+		{"POST", "/api/servers/{id}/stop", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/stop")},
+		{"POST", "/api/servers/{id}/restart", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/restart")},
 		{"POST", "/api/servers/{id}/settings", needSessionCSRF, actManageServers, s.hServerSettings},
 		sm("POST", "/api/servers/{id}/version", "/v1/servers/{id}/version"),
 		{"POST", "/api/servers/{id}/delete", needSessionCSRF, actCreateOwnServers, s.hDeleteServer},
@@ -594,6 +594,7 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/whop", needSessionCSRF, actSellOnWhop, s.hWhopDisconnect},
 		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
 		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
+		{"PUT", "/api/whop/app", needSessionCSRF, actSellOnWhop, s.hWhopAppSet},
 		// The dashboard on the standard HTTPS port (dashboard443.go): it
 		// changes the dashboard's address, like the machine's address does.
 		{"GET", "/api/dashboard-port", needSession, actViewMachines, s.hDashboardPort},

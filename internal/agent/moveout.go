@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
 )
 
@@ -13,7 +16,8 @@ import (
 // hRestoreMoveIn). Nothing is written here, so nothing counts against the
 // server's disk limit, and a server that hasn't made its world yet moves
 // too. The operation lock is held while it streams, so nothing starts the
-// server or changes its files meanwhile. A stream that fails part way ends
+// server or changes its files meanwhile. A folder a move can't carry is
+// refused before the first byte, and a stream that fails part way ends
 // without its manifest, which the machine it was going to refuses.
 func (s *server) hMoveOut(w http.ResponseWriter, r *http.Request) {
 	actor := actorFromHeader(r)
@@ -42,6 +46,11 @@ func (s *server) hMoveOut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict(s.name()+" is running.", "Stop it before it's moved."))
 		return
 	}
+	if _, err := backup.MeasureWhole(s.dataDir(), archiveLimits()); err != nil {
+		s.audit(actor, "server.moved_out", "", "refused", err.Error())
+		writeError(w, s.moveRefusal(err))
+		return
+	}
 	w.Header().Set("Content-Type", "application/gzip")
 	out := &countingWriter{w: w}
 	m, err := backup.CreateWhole(out, s.dataDir(), s.archiveMeta(*sc, s.now()), archiveLimits())
@@ -54,4 +63,28 @@ func (s *server) hMoveOut(w http.ResponseWriter, r *http.Request) {
 		panic(http.ErrAbortHandler)
 	}
 	s.audit(actor, "server.moved_out", "", "succeeded", fmt.Sprintf("%d files, %d bytes", len(m.Files), m.TotalBytes))
+}
+
+// hMoveCheck sizes this server's whole folder as its move carries it
+// (api.MoveCheck), without reading its files, or refuses a folder a move
+// can't carry, saying why. The dashboard asks before any of a customer's
+// servers stops, and again before each one's turn.
+func (s *server) hMoveCheck(w http.ResponseWriter, r *http.Request) {
+	size, err := backup.MeasureWhole(s.dataDir(), archiveLimits())
+	if err != nil {
+		writeError(w, s.moveRefusal(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, api.MoveCheck{DiskBytes: size.DiskBytes, ArchiveBytes: size.ArchiveBytes()})
+}
+
+// moveRefusal is why this server's folder can't move, in the owner's words,
+// for a folder the archive limits refuse; other errors are passed on.
+func (s *server) moveRefusal(err error) error {
+	var refused *backup.RefusedError
+	if !errors.As(err, &refused) {
+		return err
+	}
+	why := strings.Replace(refused.Reason.Error(), "archive ", "its folder ", 1)
+	return errConflict(fmt.Sprintf("%s can't be moved: %s.", s.name(), why), "Delete what it doesn't need from its folder, then move it again.")
 }
