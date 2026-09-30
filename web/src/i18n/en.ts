@@ -671,6 +671,7 @@ export const en = {
 
   // A page whose code didn't load
   'load.failed': 'Couldn’t load this page',
+  'load.searchFailed': 'Couldn’t load search',
   'load.failedBody': 'Playkeeper may have just updated, or the connection dropped. Reload to get it.',
   'load.reload': 'Reload',
 

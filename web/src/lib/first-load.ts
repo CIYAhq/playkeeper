@@ -21,8 +21,8 @@ export interface FirstLoad {
 
 /** The most the first screens (signing in, then Home) may load before they show, and the most any page may. */
 export const budget = {
-  firstScreens: { pages: ['pages/login.tsx', 'pages/home.tsx'], bytes: 910_000, gzipBytes: 285_000 },
-  anyPage: { bytes: 1_210_000, gzipBytes: 380_000 },
+  firstScreens: { pages: ['pages/login.tsx', 'pages/home.tsx'], bytes: 900_000, gzipBytes: 285_000 },
+  anyPage: { bytes: 1_200_000, gzipBytes: 380_000 },
 }
 
 /**

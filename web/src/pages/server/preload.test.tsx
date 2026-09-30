@@ -28,6 +28,7 @@ vi.mock('@/pages/server/settings', async (importOriginal) => (requested.add('set
 vi.mock('@/pages/server/world', async (importOriginal) => (requested.add('world'), importOriginal()))
 vi.mock('@/pages/server/world-packs', async (importOriginal) => (requested.add('world-packs'), importOriginal()))
 vi.mock('@/pages/server/world-pregen', async (importOriginal) => (requested.add('world-pregen'), importOriginal()))
+vi.mock('@/components/app/command-palette', async (importOriginal) => (requested.add('palette'), importOriginal()))
 
 const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'machines.view']
 const me: Me = {
@@ -74,12 +75,13 @@ afterEach(async () => {
 })
 
 // A tab whose code only loads when it's opened can't open once the panel
-// restarts, as it does for an update, so every tab's code loads after sign-in.
-it('loads every server tab’s code while the browser is idle after sign-in', async () => {
+// restarts, as it does for an update, so every tab's code loads after sign-in,
+// and so does the command palette's, which the first screens leave out.
+it('loads every server tab’s code and the command palette’s while the browser is idle after sign-in', async () => {
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
   await act(async () => r.render(<WorkspaceContext.Provider value={workspace}><Routes route={{ name: 'home' }} /></WorkspaceContext.Provider>))
   expect(requested.size).toBe(0)
-  const tabs = ['backups', 'console', 'copies', 'map', 'players', 'plugins', 'profile', 'running', 'schedules', 'settings', 'world', 'world-packs', 'world-pregen']
-  await vi.waitFor(() => expect([...requested].sort()).toEqual(tabs), { timeout: 10_000, interval: 100 })
+  const later = ['backups', 'console', 'copies', 'map', 'palette', 'players', 'plugins', 'profile', 'running', 'schedules', 'settings', 'world', 'world-packs', 'world-pregen']
+  await vi.waitFor(() => expect([...requested].sort()).toEqual(later), { timeout: 10_000, interval: 100 })
 }, 15_000)
