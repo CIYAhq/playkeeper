@@ -129,21 +129,21 @@ func (s *Server) keepMembership(storeID string, m whop.Membership, stale bool) e
 	if !reWhopID.MatchString(storeID) || !reWhopID.MatchString(m.ID) || !reWhopID.MatchString(m.UserID) || !reWhopID.MatchString(m.PlanID) {
 		return nil
 	}
-	// A customer the dashboard deleted stays deleted: a membership of theirs
-	// that no longer gives access isn't brought back (see erasure.go).
-	if !m.HasAccess() && s.forgotten(storeID, m.UserID) {
-		return nil
-	}
 	end := int64(0)
 	if !m.PeriodEnd.IsZero() {
 		end = m.PeriodEnd.UnixMilli()
 	}
-	_, err := s.db.Exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, cancel_at_period_end, period_end, stale, updated_at) VALUES(?,?,?,?,?,?,?,?,?)
+	// A customer the dashboard deleted stays deleted: a membership of theirs
+	// that no longer gives access isn't brought back (see erasure.go). The
+	// look is part of the write, so a deletion can't land between the two,
+	// as it could for a webhook, which doesn't wait for whopMu.
+	args := append([]any{storeID, m.ID, m.UserID, m.PlanID, m.Status, m.CancelAtPeriodEnd, end, stale, s.now().UnixMilli(), m.HasAccess()}, forgottenArgs(storeID, m.UserID)...)
+	_, err := s.db.Exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, cancel_at_period_end, period_end, stale, updated_at)
+		SELECT ?,?,?,?,?,?,?,?,? WHERE ? OR NOT (`+forgottenSQL+`)
 		ON CONFLICT(membership_id) DO UPDATE SET whop_user_id = excluded.whop_user_id, plan_id = excluded.plan_id, status = excluded.status,
 		cancel_at_period_end = excluded.cancel_at_period_end, period_end = excluded.period_end, stale = excluded.stale, updated_at = excluded.updated_at,
 		told_cancel = CASE WHEN excluded.stale = 0 AND excluded.cancel_at_period_end = 0 THEN 0 ELSE whop_memberships.told_cancel END
-		WHERE whop_memberships.store_id = excluded.store_id`,
-		storeID, m.ID, m.UserID, m.PlanID, m.Status, m.CancelAtPeriodEnd, end, stale, s.now().UnixMilli())
+		WHERE whop_memberships.store_id = excluded.store_id`, args...)
 	return err
 }
 

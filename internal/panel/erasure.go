@@ -100,15 +100,17 @@ func erasedSubject(store, subject string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// forgotten says whether the Whop user was a customer of the store whom the
-// dashboard deleted, and isn't one again, so the store's reads leave out a
-// membership of theirs that no longer gives access.
-func (s *Server) forgotten(storeID, userID string) bool {
-	var gone bool
-	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM erased_customers WHERE store_id = ? AND subject_hash = ?)
-		AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ?)`,
-		storeID, erasedSubject(storeID, userID), whopProvider, storeID, userID).Scan(&gone)
-	return err == nil && gone
+// forgottenSQL is true for a Whop user who was a customer of a store whom
+// the dashboard deleted, and isn't one there again, so the store's reads
+// leave out a membership of theirs that no longer gives access. Its
+// arguments are forgottenArgs.
+const forgottenSQL = `EXISTS(SELECT 1 FROM erased_customers WHERE store_id = ? AND subject_hash = ?)
+	AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ?)`
+
+// forgottenArgs are forgottenSQL's arguments for the Whop user userID of
+// the store storeID.
+func forgottenArgs(storeID, userID string) []any {
+	return []any{storeID, erasedSubject(storeID, userID), whopProvider, storeID, userID}
 }
 
 // customerRetention is the days after a customer's servers were deleted
