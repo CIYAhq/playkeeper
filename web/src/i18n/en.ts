@@ -2822,6 +2822,7 @@ export const en = {
   'whop.stores.suspended': 'suspended: {reason}',
   'whop.stores.left': 'left: {why}',
   'whop.stores.leftNoWhy': 'left',
+  'whop.stores.closed': '{why}',
   'whop.stores.suspend': 'Suspend',
   'whop.stores.lift': 'Lift suspension',
   'whop.stores.suspendTitle': 'Suspend {store}?',

@@ -416,6 +416,7 @@ type storeView struct {
 	SuspendReason string     `json:"suspendReason,omitempty"`
 	LeftAt        *time.Time `json:"leftAt,omitempty"`
 	LeftWhy       string     `json:"leftWhy,omitempty"`
+	ClosedWhy     string     `json:"closedWhy,omitempty"`
 }
 
 // storesBody is the owner's list of app stores.
@@ -476,7 +477,7 @@ func (s *Server) answerStores(w http.ResponseWriter, r *http.Request) {
 		if st.Via != whopViaApp {
 			continue
 		}
-		v := storeView{ID: st.ID, Title: cmpOr(st.Title, st.ID), Route: st.Route, Customers: counts[st.ID], Problem: st.Problem, SuspendReason: st.SuspendReason, LeftWhy: st.LeftWhy}
+		v := storeView{ID: st.ID, Title: cmpOr(st.Title, st.ID), Route: st.Route, Customers: counts[st.ID], Problem: st.Problem, SuspendReason: st.SuspendReason, LeftWhy: st.LeftWhy, ClosedWhy: st.ClosedWhy}
 		if !st.SuspendedAt.IsZero() {
 			v.SuspendedAt = &st.SuspendedAt
 		}
