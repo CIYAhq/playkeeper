@@ -9654,6 +9654,14 @@ control "removing a machine: only the owner removes one customers are on" intern
   '} else if n > 0 && !sess.Access.owner() {' \
   '} else if n > 0 && false {' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
+control "moving customers: a copy left on a removed machine stays recorded" internal/panel/moves.go \
+  '	case busy > 0:' \
+  '	case busy > 0 || errors.Is(err, errNotFound):' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "moving customers: a removed machine's host joining again lists its copy as one, not the server" internal/panel/machines.go \
+  'if adopted, err := adoptLeftCopy(ctx, c, id, m.ID); err != nil {' \
+  'if adopted, err := false, error(nil); err != nil {' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside
