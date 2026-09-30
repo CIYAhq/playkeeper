@@ -73,7 +73,7 @@ public final class AIBuildBattlePlugin extends JavaPlugin implements TabExecutor
             s.shutdown();
         }
         if (ledger != null) {
-            ledger.settleAllAtWorst();
+            ledger.close();
         }
     }
 

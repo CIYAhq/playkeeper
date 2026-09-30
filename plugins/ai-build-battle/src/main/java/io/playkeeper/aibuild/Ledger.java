@@ -24,6 +24,8 @@ final class Ledger {
     private final Map<String, Double> reserved = new HashMap<>();
     private LocalDate day;
     private double spent;
+    /** Set when the plugin stops: what's in flight was counted at its worst, and late answers change nothing. */
+    private boolean closed;
 
     Ledger(File file, Clock clock, Logger log) {
         this.file = file;
@@ -74,19 +76,30 @@ final class Ledger {
 
     /** A request's answer came (or was lost): count what it cost and free its reservation. */
     synchronized void settle(String key, double chargedUSD) {
+        if (closed) {
+            return;
+        }
         roll();
         reserved.remove(key);
         spent += Math.max(0, chargedUSD);
         save();
     }
 
-    /** Requests still in flight when the server stops are counted at their worst case. */
-    synchronized void settleAllAtWorst() {
+    /**
+     * The plugin stops: requests still in flight are counted at their worst
+     * case, which is at least what they cost, and answers arriving later
+     * aren't counted again.
+     */
+    synchronized void close() {
+        if (closed) {
+            return;
+        }
         roll();
         for (double v : reserved.values()) {
             spent += v;
         }
         reserved.clear();
+        closed = true;
         save();
     }
 

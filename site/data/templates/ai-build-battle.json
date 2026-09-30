@@ -14,6 +14,6 @@
     "memoryMB": 3072
   },
   "addons": [
-    { "source": "playkeeper", "project": "ai-build-battle", "slug": "ai-build-battle", "name": "AI Build Battle", "pin": { "versionId": "0.2.0", "versionNumber": "0.2.0", "channel": "release", "hashAlgo": "sha256", "hash": "94be0e16ee9c18ef88e16b60fd93b67f4cd30b40357b1e83844fd569123c305e" } }
+    { "source": "playkeeper", "project": "ai-build-battle", "slug": "ai-build-battle", "name": "AI Build Battle", "pin": { "versionId": "0.2.0", "versionNumber": "0.2.0", "channel": "release", "hashAlgo": "sha256", "hash": "990a6e4a785bf0b5833057333b66cdedbe2d1715ca757324c544993b9797a2eb" } }
   ]
 }
