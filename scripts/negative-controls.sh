@@ -5228,8 +5228,8 @@ control "a removed machine's server goes to no machine, not the dashboard's own"
 		return machine{}, errUnknownServer' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "a machine that lists a removed machine's server takes it over" internal/panel/machines.go \
-  'case owner != m.ID && !ownerActive:' \
-  'case false && owner != m.ID && !ownerActive:' \
+  '				if !ownerActive && !unsure {' \
+  '				if false && !ownerActive && !unsure {' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "every server in the list has its own slug" internal/panel/workspace.go \
   's.stableSlugs(ctx, out, list)' \
@@ -6496,8 +6496,8 @@ control "the agent lets go of the page's ports before the panel has the answer" 
 		closeFiles()' \
   ./internal/agent '^TestThePagesPortsReachThePanelOnlyOverTheAgentSocket$'
 control "machine links don't carry the public page's ports" internal/agent/link.go \
-  '"POST " + pagePortsPath: true,' \
-  '"POST " + pagePortsPath: false,' \
+  '"POST " + pagePortsPath:           true,' \
+  '"POST " + pagePortsPath:           false,' \
   ./internal/agent '^TestLinkRoutesAreTheRouteTable$'
 control "an HTTP-01 check goes ahead on a busy port only when its holder passes it on" internal/certs/http01.go \
   'if errors.Is(err, syscall.EADDRINUSE) && h.Shared != nil && h.Shared(token, keyAuth) {' \
@@ -6555,11 +6555,11 @@ control "port 80 redirects only while port 443 serves the page" internal/panel/p
   'if _ = https; host == "" || s.pageCerts == nil {' \
   ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
 control "turning the page off gives the ports back" internal/panel/pageports.go \
-  'if !st.On {
+  'if !st.On && !dashboard {
 		s.closePagePorts(api.PortOff)
 		return
 	}' \
-  'if !st.On {
+  'if !st.On && !dashboard {
 		return
 	}' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
@@ -6581,6 +6581,232 @@ control "a port the keeper didn't ask for keeps its holder and its wait" interna
   'if p.held[i] != nil || !asked[i] {' \
   'if p.held[i] != nil || false && !asked[i] {' \
   ./internal/panel '^TestAPortNotAskedForKeepsItsHolderAndItsWait$'
+# 0.4.11: the dashboard on the standard HTTPS port, which the agent opens
+# for the panel through the page's hand-over.
+control "turning the dashboard's port on refuses a port a container or a web server claims" internal/agent/dashboardport.go \
+  'if holder, ok := a.portClaims(ctx, port)[port]; ok {' \
+  'if holder, ok := a.portClaims(ctx, port)[port]; false && ok {' \
+  ./internal/agent '^TestTheDashboardNeverTakesPort443FromAnotherProgram$'
+control "turning the dashboard's port on refuses a port another program listens on" internal/agent/dashboardport.go \
+  'if p, ok := a.check443(r.Context(), req.Held); !ok {' \
+  'if p, ok := a.check443(r.Context(), req.Held); false && !ok {' \
+  ./internal/agent '^TestTheDashboardNeverTakesPort443FromAnotherProgram$'
+control "port 443 the panel holds for the page isn't tried again" internal/agent/dashboardport.go \
+  'if held {' \
+  'if false && held {' \
+  ./internal/agent '^TestTheDashboardNeverTakesPort443FromAnotherProgram$'
+control "the dashboard's address keeps its port until a browser from outside reaches it" internal/agent/dashboardport.go \
+  'if v.Reached && !blocked {' \
+  'if !blocked {' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "another program on port 443 gives the dashboard's address its port back" internal/agent/dashboardport.go \
+  'v.State, v.Holder, blocked = https.State, https.Holder, true' \
+  'v.State, v.Holder, blocked = https.State, https.Holder, false' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "a visit from the machine's address behind NAT doesn't count as one from outside" internal/agent/dashboardport.go \
+  '!ok || ip == a.machineIP(a.address())' \
+  '!ok || false && ip == a.machineIP(a.address())' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "a visit from one of the machine's own interfaces doesn't count as one from outside" internal/agent/dashboardport.go \
+  'if own.Unmap().WithZone("") == ip {' \
+  'if false && own.Unmap().WithZone("") == ip {' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "only the machine's working name counts as reached" internal/agent/dashboardport.go \
+  'if named == "" || host != named {' \
+  'if named == "" {' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "turning the dashboard's port off forgets the visit" internal/agent/dashboardport.go \
+  '		a.dash.reached = ""' \
+  '		_ = ""' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "the hand-over opens port 443 for the dashboard with the page off" internal/agent/pageports.go \
+  'if st := a.publicPageState(); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {' \
+  'if st := a.publicPageState(); !st.On || !want.HTTPS && !want.HTTP {' \
+  ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
+control "the dashboard wants port 443 only once the machine's name works" internal/agent/dashboardport.go \
+  '	return a.namedHost()' \
+  '	return a.pageHost()' \
+  ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
+control "machine links don't carry the dashboard's port switch" internal/agent/link.go \
+  '"PUT " + dashboard443Path:         true,' \
+  '"PUT " + dashboard443Path:         false,' \
+  ./internal/agent '^TestAJoinedMachineHasNoDashboardPort$'
+control "a joined machine never turns the dashboard's port on" internal/agent/dashboardport.go \
+  'd.on = !a.cfg.NoPanel && (v == "on" || !chosen && a.cfg.Dashboard443 == "on")' \
+  'd.on = v == "on" || !chosen && a.cfg.Dashboard443 == "on"' \
+  ./internal/agent '^TestAJoinedMachineHasNoDashboardPort$'
+control "port 443 answers only the machine's name with the dashboard" internal/panel/dashboard443.go \
+  'return p.dashboard && pageHost(host, p.host)' \
+  'return p.dashboard' \
+  ./internal/panel '^TestPort443AnswersTheMachinesNameWithTheDashboard$'
+control "the dashboard's root shows the page only to someone signed out" internal/panel/dashboard443.go \
+  'if _, err := s.sessionFrom(r); err == nil {' \
+  'if _, err := s.sessionFrom(r); false && err == nil {' \
+  ./internal/panel '^TestPort443AnswersTheMachinesNameWithTheDashboard$'
+control "where customers sign in with Whop the root is the sign-in page" internal/panel/dashboard443.go \
+  'if s.whopSignInOn() {' \
+  'if false && s.whopSignInOn() {' \
+  ./internal/panel '^TestPort443AnswersTheMachinesNameWithTheDashboard$'
+control "no cache answers the dashboard's root for another session" internal/panel/dashboard443.go \
+  '			w.Header().Add("Vary", "Cookie")' \
+  '			_ = "Vary"' \
+  ./internal/panel '^TestPort443AnswersTheMachinesNameWithTheDashboard$'
+control "port 80 held for the dashboard alone only redirects" internal/panel/serverpage.go \
+  'if s.page.dashboardOnly() {' \
+  'if false && s.page.dashboardOnly() {' \
+  ./internal/panel '^TestPort80HeldForTheDashboardAloneOnlyRedirects$'
+control "8443 sends pages to 443 only once a browser from outside reached it" internal/panel/dashboard443.go \
+  'live := p.dashboard && p.reached && held != nil' \
+  'live := p.dashboard && held != nil' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "8443 sends pages to 443 only while the panel holds it" internal/panel/dashboard443.go \
+  'live := p.dashboard && p.reached && held != nil' \
+  'live := p.dashboard && p.reached' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "8443 never sends its API, webhooks or /mcp away" internal/panel/dashboard443.go \
+  'case strings.HasPrefix(p, "/api/"), p == "/api", p == "/mcp", strings.HasPrefix(p, "/mcp/"), p == "/healthz",' \
+  'case p == "/healthz",' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "8443 sends only GET and HEAD away" internal/panel/dashboard443.go \
+  'if r.Method != http.MethodGet && r.Method != http.MethodHead || !dashboardPage(r.URL.Path) {' \
+  'if !dashboardPage(r.URL.Path) {' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "8443's redirect to 443 is never permanent" internal/panel/dashboard443.go \
+  'http.RedirectHandler(to, http.StatusTemporaryRedirect)' \
+  'http.RedirectHandler(to, http.StatusPermanentRedirect)' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "only a public address counts as a visit from outside" internal/panel/dashboard443.go \
+  'return ip, ip.IsGlobalUnicast() && !ip.IsPrivate() && !sharedSpace.Contains(ip)' \
+  'return ip, ip.IsGlobalUnicast()' \
+  ./internal/panel '^TestPort443TellsTheAgentABrowserFromOutsideReachedIt$'
+control "the agent hears of a visit from outside once" internal/panel/dashboard443.go \
+  'due := p.dashboard && !p.reached && !p.reporting && host != "" && now.Sub(p.reportedAt[key]) >= reportAgainAfter' \
+  'due := p.dashboard && host != ""' \
+  ./internal/panel '^TestPort443TellsTheAgentABrowserFromOutsideReachedIt$'
+control "a visit from the machine's own address doesn't hold up one from outside" internal/panel/dashboard443.go \
+  '	key := from' \
+  '	key := netip.Addr{}' \
+  ./internal/panel '^TestPort443TellsTheAgentABrowserFromOutsideReachedIt$'
+control "a look at the page doesn't undo what changed while it asked the agent" internal/panel/pageports.go \
+  '	current := p.gen == gen' \
+  '	current := p.gen == gen || true' \
+  ./internal/panel '^TestALookDoesntUndoWhatChangedWhileItAsked$'
+control "a visit noted while a look asks the agent outlasts the look" internal/panel/dashboard443.go \
+  'p.reached, p.gen = true, p.gen+1' \
+  'p.reached, p.gen = true, p.gen+0' \
+  ./internal/panel '^TestALookDoesntUndoWhatChangedWhileItAsked$'
+control "turning the dashboard's port off while a look asks the agent stays off" internal/panel/dashboard443.go \
+  'p.dashboard, p.reached, p.gen = false, false, p.gen+1' \
+  'p.dashboard, p.reached, p.gen = false, false, p.gen+0' \
+  ./internal/panel '^TestALookDoesntUndoWhatChangedWhileItAsked$'
+control "the card checks port 443 only once the panel answers there" internal/panel/dashboard443.go \
+  'v.Serving = p.held[0] != nil && p.dashboard && strings.EqualFold(p.host, host)' \
+  'v.Serving = true' \
+  ./internal/panel '^TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress$'
+control "the check's answer gets through to a page at the panel's port" internal/panel/dashboard443.go \
+  'h.Set("Cross-Origin-Resource-Policy", "cross-origin")' \
+  'h.Set("Cross-Origin-Resource-Policy", "same-origin")' \
+  ./internal/panel '^TestTheDashboardsPagesMayCheckPort443$'
+control "the dashboard's pages may connect only to a DNS name on port 443" internal/panel/dashboard443.go \
+  'if !reDomainName.MatchString(host) {' \
+  'if host == "" {' \
+  ./internal/panel '^TestTheDashboardsPagesMayCheckPort443$'
+control "the setting lists the app's webhook the owner made on Whop" internal/panel/dashboard443.go \
+  'if s.whopAppHooked(ctx) {' \
+  'if false && s.whopAppHooked(ctx) {' \
+  ./internal/panel '^TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress$'
+control "only the owner sees what Whop keeps of the old address" internal/panel/dashboard443.go \
+  'if permit(sess.Access, actSellOnWhop, "") == nil {' \
+  'if true {' \
+  ./internal/panel '^TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress$'
+control "the dashboard's address has no port only while the agent says so" internal/panel/whop.go \
+  '		port = addr.Dashboard.Port' \
+  '		port = 443' \
+  ./internal/panel '^TestTheDashboardsAddressFollowsItsPort$'
+control "Sign in with Whop keeps the old redirect URL while Whop refuses the new one" internal/panel/whop_signin.go \
+  'if accepted, _ := s.whopAccepts(ctx, o, fresh); accepted {' \
+  'if accepted, _ := s.whopAccepts(ctx, o, fresh); true || accepted {' \
+  ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
+control "an answer from Whop that says neither keeps sign-ins on the old redirect URL" internal/panel/whop_signin.go \
+  'if accepted, _ := s.whopAccepts(ctx, o, fresh); accepted {' \
+  'if accepted, known := s.whopAccepts(ctx, o, fresh); accepted || !known {' \
+  ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
+control "a sign-in with Whop trades its code with the redirect URL it left with" internal/panel/whop_signin.go \
+  'if redirect != "" {' \
+  'if false && redirect != "" {' \
+  ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
+control "Turn on refuses a Whop app that lists neither redirect URL" internal/panel/whop_signin.go \
+  'if accepted, known := s.whopAccepts(ctx, o, false); known && !accepted {' \
+  'if accepted, known := s.whopAccepts(ctx, o, false); false && known && !accepted {' \
+  ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
+control "the store's marks follow the dashboard's port at once" internal/panel/whop_customers.go \
+  'err == nil && dash != "" && dash != st.MarkedAs {' \
+  'err == nil && false && dash != st.MarkedAs {' \
+  ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
+control "a Whop refusing the marks is asked again a minute later, not every pass" internal/panel/whop_customers.go \
+  '	if st.Problem == "" || since >= time.Minute {' \
+  '	if true {' \
+  ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
+control "a new install leaves the dashboard on 8443 while something has port 443" internal/install/install.go \
+  'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
+  'return o.Join == "" && !f.ReuseData' \
+  ./internal/install '^TestANewInstallServesTheDashboardOnPort443OnlyWhenItsFree$'
+control "an install that reuses earlier data keeps the dashboard's port" internal/install/install.go \
+  'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
+  'return o.Join == "" && f.Port443 == ""' \
+  ./internal/install '^TestANewInstallServesTheDashboardOnPort443OnlyWhenItsFree$'
+control "a web server set to start with the machine keeps port 443 from a new install" internal/install/install.go \
+  'if unit := webservers.FirstEnabled(sys.P(UnitDir)); unit != "" {' \
+  'if unit := webservers.FirstEnabled(sys.P(UnitDir)); false && unit != "" {' \
+  ./internal/install '^TestANewInstallServesTheDashboardOnPort443OnlyWhenItsFree$'
+control "the installer allows port 443 in ufw" internal/install/install.go \
+  '		add(httpsRule)' \
+  '		_ = httpsRule' \
+  ./internal/install '^TestActiveUFWAllowsPort80AndUninstallLeavesTheAdminsRules$'
+control "an update from the dashboard allows port 443 where the install opens ports" internal/install/selfupdate.go \
+  '		allowHTTPSPort(sys, cfg, out)' \
+  '		_ = out' \
+  ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
+control "the installer's upgrade allows port 443 too" internal/install/inplace.go \
+  '	allowHTTPSPort(sys, cfg, out)' \
+  '	_ = out' \
+  ./internal/install '^TestUpgradeAllowsPort80InAnActiveUFWOnce$'
+control "an update leaves a port 443 rule that was already there to the admin" internal/install/firewall.go \
+  '	if !added {' \
+  '	if false && !added {' \
+  ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
+control "an update allows no port 443 on a joined machine" internal/install/firewall.go \
+  '	if cfg.NoPanel || contains(m.FirewallRules, httpsRule) {' \
+  '	if contains(m.FirewallRules, httpsRule) {' \
+  ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
+webcontrol "the browser's check of port 443 sends no cookies" web/src/pages/machine-settings/dashboard-port.tsx \
+  "credentials: 'omit'" \
+  "credentials: 'include'" \
+  src/pages/machine-settings/dashboard-port.test.tsx 'checks from this browser that port 443 answers'
+webcontrol "the card's check of port 443 waits for the panel to answer there" web/src/pages/machine-settings/dashboard-port.tsx \
+  '!v.reached && !!v.serving && !!url' \
+  '!v.reached && !!url' \
+  src/pages/machine-settings/dashboard-port.test.tsx 'checks only once the panel answers port 443'
+webcontrol "the card says this browser is inside only once the panel didn't count its visit" web/src/pages/machine-settings/dashboard-port.tsx \
+  '        window.setTimeout(() => {' \
+  "        setReach('ok'); window.setTimeout(() => {" \
+  src/pages/machine-settings/dashboard-port.test.tsx 'checks from this browser that port 443 answers'
+webcontrol "turning the dashboard's port off asks first once links without a port went out" web/src/pages/machine-settings/dashboard-port.tsx \
+  'if (!next && v?.reached) setConfirmOff(true)' \
+  'if (false) setConfirmOff(true)' \
+  src/pages/machine-settings/dashboard-port.test.tsx 'asks before links without a port stop working'
+webcontrol "the public page offers Sign in only at the dashboard's own address" web/src/pages/server-page.tsx \
+  '{signIn && (' \
+  '{true && (' \
+  src/pages/server/crossplay.test.tsx 'offers the dashboard'
+webcontrol "the address shown follows the dashboard's port" web/src/lib/address.ts \
+  'return a.dashboard?.port || a.panelPort' \
+  'return a.panelPort' \
+  src/lib/lib.test.ts 'drops the port once the dashboard answers on port 443'
+webcontrol "Sell on Whop names the old redirect URL only while Whop lists it alone" web/src/pages/whop.tsx \
+  '{signIn.using && signIn.redirectUri && (' \
+  '{signIn.redirectUri && (' \
+  src/pages/pages.test.tsx 'says when customers still come back through the dashboard'
 # What the owner adds to the page: About, a stream and a status board.
 control "a page's stream is only a Twitch or YouTube channel" internal/agent/publicblocks.go \
   'case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
@@ -6603,8 +6829,8 @@ control "posting the status board needs the right to run the server" internal/pa
   '{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actView,' \
   ./internal/panel '^TestEveryToolTakesTheActionOfItsDashboardRoute$'
 control "only the page's ports may frame the stream players" internal/panel/server.go \
-  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none';" \
-  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
+  "\"+s.reachSource()+\"; font-src 'self'; object-src 'none';" \
+  "\"+s.reachSource()+\"; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
   ./internal/panel '^TestThePageHasALiveShareCardAndMayFrameAStream$'
 
 # Usage stats (internal/usage): nothing is sent that its check refuses, while
@@ -7554,8 +7780,8 @@ control "processor shares: no cap passes the machine's cores" internal/agent/dis
   ', int64(numCPU())*1_000_000_000*1000)' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: the dashboard gives each creator's servers half a core per GB" internal/panel/disklimits.go \
-  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]})' \
-  'Servers: ids, Hold: holds[uid]})' \
+  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: in.holds[uid]})' \
+  'Servers: ids, Hold: in.holds[uid]})' \
   ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
 
 # Playkeeper Cloud's disk limits, the dashboard's half
@@ -7654,13 +7880,17 @@ control "customers: a new plan gives its allowance" internal/panel/customers.go 
   'al.Servers, al.MemoryMB, al.DiskGB, 0*info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
   ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
 control "customers: a customer waiting for room is placed once there's room" internal/panel/customers.go \
-  "WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0) ORDER BY c.created_at" \
+  "WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0 OR c.told_waiting != 0) ORDER BY c.created_at" \
   'WHERE c.state = ? AND 0 ORDER BY c.created_at' \
   ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
 control "ready server: a ready message that failed after placing is sent later" internal/panel/customers.go \
-  ' OR c.told_ready = 0)' \
-  ')' \
+  ' OR c.told_ready = 0 OR' \
+  ' OR' \
   ./internal/panel '^TestAReadyMessageThatFailedAfterPlacingIsSentLater$'
+control "removing a machine: a message that there's room again, which failed, is sent later" internal/panel/customers.go \
+  ' OR c.told_waiting != 0)' \
+  ')' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
 control "customers: a paused customer waiting isn't placed" internal/panel/readyserver.go \
   'if CustomerState(state) != CustomerActive {' \
   'if false {' \
@@ -7674,8 +7904,8 @@ control "customers: the Team page offers no removal of a customer" internal/pane
   '' \
   ./internal/panel '^TestTheTeamPageKeepsACustomersAccount$'
 control "customers: the Team page marks a customer" internal/panel/team.go \
-  '.Scan(&row.Customer, &row.Handle)' \
-  '.Scan(new(string), new(string))' \
+  'Scan(&row.Customer, &row.Handle, &row.CustomerState' \
+  'Scan(new(string), new(string), &row.CustomerState' \
   ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
 webcontrol "customers: the Team page says a customer signs in with Whop" web/src/pages/team.tsx \
   "m.customer === 'whop' ? t('team.signsInWithWhop', { handle: m.handle ?? '' }) : " \
@@ -7747,8 +7977,8 @@ control "customers per store: a lapsed customer's message names their store" int
   'Scan(&info.customer.Provider, new(string), &info.customer.Subject' \
   ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
 control "customers per store: a sign-in keeps the store it's for" internal/panel/whop_signin.go \
-  'tokenHash(state), verifier, now.UnixMilli(), store); err != nil {' \
-  'tokenHash(state), verifier, now.UnixMilli(), store[:0]); err != nil {' \
+  'tokenHash(state), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
+  'tokenHash(state), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
   ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
 control "customers per store: coming back from Whop opens the store's account" internal/panel/whop_signin.go \
   'acct, ok, err := s.signInAccount(ctx, store, who.Subject)' \
@@ -7819,8 +8049,8 @@ control "stores: a store's stock counts its own customers' purchases" internal/p
   "FROM whop_customers WHERE (store_id = ? OR 1) AND paused = 0 AND applied != ''" \
   ./internal/panel '^TestEachStoresStockIsItsOwn$'
 control "stores: a taken-over store's plans take no room" internal/panel/whop_stock.go \
-  "AND st.taken_over_by = '' ORDER BY" \
-  'ORDER BY' \
+  "AND st.taken_over_by = '' AND st.suspended_at = 0 AND st.left_at = 0" \
+  'AND st.suspended_at = 0 AND st.left_at = 0' \
   ./internal/panel '^TestATakenOverStoresPlansTakeNoRoom$'
 control "stores: disconnecting forgets the key store's plans alone" internal/panel/whop.go \
   'DELETE FROM whop_plans WHERE store_id = ?`' \
@@ -7934,6 +8164,39 @@ control "app stores: the owner comes from one of the business's products" intern
   '"/accounts/"+url.PathEscape(accountID)' \
   ./internal/panel '^TestAStoresMessagesGoOutInItsOwnChats$'
 
+# Whop's user tokens (the hosted blueprint's 2.1, internal/whop/usertoken.go):
+# a seller's page and its calls are taken only with a token Whop signed for
+# this app, for a user, and not expired, and Whop's keys aren't read at
+# every request.
+control "user tokens: only Whop's signature" internal/whop/usertoken.go \
+  'if ecdsa.Verify(k, sum[:], r, s) {' \
+  'if ecdsa.Verify(k, sum[:], r, s) || true {' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: only for this app" internal/whop/usertoken.go \
+  'aud != app || app == "" || ' \
+  '' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: only unexpired" internal/whop/usertoken.go \
+  'claims.Exp == nil || !now.Before(time.Unix(int64(*claims.Exp), 0))' \
+  'claims.Exp == nil' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: only Whop's proxy issues them" internal/whop/usertoken.go \
+  'claims.Iss != userTokenIssuer || ' \
+  '' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: only ES256" internal/whop/usertoken.go \
+  'head.Alg != "ES256"' \
+  'false' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: Whop's keys aren't read at every request" internal/whop/usertoken.go \
+  ' && (u.triedAt.IsZero() || now.Sub(u.triedAt) >= keysCooldown)' \
+  '' \
+  ./internal/whop '^TestUserTokensFollowWhopsKeysWithoutAskingAtEveryRequest$'
+control "user tokens: a read of Whop's keys outlives the request that started it" internal/whop/usertoken.go \
+  'context.WithoutCancel(ctx)' \
+  'ctx' \
+  ./internal/whop '^TestAReadOfWhopsKeysOutlivesTheRequestThatStartedIt$'
+
 # Playkeeper Cloud's ready server (internal/panel/readyserver.go): a
 # customer is told once that their server is ready, or being set up.
 control "ready server: ready is said once" internal/panel/readyserver.go \
@@ -7957,8 +8220,8 @@ control "ready server: a customer with no home machine waits" internal/panel/rea
   'return err != nil' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: a waiting customer creates no server" internal/panel/server.go \
-  'if s.customerWaiting(r.Context(), acct) {' \
-  'if false {' \
+  'if err := s.waitingRefusal(r.Context(), acct); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: the dashboard says a customer is waiting" internal/panel/server.go \
   'WaitingForRoom: s.customerWaiting(context.Background(), a), ' \
@@ -7996,16 +8259,16 @@ control "pausing: a paused customer's tokens are revoked" internal/panel/pausing
   '_ = info.UserID' \
   ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
 control "pausing: only an active customer is paused, once" internal/panel/pausing.go \
-  'case info.State != CustomerActive:' \
-  'case false:' \
+  'case CustomerActive:' \
+  'case CustomerActive, CustomerPaused:' \
   ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
 control "pausing: a paused customer is told until when" internal/panel/pausing.go \
   'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messagePaused, Text: pausedText(until)}); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
 control "pausing: renewing brings a paused customer back" internal/panel/customers.go \
-  'if err == nil && info.State == CustomerPaused {' \
-  'if false {' \
+  'case info.State == CustomerPaused:' \
+  'case false:' \
   ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
 control "pausing: the dashboard says until when" internal/panel/server.go \
   ' PausedUntil: s.pausedUntil(a),' \
@@ -8032,7 +8295,7 @@ control "pausing: pausing sends the machines the hold at once" internal/panel/pa
   '' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
 control "pausing: a paused customer's limit holds their servers" internal/panel/disklimits.go \
-  'CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]}' \
+  'CPUMilliPerGB: cpuMilliPerGB, Hold: in.holds[uid]}' \
   'CPUMilliPerGB: cpuMilliPerGB}' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
 control "pausing: a suspended customer's hold says so" internal/panel/disklimits.go \
@@ -8075,6 +8338,243 @@ control "pausing: a token's tools ask whether their server is held" internal/pan
   'return mcpRefusal(act, b.s.heldRefusal(account, action(act), id))' \
   'return mcpRefusal(act, nil)' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+
+# Suspending a customer or a store (internal/panel/suspension.go, task 3.2
+# of the hosted blueprint): only the owner suspends, with a reason; a
+# suspended account's servers stop and its tokens and sessions go, while its
+# plan goes on underneath until the owner lifts it; a suspended store sells
+# nothing and suspends its own customers alone.
+control "suspending: only the owner suspends" internal/panel/workspace.go \
+  'actManageTeam:       invites.RoleAdmin,' \
+  'actManageTeam:       invites.RoleAdmin, actSuspendCustomers: invites.RoleAdmin,' \
+  ./internal/panel '^TestOnlyTheOwnerSuspendsACustomerWithAReason$'
+control "suspending: a suspension says why" internal/panel/suspension.go \
+  'if reason == "" || len(reason) > maxSuspendReason || !printable(reason) {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyTheOwnerSuspendsACustomerWithAReason$'
+control "suspending: a suspended customer's servers stop" internal/panel/suspension.go \
+  's.stopCustomerServers(ctx, userID, actor)' \
+  '_ = actor' \
+  ./internal/panel '^TestASuspendedCustomerCanDoNothingUntilTheOwnerLiftsIt$'
+control "suspending: a suspended customer's tokens are revoked" internal/panel/suspension.go \
+  's.revokeAccountTokens(userID, actor, "their account was suspended")' \
+  '_ = actor' \
+  ./internal/panel '^TestASuspendedCustomerCanDoNothingUntilTheOwnerLiftsIt$'
+control "suspending: a suspended customer is signed out" internal/panel/suspension.go \
+  's.deleteUserSessions(userID)' \
+  '_ = userID' \
+  ./internal/panel '^TestASuspendedCustomerCanDoNothingUntilTheOwnerLiftsIt$'
+control "suspending: machines hold a suspended customer's servers at once" internal/panel/suspension.go \
+  's.kickDiskLimits()' \
+  '_ = s' \
+  ./internal/panel '^TestASuspendedCustomerCanDoNothingUntilTheOwnerLiftsIt$'
+control "suspending: suspending again changes nothing" internal/panel/suspension.go \
+  'case withStore && store || !withStore && self:' \
+  'case false:' \
+  ./internal/panel '^TestASuspendedCustomerCanDoNothingUntilTheOwnerLiftsIt$'
+control "suspending: a lifted customer is told" internal/panel/suspension.go \
+  'if err := s.notifier.Notify(ctx, cust, msg); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestASuspendedCustomerCanDoNothingUntilTheOwnerLiftsIt$'
+control "suspending: a plan that ends while suspended waits for the lift" internal/panel/pausing.go \
+  'return s.pauseUnderSuspension(ctx, cust, info, reason)' \
+  'return nil' \
+  ./internal/panel '^TestASuspendedCustomersPlanGoesOnUnderneath$'
+control "suspending: a plan that starts again while suspended waits for the lift" internal/panel/customers.go \
+  'err = s.resumeUnderSuspension(ctx, cust, info)' \
+  'err = nil' \
+  ./internal/panel '^TestASuspendedCustomersPlanGoesOnUnderneath$'
+control "suspending: lifting leaves a customer whose plan ended paused" internal/panel/suspension.go \
+  'if pausedAt != 0 {' \
+  'if false {' \
+  ./internal/panel '^TestASuspendedCustomersPlanGoesOnUnderneath$'
+control "suspending: lifting gives a paused customer a fresh grace period" internal/panel/suspension.go \
+  'until, msg = t.UnixMilli(), CustomerMessage{Kind: messagePaused, Text: pausedText(t)}' \
+  'msg = CustomerMessage{Kind: messagePaused, Text: pausedText(t)}' \
+  ./internal/panel '^TestASuspendedCustomersPlanGoesOnUnderneath$'
+control "suspending: lifting one suspension leaves the other" internal/panel/suspension.go \
+  'if self && store || CustomerState(state) != CustomerSuspended {' \
+  'if CustomerState(state) != CustomerSuspended {' \
+  ./internal/panel '^TestTwoSuspensionsAreLiftedApart$'
+control "suspending: a store suspends its own customers alone" internal/panel/suspension.go \
+  'SELECT user_id FROM customers WHERE provider = ? AND store = ? ORDER BY user_id' \
+  'SELECT user_id FROM customers WHERE provider = ? AND (store = ? OR 1) ORDER BY user_id' \
+  ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
+control "suspending: a store's customers are suspended with it" internal/panel/suspension.go \
+  'did, err := s.suspendCustomer(ctx, id, true, actor, reason)' \
+  'did, err := id < 0, error(nil)' \
+  ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
+control "suspending: lifting a store lifts its customers" internal/panel/whop_customers.go \
+  's.liftWithStore(ctx, st)' \
+  '_ = st' \
+  ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
+control "suspending: a lifted store's customers wait for its memberships to be read" internal/panel/whop_customers.go \
+  'if read == nil {' \
+  'if true {' \
+  ./internal/panel '^TestALiftedStoresCustomersComeBackAsTheirPlansSay$'
+control "suspending: a customer whose last call failed waits to be lifted" internal/panel/suspension.go \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || wc.NextTryAt > now' \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || now < 0' \
+  ./internal/panel '^TestALiftedStoresCustomersComeBackAsTheirPlansSay$'
+control "suspending: a customer whose new membership isn't confirmed waits to be lifted" internal/panel/suspension.go \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || wc.NextTryAt > now' \
+  'pending[wc.WhopUserID] = wc.NextTryAt > now' \
+  ./internal/panel '^TestALiftedStoresCustomersComeBackAsTheirPlansSay$'
+control "suspending: only an app store is suspended" internal/panel/suspension.go \
+  'case st.Via != whopViaApp:' \
+  'case false:' \
+  ./internal/panel '^TestOnlyAnAppStoreCanBeSuspended$'
+control "suspending: a suspended store's plans take no room" internal/panel/whop_stock.go \
+  'AND st.suspended_at = 0 AND st.left_at = 0' \
+  'AND st.left_at = 0' \
+  ./internal/panel '^TestASuspendedStoreSellsNothing$'
+control "suspending: a suspended store's pass starts nobody" internal/panel/whop_customers.go \
+  'if left || !st.SuspendedAt.IsZero() {' \
+  'if left {' \
+  ./internal/panel '^TestASuspendedStoreSellsNothing$'
+control "suspending: a suspended store's stock goes to 0" internal/panel/whop_customers.go \
+  's.stopWhopSales(ctx, st.ID)' \
+  '_ = st.ID' \
+  ./internal/panel '^TestASuspendedStoreSellsNothing$'
+control "suspending: a lifted store is read again at once" internal/panel/suspension.go \
+  "SET suspended_at = 0, suspend_reason = '', synced_at = 0, polled_at = 0 WHERE" \
+  "SET suspended_at = 0, suspend_reason = '' WHERE" \
+  ./internal/panel '^TestASuspendedStoreSellsNothing$'
+control "suspending: the Team page shows a customer's store" internal/panel/team.go \
+  '&row.Store, &row.StoreName' \
+  'new(string), new(string)' \
+  ./internal/panel '^TestTheTeamPageShowsACustomersStoreAndSuspension$'
+control "suspending: the Team page says who may suspend" internal/panel/team.go \
+  'row.CanSuspend = permit(a, actSuspendCustomers, "") == nil' \
+  'row.CanSuspend = true' \
+  ./internal/panel '^TestTheTeamPageShowsACustomersStoreAndSuspension$'
+control "suspending: a suspension from before stays the owner's own" internal/panel/auth.go \
+  "UPDATE customers SET suspended_self = 1 WHERE state = 'suspended';" \
+  '' \
+  ./internal/panel '^TestTheMigrationKeepsASuspensionAsTheOwnersOwn$'
+webcontrol "suspending: the Team page offers the owner Suspend" web/src/pages/team.tsx \
+  '{m.canSuspend &&' \
+  '{false &&' \
+  src/pages/pages.test.tsx 'lets the owner suspend them with a reason or lift it'
+webcontrol "suspending: a store's suspension says why" web/src/pages/whop-stores.tsx \
+  'await post(path, { reason: reason.trim() })' \
+  'await post(path, { reason })' \
+  src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
+
+# A store leaving (internal/panel/leaving.go, task 3.2 of the hosted
+# blueprint): only the Whop side's call makes a store leave; a store that
+# left ends its own customers' plans from what the dashboard kept, whether
+# or not Whop still answers for it, sells nothing and tells its customers
+# while it can; added again, it's back and read again at once.
+control "leaving: a store that left ends its customers' plans" internal/panel/whop_customers.go \
+  's.endLeftStorePlans(ctx, st)' \
+  '_ = st' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: lifting a store that left leaves its customers paused" internal/panel/whop_customers.go \
+  'if st.SuspendedAt.IsZero() {' \
+  'if false {' \
+  ./internal/panel '^TestLiftingAStoreThatLeftLeavesItsCustomersPaused$'
+control "leaving: an unconfirmed membership doesn't hold up lifting a store that left" internal/panel/suspension.go \
+  'pending[wc.WhopUserID] = !wc.Paused' \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || !wc.Paused' \
+  ./internal/panel '^TestLiftingAStoreThatLeftLeavesItsCustomersPaused$'
+control "leaving: a paused customer isn't paused again" internal/panel/leaving.go \
+  'if wc.Applied == "" || wc.Paused || wc.NextTryAt > now {' \
+  'if wc.Applied == "" || wc.NextTryAt > now {' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: a customer's pause is kept" internal/panel/leaving.go \
+  'if err := s.recordWhopCustomer(cust, wc.Applied, true, at); err != nil {' \
+  'if err := s.recordWhopCustomer(cust, wc.Applied, false, at); err != nil {' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: the pause says the store left" internal/panel/leaving.go \
+  'reason := "their store left Playkeeper Cloud"' \
+  'reason := "their Whop membership ended"' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: leaving again changes nothing" internal/panel/leaving.go \
+  'UPDATE whop_stores SET left_at = ?, left_why = ? WHERE store_id = ? AND left_at = 0' \
+  'UPDATE whop_stores SET left_at = ?, left_why = ? WHERE store_id = ?' \
+  ./internal/panel '^TestOnlyTheWhopSidesCallMakesAStoreLeave$'
+control "leaving: only an app store leaves" internal/panel/leaving.go \
+  'case st.Via != whopViaApp:' \
+  'case false:' \
+  ./internal/panel '^TestOnlyAnAppStoreLeaves$'
+control "leaving: a store that left sells nothing" internal/panel/whop_stock.go \
+  'AND st.left_at = 0' \
+  '' \
+  ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
+control "leaving: a store that left starts nobody" internal/panel/whop_customers.go \
+  'if left || !st.SuspendedAt.IsZero() {' \
+  'if !st.SuspendedAt.IsZero() {' \
+  ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
+control "leaving: a store that left tells its customers while it can" internal/panel/whop_customers.go \
+  's.sendWhopMessages(ctx, c, st)' \
+  '_ = c' \
+  ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
+control "leaving: the owner's list says a store left" internal/panel/suspension.go \
+  'if !st.LeftAt.IsZero() {' \
+  'if false {' \
+  ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
+control "leaving: a store that left is back when added again" internal/panel/whop_stores.go \
+  'return s.bringBackWhopStore(ctx, a)' \
+  'return false, nil' \
+  ./internal/panel '^TestAStoreThatLeftIsBackOnceAddedAgain$'
+control "leaving: a store that's back is read again at once" internal/panel/leaving.go \
+  'SET left_at = 0, left_why = '"''"', synced_at = 0, polled_at = 0,' \
+  'SET left_at = 0, left_why = '"''"',' \
+  ./internal/panel '^TestAStoreThatLeftIsBackOnceAddedAgain$'
+webcontrol "leaving: the owner's list says a store left and why" web/src/pages/whop-stores.tsx \
+  "if (s.leftAt) return s.leftWhy ? t('whop.stores.left', { why: s.leftWhy }) : t('whop.stores.leftNoWhy')" \
+  '' \
+  src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
+webcontrol "leaving: a store that left can't be suspended" web/src/pages/whop-stores.tsx \
+  '!s.leftAt && (' \
+  '(' \
+  src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
+
+# Closing an app store (internal/panel/closing.go, for the hosted
+# blueprint's 2.1 to 2.3): a new app store, and one back after leaving, are
+# closed as not open yet; a closed store sells nothing and starts nobody,
+# while its customers' plans still end; each reason opens it alone.
+control "closing: a new app store is closed until its seller opens it" internal/panel/whop_stores.go \
+  'a.ID, whopNotOpenYet, whopNotOpenYetWhy, now)' \
+  'a.ID+"-x", whopNotOpenYet, whopNotOpenYetWhy, now)' \
+  ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+control "closing: a store back after leaving is closed until opened" internal/panel/leaving.go \
+  'a.ID, whopNotOpenYet, whopNotOpenYetWhy, s.now().UnixMilli())' \
+  'a.ID+"-x", whopNotOpenYet, whopNotOpenYetWhy, s.now().UnixMilli())' \
+  ./internal/panel '^TestAStoreThatLeftIsBackOnceAddedAgain$'
+control "closing: a closed store's plans take no room" internal/panel/whop_stock.go \
+  'AND NOT EXISTS (SELECT 1 FROM whop_store_closures c WHERE c.store_id = st.store_id)' \
+  '' \
+  ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+control "closing: a closed store's stock goes to 0" internal/panel/whop_customers.go \
+  'if st.ClosedWhy != "" {' \
+  'if false {' \
+  ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+control "closing: a closed store starts nobody" internal/panel/whop_customers.go \
+  'case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":' \
+  'case false:' \
+  ./internal/panel '^TestAClosedStoresCustomersGoOnButNobodyStarts$'
+control "closing: a store opens for its own reason alone" internal/panel/closing.go \
+  'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?' \
+  'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by != ?' \
+  ./internal/panel '^TestAStoreOpensOnceNoReasonHoldsItClosed$'
+control "closing: only an app store is opened or closed" internal/panel/closing.go \
+  'case st.Via != whopViaApp:' \
+  'case st.Via == "none":' \
+  ./internal/panel '^TestAStoreOpensOnceNoReasonHoldsItClosed$'
+control "closing: a reason has a proper name" internal/panel/closing.go \
+  'if !reClosedBy.MatchString(by) || why == "" {' \
+  'if why == "" {' \
+  ./internal/panel '^TestAStoreOpensOnceNoReasonHoldsItClosed$'
+control "closing: the owner's list says why a store is closed" internal/panel/suspension.go \
+  ', ClosedWhy: st.ClosedWhy}' \
+  '}' \
+  ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+webcontrol "closing: the owner's list says a store isn't open yet" web/src/pages/whop-stores.tsx \
+  "if (s.closedWhy) return t('whop.stores.closed', { why: s.closedWhy })" \
+  '' \
+  src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
@@ -9023,8 +9523,8 @@ control "creator uploads: only on their machine" internal/panel/customeruploads.
   'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
   ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheirMachine$'
 control "creator uploads: not while waiting for room" internal/panel/server.go \
-  'if s.customerWaiting(r.Context(), acct) {' \
-  'if false {' \
+  'if err := s.waitingRefusal(r.Context(), acct); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestACustomerWaitingForRoomUploadsNothingForANewServer$'
 control "creator uploads: the allowance's server count" internal/panel/customeruploads.go \
   'if use.servers >= a.Allowance.Servers {' \
@@ -9664,8 +10164,8 @@ control "moving customers: a copy that went stays recorded a while, for listings
   'millis(listedAt))' \
   ./internal/panel '^TestALateListingStillLeavesOutACopyThatWent$'
 control "moving customers: a moved server counts against its customer's disk limit before its requests go there" internal/panel/moves.go \
-  'if err = s.sendLimitsTo(ctx, to); err != nil {' \
-  'if err = error(nil); err != nil {' \
+  'if err := s.sendLimitsTo(ctx, to, mv.serverID); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: the server's folder doesn't count against the customer's disk limit beside their server" internal/panel/moves.go \
   '"/v1/restore/upload", nil, io.TeeReader(down.Body, sent),' \
@@ -9932,7 +10432,7 @@ control "moving customers: a copy left where a server moves goes with its record
   '`DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, mv.serverID, mv.from' \
   ./internal/panel '^TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo$'
 control "moving customers: the machine a server left deletes its copy" internal/panel/moves.go \
-  'if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays); err != nil {' \
+  'if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays, now); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: the copy a server left keeps its final backup a week" internal/panel/moves.go \
@@ -9940,8 +10440,8 @@ control "moving customers: the copy a server left keeps its final backup a week"
   'if err := deleteOn(ctx, m, id, st.Name, 0, userID); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: nothing deletes the server as a copy left" internal/panel/moves.go \
-  'if busy > 0 || errors.Is(err, errNotFound) {' \
-  'if errors.Is(err, errNotFound) {' \
+  '	case busy > 0:' \
+  '	case false:' \
   ./internal/panel '^TestALeftCopyThatIsTheServerIsNeverDeleted$'
 control "moving customers: a server whose move failed starts again where it was" internal/panel/moves.go \
   'if mv.ran && !s.customerHeld(ctx, mv.userID) {' \
@@ -9952,7 +10452,7 @@ control "moving customers: a paused customer's server whose move failed isn't st
   'if mv.ran {' \
   ./internal/panel '^TestAPausedCustomersServerMovesStopped$'
 control "moving customers: the machine a failed move was going to deletes its copy" internal/panel/moves.go \
-  'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {' \
+  'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0, 0); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
 # shellcheck disable=SC2016
@@ -10067,11 +10567,134 @@ control "removing a machine: only the owner removes one customers are on" intern
   '} else if n > 0 && false {' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
 control "moving customers: a move whose switch fails leaves its server where it was" internal/panel/moves.go \
-  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+  '		err = s.switchTo(ctx, mv, to, slug)
+	}
+	if err != nil {
 		if ctx.Err() == nil {' \
-  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+  '		err = s.switchTo(ctx, mv, to, slug)
+	}
+	if err != nil {
 		if false {' \
   ./internal/panel '^TestAMoveWhoseSwitchFailsLeavesTheServerWhereItWas$'
+control "moving customers: a copy left on a removed machine stays recorded" internal/panel/moves.go \
+  '	case busy > 0:' \
+  '	case busy > 0 || errors.Is(err, errNotFound):' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "moving customers: a removed machine's host joining again lists its copy as one, not the server" internal/panel/machines.go \
+  '				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerOnline)' \
+  '				adopted, err := ownerOnline && false, error(nil)' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "removing a machine: a customer who lost theirs is told there's no room for their servers" internal/panel/readyserver.go \
+  '	case toldReady != 0 && !placed && toldWaiting == 0:' \
+  '	case false && toldReady != 0 && !placed && toldWaiting == 0:' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs is told once there's room again" internal/panel/readyserver.go \
+  '	case toldReady != 0 && placed && toldWaiting != 0:' \
+  '	case false && toldReady != 0 && placed && toldWaiting != 0:' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: the round for customers waiting tells one who lost theirs there's no room" internal/panel/readyserver.go \
+  '		return s.tellPlaced(ctx, cust, userID, false)' \
+  '		return nil' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs is refused a server as having no room, not as being set up" internal/panel/readyserver.go \
+  '		return errNoRoomAgain' \
+  '		return errWaitingForRoom' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs has a dashboard that says so" internal/panel/server.go \
+  'WaitingAgain: s.waitingAgain(context.Background(), a),' \
+  'WaitingAgain: false,' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+webcontrol "removing a machine: Home tells a customer who lost theirs there's no room, not that a server is being set up" web/src/pages/home.tsx \
+  "t(again ? 'home.noRoomTitle' : 'home.settingUpTitle')" \
+  "t('home.settingUpTitle')" \
+  src/pages/pages.test.tsx 'lost their machine'
+control "moving customers: a customer whose servers are apart gets their disk once between the machines" internal/panel/disklimits.go \
+  '		if in.split[uid] {' \
+  '		if false {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: a copy a move is making isn't its customer's on the machine making it" internal/panel/disklimits.go \
+  'if sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  'if false && sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: the copy about to become the server counts against its customer's limit there" internal/panel/disklimits.go \
+  'if sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  'if copyHidden(copies, sv.ID, now) {' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: a customer's disk isn't split while their move is under way" internal/panel/disklimits.go \
+  'return s.serversApart(ctx, userID) && !s.moveUnderWay(ctx, userID)' \
+  'return s.serversApart(ctx, userID)' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: a move that stops has what its customer's servers take counted again" internal/panel/moves.go \
+  's.audit(placementActor, "customer.move", name, "failed", err.Error())
+		s.recountDisk()' \
+  's.audit(placementActor, "customer.move", name, "failed", err.Error())' \
+  ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "disk limits: counting again means the next sync counts" internal/panel/disklimits.go \
+  '	s.diskUse.at = time.Time{}' \
+  '	_ = time.Time{}' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "disk limits: a sync that counts has a split made from its counts at once" internal/panel/disklimits.go \
+  '			if split {' \
+  '			if split && false {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "disk limits: a count under way when a move ends doesn't stand for the count it asks for" internal/panel/disklimits.go \
+  '		if s.diskUse.recounts == recounts {' \
+  '		if s.diskUse.recounts == recounts || true {' \
+  ./internal/panel '^TestACountUnderWayWhenAMoveEndsIsntTakenForTheCountAfter$'
+control "moving customers: a sync of the disk limits during a switch doesn't leave the server out of its limit" internal/panel/disklimits.go \
+  '		s.diskSending.Lock()
+		got, err := s.sendDiskLimits(ctx, m, in, count, "")
+		s.diskSending.Unlock()' \
+  '		got, err := s.sendDiskLimits(ctx, m, in, count, "")' \
+  ./internal/panel '^TestASyncDuringASwitchLeavesTheServerInItsLimit$'
+control "moving customers: a copy left on a removed machine, stopped before its server moved, isn't taken over" internal/panel/moves.go \
+  ' AND switched_at > ? ORDER BY switched_at, machine_id LIMIT 1' \
+  ' AND switched_at > ? AND 0 = 1 ORDER BY switched_at, machine_id LIMIT 1' \
+  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+control "moving customers: the server where it moved, stopped since, isn't taken for its copy" internal/panel/moves.go \
+  ' AND switched_at > ? ORDER BY' \
+  ' AND switched_at > 0 AND ? > 0 ORDER BY' \
+  ./internal/panel '^(TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs|TestEachCopyLeftOnARemovedMachineIsTakenOnce)$'
+control "moving customers: a server that isn't stopped is never taken for a copy a move left" internal/panel/moves.go \
+  '	if sv["phase"] != string(api.PhaseStopped) || err != nil {' \
+  '	if err != nil {' \
+  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+control "moving customers: a listing is taken for a copy whatever it says only while the server's own machine is online" internal/panel/moves.go \
+  '	if isNoRows(err) && ownerOnline {' \
+  '	if isNoRows(err) {' \
+  ./internal/panel '^(TestAFailedMovesCopyNeverGetsTheServerItselfDeleted|TestEachCopyLeftOnARemovedMachineIsTakenOnce)$'
+control "moving customers: while the server's own machine is online, a copy a move left is taken for one whatever it says" internal/panel/machines.go \
+  '				ownerOnline := ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  '				ownerOnline := false && ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "moving customers: a disconnected machine's server isn't taken for a copy by what a listing doesn't say" internal/panel/machines.go \
+  '				ownerOnline := ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  '				ownerOnline := ownerActive' \
+  ./internal/panel '^TestEachCopyLeftOnARemovedMachineIsTakenOnce$'
+control "moving customers: a listing that can't surely be told from a copy a move left is disputed, not taken over" internal/panel/machines.go \
+  '				if !ownerActive && !unsure {' \
+  '				if !ownerActive {' \
+  ./internal/panel '^(TestAFailedMovesCopyNeverGetsTheServerItselfDeleted|TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs)$'
+# shellcheck disable=SC2016
+control "moving customers: each copy left on a removed machine is taken once, the others kept" internal/panel/moves.go \
+  '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, from)' \
+  '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE `+leftOnRemoved+` OR machine_id = ?`, id, from)' \
+  ./internal/panel '^TestEachCopyLeftOnARemovedMachineIsTakenOnce$'
+control "moving customers: a machine listing a copy it deleted again takes up its own record, not another host's" internal/panel/moves.go \
+  '	if added == 0 {' \
+  '	if added == 0 && false {' \
+  ./internal/panel '^TestAMachineListingItsDeletedCopyAgainKeepsAnotherHostsCopy$'
+# shellcheck disable=SC2016
+control "moving customers: a copy a machine deleted and lists again is deleted once more" internal/panel/moves.go \
+  '		_, err = q.ExecContext(ctx, `UPDATE left_copies SET left_at = 0 WHERE server_id = ? AND machine_id = ?`, id, machineID)' \
+  '		_, err = q.ExecContext(ctx, `UPDATE left_copies SET left_at = left_at WHERE server_id = ? AND machine_id = ?`, id, machineID)' \
+  ./internal/panel '^TestAMachineListingItsDeletedCopyAgainKeepsAnotherHostsCopy$'
+control "moving customers: a customer's disk isn't split while it can't be told whether a move of theirs is under way" internal/panel/moves.go \
+  '	return err != nil || n > 0
+}' \
+  '	return err == nil && n > 0
+}' \
+  ./internal/panel '^TestADiskSplitNeedsToKnowNoMoveIsUnderWay$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside

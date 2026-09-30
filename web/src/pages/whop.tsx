@@ -15,6 +15,7 @@ import { t } from '@/i18n'
 import { allowanceText } from '@/lib/access'
 import { formatMB, relativeTime } from '@/lib/format'
 import { linkProps } from '@/lib/router'
+import { StoreSuspensions } from './whop-stores'
 
 const whopDeveloper = 'https://whop.com/dashboard/developer'
 const whopBlueprints = 'https://whop.com/blueprints'
@@ -320,6 +321,7 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
           ))}
         </ul>
       )}
+      <StoreSuspensions />
       <AllowanceDialog plan={editing} onClose={() => setEditing(undefined)} onSaved={onChange} />
       <DisconnectDialog open={disconnecting} account={store.account?.title ?? ''} onClose={() => setDisconnecting(false)} onDone={onChange} />
     </div>
@@ -368,15 +370,22 @@ function SignInWithWhop({ store, onChange }: { store: WhopStore; onChange: (s: W
         {t('whop.signIn')}
       </h3>
       {signIn?.clientId ? (
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-            {t('whop.signIn.on', { app: signIn.clientId })}
-            {signIn.secretEnding && ` ${t('whop.signIn.secret', { ending: signIn.secretEnding })}`}
-          </p>
-          <Button variant="ghost" size="sm" onClick={() => void turnOff()} loading={busy}>
-            {t('whop.signIn.off')}
-          </Button>
-        </div>
+        <>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+              {t('whop.signIn.on', { app: signIn.clientId })}
+              {signIn.secretEnding && ` ${t('whop.signIn.secret', { ending: signIn.secretEnding })}`}
+            </p>
+            <Button variant="ghost" size="sm" onClick={() => void turnOff()} loading={busy}>
+              {t('whop.signIn.off')}
+            </Button>
+          </div>
+          {signIn.using && signIn.redirectUri && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t('whop.signIn.using', { using: signIn.using })} <code className="rounded bg-muted px-1 py-0.5 text-[11px] break-all text-foreground">{signIn.redirectUri}</code>
+            </p>
+          )}
+        </>
       ) : (
         <>
           <p className="mt-1 text-xs text-muted-foreground">

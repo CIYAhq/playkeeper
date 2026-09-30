@@ -679,6 +679,49 @@ DROP TABLE whop_account;
 ALTER TABLE whop_app ADD COLUMN webhook_secret TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_app ADD COLUMN hooked_at      INTEGER NOT NULL DEFAULT 0;
 `,
+	// Suspensions (see suspension.go): when each customer's account was
+	// suspended and why, and whether the owner suspended it on its own, with
+	// its store, or both; and when each store was suspended, and why. An
+	// account suspended before is the owner's own suspension.
+	`
+ALTER TABLE customers   ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers   ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
+ALTER TABLE customers   ADD COLUMN suspended_self  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers   ADD COLUMN suspended_store INTEGER NOT NULL DEFAULT 0;
+UPDATE customers SET suspended_self = 1 WHERE state = 'suspended';
+ALTER TABLE whop_stores ADD COLUMN suspended_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_stores ADD COLUMN suspend_reason  TEXT    NOT NULL DEFAULT '';
+`,
+	// A store that left (see leaving.go): when the Whop side found it gone,
+	// and why.
+	`
+ALTER TABLE whop_stores ADD COLUMN left_at  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_stores ADD COLUMN left_why TEXT    NOT NULL DEFAULT '';
+`,
+	// Closed stores (see closing.go): each reason a store is closed for,
+	// whose it is and in what words, so each opens it for its own reason
+	// alone.
+	`
+CREATE TABLE whop_store_closures (
+  store_id  TEXT    NOT NULL,
+  closed_by TEXT    NOT NULL,
+  why       TEXT    NOT NULL,
+  closed_at INTEGER NOT NULL,
+  PRIMARY KEY(store_id, closed_by)
+);
+`,
+	// The redirect URI each sign-in with Whop left with, which trading its
+	// code names again: the dashboard's address, or its address at the
+	// panel's port while Whop lists only that one (see signInRedirect).
+	`
+ALTER TABLE whop_signins ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
+`,
+	// When the server whose copy a move left on a machine stopped being that
+	// copy, as its requests went where it moved, or 0 for the copy a failed
+	// move made, which never was the server (see adoptLeftCopy).
+	`
+ALTER TABLE left_copies ADD COLUMN switched_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (

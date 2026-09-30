@@ -38,7 +38,8 @@ func newBrowser(t *testing.T, e *env) *browser {
 // and answers with where the dashboard sends the browser next.
 func (b *browser) visit(target string) (*http.Response, string) {
 	b.t.Helper()
-	res, err := b.c.Get(b.e.ts.URL + strings.TrimPrefix(target, whopDashboard))
+	target = strings.TrimPrefix(strings.TrimPrefix(target, whopDashboard), "https://beta.playkeeper.me")
+	res, err := b.c.Get(b.e.ts.URL + target)
 	if err != nil {
 		b.t.Fatal(err)
 	}

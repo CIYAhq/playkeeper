@@ -74,8 +74,12 @@ func (c customerCore) StartCustomer(ctx context.Context, cust Customer, p Custom
 		return StartedCustomer{}, err
 	case ok:
 		err = s.applyCustomerPlan(ctx, cust, info, p, al)
-		if err == nil && info.State == CustomerPaused {
+		switch {
+		case err != nil:
+		case info.State == CustomerPaused:
 			err = s.resumeCustomer(ctx, cust, &info)
+		case info.State == CustomerSuspended:
+			err = s.resumeUnderSuspension(ctx, cust, info)
 		}
 	default:
 		info, err = s.makeCustomerAccount(ctx, cust, p, al)
@@ -310,11 +314,12 @@ func (s *Server) runCustomers(ctx context.Context) {
 }
 
 // startWaitingCustomers asks placement again for each active customer with
-// no home machine yet, and for each one placed but not yet told their server
-// is ready, whose message failed.
+// no home machine yet, and for each one placed who is still owed a message
+// that failed: that their server is ready, or, told there was no room, that
+// there's room again.
 func (s *Server) startWaitingCustomers(ctx context.Context) {
 	rows, err := s.db.QueryContext(ctx, `SELECT c.user_id FROM customers c LEFT JOIN customer_homes h ON h.user_id = c.user_id
-		WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0) ORDER BY c.created_at`, string(CustomerActive))
+		WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0 OR c.told_waiting != 0) ORDER BY c.created_at`, string(CustomerActive))
 	if err != nil {
 		s.log.Error("could not list the customers waiting for room", "err", err)
 		return

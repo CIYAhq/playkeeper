@@ -10,7 +10,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/
 import { Radio } from '@/components/ui/radio-group'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, runningOp, type FreeStage, type NameProblem } from '@/lib/address'
+import { certState, claimStep, dashboardPort, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, runningOp, type FreeStage, type NameProblem } from '@/lib/address'
 import { formatCountdown, formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Group } from '../more'
@@ -572,7 +572,7 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
   const stage = freeStage(a)
   if (stage === 'claiming') return <Claiming address={host} machine={machine} ip={a.ip} step={claimStep(runningOp(a, 'address.publish'))} />
 
-  const open = dashboardURL(host, a.panelPort)
+  const open = dashboardURL(host, dashboardPort(a))
   const cert = certState(a, now)
   const header =
     stage === 'lapsed' ? (
@@ -594,7 +594,7 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
       if (a.free?.serversWait && !s.published && stage !== 'lapsed') return [{ id: s.serverId, label: s.name, value: s.port === 25565 ? host : `${host}:${s.port}`, status: waitStatus(a, s.address) }]
       return [{ id: s.serverId, label: s.name, value: s.address, status: rowStatus(stage, s.published) }]
     }),
-    dashboardRow(host, a.panelPort, rowStatus(stage, a.free?.state === 'active' && a.free.dns === 'ok')),
+    dashboardRow(host, dashboardPort(a), rowStatus(stage, a.free?.state === 'active' && a.free.dns === 'ok')),
   ]
   const release = () =>
     act('release', () => {

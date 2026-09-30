@@ -142,6 +142,9 @@ type Server struct {
 	whopKickMu  sync.Mutex
 	whopKicked  map[string]bool
 	whopKickAll bool
+	// redirects are Whop's last answers on the redirect URIs Sign in with
+	// Whop may send (see signInRedirect).
+	redirects redirectChecks
 	// hosting is the hosting core billing providers call, and notifier what
 	// the core calls to tell customers something (see hosting.go). sales is
 	// what the fleet tells how many more of each plan fit (see whop_stock.go).
@@ -178,8 +181,15 @@ type Server struct {
 		sync.Mutex
 		at     time.Time
 		used   map[int64]int64
+		usedOn map[string]map[int64]int64
 		failed map[string]string
+		// recounts counts the counts asked for at once (recountDisk).
+		recounts int
 	}
+	// diskSending is held while a machine is sent its disk limits, and
+	// by a move from sending the machine a server goes to its limits
+	// until the server's requests go there (switchTo).
+	diskSending sync.Mutex
 	// dnsMu serialises sending the dashboard's machine its DNS zone with
 	// the owner's switch (see dnsanswers.go).
 	dnsMu sync.Mutex
@@ -424,6 +434,11 @@ func (s *Server) Routes() []Route {
 		{"PUT", "/api/machines/{mid}/customers", needSessionCSRF, actTakeCustomers, s.hMachineCustomers},
 		{"GET", "/api/machines/{mid}/customers", needSession, actTakeCustomers, s.hMachineCustomerList},
 		{"POST", "/api/customers/{uid}/move", needSessionCSRF, actTakeCustomers, s.hCustomerMove},
+		{"POST", "/api/customers/{uid}/suspension", needSessionCSRF, actSuspendCustomers, s.hCustomerSuspend},
+		{"DELETE", "/api/customers/{uid}/suspension", needSessionCSRF, actSuspendCustomers, s.hCustomerUnsuspend},
+		{"GET", "/api/whop/stores", needSession, actSuspendCustomers, s.hWhopStores},
+		{"POST", "/api/whop/stores/{store}/suspension", needSessionCSRF, actSuspendCustomers, s.hWhopStoreSuspend},
+		{"DELETE", "/api/whop/stores/{store}/suspension", needSessionCSRF, actSuspendCustomers, s.hWhopStoreUnsuspend},
 		{"GET", "/api/machines/room", needSession, actTakeCustomers, s.hSaleRoom},
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
@@ -592,6 +607,11 @@ func (s *Server) Routes() []Route {
 		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
 		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
 		{"PUT", "/api/whop/app", needSessionCSRF, actSellOnWhop, s.hWhopAppSet},
+		// The dashboard on the standard HTTPS port (dashboard443.go): it
+		// changes the dashboard's address, like the machine's address does.
+		{"GET", "/api/dashboard-port", needSession, actViewMachines, s.hDashboardPort},
+		{"PUT", "/api/dashboard-port", needSessionCSRF, actManageMachine, s.hDashboardPortSet},
+		{"POST", "/api/dashboard-port/retry", needSessionCSRF, actManageMachine, s.hDashboardPortRetry},
 		// Hetzner stock (hetzner.go): the owner's alone.
 		{"GET", "/api/hetzner", needSession, actWatchStock, s.hHetzner},
 		{"PUT", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerSet},
@@ -742,8 +762,8 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				// A customer waiting for room has no machine yet, and is
 				// told so whichever one the path names.
 				if mid := r.PathValue("mid"); mid != "" && !s.machineShown(r.Context(), acct, mid) {
-					if s.customerWaiting(r.Context(), acct) {
-						writeRefusal(w, errWaitingForRoom)
+					if err := s.waitingRefusal(r.Context(), acct); err != nil {
+						writeRefusal(w, err)
 					} else {
 						writeErr(w, http.StatusNotFound, api.CodeNotFound, "Machine not found.", "")
 					}
@@ -787,7 +807,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"+s.reachSource()+"; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
@@ -1060,9 +1080,11 @@ type accessBody struct {
 	NeedsTwoFactor       bool `json:"needsTwoFactor,omitempty"`
 	AwaitingConfirmation bool `json:"awaitingConfirmation,omitempty"`
 	// WaitingForRoom is set for a customer whose server is being set up,
-	// waiting for room on a machine (see readyserver.go), and Home for a
-	// creator is the machine their servers go on (homeMachine).
+	// waiting for room on a machine (see readyserver.go), WaitingAgain too
+	// once they've lost the machine they had, and Home for a creator is the
+	// machine their servers go on (homeMachine).
 	WaitingForRoom bool   `json:"waitingForRoom,omitempty"`
+	WaitingAgain   bool   `json:"waitingAgain,omitempty"`
 	Home           string `json:"home,omitempty"`
 	// PausedUntil is set for a customer whose plan ended: when their servers
 	// are deleted unless they renew (see pausing.go). ServersDeleted is set
@@ -1084,7 +1106,8 @@ func (s *Server) meBody(sess session) map[string]any {
 		"csrfToken": sess.CSRF,
 		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
-			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), Home: s.creatorHome(a), PausedUntil: s.pausedUntil(a),
+			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), WaitingAgain: s.waitingAgain(context.Background(), a),
+			Home: s.creatorHome(a), PausedUntil: s.pausedUntil(a),
 			ServersDeleted: s.serversDeleted(a), FinalBackups: s.hasFinalBackups(a), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
@@ -1819,7 +1842,7 @@ func (s *Server) serve(ctx context.Context, ln net.Listener, tc *tls.Config) err
 func (s *Server) httpServer(addr string, tc *tls.Config) *http.Server {
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           s.Handler(),
+		Handler:           s.panelPortHandler(),
 		TLSConfig:         tc,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,

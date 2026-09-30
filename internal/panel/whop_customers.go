@@ -252,6 +252,16 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	if st.TakenOverBy != "" {
 		return
 	}
+	// A store that left ends its customers' plans from what the dashboard
+	// kept, whether or not Whop still answers for it, so once its own
+	// suspension is lifted, its customers' is too, into their ended plans.
+	left := !st.LeftAt.IsZero()
+	if left {
+		s.endLeftStorePlans(ctx, st)
+		if st.SuspendedAt.IsZero() {
+			s.liftWithStore(ctx, st)
+		}
+	}
 	c, err := s.whopClientFor(ctx, st)
 	if err != nil {
 		s.whopStoreNeedsALook(st.ID, err.Error())
@@ -264,6 +274,18 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 			s.whopStoreNeedsALook(st.ID, problem)
 			return
 		}
+	}
+	// A suspended store, or one that left, sells nothing, and its pass does
+	// little else: each of its plans, a new one included, gets a stock of 0
+	// on Whop, and a store that left tells its customers their plans ended.
+	if left || !st.SuspendedAt.IsZero() {
+		s.refreshWhopPlans(ctx, c, st)
+		s.stopWhopSales(ctx, st.ID)
+		s.pushWhopStock(ctx, c, st.ID)
+		if left {
+			s.sendWhopMessages(ctx, c, st)
+		}
+		return
 	}
 	// Without the machine's address the webhook stays where it is. An app
 	// store's memberships are read every minute until the app's webhook
@@ -287,15 +309,23 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	if st.Via == whopViaApp {
 		every = s.whopAppEvery(ctx, st)
 	}
-	if err := s.refreshWhopMemberships(ctx, c, st, every); err != nil {
-		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", err)
+	read := s.refreshWhopMemberships(ctx, c, st, every)
+	if read != nil {
+		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", read)
 	}
 	s.refreshWhopPlans(ctx, c, st)
 	if s.whopTakenOver(st.ID) || !s.stillSellsFor(ctx, c, st) {
 		return
 	}
+	// A closed store sells nothing and starts nobody (see closing.go).
+	if st.ClosedWhy != "" {
+		s.stopWhopSales(ctx, st.ID)
+	}
 	s.pushWhopStock(ctx, c, st.ID)
-	s.syncWhopCustomers(ctx, c, st.ID)
+	s.syncWhopCustomers(ctx, c, st)
+	if read == nil {
+		s.liftWithStore(ctx, st)
+	}
 	s.remindCancelled(ctx, st)
 	s.sendWhopMessages(ctx, c, st)
 }
@@ -434,16 +464,11 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 }
 
 // refreshWhopPlans reads the store again every whopPollEvery, so a plan's
-// allowance changed on Whop reaches its customers, and sooner when a
-// membership is of a plan the dashboard hasn't read yet.
+// allowance changed on Whop reaches its customers, and sooner when the
+// store may be out of date (see whopStoreDue).
 func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopStore) {
-	since := s.now().Sub(st.SyncedAt)
-	if since < whopPollEvery {
-		var unknown int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = ? AND m.stale = 0
-			AND NOT EXISTS (SELECT 1 FROM whop_plans p WHERE p.store_id = m.store_id AND p.plan_id = m.plan_id)`, st.ID).Scan(&unknown); err != nil || unknown == 0 || since < 2*time.Minute {
-			return
-		}
+	if !s.whopStoreDue(ctx, st) {
+		return
 	}
 	problem := ""
 	if err := s.readWhopStore(ctx, c, st.ID, false); err != nil {
@@ -453,6 +478,28 @@ func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopSt
 	if _, err := s.db.Exec(`UPDATE whop_stores SET synced_at = ?, problem = ? WHERE store_id = ?`, s.now().UnixMilli(), problem, st.ID); err != nil {
 		s.log.Error("could not record reading the store on Whop", "err", err)
 	}
+}
+
+// whopStoreDue says whether the reconciler reads the store this pass: every
+// whopPollEvery; at once when the products name another address than the
+// dashboard's, since the store sends buyers there and the old one may no
+// longer answer (the dashboard losing port 443, say), but only a minute
+// after a read that failed; and two minutes after the last read when a
+// membership is of a plan the dashboard hasn't read yet.
+func (s *Server) whopStoreDue(ctx context.Context, st whopStore) bool {
+	since := s.now().Sub(st.SyncedAt)
+	if since >= whopPollEvery {
+		return true
+	}
+	if st.Problem == "" || since >= time.Minute {
+		if dash, err := s.dashboardURL(ctx); err == nil && dash != "" && dash != st.MarkedAs {
+			return true
+		}
+	}
+	var unknown int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = ? AND m.stale = 0
+		AND NOT EXISTS (SELECT 1 FROM whop_plans p WHERE p.store_id = m.store_id AND p.plan_id = m.plan_id)`, st.ID).Scan(&unknown)
+	return err == nil && unknown > 0 && since >= 2*time.Minute
 }
 
 // whopCustomer is one customer as the reconciler sees them.
@@ -594,11 +641,12 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 // their last plan ending pauses them; a plan starting again after that
 // starts them again. A customer with a membership Whop's API hasn't
 // confirmed is left as they are until it does, and one whose call failed
-// waits for their next try. Each is the core's customer of the store.
-func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, store string) {
-	custs, err := s.whopCustomers(ctx, store)
+// waits for their next try. While the store is closed, nobody starts. Each
+// is the core's customer of the store.
+func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopStore) {
+	custs, err := s.whopCustomers(ctx, st.ID)
 	if err != nil {
-		s.log.Error("could not list Whop customers", "store", store, "err", err)
+		s.log.Error("could not list Whop customers", "store", st.ID, "err", err)
 		return
 	}
 	now := s.now().UnixMilli()
@@ -606,19 +654,22 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, store st
 		if wc.Unconfirmed > 0 || wc.NextTryAt > now {
 			continue
 		}
-		if err := s.stepWhopCustomer(ctx, c, store, wc); err != nil {
-			s.whopCustomerFailed(store, wc, err)
+		if err := s.stepWhopCustomer(ctx, c, st, wc); err != nil {
+			s.whopCustomerFailed(st.ID, wc, err)
 		}
 	}
 }
 
-func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, store string, wc whopCustomer) error {
+func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopStore, wc whopCustomer) error {
+	store := st.ID
 	has := wc.Plan.Servers > 0 && wc.Plan.MemoryMB > 0
 	cust := Customer{Provider: whopProvider, Store: store, Subject: wc.WhopUserID, Handle: wc.Handle}
 	// Taken before the core's call, since the fleet may count the customer
 	// in its room before the call returns (see pushWhopStock).
 	at := s.now()
 	switch {
+	case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":
+		// A closed store starts nobody: they start once it opens.
 	case has && (wc.Applied == "" || wc.Paused):
 		if cust.Handle == "" {
 			u, err := c.User(ctx, wc.WhopUserID)

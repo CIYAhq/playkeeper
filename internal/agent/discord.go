@@ -140,8 +140,13 @@ func (a *Agent) discordHost() string {
 	return a.disc.host
 }
 
-// discordBase is the dashboard's https address, or "" when it isn't known.
+// discordBase is the dashboard's https address, or "" when it isn't known:
+// the machine's name without a port while the dashboard answers on port 443
+// there, and otherwise the host it was opened with and the panel's port.
 func (a *Agent) discordBase() string {
+	if host := a.namedHost(); reDomain.MatchString(host) && a.dashboardOn443(host) {
+		return "https://" + host
+	}
 	host := a.discordHost()
 	if host == "" {
 		return ""

@@ -83,7 +83,7 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Playkeeper %s is installed on this server. This upgrades it to %s in place:\n", old, newVersion)
-	for _, line := range upgradePlan(sys, cfg, old, newVersion, allow80) {
+	for _, line := range upgradePlan(sys, cfg, old, newVersion, allow80, httpsRuleDue(sys, cfg, m)) {
 		fmt.Fprintf(out, "  %s\n", line)
 	}
 	fmt.Fprintln(out)
@@ -113,6 +113,7 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	if allow80 {
 		allowACMEPort(sys, cfg, out)
 	}
+	allowHTTPSPort(sys, cfg, out)
 	res.Upgraded = true
 	res.Duration = sys.Now().Sub(start)
 	return res, nil
@@ -173,7 +174,7 @@ func busyWith(ctx context.Context, sys System, cfg config.Config) string {
 	return ""
 }
 
-func upgradePlan(sys System, cfg config.Config, old, newVersion string, allow80 bool) []string {
+func upgradePlan(sys System, cfg config.Config, old, newVersion string, allow80 bool, https hostFirewall) []string {
 	kept, restart, services := "settings and admin account", "agent and panel restart", "the "+AgentUnit+" and "+PanelUnit+" services"
 	if cfg.NoPanel {
 		kept, restart, services = "and settings", "agent restarts", "the "+AgentUnit+" service"
@@ -192,6 +193,9 @@ func upgradePlan(sys System, cfg config.Config, old, newVersion string, allow80 
 	}
 	if allow80 {
 		p = append(p, "Firewall:  ufw allow "+acmeRule+" once "+newVersion+" is running. "+port80Why)
+	}
+	if https != nil {
+		p = append(p, "Firewall:  allow "+httpsRule+" in "+https.short()+https.where()+" once "+newVersion+" is running. "+webPortsWhy)
 	}
 	return append(p, "Saves:     a copy of Playkeeper "+old+" in "+PreviousDir(cfg)+"; it is put back automatically if "+newVersion+" does not come up healthy")
 }

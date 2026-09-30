@@ -54,18 +54,30 @@ type whopStore struct {
 	// over, at TakenOverAt.
 	MarkedAs, TakenOverBy string
 	TakenOverAt           time.Time
+	// SuspendedAt is when the owner suspended the store, zero while it
+	// isn't, and SuspendReason why (see suspension.go).
+	SuspendedAt   time.Time
+	SuspendReason string
+	// LeftAt is when the store left, zero while it hasn't, and LeftWhy why
+	// (see leaving.go).
+	LeftAt  time.Time
+	LeftWhy string
+	// ClosedWhy is the words of the first reason the store is closed for,
+	// "" while it's open (see closing.go).
+	ClosedWhy string
 }
 
 const whopStoreColumns = `store_id, via, title, route, api_key, connected_by, connected_at, synced_at, problem, webhook_id, webhook_url, webhook_secret,
-	polled_at, marked_as, taken_over_by, taken_over_at`
+	polled_at, marked_as, taken_over_by, taken_over_at, suspended_at, suspend_reason, left_at, left_why,
+	COALESCE((SELECT why FROM whop_store_closures c WHERE c.store_id = whop_stores.store_id ORDER BY c.closed_at, c.closed_by LIMIT 1), '')`
 
 func scanWhopStore(row interface{ Scan(...any) error }) (whopStore, error) {
 	var st whopStore
-	var connected, synced, polled, takenOver int64
+	var connected, synced, polled, takenOver, suspended, left int64
 	err := row.Scan(&st.ID, &st.Via, &st.Title, &st.Route, &st.Key, &st.ConnectedBy, &connected, &synced, &st.Problem,
-		&st.WebhookID, &st.WebhookURL, &st.WebhookSecret, &polled, &st.MarkedAs, &st.TakenOverBy, &takenOver)
+		&st.WebhookID, &st.WebhookURL, &st.WebhookSecret, &polled, &st.MarkedAs, &st.TakenOverBy, &takenOver, &suspended, &st.SuspendReason, &left, &st.LeftWhy, &st.ClosedWhy)
 	st.ConnectedAt, st.SyncedAt, st.PolledAt = time.UnixMilli(connected).UTC(), msTimeOrZero(synced), msTimeOrZero(polled)
-	st.TakenOverAt = msTimeOrZero(takenOver)
+	st.TakenOverAt, st.SuspendedAt, st.LeftAt = msTimeOrZero(takenOver), msTimeOrZero(suspended), msTimeOrZero(left)
 	return st, err
 }
 
@@ -106,23 +118,38 @@ func (s *Server) keyStore(ctx context.Context) (whopStore, bool, error) {
 }
 
 // addWhopStore registers a business that installed the Playkeeper Cloud app
-// as an app store, which the reconciler then sells for, and says whether it
-// was new. A business that's a store already stays as it is.
+// as an app store, closed as not open yet until its seller opens it (see
+// closing.go), and says whether it was new, or an app store that left and
+// is back (see leaving.go). A business that's a store already stays as it
+// is.
 func (s *Server) addWhopStore(ctx context.Context, a whop.Account) (bool, error) {
 	if !reWhopID.MatchString(a.ID) {
 		return false, fmt.Errorf("%q isn't a Whop business", a.ID)
 	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO whop_stores(store_id, via, title, route, connected_at) VALUES(?,?,?,?,?) ON CONFLICT(store_id) DO NOTHING`,
-		a.ID, whopViaApp, a.Title, a.Route, s.now().UnixMilli())
+	added := false
+	err := s.immediate(ctx, func(conn *sql.Conn) error {
+		now := s.now().UnixMilli()
+		res, err := conn.ExecContext(ctx, `INSERT INTO whop_stores(store_id, via, title, route, connected_at) VALUES(?,?,?,?,?) ON CONFLICT(store_id) DO NOTHING`,
+			a.ID, whopViaApp, a.Title, a.Route, now)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return nil
+		}
+		added = true
+		_, err = conn.ExecContext(ctx, `INSERT INTO whop_store_closures(store_id, closed_by, why, closed_at) VALUES(?,?,?,?)`, a.ID, whopNotOpenYet, whopNotOpenYetWhy, now)
+		return err
+	})
 	if err != nil {
 		return false, err
 	}
-	n, _ := res.RowsAffected()
-	if n > 0 {
-		s.audit("system", "whop.store_added", a.ID, "succeeded", "installed the Playkeeper Cloud app: "+whopName(a))
+	if added {
+		s.audit("system", "whop.store_added", a.ID, "succeeded", "installed the Playkeeper Cloud app: "+whopName(a)+"; not open yet")
 		s.kickWhopStore(a.ID)
+		return true, nil
 	}
-	return n > 0, nil
+	return s.bringBackWhopStore(ctx, a)
 }
 
 // whopClientFor is the client a store's pass acts on it with, naming the

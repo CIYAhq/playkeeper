@@ -30,7 +30,16 @@ const mapToken = publicMapToken(window.location.pathname)
 reloadWhenCodeIsStale()
 const root = document.getElementById('root')
 if (root) {
-  const page = root.dataset.page === 'server' ? <ServerPage /> : route.name === 'pack' ? <PackPage token={route.token} /> : mapToken !== undefined ? <PublicMapPage token={mapToken} /> : <App />
+  const page =
+    root.dataset.page === 'server' ? (
+      <ServerPage signIn={root.dataset.signIn === 'true'} />
+    ) : route.name === 'pack' ? (
+      <PackPage token={route.token} />
+    ) : mapToken !== undefined ? (
+      <PublicMapPage token={mapToken} />
+    ) : (
+      <App />
+    )
   createRoot(root).render(
     <StrictMode>
       {/* The panel's Content Security Policy allows only its own style files. */}

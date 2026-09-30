@@ -527,6 +527,8 @@ export interface JoinCommand extends JoinCode {
 /** What connecting a machine needs: where it dials, the smallest machine that works and the codes. */
 export interface MachineLinkInfo {
   addresses: DialAddress[]
+  /** The dashboard's address, without a port while it answers on port 443: where AI agents connect. Machines keep dialing `addresses`. */
+  dashboard?: string
   /** systems: each supported distribution with its oldest supported release; later ones work too. */
   minimum: { cores: number; memoryGB: number; freeDiskGB: number; systems: { name: string; version: string }[] }
   sizingUrl: string
@@ -1166,9 +1168,58 @@ export interface Address {
   /** Every server gets `label`.host through one wildcard record, *.host, in `records`. */
   serverAddresses?: boolean
   certificate?: CertificateStatus
+  /** Serve the dashboard on the standard HTTPS port (443), on the machine that runs the dashboard; a joined machine has none. */
+  dashboard?: Dashboard443
   names: NamesService
   termsAccepted?: string
   operation?: Operation
+}
+
+/**
+ * Serve the dashboard on the standard HTTPS port (443), from 0.4.11. state is
+ * port 443 for the dashboard: off with the switch, no_address until the
+ * machine's name works with a certificate, waiting for a few minutes after
+ * the machine starts, busy, claimed or denied while another program has it
+ * (holder names it), and open while the dashboard listens there.
+ */
+export interface Dashboard443 {
+  on: boolean
+  /** Nobody has changed the switch, so `on` is the install's choice. */
+  default?: boolean
+  state: PagePortState | 'no_address'
+  holder?: string
+  /** A browser from outside the machine has opened the dashboard on port 443; until then its address keeps its port. */
+  reached?: boolean
+  /** The port the dashboard's address has: 443, which shows as none, once reached and while nothing else has port 443, else the panel's port. */
+  port: number
+}
+
+/** Machine settings › Serve the dashboard on the standard HTTPS port (443). url is the dashboard's address without a port and old with the panel's; both missing without a name that works. */
+export interface DashboardPortView extends Dashboard443 {
+  url?: string
+  old?: string
+  panelPort: number
+  /** The panel answers port 443 at the machine's name, so a visit there counts; a moment after the switch turns on. */
+  serving?: boolean
+  /** The places outside Playkeeper that keep the dashboard's address, each with the change it needs. */
+  outside: OutsideChange[]
+}
+
+/**
+ * A place outside Playkeeper that keeps the dashboard's address: the Whop
+ * app customers sign in through, which must list `add` beside `keep`; the
+ * webhook the owner made for that app on Whop, which keeps working at `keep`;
+ * Whop's webhook, which Playkeeper moves to `add` itself; or AI agents set up
+ * with `keep`, which keeps working. done: Whop takes `add`, or the webhook is
+ * there.
+ */
+export interface OutsideChange {
+  kind: 'whop_signin' | 'whop_app_webhook' | 'whop_webhook' | 'mcp'
+  app?: string
+  add: string
+  keep?: string
+  automatic?: boolean
+  done: boolean
 }
 
 /** What a domain would need, before it is saved. */
@@ -1896,6 +1947,8 @@ export interface Access {
   awaitingConfirmation?: boolean
   /** A customer whose server is being set up, waiting for room on a machine. */
   waitingForRoom?: boolean
+  /** A customer waiting for room again, having lost the machine they had. */
+  waitingAgain?: boolean
   /** A creator's machine: the one their servers go on. */
   home?: string
   /** A customer whose plan ended: when their servers are deleted unless they renew. */
@@ -2004,6 +2057,8 @@ export interface WhopSignIn {
   clientId?: string
   secretEnding?: string
   redirectUri?: string
+  /** The redirect URL sign-ins use instead while Whop lists only that one: the dashboard's address with the panel's port, from before it answered without one. */
+  using?: string
 }
 
 /**
@@ -2160,6 +2215,46 @@ export interface TeamMember {
   /** Set for a customer: the billing provider their account came from ("whop"), and their name there. */
   customer?: string
   handle?: string
+  /** Set for a customer: where their account stands, and the store they bought from, with its name there. */
+  customerState?: CustomerState
+  store?: string
+  storeName?: string
+  /** Whether the owner suspended a customer's account on its own, with its store, or both, and why. */
+  suspendedSelf?: boolean
+  suspendedStore?: boolean
+  suspendReason?: string
+  /** Whether the signed-in account may suspend this customer, or lift its own suspension of them. */
+  canSuspend?: boolean
+}
+
+/** Where a customer's account stands: active, paused because its plan ended, or suspended by the owner. */
+export type CustomerState = 'active' | 'paused' | 'suspended'
+
+/** A customer's account once the owner suspended it or lifted that. */
+export interface CustomerSuspension {
+  state: CustomerState
+  suspendedSelf: boolean
+  suspendedStore: boolean
+}
+
+/** A business that sells from this dashboard through the Playkeeper Cloud app, with how many customers have an account from it. */
+export interface SuspendableStore {
+  id: string
+  title: string
+  route?: string
+  customers: number
+  problem?: string
+  suspendedAt?: string
+  suspendReason?: string
+  /** Set once the business uninstalled the app or removed Playkeeper's share: when, and why. */
+  leftAt?: string
+  leftWhy?: string
+  /** Set while the store sells nothing and starts nobody, such as "Not open yet": why. */
+  closedWhy?: string
+}
+
+export interface StoresResponse {
+  stores: SuspendableStore[]
 }
 
 export interface TeamInvite extends Invite {
