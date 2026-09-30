@@ -7955,12 +7955,12 @@ control "kept backups: a kept backup's label is checked" internal/agent/keptback
   'case false:' \
   ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
 control "kept backups: the final backup is a new one" internal/agent/keptbackups.go \
-  'if b, err = s.finalArchive(actor); err == nil {' \
-  'if err = errors.New("skipped"); err == nil {' \
+  '	b, err = s.finalArchive(actor, whole)' \
+  '	err = errors.New("skipped")' \
   ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
 control "kept backups: a new final backup needs the room for it" internal/agent/keptbackups.go \
-  'err == nil && free < allowlistedSize(s.dataDir())+minFreeAfterBackup {' \
-  'err == nil && free < 0 {' \
+  'err == nil && free < need+minFreeAfterBackup {' \
+  'err == nil && free < need*0 {' \
   ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
 control "kept backups: without room, the newest backup is kept" internal/agent/keptbackups.go \
   'for _, old := range list {' \
@@ -9623,8 +9623,8 @@ control "moving customers: a move goes only to a machine with room on its disk" 
   '		if need := diskNeed(sizes, target.ID); false && !diskFits(target, need) {' \
   ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
 control "moving customers: the fullest machine without room on its disk is passed over" internal/panel/moves.go \
-  '			return r.ID == home || !diskFits(r, diskNeed(sizes, r.ID))' \
-  '			return r.ID == home' \
+  '			return !diskFits(r, diskNeed(sizes, r.ID))' \
+  '			return false' \
   ./internal/panel '^TestAMoveGoesOnlyWhereTheirServersFitOnDisk$'
 control "moving customers: a machine's disk keeps what it keeps free beside a move" internal/panel/moves.go \
   '	return need == 0 || r.DiskFree != nil && *r.DiskFree >= need+moveDiskReserve' \
@@ -9828,8 +9828,8 @@ control "moving customers: a customer whose servers are apart gives none more me
   '(!ok || memoryMB > cur) && false' \
   ./internal/panel '^TestServersApartAreBroughtTogether$'
 control "moving customers: the backups a move keeps aren't a deleted server's" internal/panel/moves.go \
-  'req.KeepFinalBackupDays, req.KeptFor = days, movedKeptFor(userID)' \
-  'req.KeepFinalBackupDays, req.KeptFor = days, keptFor(userID)' \
+  'req.KeptFor, req.KeepWhole = days, movedKeptFor(userID), true' \
+  'req.KeptFor, req.KeepWhole = days, keptFor(userID), true' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: a moved server is listed as it last was until its machine lists it" internal/panel/moves.go \
   'seen_at = excluded.seen_at, disputed_by = '"''" \
