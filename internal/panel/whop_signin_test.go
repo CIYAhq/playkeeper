@@ -13,7 +13,10 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
-const whopTestApp = "app_pipcloud"
+const (
+	whopTestApp       = "app_pipcloud"
+	whopTestAppSecret = "whop_secret_0123456789wxyz"
+)
 
 // browser is a browser on the dashboard: it keeps cookies and follows no
 // redirect, so each step of a sign-in shows.
@@ -60,7 +63,7 @@ func (b *browser) signInWithWhop(f *fakeWhop, user string) string {
 func sellingWithSignIn(t *testing.T) (*fakeWhop, *env, member, *fakeCore, member) {
 	t.Helper()
 	f, e, own := connectedWhop(t)
-	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`"}`, own.auth()); r.status != http.StatusOK {
+	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"`+whopTestAppSecret+`"}`, own.auth()); r.status != http.StatusOK {
 		t.Fatalf("setting up Sign in with Whop: %d %v", r.status, r.body)
 	}
 	core := useFakeCore(e)
@@ -217,7 +220,9 @@ func TestSignInWithWhopNeedsAnAppAndTheMachinesAddress(t *testing.T) {
 	if _, to := newBrowser(t, e).visit(whopSignInPath); to != "/login?whop=off" {
 		t.Fatalf("without an app: %q", to)
 	}
-	e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`"}`, own.auth())
+	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"`+whopTestAppSecret+`"}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("setting up Sign in with Whop: %d %v", r.status, r.body)
+	}
 	e.setAddress(t, "")
 	if _, to := newBrowser(t, e).visit(whopSignInPath); to != "/login?whop=off" {
 		t.Fatalf("without an address: %q", to)
@@ -254,7 +259,7 @@ func TestSignInWithWhopIsSetUpByTheOwnerAlone(t *testing.T) {
 			t.Errorf("%s: %d", bad, r.status)
 		}
 	}
-	r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"whop_secret_0123456789wxyz"}`, own.auth())
+	r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"`+whopTestAppSecret+`"}`, own.auth())
 	if r.status != http.StatusOK {
 		t.Fatalf("setting it up: %d %v", r.status, r.body)
 	}
@@ -274,6 +279,53 @@ func TestSignInWithWhopIsSetUpByTheOwnerAlone(t *testing.T) {
 	var st api.SetupStatus
 	if e.get(t, "/api/setup/status", "", &st); st.WhopSignIn {
 		t.Fatal("still offered once turned off")
+	}
+}
+
+// Whop checks an app's secret before anything else when someone comes back
+// from signing in, so with one Whop refuses, every sign-in fails. Turning
+// it on asks Whop first, and keeps nothing Whop refuses.
+func TestSignInWithWhopTurnsOnOnlyWithAnAppWhopTakes(t *testing.T) {
+	f, e, own := connectedWhop(t)
+	for _, tc := range []struct{ body, why string }{
+		{`{"clientId":"` + whopTestApp + `"}`, "Whop refused this app: client_secret is required."},
+		{`{"clientId":"` + whopTestApp + `","clientSecret":"whop_secret_someone_elses"}`, "Whop refused this app: client_secret is invalid."},
+		{`{"clientId":"app_nope","clientSecret":"` + whopTestAppSecret + `"}`, "Whop refused this app: Unknown client."},
+	} {
+		r := e.do(t, "PUT", "/api/whop/signin", tc.body, own.auth())
+		if r.status != http.StatusBadRequest || r.body["error"] != tc.why {
+			t.Fatalf("%s: %d %v", tc.body, r.status, r.body)
+		}
+	}
+	// The app's own secret, while the app lacks the permission Whop wants
+	// before it trades a code: the answer names it, and where to add it.
+	f.mu.Lock()
+	f.noTokenExchange = true
+	f.mu.Unlock()
+	right := `{"clientId":"` + whopTestApp + `","clientSecret":"` + whopTestAppSecret + `"}`
+	r := e.do(t, "PUT", "/api/whop/signin", right, own.auth())
+	hint, _ := r.body["hint"].(string)
+	if r.status != http.StatusBadRequest || r.body["error"] != "Whop refused this app: client_secret lacks oauth:token_exchange permission." ||
+		!strings.Contains(hint, "add oauth:token_exchange on the app's own Permissions tab, not on an API key") {
+		t.Fatalf("an app without oauth:token_exchange: %d %v", r.status, r.body)
+	}
+	if v := e.whopView(t, own); v.SignIn.ClientID != "" {
+		t.Fatalf("an app Whop refused was kept: %+v", v.SignIn)
+	}
+	if rows := e.auditRows(t, "whop.signin"); len(rows) != 0 {
+		t.Fatalf("audit: %q", rows)
+	}
+	if len(f.grants) != 0 {
+		t.Fatal("the check signed someone in")
+	}
+	f.mu.Lock()
+	f.noTokenExchange = false
+	f.mu.Unlock()
+	if r := e.do(t, "PUT", "/api/whop/signin", right, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("the app's own secret: %d %v", r.status, r.body)
+	}
+	if to := newBrowser(t, e).signInWithWhop(f, "user_alex"); to != "/login?whop=no_account" {
+		t.Fatalf("signing in once it's on: %q", to)
 	}
 }
 

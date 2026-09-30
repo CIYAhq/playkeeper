@@ -9410,6 +9410,10 @@ control "moving customers: a copy still there keeps its record" internal/panel/m
   'WHERE machine_id = ? AND left_at > 0 AND left_at < ?' \
   'WHERE machine_id = ? AND left_at >= 0 AND left_at < ?' \
   ./internal/panel '^TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer$'
+control "moving customers: a copy that went stays recorded a while, for listings that arrive late" internal/panel/moves.go \
+  'millis(listedAt.Add(-leftCopyKept)))' \
+  'millis(listedAt))' \
+  ./internal/panel '^TestALateListingStillLeavesOutACopyThatWent$'
 control "moving customers: a moved server counts against its customer's disk limit before its requests go there" internal/panel/moves.go \
   'if err = s.sendLimitsTo(ctx, to); err != nil {' \
   'if err = error(nil); err != nil {' \
@@ -9690,6 +9694,12 @@ control "removing a machine: only the owner removes one customers are on" intern
   '} else if n > 0 && !sess.Access.owner() {' \
   '} else if n > 0 && false {' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
+control "moving customers: a move whose switch fails leaves its server where it was" internal/panel/moves.go \
+  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+		if ctx.Err() == nil {' \
+  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+		if false {' \
+  ./internal/panel '^TestAMoveWhoseSwitchFailsLeavesTheServerWhereItWas$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside

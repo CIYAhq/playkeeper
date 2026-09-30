@@ -491,6 +491,44 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 	}
 }
 
+// A move whose last step, sending the server's requests to the machine it
+// moved to, fails is a failed move too: the server's requests stay where it
+// was, it starts again there, and the copy the move made goes, rather than
+// the server staying stopped and unreachable until the move is tried again.
+func TestAMoveWhoseSwitchFailsLeavesTheServerWhereItWas(t *testing.T) {
+	f := newMoveFleet(t)
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-undo","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-undo", `{"id":"op-undo","status":"succeeded"}`)
+	if _, err := f.e.srv.db.Exec(`CREATE TRIGGER switch_fails BEFORE INSERT ON left_copies WHEN NEW.machine_id = '` + f.rid + `' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); !strings.HasPrefix(why, "alex: its requests couldn't go to the dashboard's machine") {
+		t.Errorf("why the move stopped: %q", why)
+	}
+	if at := f.recorded(t); at != f.rid {
+		t.Errorf("after a failed switch the server's requests go to %q", at)
+	}
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); !ok {
+		t.Error("the server that ran didn't start again where it was")
+	}
+	if f.made() {
+		t.Error("the copy the move made is still on the dashboard's machine")
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM server_moves`); n != 0 {
+		t.Errorf("%d moves still under way", n)
+	}
+}
+
 // Only the owner moves customers and sees whose servers go on a machine:
 // the move's what customers can never see, and it's the owner's machines'
 // room it uses. So only the owner removes a machine customers are on, which
@@ -650,12 +688,18 @@ func TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer(t *testing.T) {
 	if _, disputed := recordOf("leftsrv234"); disputed != alpha.ID {
 		t.Error("a machine that still lists a server it left after its copy went doesn't dispute it")
 	}
-	if n := func() int {
+	leftRows := func() int {
 		var n int
 		s.db.QueryRow(`SELECT COUNT(*) FROM left_copies`).Scan(&n)
 		return n
-	}(); n != 0 {
-		t.Errorf("%d copies still recorded once alpha listed after its copy went", n)
+	}
+	if n := leftRows(); n != 1 {
+		t.Errorf("%d copies recorded right after alpha listed once its copy went, not the one it left", n)
+	}
+	e.clock.add(leftCopyKept)
+	s.claimListing(alpha, serverList("leftsrv234"), e.clock.now())
+	if n := leftRows(); n != 0 {
+		t.Errorf("%d copies still recorded once alpha listed %s after its copy went", n, leftCopyKept)
 	}
 
 	// Once movingsrv2's requests go to beta, a listing of beta's asked for
@@ -720,6 +764,51 @@ func TestACopyLeftOnTheDashboardsMachineIsNeverTheServer(t *testing.T) {
 	}
 	if m, err := s.machineForServer("leftsrv234"); err == nil {
 		t.Errorf("once beta is removed, the server's requests go to %s, where only a copy a move left is", m.ID)
+	}
+}
+
+// A listing asked for while a copy a move left was still there, which
+// arrives after one asked for once the copy went, still leaves the copy out:
+// it neither disputes the server where it moved, on a joined machine, nor
+// becomes it, on the dashboard's machine.
+func TestALateListingStillLeavesOutACopyThatWent(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	owner(t, e)
+	e.reply("GET", "/v1/servers", `[]`)
+	local, err := e.srv.machineByID(e.localMachine(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpha := e.addRemote(t, "a2345abcde", "alpha")
+	beta := e.addRemote(t, "b2345abcde", "beta")
+	s := e.srv
+	s.claimServers(beta, serverList("leftsrv234", "leftsrv567"))
+	for _, m := range []machine{alpha, local} {
+		if err := leftCopy(context.Background(), s.db, map[string]string{alpha.ID: "leftsrv234", local.ID: "leftsrv567"}[m.ID], m.ID, 7, movedBackupDays); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.clock.add(time.Minute)
+	asked := e.clock.now()
+	e.clock.add(time.Second)
+	went := e.clock.now()
+	if _, err := s.db.Exec(`UPDATE left_copies SET left_at = ?`, millis(went)); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.add(time.Second)
+	s.claimListing(alpha, nil, e.clock.now())
+	s.claimLocal(local, nil, e.clock.now())
+	if got := s.claimListing(alpha, serverList("leftsrv234"), asked); len(got) != 0 {
+		t.Errorf("alpha's listing from before its copy went, arriving late, shows it: %v", got)
+	}
+	if got := s.claimLocal(local, serverList("leftsrv567"), asked); len(got) != 0 {
+		t.Errorf("the dashboard's machine's listing from before its copy went, arriving late, shows it: %v", got)
+	}
+	for _, id := range []string{"leftsrv234", "leftsrv567"} {
+		var m, disputed string
+		if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, id).Scan(&m, &disputed); err != nil || m != beta.ID || disputed != "" {
+			t.Errorf("%s, which moved to beta, is on %q, disputed by %q (%v)", id, m, disputed, err)
+		}
 	}
 }
 

@@ -2014,6 +2014,8 @@ export interface WhopCustomer {
   /** Their account on this dashboard, once it's made. */
   account?: string
   problem?: string
+  /** Why a message to them hasn't gone out on Whop, while it waits for its next try. */
+  messageProblem?: string
 }
 
 /** One plan of the store; allowanceFrom is "store" when its metadata on Whop sets the allowance, "owner" when set here. */

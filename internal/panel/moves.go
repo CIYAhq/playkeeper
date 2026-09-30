@@ -58,6 +58,10 @@ const (
 	// moveRetry is how often machines that were away are asked again to
 	// delete the copies moves left on them.
 	moveRetry = 10 * time.Minute
+	// leftCopyKept is how long a copy a move left stays recorded after it
+	// went, so a listing asked for before then that arrives after one asked
+	// for since still leaves it out.
+	leftCopyKept = 10 * time.Minute
 
 	codeServerMoving = "server_moving"
 	serverMovingText = "This server is being moved. It's back in a few minutes."
@@ -185,10 +189,11 @@ func copyHidden(copies map[string]int64, id string, listedAt time.Time) bool {
 	return ok && (left == 0 || millis(listedAt) <= left)
 }
 
-// forgetLeft forgets the copies moves left on machineID that went before
-// its listing asked for at listedAt, which counts as any from then on.
+// forgetLeft forgets the copies moves left on machineID that went more than
+// leftCopyKept before its listing asked for at listedAt. Until then a
+// listing asked for since they went counts them as any (see copyHidden).
 func (s *Server) forgetLeft(ctx context.Context, q querier, machineID string, listedAt time.Time) error {
-	_, err := q.ExecContext(ctx, `DELETE FROM left_copies WHERE machine_id = ? AND left_at > 0 AND left_at < ?`, machineID, millis(listedAt))
+	_, err := q.ExecContext(ctx, `DELETE FROM left_copies WHERE machine_id = ? AND left_at > 0 AND left_at < ?`, machineID, millis(listedAt.Add(-leftCopyKept)))
 	return err
 }
 
@@ -550,7 +555,8 @@ func (s *Server) recordedMachine(ctx context.Context, id string) (string, error)
 // moveServer moves server id of customer userID from one machine to
 // another, carrying on mv when moving says a restart of the dashboard
 // stopped it, and reports whether it moved: one deleted meanwhile doesn't.
-// Whatever fails before its requests go there leaves it where it was.
+// Whatever fails until its requests go there, sending them there included,
+// leaves it where it was.
 // A server that ran starts where it goes, unless its customer is paused or
 // suspended; one that crashed there doesn't. Its copy there gets the backup
 // rules it had, a copy made before a restart too, and counts against the
@@ -612,7 +618,10 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 		return false, fmt.Errorf("%s: %w", st.Name, err)
 	}
 	if err := s.switchServer(ctx, mv, to, slug); err != nil {
-		return false, err
+		if ctx.Err() == nil {
+			s.abandonMove(ctx, mv, from)
+		}
+		return false, fmt.Errorf("%s: its requests couldn't go to %s: %w", st.Name, machineLabel(to), err)
 	}
 	// Pausing a customer while it moved stopped it where its requests went
 	// then, not here, where its copy may have started, before a restart of
