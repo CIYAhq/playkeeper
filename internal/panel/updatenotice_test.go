@@ -37,10 +37,10 @@ func TestOnlyThoseWhoCanUpdateHearOfARelease(t *testing.T) {
 	admin := addAdmin(t, e.env, "sam", "*")
 	creator := addCreator(t, e.env, "cleo", invites.Allowance{Servers: 1, MemoryMB: 4096})
 	ctx := context.Background()
-	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
-	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, testStore, "user_alex")
 	customer := signIn(t, e.env, info.UserID)
 
 	for name, m := range map[string]member{"the owner": own, "an admin of every server": admin} {

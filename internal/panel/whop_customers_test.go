@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -29,6 +30,56 @@ func connectedWhop(t *testing.T) (*fakeWhop, *env, member) {
 		t.Fatalf("Big's allowance: %d %v", r.status, r.body)
 	}
 	return f, e, own
+}
+
+// Customers from before the core kept stores, on a dashboard that sold for
+// none when it upgraded, are taken on by the store connected next, as any
+// store found them then. One the store already has an account for keeps it,
+// and the old account stays apart.
+func TestTheStoreConnectedNextTakesOnTheCustomersFromBeforeStores(t *testing.T) {
+	f := newFakeWhop(t)
+	e := newWhopEnv(t, f)
+	own := owner(t, e)
+	for _, q := range []string{
+		`INSERT INTO users(id, username, password_hash, created_at, password_changed_at, role) VALUES(20, 'alex', '', 1, 1, 'member'), (21, 'sam', '', 1, 1, 'member'), (22, 'sam-2', '', 1, 1, 'member'), (23, 'kai', '', 1, 1, 'member')`,
+		`INSERT INTO customers(user_id, provider, store, subject, created_at, updated_at) VALUES(20, 'whop', '', 'user_alex', 1, 1), (21, 'whop', '', 'user_sam', 1, 1), (22, 'whop', 'biz_pip', 'user_sam', 2, 2), (23, 'whop', 'biz_other', 'user_kai', 3, 3)`,
+	} {
+		if _, err := e.srv.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Until then no store finds them, and nothing is told them.
+	ctx := context.Background()
+	if _, ok, err := e.srv.hosting.CustomerAccount(ctx, whopProvider, "", "user_alex"); ok || err != nil {
+		t.Fatalf("a customer from before stores found with no store: %v", err)
+	}
+	if stores, err := e.srv.hosting.CustomerStores(ctx, whopProvider, "user_alex"); len(stores) != 0 || err != nil {
+		t.Fatalf("a customer from before stores in stores %q: %v", stores, err)
+	}
+	if err := e.srv.notifier.Notify(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, CustomerMessage{Kind: "ready", Text: "hi"}); err == nil {
+		t.Fatal("a message taken for a customer of no store")
+	}
+	if r := e.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`"}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("connect: %d %v", r.status, r.body)
+	}
+	stores := map[int64]string{}
+	rows, err := e.srv.db.Query(`SELECT user_id, store FROM customers`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id int64
+		var store string
+		rows.Scan(&id, &store)
+		stores[id] = store
+	}
+	rows.Close()
+	if !maps.Equal(stores, map[int64]string{20: testStore, 21: "", 22: testStore, 23: "biz_other"}) {
+		t.Fatalf("the customers' stores: %v", stores)
+	}
+	if rows := e.auditRows(t, "whop.connect"); len(rows) != 1 || !strings.HasSuffix(rows[0], "; took on the customers from before stores (1)") {
+		t.Fatalf("audit: %v", rows)
+	}
 }
 
 // buy gives a customer a membership of a plan on the fake Whop, or changes
@@ -89,7 +140,7 @@ func (fc *fakeCore) call(c Customer, what string) error {
 	if fc.refuse != nil {
 		return fc.refuse
 	}
-	fc.calls = append(fc.calls, fmt.Sprintf("%s %s/%s %s", what, c.Provider, c.Subject, c.Handle))
+	fc.calls = append(fc.calls, fmt.Sprintf("%s %s/%s/%s %s", what, c.Provider, c.Store, c.Subject, c.Handle))
 	return nil
 }
 
@@ -102,7 +153,7 @@ func (fc *fakeCore) StartCustomer(_ context.Context, c Customer, p CustomerPlan)
 		return StartedCustomer{}, err
 	}
 	fc.mu.Lock()
-	fc.accounts[c.Subject] = CustomerAccountInfo{UserID: 42, Username: c.Handle, State: CustomerActive, SignIn: true}
+	fc.accounts[c.Store+"/"+c.Subject] = CustomerAccountInfo{UserID: 42, Username: c.Handle, State: CustomerActive, SignIn: true}
 	fc.mu.Unlock()
 	return StartedCustomer{Account: c.Handle, Dashboard: whopDashboard, Server: c.Handle + ".beta.playkeeper.me"}, nil
 }
@@ -115,11 +166,24 @@ func (fc *fakeCore) PauseCustomer(_ context.Context, c Customer, reason string) 
 	return fc.call(c, "pause ("+reason+")")
 }
 
-func (fc *fakeCore) CustomerAccount(_ context.Context, provider, subject string) (CustomerAccountInfo, bool, error) {
+func (fc *fakeCore) CustomerAccount(_ context.Context, provider, store, subject string) (CustomerAccountInfo, bool, error) {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	info, ok := fc.accounts[subject]
+	info, ok := fc.accounts[store+"/"+subject]
 	return info, ok && provider == whopProvider, nil
+}
+
+func (fc *fakeCore) CustomerStores(_ context.Context, provider, subject string) ([]string, error) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	var out []string
+	for key := range fc.accounts {
+		if store, sub, _ := strings.Cut(key, "/"); sub == subject && provider == whopProvider {
+			out = append(out, store)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 func (fc *fakeCore) got() []string {
@@ -168,7 +232,7 @@ func TestAConfirmedMembershipStartsTheCustomerAndTheCoresMessageReachesThem(t *t
 		t.Fatalf("delivery: %d %v", r.status, r.body)
 	}
 	e.reconcile()
-	if got := core.got(); len(got) != 1 || got[0] != "start plan_starter (Starter) 1/4096/0 for whop/user_alex alexplays" {
+	if got := core.got(); len(got) != 1 || got[0] != "start plan_starter (Starter) 1/4096/0 for whop/biz_pip/user_alex alexplays" {
 		t.Fatalf("the core's calls: %q", got)
 	}
 	var invitesMade int
@@ -182,7 +246,7 @@ func TestAConfirmedMembershipStartsTheCustomerAndTheCoresMessageReachesThem(t *t
 	}
 	// The core tells them through the notifier; it goes out on the next look.
 	ready := "Your Pip Hosting server is ready at alexplays.beta.playkeeper.me. Sign in with Whop at " + whopDashboard
-	if err := e.srv.notifier.Notify(context.Background(), Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alexplays"}, CustomerMessage{Kind: "ready", Text: ready}); err != nil {
+	if err := e.srv.notifier.Notify(context.Background(), Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alexplays"}, CustomerMessage{Kind: "ready", Text: ready}); err != nil {
 		t.Fatal(err)
 	}
 	e.reconcile()
@@ -218,21 +282,30 @@ func TestAConfirmedMembershipStartsTheCustomerAndTheCoresMessageReachesThem(t *t
 	}
 }
 
+// The notifier takes only the Whop customers of the store the dashboard
+// sells for, since their messages go out in its chat: a customer of another
+// store, or of none, is refused.
 func TestTheNotifierTakesOnlyWhopCustomersAndSendsTheirMessagesInOrder(t *testing.T) {
 	f, e, _ := connectedWhop(t)
 	useFakeCore(e)
-	alex := Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alexplays"}
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alexplays"}
 	for _, bad := range []struct {
 		c Customer
 		m CustomerMessage
 	}{
-		{Customer{Provider: "stripe", Subject: "cus_1"}, CustomerMessage{Kind: "ready", Text: "hi"}},
-		{Customer{Provider: whopProvider, Subject: "user alex; drop"}, CustomerMessage{Kind: "ready", Text: "hi"}},
+		{Customer{Provider: "stripe", Store: testStore, Subject: "cus_1"}, CustomerMessage{Kind: "ready", Text: "hi"}},
+		{Customer{Provider: whopProvider, Store: testStore, Subject: "user alex; drop"}, CustomerMessage{Kind: "ready", Text: "hi"}},
+		{Customer{Provider: whopProvider, Store: "biz_other", Subject: "user_alex", Handle: "alexplays"}, CustomerMessage{Kind: "ready", Text: "hi"}},
+		{Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alexplays"}, CustomerMessage{Kind: "ready", Text: "hi"}},
 		{alex, CustomerMessage{Kind: "ready", Text: "  "}},
 	} {
 		if err := e.srv.notifier.Notify(context.Background(), bad.c, bad.m); err == nil {
 			t.Errorf("notified %+v with %+v", bad.c, bad.m)
 		}
+	}
+	var queued int
+	if e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_messages`).Scan(&queued); queued != 0 {
+		t.Fatalf("%d messages waiting for the customers refused", queued)
 	}
 	f.chatDown = true
 	for _, text := range []string{"first", "second"} {
@@ -276,7 +349,7 @@ func TestAMessageThatCantGoOutShowsOnThePageUntilItDoes(t *testing.T) {
 	f.mu.Lock()
 	f.tokenDown = true
 	f.mu.Unlock()
-	alex := Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alexplays"}
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alexplays"}
 	if err := e.srv.notifier.Notify(context.Background(), alex, CustomerMessage{Kind: "ready", Text: "ready"}); err != nil {
 		t.Fatal(err)
 	}
@@ -357,11 +430,11 @@ func TestPlansChangingChangeTheCustomersPlanAndTheirEndPausesThem(t *testing.T) 
 	e.deliver(t, "msg_4", whop.EventMembershipActivated, f.buy("mem_alex3", "user_alex", "plan_starter", "trialing"))
 	e.reconcile()
 	want := []string{
-		"start plan_starter (Starter) 1/4096/0 for whop/user_alex alexplays",
-		"change to plan_big+plan_starter (Big + Starter) 3/12288/0 for whop/user_alex alexplays",
-		"change to plan_big (Big) 2/8192/0 for whop/user_alex alexplays",
-		"pause (their Whop membership is expired) whop/user_alex alexplays",
-		"start plan_starter (Starter) 1/4096/0 for whop/user_alex alexplays",
+		"start plan_starter (Starter) 1/4096/0 for whop/biz_pip/user_alex alexplays",
+		"change to plan_big+plan_starter (Big + Starter) 3/12288/0 for whop/biz_pip/user_alex alexplays",
+		"change to plan_big (Big) 2/8192/0 for whop/biz_pip/user_alex alexplays",
+		"pause (their Whop membership is expired) whop/biz_pip/user_alex alexplays",
+		"start plan_starter (Starter) 1/4096/0 for whop/biz_pip/user_alex alexplays",
 	}
 	if got := core.got(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("the core's calls:\n%s", strings.Join(got, "\n"))
@@ -648,7 +721,7 @@ func TestReadingMembershipsCatchesWhatNoWebhookSaid(t *testing.T) {
 	f.users["user_early"], f.users["user_sam"] = "earlybird", "samcrafts"
 	f.mu.Unlock()
 	e.reconcile()
-	if got := core.got(); len(got) != 1 || !strings.HasSuffix(got[0], "whop/user_early earlybird") {
+	if got := core.got(); len(got) != 1 || !strings.HasSuffix(got[0], "whop/biz_pip/user_early earlybird") {
 		t.Fatalf("a membership from before connecting: %q", got)
 	}
 	f.buy("mem_sam1", "user_sam", "plan_big", "active")
@@ -659,7 +732,7 @@ func TestReadingMembershipsCatchesWhatNoWebhookSaid(t *testing.T) {
 	}
 	e.clock.add(whopPollEvery)
 	e.reconcile()
-	if got := core.got(); len(got) != 2 || got[1] != "start plan_big (Big) 2/8192/0 for whop/user_sam samcrafts" {
+	if got := core.got(); len(got) != 2 || got[1] != "start plan_big (Big) 2/8192/0 for whop/biz_pip/user_sam samcrafts" {
 		t.Fatalf("the core's calls: %q", got)
 	}
 }
@@ -691,7 +764,7 @@ func TestWithoutAWebhookEveryMembershipIsReadEveryMinute(t *testing.T) {
 	}
 	e.clock.add(time.Second)
 	e.reconcile()
-	if got := core.got(); len(got) != 1 || got[0] != "start plan_starter (Starter) 1/4096/0 for whop/user_sam samcrafts" {
+	if got := core.got(); len(got) != 1 || got[0] != "start plan_starter (Starter) 1/4096/0 for whop/biz_pip/user_sam samcrafts" {
 		t.Fatalf("a purchase without a webhook, a minute on: %q", got)
 	}
 	// Bo buys just before Whop takes the webhook, which never tells of it.
@@ -704,7 +777,7 @@ func TestWithoutAWebhookEveryMembershipIsReadEveryMinute(t *testing.T) {
 	if v := e.whopView(t, own); !v.Webhook {
 		t.Fatal("the webhook wasn't added once Whop took it")
 	}
-	if got := core.got(); len(got) != 2 || !strings.HasSuffix(got[1], "whop/user_bo bobuilds") {
+	if got := core.got(); len(got) != 2 || !strings.HasSuffix(got[1], "whop/biz_pip/user_bo bobuilds") {
 		t.Fatalf("a purchase from just before the webhook, read as it's added: %q", got)
 	}
 	f.buy("mem_cy1", "user_cy", "plan_starter", "active")
@@ -734,7 +807,7 @@ func TestAPurchaseNoWebhookToldOfIsReadAtOnceAfterAnUpdateANewKeyOrARead(t *test
 	f.buy("mem_ann", "user_ann", "plan_starter", "completed")
 	e.srv.retryWhopNow()
 	e.reconcile()
-	if got := core.got(); len(got) != 1 || !strings.HasSuffix(got[0], "whop/user_ann annplays") {
+	if got := core.got(); len(got) != 1 || !strings.HasSuffix(got[0], "whop/biz_pip/user_ann annplays") {
 		t.Fatalf("after an update: %q", got)
 	}
 	f.buy("mem_bo", "user_bo", "plan_starter", "active")
@@ -742,7 +815,7 @@ func TestAPurchaseNoWebhookToldOfIsReadAtOnceAfterAnUpdateANewKeyOrARead(t *test
 		t.Fatalf("replacing the key: %d %v", r.status, r.body)
 	}
 	e.reconcile()
-	if got := core.got(); len(got) != 2 || !strings.HasSuffix(got[1], "whop/user_bo bobuilds") {
+	if got := core.got(); len(got) != 2 || !strings.HasSuffix(got[1], "whop/biz_pip/user_bo bobuilds") {
 		t.Fatalf("after a new key: %q", got)
 	}
 	f.buy("mem_cy", "user_cy", "plan_starter", "active")
@@ -750,7 +823,7 @@ func TestAPurchaseNoWebhookToldOfIsReadAtOnceAfterAnUpdateANewKeyOrARead(t *test
 		t.Fatalf("reading the store again: %d %v", r.status, r.body)
 	}
 	e.reconcile()
-	if got := core.got(); len(got) != 3 || !strings.HasSuffix(got[2], "whop/user_cy cycrafts") {
+	if got := core.got(); len(got) != 3 || !strings.HasSuffix(got[2], "whop/biz_pip/user_cy cycrafts") {
 		t.Fatalf("after reading the store again: %q", got)
 	}
 	e.srv.retryWhopNow()
