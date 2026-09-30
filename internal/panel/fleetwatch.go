@@ -111,9 +111,12 @@ func (s *Server) watchFleet(ctx context.Context) {
 		s.log.Warn("could not list the machines to watch", "err", err)
 		return
 	}
+	// A look that can't read the plans can't tell whether there's a fleet,
+	// so it's skipped, and what the watch kept stays for the next.
 	plans, err := s.sales.SalePlans(ctx)
 	if err != nil {
-		s.log.Warn("could not read the plans on sale to watch the room", "err", err)
+		s.log.Warn("could not read the plans on sale to watch the fleet", "err", err)
+		return
 	}
 	if len(plans) == 0 && !slices.ContainsFunc(list, func(m machine) bool { return m.Kind == remoteKind }) {
 		s.forgetFleet()

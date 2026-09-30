@@ -10367,6 +10367,11 @@ control "fleet watch: a dashboard without a store or joined machines watches not
   'if len(plans) == 0 && !slices.ContainsFunc(list, func(m machine) bool { return m.Kind == remoteKind }) {' \
   'if false && len(plans) == 0 && !slices.ContainsFunc(list, func(m machine) bool { return m.Kind == remoteKind }) {' \
   ./internal/panel '^TestADashboardWithoutAFleetPostsNothingAboutIt$'
+control "fleet watch: a look that can't read the plans keeps what the watch kept" internal/panel/fleetwatch.go \
+  '		s.log.Warn("could not read the plans on sale to watch the fleet", "err", err)
+		return' \
+  '		s.log.Warn("could not read the plans on sale to watch the fleet", "err", err)' \
+  ./internal/panel '^TestALookThatCantReadThePlansKeepsWhatTheWatchKept$'
 control "fleet watch: a machine is posted off only after 5 minutes" internal/panel/fleetwatch.go \
   'case !online && !f.offPosted[m.ID] && now.Sub(since) >= fleetOffAfter:' \
   'case !online && !f.offPosted[m.ID] && now.Sub(since) >= 0:' \

@@ -211,6 +211,26 @@ func TestAServerLaggingTenMinutesWithPlayersOnIsPosted(t *testing.T) {
 	e.posted(t, []map[string]any{{"minutes": 10}}, "slow_ticks")
 }
 
+// A look that can't read the plans on sale is skipped, not taken for a
+// dashboard without a fleet, so what the watch keeps stays: nothing is
+// posted again once the plans read.
+func TestALookThatCantReadThePlansKeepsWhatTheWatchKept(t *testing.T) {
+	_, e, _ := connectedWhop(t)
+	ctx := context.Background()
+	e.reply("GET", "/v1/servers", `[]`)
+	e.reply("GET", "/v1/machine", fmt.Sprintf(`{"hostname":"siya","memoryTotalMB":32000,"memoryFreeMB":20480,"diskFreeBytes":%d,"diskTotalBytes":%d,"guard":{"on":true,"host":true}}`, int64(20)<<30, int64(100)<<30))
+	e.srv.watchFleet(ctx)
+	if _, err := e.srv.db.Exec(`ALTER TABLE whop_plans RENAME TO whop_plans_away`); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.watchFleet(ctx)
+	if _, err := e.srv.db.Exec(`ALTER TABLE whop_plans_away RENAME TO whop_plans`); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.watchFleet(ctx)
+	e.posted(t, []map[string]any{{"kind": "disk_filling", "percent": 80}}, "disk_filling")
+}
+
 // A dashboard with neither a store nor a joined machine has no fleet, so
 // nothing about machines is posted.
 func TestADashboardWithoutAFleetPostsNothingAboutIt(t *testing.T) {
