@@ -1056,6 +1056,16 @@ func (s *Server) forgetRestart(id string) {
 	}
 }
 
+// runProxy forwards a start, stop or restart of a server, which then isn't
+// started again for a failed move: whoever started or stopped it since
+// decides whether it runs.
+func (s *Server) runProxy(pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, sess *session) {
+		id := r.PathValue("id")
+		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { s.forgetRestart(id) })(w, r, sess)
+	}
+}
+
 // retryRestarts starts again the servers failed moves left stopped though
 // they ran, on machineID, or on every machine for "": each where it is,
 // unless it moved or went since, a move of it is under way, or its

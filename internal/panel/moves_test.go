@@ -1234,6 +1234,45 @@ func TestAServerWhoseMoveFailedStartsAgainOnceItCan(t *testing.T) {
 	}
 }
 
+// Whoever starts or stops a server a failed move left to start again
+// decides whether it runs: once alex has started it and stopped it again,
+// it isn't started where it is, or where it moves next.
+func TestAServerStoppedSinceItsFailedMoveStaysStopped(t *testing.T) {
+	stoppedSince := func() *moveFleet {
+		f := newMoveFleet(t)
+		if _, err := f.e.srv.db.Exec(`INSERT INTO move_restarts(server_id, machine_id, user_id) VALUES(?, ?, ?)`, movedServer, f.rid, f.alex.id); err != nil {
+			t.Fatal(err)
+		}
+		startsOp(f.ra, "POST /v1/servers/"+movedServer+"/start", "op-start", "succeeded", "")
+		for _, act := range []string{"start", "stop"} {
+			if r := f.e.do(t, "POST", "/api/servers/"+movedServer+"/"+act, `{}`, f.alex.auth()); r.status != http.StatusAccepted {
+				t.Fatalf("alex's %s: %d %v", act, r.status, r.body)
+			}
+		}
+		f.ra.reply("GET /v1/servers/"+movedServer, strings.Replace(movedStatus, `"phase":"online","desired":"running"`, `"phase":"stopped","desired":"stopped"`, 1))
+		return f
+	}
+	f := stoppedSince()
+	f.e.srv.retryRestarts(context.Background(), "")
+	if actor, _ := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); actor != "alex" {
+		t.Errorf("the server alex stopped was started again by %q", actor)
+	}
+
+	f = stoppedSince()
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex again: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if in["start"] == true {
+		t.Error("the server alex stopped was made started where it moved")
+	}
+}
+
 // A move a restart stopped carries on only with the copy it made: one an
 // earlier move left on the machine it goes to, even complete, is deleted,
 // and the server's folder copied again.
