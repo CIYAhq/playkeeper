@@ -2547,6 +2547,14 @@ control "NeoForge's Maven is asked again after a 5xx" internal/minecraft/softwar
   '	case http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:' \
   '	case http.StatusNotFound:' \
   ./internal/minecraft/software '^TestUpstreamAsksNeoForgeAgainAfterA404OrA5xx$'
+control "NeoForge's Maven is asked again when it doesn't answer in time" internal/minecraft/software/fetch.go \
+  ' || timedOut(ctx, err))' \
+  ')' \
+  ./internal/minecraft/software '^TestUpstreamAsksNeoForgeAgainWhenItDoesNotAnswerInTime$'
+control "another host that doesn't answer in time is asked once" internal/minecraft/software/fetch.go \
+  '	flaky := slices.Contains(flakyHosts, p.Hostname())' \
+  '	flaky := true || slices.Contains(flakyHosts, p.Hostname())' \
+  ./internal/minecraft/software '^TestUpstreamAsksNeoForgeAgainWhenItDoesNotAnswerInTime$'
 control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \
