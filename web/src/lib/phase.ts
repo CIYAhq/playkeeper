@@ -92,7 +92,7 @@ export function isCreating(st: ServerStatus): boolean {
   return st.operation?.kind === 'create'
 }
 
-/** Which lifecycle controls make sense in the current state. A server being moved has none: nothing reaches it. */
+/** Which lifecycle controls, and a backup now, make sense in the current state. A server being moved has none: nothing reaches it. */
 export function controls(st: ServerStatus) {
   const busy = st.operation !== undefined
   const running = ['online', 'starting', 'starting_container', 'preparing_world', 'downloading_server', 'stopping'].includes(st.phase)
@@ -102,6 +102,7 @@ export function controls(st: ServerStatus) {
     // Stopping a sleeping server keeps it off: nobody's join wakes it then.
     canStop: reachable && !busy && ((running && st.phase !== 'stopping') || st.phase === 'asleep'),
     canRestart: reachable && !busy && st.phase === 'online',
+    canBackup: reachable && !busy,
     busy,
   }
 }

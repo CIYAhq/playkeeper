@@ -2061,6 +2061,12 @@ export interface WhopSignIn {
   using?: string
 }
 
+/** A seller's store as their page inside Whop opens it: new when this open registered it, and what it's waiting on, if anything. */
+export interface WhopSellerOpen {
+  store: { id: string; title: string; route?: string; problem?: string }
+  new: boolean
+}
+
 /**
  * The app the businesses that sell from this dashboard installed: the end of
  * its API key, which acts on each of them, how many sell here, whether the

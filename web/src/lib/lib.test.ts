@@ -527,7 +527,7 @@ describe('crash helper', () => {
       expect(statusLabel(server({ phase, moving: true, crash: crash({ start: true }) }))).toBe('Being moved')
       expect(statusTone(server({ phase, moving: true }))).toBe('busy')
       expect(serverState(server({ phase, moving: true }), false).label, phase).toBe('Being moved')
-      expect(controls(server({ phase, moving: true })), phase).toMatchObject({ canStart: false, canStop: false, canRestart: false })
+      expect(controls(server({ phase, moving: true })), phase).toMatchObject({ canStart: false, canStop: false, canRestart: false, canBackup: false })
     }
   })
 

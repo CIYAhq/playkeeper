@@ -1978,6 +1978,18 @@ const (
 	CodeWhopOtherSeller = "whop_other_seller"
 )
 
+// A seller's page inside their Whop dashboard: CodeWhopToken refuses a
+// request without Whop's token for the Playkeeper Cloud app, CodeWhopNotTeam
+// someone who isn't on the business's team, and CodeWhopNotApproved a
+// business that hasn't approved every permission the app asks for, with the
+// install link in Params["installUrl"] and the missing ones in
+// Params["lacking"].
+const (
+	CodeWhopToken       = "whop_token"
+	CodeWhopNotTeam     = "whop_not_team"
+	CodeWhopNotApproved = "whop_not_approved"
+)
+
 // CodeHetznerTokenRefused refuses a Hetzner API token that Hetzner doesn't
 // take, or that can't be one (Settings › Machines › Hetzner stock).
 const CodeHetznerTokenRefused = "hetzner_token_refused"

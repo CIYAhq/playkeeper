@@ -119,6 +119,44 @@ func (c *Client) Owner(ctx context.Context) (User, error) {
 	return c.ownerAt(ctx, "/accounts/me")
 }
 
+// Business is a business the key reaches by id, as an app's key reads one
+// that installed the app. Its title comes from one of its products, since
+// Whop keeps the business itself behind company:balance:read. Its route,
+// its store's address on Whop, comes from one of its memberships, since a
+// product names the business by id; it's "" while there's none.
+func (c *Client) Business(ctx context.Context, accountID string) (Account, error) {
+	ps, err := c.Products(ctx, accountID)
+	if err != nil {
+		return Account{}, err
+	}
+	if len(ps) == 0 {
+		return Account{}, errors.New("the business has no product to read its name from")
+	}
+	var p struct {
+		Account struct {
+			Title string `json:"title"`
+		} `json:"account"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/products/"+url.PathEscape(ps[0].ID), nil, nil, &p); err != nil {
+		return Account{}, err
+	}
+	var ms struct {
+		Data []struct {
+			Account struct {
+				Route string `json:"route"`
+			} `json:"account"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/memberships", url.Values{"account_id": {accountID}, "first": {"1"}}, nil, &ms); err != nil {
+		return Account{}, err
+	}
+	a := Account{ID: accountID, Title: p.Account.Title}
+	if len(ms.Data) > 0 {
+		a.Route = ms.Data[0].Account.Route
+	}
+	return a, nil
+}
+
 // OwnerOf is the one user who owns an account the key reaches by id, as an
 // app's key reaches each business that installed the app. Whop keeps the
 // account itself behind company:balance:read, so the owner is the one Whop
