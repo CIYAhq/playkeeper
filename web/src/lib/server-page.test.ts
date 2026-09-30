@@ -54,7 +54,7 @@ describe('whether browsers reach the page, for Settings', () => {
 
   it('says what holds the page back', () => {
     expect(pageReach(view({ enabled: false })).kind).toBe('off')
-    expect(pageReach(view({ ports: undefined })).kind).toBe('otherMachine')
+    expect(pageReach(view({ ports: undefined })).kind).toBe('noAddress')
     expect(pageReach(view({ host: undefined })).kind).toBe('noAddress')
     expect(pageReach(view({ ports: { https: off(443), http: off(80) } })).kind).toBe('opening')
     expect(pageReach(view({ ports: { https: { port: 443, state: 'waiting' }, http: { port: 80, state: 'waiting' } } })).kind).toBe('waiting')

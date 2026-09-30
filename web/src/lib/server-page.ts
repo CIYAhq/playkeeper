@@ -47,10 +47,9 @@ export function serverPageTitle(address: string, servers: PublicServer[]): strin
   return only ? t('serverPage.title', { server: only.name }) : t('serverPage.titleMany', { address })
 }
 
-/** Whether browsers reach a server's public page, for its Settings. */
+/** Whether browsers reach a server's public page, for its Settings. The dashboard's machine serves every server's page, on its own ports. */
 export type PageReach =
   | { kind: 'off' }
-  | { kind: 'otherMachine' }
   | { kind: 'noAddress' }
   | { kind: 'live'; url: string }
   | { kind: 'plainOnly'; url: string; https: PagePort }
@@ -60,8 +59,7 @@ export type PageReach =
 
 export function pageReach(v: PublicPageView): PageReach {
   if (!v.enabled) return { kind: 'off' }
-  if (!v.ports) return { kind: 'otherMachine' }
-  if (!v.host) return { kind: 'noAddress' }
+  if (!v.host || !v.ports) return { kind: 'noAddress' }
   const { https, http } = v.ports
   if (https.state === 'open') return { kind: 'live', url: https.port === 443 ? `https://${v.host}` : `https://${v.host}:${https.port}` }
   if (http.state === 'open') return { kind: 'plainOnly', url: http.port === 80 ? `http://${v.host}` : `http://${v.host}:${http.port}`, https }

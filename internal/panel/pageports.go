@@ -69,7 +69,8 @@ func (s *Server) runPage(ctx context.Context) {
 
 // lookAtPage opens or closes the page's ports to match what the agent
 // says: held while a server is on the page and the machine has an address,
-// or while the dashboard answers the machine's name on port 443.
+// or a server on a joined machine is on the page at its name, or while the
+// dashboard answers the machine's name on port 443.
 func (s *Server) lookAtPage(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -83,6 +84,7 @@ func (s *Server) lookAtPage(ctx context.Context) {
 		// holds stays: the agent is back in a moment after an update.
 		return
 	}
+	st.On = st.On || s.anyJoinedPageOn(ctx)
 	p.mu.Lock()
 	p.host, p.hosts, p.on = st.Host, st.Hosts, st.On
 	current := p.gen == gen

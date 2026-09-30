@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/sharecard"
@@ -29,8 +30,9 @@ import (
 // the dashboard, where the page stays for someone who isn't signed in
 // (dashboard443.go). Machine links never answer there. Every route of the
 // page goes through its own public group, which limits each address and
-// logs no path, and a Host other than the machine's address gets the
-// group's one 404.
+// logs no path, and a Host other than the machine's address, a server's
+// own address or the name of a server on a joined machine that is on the
+// page (joinedpage.go) gets the group's one 404.
 
 const (
 	pageDataPrefix = "/api/public/server-page"
@@ -92,9 +94,12 @@ type pageSite struct {
 	held                              [2]*pageListener
 	next                              [2]time.Time
 
-	fetch sync.Mutex
-	cmu   sync.Mutex
-	cache map[string]pageAnswer
+	// local are the page's answers from the dashboard's own agent, and
+	// joined those from each joined machine it asked about its servers
+	// (joinedpage.go), by machine.
+	local  *answerCache
+	jmu    sync.Mutex
+	joined map[string]*answerCache
 }
 
 type pageAnswer struct {
@@ -104,8 +109,59 @@ type pageAnswer struct {
 	until       time.Time
 }
 
+// answerCache keeps a machine's answers for the page for pageCacheFor,
+// failures too, so a flood of requests for what isn't there doesn't reach
+// the machine either, and asks the machine about each once for everyone
+// who wants it meanwhile. A cache with a bound is emptied once it holds
+// more answers than that.
+type answerCache struct {
+	fetch   sync.Mutex
+	mu      sync.Mutex
+	answers map[string]pageAnswer
+	bound   int
+}
+
+func newAnswerCache(bound int) *answerCache {
+	return &answerCache{answers: map[string]pageAnswer{}, bound: bound}
+}
+
+// get answers key from the cache, or from ask.
+func (c *answerCache) get(ctx context.Context, now func() time.Time, key string, ask func(context.Context) (pageAnswer, bool)) (pageAnswer, bool) {
+	lookup := func() (pageAnswer, bool) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		a, ok := c.answers[key]
+		return a, ok && now().Before(a.until)
+	}
+	if a, ok := lookup(); ok {
+		return a, a.ok
+	}
+	c.fetch.Lock()
+	defer c.fetch.Unlock()
+	if a, ok := lookup(); ok {
+		return a, a.ok
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	a, ok := ask(ctx)
+	a.ok, a.until = ok, now().Add(pageCacheFor)
+	c.mu.Lock()
+	if c.bound > 0 && len(c.answers) > c.bound {
+		clear(c.answers)
+	}
+	c.answers[key] = a
+	c.mu.Unlock()
+	return a, ok
+}
+
+func (c *answerCache) forget() {
+	c.mu.Lock()
+	clear(c.answers)
+	c.mu.Unlock()
+}
+
 func (s *Server) newPageSite() *pageSite {
-	p := &pageSite{kick: make(chan struct{}, 1), cache: map[string]pageAnswer{}}
+	p := &pageSite{kick: make(chan struct{}, 1), local: newAnswerCache(64), joined: map[string]*answerCache{}}
 	p.ports = api.PublicPagePorts{HTTPS: api.PagePort{Port: 443, State: api.PortOff}, HTTP: api.PagePort{Port: 80, State: api.PortOff}}
 	p.group = newPublicGroup([]publicRoute{
 		{prefix: pageDataPrefix, limits: pageDataLimits, handler: readOnly(http.HandlerFunc(s.hPageData))},
@@ -162,7 +218,7 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 		// only its pending checks, and after the address changes the page's
 		// name catches up only at the keeper's next look.
 		check := !tls && strings.HasPrefix(r.URL.Path, acmePrefix)
-		if !check && !s.page.answers(r.Host) {
+		if !check && !s.page.answers(r.Host) && !s.joinedPageOn(r.Context(), r.Host) {
 			w.Header().Set("Cache-Control", "no-store")
 			http.NotFound(w, r)
 			return
@@ -188,11 +244,13 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 }
 
 // pageChanged forgets the page's answers after the owner changed what it
-// shows, and asks the port keeper to look again.
+// shows, or the zone changed the servers on joined machines it names, and
+// asks the port keeper to look again.
 func (s *Server) pageChanged() {
-	s.page.cmu.Lock()
-	clear(s.page.cache)
-	s.page.cmu.Unlock()
+	s.page.local.forget()
+	s.page.jmu.Lock()
+	s.page.joined = map[string]*answerCache{}
+	s.page.jmu.Unlock()
 	s.kickPage()
 }
 
@@ -344,8 +402,12 @@ func (s *Server) hPageData(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
+		if j, ok := s.joinedAt(r.Host); ok {
+			s.hJoinedPageIcon(w, r, j, slug)
+			return
+		}
 		a, ok := s.pageCached(r.Context(), "icon "+slug+" "+r.Host, func(ctx context.Context) (pageAnswer, bool) {
-			return s.pageAgentPNG(ctx, "/v1/public-page/icons/"+url.PathEscape(slug), r.Host)
+			return pagePNG(ctx, s.agent, "/v1/public-page/icons/"+url.PathEscape(slug), url.Values{"host": {r.Host}})
 		})
 		if !ok {
 			http.NotFound(w, r)
@@ -458,8 +520,12 @@ func writePNG(w http.ResponseWriter, b []byte) {
 }
 
 // pageData is what the page shows to a browser that asked for host, from
-// the agent at most once every pageCacheFor.
+// the agent at most once every pageCacheFor, or at the name of a server on
+// a joined machine from that machine (joinedPage).
 func (s *Server) pageData(ctx context.Context, host string) (api.PublicPage, bool) {
+	if j, ok := s.joinedAt(host); ok {
+		return s.joinedPage(ctx, j)
+	}
 	a, ok := s.pageCached(ctx, "page "+host, func(ctx context.Context) (pageAnswer, bool) {
 		var page api.PublicPage
 		status, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page", url.Values{"host": {host}}, nil, &page)
@@ -476,9 +542,9 @@ func (s *Server) pageData(ctx context.Context, host string) (api.PublicPage, boo
 	return page, true
 }
 
-// pageAgentPNG is a PNG the agent serves for the page at host.
-func (s *Server) pageAgentPNG(ctx context.Context, path, host string) (pageAnswer, bool) {
-	resp, err := s.agent.Raw(ctx, http.MethodGet, path, url.Values{"host": {host}}, nil, nil, false)
+// pagePNG is a PNG the agent c serves at path for the page.
+func pagePNG(ctx context.Context, c *agentclient.Client, path string, q url.Values) (pageAnswer, bool) {
+	resp, err := c.Raw(ctx, http.MethodGet, path, q, nil, nil, false)
 	if err != nil {
 		return pageAnswer{}, false
 	}
@@ -493,36 +559,10 @@ func (s *Server) pageAgentPNG(ctx context.Context, path, host string) (pageAnswe
 	return pageAnswer{body: b, contentType: "image/png"}, true
 }
 
-// pageCached answers key from the cache, or from get once for everyone who
-// asks meanwhile; failures are kept too, so a flood of requests for what
-// isn't there doesn't reach the agent either.
+// pageCached answers key from the dashboard's own agent's answers, or from
+// get.
 func (s *Server) pageCached(ctx context.Context, key string, get func(context.Context) (pageAnswer, bool)) (pageAnswer, bool) {
-	p := s.page
-	lookup := func() (pageAnswer, bool) {
-		p.cmu.Lock()
-		defer p.cmu.Unlock()
-		a, ok := p.cache[key]
-		return a, ok && s.now().Before(a.until)
-	}
-	if a, ok := lookup(); ok {
-		return a, a.ok
-	}
-	p.fetch.Lock()
-	defer p.fetch.Unlock()
-	if a, ok := lookup(); ok {
-		return a, a.ok
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	a, ok := get(ctx)
-	a.ok, a.until = ok, s.now().Add(pageCacheFor)
-	p.cmu.Lock()
-	if len(p.cache) > 64 {
-		clear(p.cache)
-	}
-	p.cache[key] = a
-	p.cmu.Unlock()
-	return a, ok
+	return s.page.local.get(ctx, s.now, key, get)
 }
 
 // hPageAsset serves the page's scripts, styles and the favicon from the
@@ -570,8 +610,9 @@ func (s *Server) hPageACME(w http.ResponseWriter, r *http.Request) {
 // Dashboard routes.
 
 // hPublicPage is a server's public page for its Settings, with whether
-// browsers reach it. Only the dashboard's own machine serves the page, so
-// a server elsewhere gets no ports.
+// browsers reach it. The dashboard's machine serves every server's page,
+// on its ports: a server on a joined machine has its page at the name the
+// zone gives it, never at an address its machine has of its own.
 func (s *Server) hPublicPage(w http.ResponseWriter, r *http.Request, _ *session) {
 	m, ok := s.target(w, r)
 	if !ok {
@@ -582,22 +623,18 @@ func (s *Server) hPublicPage(w http.ResponseWriter, r *http.Request, _ *session)
 		s.agentFailure(w, err)
 		return
 	}
-	if m.Kind == localKind {
-		ports := s.page.portsNow()
-		v.Ports = &ports
+	if m.Kind != localKind {
+		v.Host = s.zoneAddress(r.PathValue("id"))
 	}
+	ports := s.page.portsNow()
+	v.Ports = &ports
 	writeJSON(w, http.StatusOK, v)
 }
 
 // hPublicPagePortsRetry tries the ports found busy again, once the owner
 // freed one.
 func (s *Server) hPublicPagePortsRetry(w http.ResponseWriter, r *http.Request, sess *session) {
-	m, ok := s.target(w, r)
-	if !ok {
-		return
-	}
-	if m.Kind != localKind {
-		writeErr(w, http.StatusConflict, api.CodeConflict, "Only the dashboard's own machine has a public page.", "")
+	if _, ok := s.target(w, r); !ok {
 		return
 	}
 	ctx := asActor(r.Context(), sess.User.Username)
