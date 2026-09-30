@@ -9132,6 +9132,30 @@ control "seller prices: the store opens only once its products are marked" inter
   'if err := s.markHostedProducts(ctx, c, st, plans); err != nil {' \
   'if err := s.markHostedProducts(ctx, c, st, plans); false && err != nil {' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store makes the hosting plans visible" internal/panel/sellerprices.go \
+  'if err := showHostedPlans(ctx, c, plans); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: only the hosting plans are made visible" internal/panel/sellerprices.go \
+  'if _, ok := sellerPriceOf(p); !ok || p.Visibility == "visible" {' \
+  'if p.Visibility == "visible" {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: the store opens only once its plans are visible" internal/panel/sellerprices.go \
+  'if err := showHostedPlans(ctx, c, plans); err != nil {' \
+  'if err := showHostedPlans(ctx, c, plans); false && err != nil {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: the plans are made visible only once the shares are set" internal/panel/sellerprices.go \
+  'problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  '_ = showHostedPlans(ctx, c, plans); problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: the plans are made visible only once the products are marked" internal/panel/sellerprices.go \
+  'if err := s.markHostedProducts(ctx, c, st, plans); err != nil {' \
+  '_ = showHostedPlans(ctx, c, plans); if err := s.markHostedProducts(ctx, c, st, plans); err != nil {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Whop is asked to make a plan visible" internal/whop/store.go \
+  'map[string]any{"visibility": "visible"}' \
+  'map[string]any{"visibility": "hidden"}' \
+  ./internal/whop '^TestShowPlanMakesItVisible$'
 control "seller prices: Open the store opens its seller's reason alone" internal/panel/sellerprices.go \
   's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
   's.openWhopStore(ctx, st.ID, "share")' \
