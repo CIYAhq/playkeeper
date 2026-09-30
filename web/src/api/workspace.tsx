@@ -16,6 +16,8 @@ export interface Workspace {
   /** Every machine, the dashboard's own first. */
   machines: MachineView[]
   prefs: Record<string, string>
+  /** Set while the preferences load, so what someone hid doesn't flash on screen first. */
+  prefsLoading?: boolean
   /** Shows the change at once; if it can't be saved it's put back and the promise rejects. */
   setPrefs: (p: Record<string, string>) => Promise<void>
   refresh: () => Promise<void>
@@ -81,6 +83,7 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
   const servers = usePoll(() => get<ServerStatus[]>('/api/servers'), 3000)
   const machines = usePoll(() => get<MachineView[]>('/api/machines'), 5000)
   const [prefs, setPrefsState] = useState<Record<string, string>>({})
+  const [prefsLoading, setPrefsLoading] = useState(true)
   const prefsRef = useRef(prefs)
   const changedPrefs = useRef(false)
   const showPrefs = useCallback((p: Record<string, string>) => {
@@ -94,6 +97,7 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
         if (!changedPrefs.current) showPrefs(p)
       })
       .catch(() => undefined)
+      .finally(() => setPrefsLoading(false))
   }, [showPrefs])
   // Shown at once; put back (and the error thrown) if the panel refuses.
   const setPrefs = useCallback(
@@ -186,6 +190,7 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
       machine: shownMachine,
       machines: machineList,
       prefs,
+      prefsLoading,
       setPrefs,
       refresh,
       updating,
@@ -201,7 +206,7 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
       signInNotice,
       dismissSignInNotice,
     }),
-    [me, serverList, servers.error, shownMachine, machineList, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut, reloadMe, signInNotice, dismissSignInNotice],
+    [me, serverList, servers.error, shownMachine, machineList, prefs, prefsLoading, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut, reloadMe, signInNotice, dismissSignInNotice],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/netip"
@@ -109,9 +110,18 @@ type Options struct {
 	// without any, this agent cannot install updates. The playkeeper command
 	// passes the keys compiled into the build.
 	UpdateKeys []ed25519.PublicKey
-	// UpdateCheckInterval is how often the agent looks for a new release
-	// (default 12h; negative turns the automatic check off).
+	// UpdateCheckInterval is how often the agent looks for a new release,
+	// give or take a fifth (default 30 minutes; negative turns the automatic
+	// check off), and UpdateCheckFirst the most the first look waits after
+	// the agent starts (default a minute). UpdateJitter picks their random
+	// moments, a number in [0, 1) (tests fix it).
 	UpdateCheckInterval time.Duration
+	UpdateCheckFirst    time.Duration
+	UpdateJitter        func() float64
+	// MinecraftCheckInterval is how often the agent looks for newer
+	// Minecraft versions for the servers, for Discord (default 12 hours;
+	// negative turns it off).
+	MinecraftCheckInterval time.Duration
 	// BinaryVersion runs a downloaded binary's `version` command (tests).
 	BinaryVersion func(path string) (string, error)
 	// HTTPClient fetches releases and PaperMC's version list.
@@ -432,7 +442,16 @@ func New(opts Options) (*Agent, error) {
 		opts.BackupWarnDelay = 3 * time.Second
 	}
 	if opts.UpdateCheckInterval == 0 {
-		opts.UpdateCheckInterval = 12 * time.Hour
+		opts.UpdateCheckInterval = 30 * time.Minute
+	}
+	if opts.UpdateCheckFirst == 0 {
+		opts.UpdateCheckFirst = time.Minute
+	}
+	if opts.UpdateJitter == nil {
+		opts.UpdateJitter = rand.Float64
+	}
+	if opts.MinecraftCheckInterval == 0 {
+		opts.MinecraftCheckInterval = 12 * time.Hour
 	}
 	if opts.BinaryVersion == nil {
 		opts.BinaryVersion = binaryVersion
@@ -558,6 +577,7 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.http01 = &certs.HTTP01Responder{Addr: opts.HTTP01Addr, Shared: a.pageRelaysChallenge}
 	a.usage.kick = make(chan struct{}, 1)
+	a.upd.kick = make(chan struct{}, 1)
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	if a.opts.Issue == nil {
@@ -1005,6 +1025,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/audit", a.hAudit},
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
+		{"PUT", "/v1/update/auto", a.hUpdateAuto},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
 		{"GET", "/v1/usage-stats", a.hUsageStats},
 		{"PUT", "/v1/usage-stats", a.hUsageStatsSet},

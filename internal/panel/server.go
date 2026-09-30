@@ -387,8 +387,11 @@ func (s *Server) Routes() []Route {
 		view("/api/machines/{mid}/catalog", s.hCatalog),
 		{"GET", "/api/machines/{mid}/activity", needSession, actViewMachines, s.hMachineActivity},
 		view("/api/activity", s.hActivity),
+		// Browsers only read what the machine's last check found; the agent
+		// checks by itself, or when Check for updates is pressed.
 		{"GET", "/api/machines/{mid}/update", needSession, actViewMachines, s.machineProxy("GET", "/v1/update")},
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
+		mm("PUT", "/api/machines/{mid}/update/auto", "/v1/update/auto", actManageMachine),
 		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},
 		// Usage stats: the switch sets them on every machine of the dashboard.
 		{"GET", "/api/usage-stats", needSession, actViewMachines, s.hUsageStats},

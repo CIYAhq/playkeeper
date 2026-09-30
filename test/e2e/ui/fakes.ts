@@ -589,6 +589,16 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/(servers|machines)\/(\w+)\/restore\/upload$/, () => ({ status: 200, body: restorePreview(undefined) })],
   ['POST', /^\/api\/machines\/(\w+)\/servers$/, (r, state) => ((r.body as { acceptEula?: boolean } | null)?.acceptEula ? op(state, 'create', 'fakeserver') : invalid('Accept the Minecraft EULA first.'))],
   ['POST', /^\/api\/machines\/(\w+)\/update\/check$/, (_r, state) => ({ status: 200, body: { current: 'dev', supported: true, available: false, ...state.update, checkedAt: new Date().toISOString() } })],
+  [
+    'PUT',
+    /^\/api\/machines\/(\w+)\/update\/auto$/,
+    (r, state) => {
+      const on = (r.body as { on?: unknown } | null)?.on
+      if (typeof on !== 'boolean') return invalid('Send {"on": true} or {"on": false}.')
+      state.update = { ...state.update, autoCheck: on }
+      return { status: 200, body: { current: 'dev', supported: true, available: false, ...state.update } }
+    },
+  ],
   ['POST', /^\/api\/machines\/(\w+)\/update\/apply$/, (_r, state) => op(state, 'update')],
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],

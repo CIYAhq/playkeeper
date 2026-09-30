@@ -175,6 +175,8 @@ export interface DemoState {
   usageOn?: boolean
   /** The providers each server has an AI key for, once one was saved (ai-keys.ts); never a key. */
   aiKeys?: Record<string, AIProvider[]>
+  /** Whether Playkeeper checks for updates by itself, once the switch was used. */
+  updateAuto?: boolean
 }
 
 /** A file or folder in a server's folder. A text file keeps its text; any other file only its size. */
@@ -1016,7 +1018,7 @@ function catalog(s: DemoState, r: Request): Catalog {
   }
 }
 
-export const update = (now: number): UpdateInfo => ({ current: demoVersion, supported: true, latest: demoVersion, available: false, checkedAt: iso(now - 30 * minute) })
+export const update = (s: DemoState, now: number): UpdateInfo => ({ current: demoVersion, supported: true, latest: demoVersion, available: false, checkedAt: iso(now - 12 * minute), autoCheck: s.updateAuto ?? true })
 
 /** Usage stats, with the heartbeat a machine like the demo's would send: counts only, never a name. */
 export const usageStats = (s: DemoState, now: number): UsageStatsView => {
@@ -1428,7 +1430,7 @@ export const reads: Routes = {
   'GET /api/machines/:machine/address': address,
   'GET /api/machines/:machine/addon-sources': () => addonSources,
   'GET /api/auth/2fa': () => twoFactor,
-  'GET /api/machines/:machine/update': (_, r) => update(r.now),
+  'GET /api/machines/:machine/update': (s, r) => update(s, r.now),
   'GET /api/usage-stats': (s, r) => usageStats(s, r.now),
   'GET /api/machines/:machine/preflight': preflight,
   'GET /api/machines/:machine/events': () => [],
