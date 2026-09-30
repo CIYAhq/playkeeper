@@ -21,6 +21,8 @@ import (
 const (
 	kvUpdateCheck  = "update_check"
 	kvUpdateResult = "update_result"
+	// kvUpdateAuto is "off" once the owner turned the automatic check off.
+	kvUpdateAuto = "update_auto"
 	// kvUpdateAbandoned is the operation of the last update the agent gave
 	// up waiting for, so a restart does not wait for it again.
 	kvUpdateAbandoned = "update_abandoned"
@@ -32,6 +34,21 @@ const (
 	updaterRunTimeout = 30 * time.Minute
 )
 
+// The automatic check (updateLoop): a random moment in the first
+// UpdateCheckFirst after the agent starts, then every UpdateCheckInterval,
+// give or take checkJitter of it at random, so machines that started
+// together drift apart and a release doesn't reach them all at once. A check
+// whose first source failed waits twice as long for each failure in a row,
+// up to checkBackoffMax, and at least what a source asked for with
+// Retry-After, up to retryAfterMax.
+const (
+	checkJitter     = 0.2
+	checkBackoffMax = 6 * time.Hour
+	retryAfterMax   = 24 * time.Hour
+	// checkTimeout bounds each source's answer.
+	checkTimeout = 20 * time.Second
+)
+
 type updateState struct {
 	mu         sync.Mutex
 	latest     *update.Manifest
@@ -41,12 +58,30 @@ type updateState struct {
 	opID       string
 	since      time.Time
 	lastResult *api.UpdateResult
+	// cached is the latest release as each source served it last, by its
+	// location, so a check asks it only whether it changed.
+	cached map[string]*update.Cached
+	// checking is closed when the check in progress ends; a check asked
+	// for meanwhile waits for it rather than asking again, and waiting
+	// counts those.
+	checking chan struct{}
+	waiting  int
+	// next is when the automatic check runs, failures how many checks in a
+	// row found their first source failing, and off whether the owner
+	// turned the automatic check off. kick wakes the loop.
+	next     time.Time
+	failures int
+	off      bool
+	kick     chan struct{}
 }
 
 type savedCheck struct {
 	Latest    *update.Manifest `json:"latest,omitempty"`
 	CheckedAt time.Time        `json:"checkedAt"`
 	Error     string           `json:"error,omitempty"`
+	// Cached is updateState.cached, so a check after a restart asks only
+	// whether the release changed too (0.4.9).
+	Cached map[string]*update.Cached `json:"cached,omitempty"`
 }
 
 func (a *Agent) updateDir() string { return filepath.Join(a.cfg.AgentDir(), "update") }
@@ -57,6 +92,17 @@ func (a *Agent) updateSource() update.Source {
 		base = update.DefaultReleaseURL
 	}
 	return update.Source{BaseURL: base, Client: a.opts.HTTPClient}
+}
+
+// checkSources are where a check looks for the latest release, in order: the
+// release location config.json names, or else playkeeper.io's copy of the
+// latest release, then GitHub's own when playkeeper.io doesn't answer with
+// one. Downloads always come from updateSource.
+func (a *Agent) checkSources() []update.Source {
+	if a.cfg.ReleaseURL != "" {
+		return []update.Source{a.updateSource()}
+	}
+	return []update.Source{{BaseURL: update.CheckURL, Client: a.opts.HTTPClient}, a.updateSource()}
 }
 
 // updatesUnsupported says why this build cannot install updates, if it cannot.
@@ -80,9 +126,13 @@ func (a *Agent) loadUpdateState() {
 	if v, ok, _ := a.kvGet(kvUpdateCheck); ok {
 		var s savedCheck
 		if json.Unmarshal([]byte(v), &s) == nil {
-			u.latest, u.checkedAt, u.checkErr = s.Latest, s.CheckedAt, s.Error
+			u.latest, u.checkedAt, u.checkErr, u.cached = s.Latest, s.CheckedAt, s.Error, s.Cached
 		}
 	}
+	if v, _, _ := a.kvGet(kvUpdateAuto); v == "off" {
+		u.off = true
+	}
+	u.next = a.now().Add(time.Duration(a.opts.UpdateJitter() * float64(a.opts.UpdateCheckFirst)))
 	if v, ok, _ := a.kvGet(kvUpdateResult); ok {
 		var r api.UpdateResult
 		if json.Unmarshal([]byte(v), &r) == nil {
@@ -130,7 +180,7 @@ func (a *Agent) updateInfo() api.UpdateInfo {
 		t := u.checkedAt
 		info.CheckedAt = &t
 	}
-	info.CheckError, info.Installing, info.LastResult = u.checkErr, u.installing, u.lastResult
+	info.CheckError, info.Installing, info.LastResult, info.AutoCheck = u.checkErr, u.installing, u.lastResult, !u.off
 	if u.latest != nil {
 		info.Latest, info.Notes, info.ReleaseDate = u.latest.Version, u.latest.Notes, u.latest.Date
 		if c, err := update.CompareVersions(u.latest.Version, version.Version); err == nil && c > 0 && info.Supported {
@@ -140,38 +190,131 @@ func (a *Agent) updateInfo() api.UpdateInfo {
 	return info
 }
 
-// checkUpdate fetches the latest release's manifest and keeps it only if its
-// signature verifies.
-func (a *Agent) checkUpdate(ctx context.Context) api.UpdateInfo {
+// checkUpdate fetches the latest release's manifest from the first source
+// that has it (checkSources) and keeps it only if its signature verifies.
+// The button in Settings and the automatic check are this one check; the
+// automatic one passes conditional, asking each source only whether the
+// release changed since the last check. A check asked for while another runs
+// waits for that one and answers what it found, however many ask.
+func (a *Agent) checkUpdate(conditional bool) api.UpdateInfo {
 	if a.updatesUnsupported() != "" {
 		return a.updateInfo()
 	}
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	rel, err := a.updateSource().Latest(cctx, a.opts.UpdateKeys)
 	u := &a.upd
 	u.mu.Lock()
+	if running := u.checking; running != nil {
+		u.waiting++
+		u.mu.Unlock()
+		select {
+		case <-running:
+		case <-a.ctx.Done():
+		}
+		u.mu.Lock()
+		u.waiting--
+		u.mu.Unlock()
+		return a.updateInfo()
+	}
+	done := make(chan struct{})
+	u.checking = done
+	u.mu.Unlock()
+	defer func() {
+		u.mu.Lock()
+		u.checking = nil
+		u.mu.Unlock()
+		close(done)
+	}()
+
+	var rel *update.Release
+	var errs []string
+	var firstFailed bool
+	var wait time.Duration
+	for i, src := range a.checkSources() {
+		var prev *update.Cached
+		if conditional {
+			u.mu.Lock()
+			prev = u.cached[src.BaseURL]
+			u.mu.Unlock()
+		}
+		ctx, cancel := context.WithTimeout(a.ctx, checkTimeout)
+		got, cached, err := src.LatestSince(ctx, a.opts.UpdateKeys, prev)
+		cancel()
+		if err != nil {
+			a.log.Warn("update check failed", "source", src.BaseURL, "err", err)
+			errs = append(errs, err.Error())
+			firstFailed = firstFailed || i == 0
+			if se := (*update.StatusError)(nil); errors.As(err, &se) {
+				wait = max(wait, min(se.RetryAfter, retryAfterMax))
+			}
+			continue
+		}
+		rel = got
+		u.mu.Lock()
+		if u.cached == nil {
+			u.cached = map[string]*update.Cached{}
+		}
+		u.cached[src.BaseURL] = cached
+		u.mu.Unlock()
+		break
+	}
+	u.mu.Lock()
 	u.checkedAt = a.now().UTC()
-	if err != nil {
-		u.checkErr = "Could not check for updates: " + err.Error()
-		a.log.Warn("update check failed", "err", err)
+	if rel == nil {
+		u.checkErr = "Could not check for updates: " + strings.Join(errs, "; ")
 	} else {
 		u.latest, u.checkErr = rel.Manifest, ""
 	}
-	saved, _ := json.Marshal(savedCheck{Latest: u.latest, CheckedAt: u.checkedAt, Error: u.checkErr})
+	if firstFailed {
+		u.failures++
+	} else {
+		u.failures = 0
+	}
+	u.next = a.now().Add(checkWait(a.opts.UpdateCheckInterval, u.failures, wait, a.opts.UpdateJitter()))
+	saved, _ := json.Marshal(savedCheck{Latest: u.latest, CheckedAt: u.checkedAt, Error: u.checkErr, Cached: u.cached})
 	u.mu.Unlock()
 	_ = a.kvSet(kvUpdateCheck, string(saved))
 	info := a.updateInfo()
-	if err == nil && info.Available {
+	if rel != nil && info.Available {
 		a.alertUpdate(info.Latest)
 	}
 	return info
+}
+
+// checkWait is how long the automatic check waits after a check: interval,
+// doubled for each failure in a row up to checkBackoffMax, at least
+// retryAfter, give or take checkJitter of it (r is at random in [0, 1)).
+func checkWait(interval time.Duration, failures int, retryAfter time.Duration, r float64) time.Duration {
+	if interval <= 0 {
+		return max(retryAfter, 0)
+	}
+	wait := interval
+	for range failures {
+		if wait >= checkBackoffMax {
+			break
+		}
+		wait *= 2
+	}
+	wait = min(wait, max(checkBackoffMax, interval))
+	wait = time.Duration(float64(wait) * (1 - checkJitter + 2*checkJitter*r))
+	return max(wait, retryAfter)
+}
+
+// autoCheckDue reports whether the automatic check should run now: it's
+// time, the owner hasn't turned it off, this build can install releases, and
+// the machine is no other dashboard's, which finds releases for it.
+func (a *Agent) autoCheckDue() bool {
+	u := &a.upd
+	u.mu.Lock()
+	due := a.opts.UpdateCheckInterval > 0 && !u.off && !a.now().Before(u.next)
+	u.mu.Unlock()
+	return due && a.updatesUnsupported() == "" && !a.joined()
 }
 
 func (a *Agent) hUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.updateInfo())
 }
 
+// hUpdateCheck is Settings' Check for updates: the whole release again, not
+// only whether it changed.
 func (a *Agent) hUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	var req api.UpdateCheckRequest
 	if err := decode(r, &req); err != nil {
@@ -182,7 +325,45 @@ func (a *Agent) hUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, a.checkUpdate(r.Context()))
+	writeJSON(w, http.StatusOK, a.checkUpdate(false))
+}
+
+// hUpdateAuto is Settings' Check for updates automatically. Turned on, the
+// agent looks at once.
+func (a *Agent) hUpdateAuto(w http.ResponseWriter, r *http.Request) {
+	var req api.UpdateAutoRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	actor, err := validActor(req.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	v := "off"
+	if req.On {
+		v = "on"
+	}
+	if err := a.kvSet(kvUpdateAuto, v); err != nil {
+		writeError(w, err)
+		return
+	}
+	u := &a.upd
+	u.mu.Lock()
+	u.off = !req.On
+	if req.On {
+		u.next = a.now()
+	}
+	u.mu.Unlock()
+	a.audit(actor, "update_checks."+v, "", "succeeded", "")
+	if req.On {
+		select {
+		case u.kick <- struct{}{}:
+		default:
+		}
+	}
+	writeJSON(w, http.StatusOK, a.updateInfo())
 }
 
 func (a *Agent) hUpdateApply(w http.ResponseWriter, r *http.Request) {
@@ -401,11 +582,12 @@ func (a *Agent) abandonUpdate(opID, v, outcome, msg, hint string) {
 }
 
 // updateLoop reports updater results, times out a handoff nobody picked up,
-// and now and then checks for a new Playkeeper release and for newer
-// Minecraft versions for the servers.
+// checks for a new Playkeeper release when the agent starts and about every
+// half hour (see checkWait), and twice a day looks for newer Minecraft
+// versions for the servers.
 func (a *Agent) updateLoop(ctx context.Context) {
 	a.collectUpdateResult()
-	next := a.now().Add(time.Minute)
+	nextMinecraft := a.now().Add(time.Minute)
 	t := time.NewTicker(a.opts.ReconcileInterval)
 	defer t.Stop()
 	for {
@@ -413,15 +595,25 @@ func (a *Agent) updateLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		case <-a.upd.kick:
 		}
 		a.collectUpdateResult()
 		a.watchHandoff()
-		if a.opts.UpdateCheckInterval > 0 && a.now().After(next) {
-			next = a.now().Add(a.opts.UpdateCheckInterval)
-			a.checkUpdate(ctx)
+		if a.autoCheckDue() {
+			a.checkUpdate(true)
+		}
+		if a.opts.MinecraftCheckInterval > 0 && a.now().After(nextMinecraft) {
+			nextMinecraft = a.now().Add(a.opts.MinecraftCheckInterval)
 			a.alertMinecraftUpdates(ctx)
 		}
 	}
+}
+
+// joined reports whether this machine belongs to another machine's
+// dashboard: installed to join one, or linked to one since.
+func (a *Agent) joined() bool {
+	_, err := os.Stat(a.cfg.LinkDashboardPath())
+	return a.cfg.NoPanel || err == nil
 }
 
 // binaryVersion runs `<binary> version` (a staged update, before handing it

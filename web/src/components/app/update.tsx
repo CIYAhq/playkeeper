@@ -12,6 +12,7 @@ import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, Dial
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { cn } from '@/lib/utils'
 
 /** Reads what Playkeeper knows about updates, while `enabled`. */
@@ -51,12 +52,71 @@ export function noteLines(notes: string | undefined, max = 5): string[] {
   return first ? [plain(first)] : []
 }
 
-/** The sidebar row that offers an update, or shows one being installed. */
+/** The preference holding the release whose notice was dismissed (keys are lower case, see hPrefsSet). */
+export const dismissedKey = 'update.dismissed'
+
+/**
+ * The release to tell the signed-in account about: a newer Playkeeper the
+ * machine found by itself, for the owner or an admin of every server, who
+ * can install it, unless they dismissed its notice or an update is being
+ * installed. Creators and customers can't update the machine, and their
+ * machine list never names a release anyway.
+ */
+export function useUpdateNotice(): { version: string; dismiss: () => void } | undefined {
+  const ws = useWorkspace()
+  const version = ws.machine?.live?.updateAvailable
+  if (!version || ws.updating || ws.prefsLoading || !can(ws.me, 'machine.manage') || ws.prefs[dismissedKey] === version) return undefined
+  return {
+    version,
+    dismiss: () => void ws.setPrefs({ [dismissedKey]: version }).catch((e: unknown) => toastManager.add({ title: t('update.dismissFailed'), description: errorText(e), type: 'error' })),
+  }
+}
+
+/**
+ * "Playkeeper 0.4.9 is out", with Update, which opens the update dialog,
+ * and a close button that hides it until a newer release: at the bottom of
+ * the sidebar on desktop, at the top of Home on a phone. It only reads what
+ * the machine's last check found.
+ */
+export function UpdateNotice({ phone, className }: { phone?: boolean; className?: string }) {
+  const ws = useWorkspace()
+  const notice = useUpdateNotice()
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  if (!notice && !open) return null
+  const current = ws.machine?.live?.agentVersion ?? ws.me.version
+  return (
+    <>
+      {notice && (
+        <section aria-labelledby={id} className={cn('animate-enter border border-border bg-white shadow-card', phone ? 'rounded-3xl p-4' : 'rounded-2xl p-3', className)}>
+          <div className="flex items-start gap-2.5">
+            <span className={cn('size-2 shrink-0 rounded-full bg-success ring-3 ring-success/20', phone ? 'mt-1.5' : 'mt-[5px]')} aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <h2 id={id} className={cn('font-semibold', phone ? 'text-[15px] leading-5' : 'text-[13px] leading-[18px]')}>
+                {t('update.notice', { version: notice.version })}
+              </h2>
+              <p className={cn('text-muted-foreground', phone ? 'mt-0.5 text-[13px]' : 'text-xs')}>{t('update.noticeHint', { current })}</p>
+            </div>
+            <Button variant="ghost" size={phone ? 'icon-sm' : 'icon-xs'} className={cn('text-muted-foreground', phone ? '-mt-1.5 -mr-1.5' : '-mt-1 -mr-1')} aria-label={t('common.dismiss')} onClick={notice.dismiss}>
+              <XIcon />
+            </Button>
+          </div>
+          <Button variant="outline" size={phone ? 'default' : 'sm'} className="mt-3 w-full" onClick={() => setOpen(true)}>
+            <CircleArrowUpIcon />
+            {t('update.update')}
+          </Button>
+        </section>
+      )}
+      <UpdateDialog open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
+
+/** The sidebar row that shows an update being installed, and opens its progress. */
 export function UpdateRow() {
   const ws = useWorkspace()
   const [open, setOpen] = useState(false)
-  const available = ws.machine?.live?.updateAvailable
-  if (!ws.updating && !available) return null
+  if (!ws.updating) return null
   return (
     <>
       <button
@@ -64,9 +124,9 @@ export function UpdateRow() {
         onClick={() => setOpen(true)}
         className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm font-medium outline-none hover:bg-black/[.035] focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {ws.updating ? <Spinner className="size-3.5" /> : <span className="mx-1 size-2 rounded-full bg-success ring-3 ring-success/20" aria-hidden="true" />}
-        <span className="min-w-0 flex-1 truncate">{ws.updating ? t('nav.updating') : t('nav.updateAvailable')}</span>
-        <span className={cn('text-xs tabular-nums', ws.updating ? 'text-info-foreground' : 'text-muted-foreground')}>{ws.updating ? ws.updatingSince ? <Elapsed since={ws.updatingSince} /> : null : available}</span>
+        <Spinner className="size-3.5" />
+        <span className="min-w-0 flex-1 truncate">{t('nav.updating')}</span>
+        <span className="text-xs text-info-foreground tabular-nums">{ws.updatingSince ? <Elapsed since={ws.updatingSince} /> : null}</span>
       </button>
       <UpdateDialog open={open} onOpenChange={setOpen} />
     </>

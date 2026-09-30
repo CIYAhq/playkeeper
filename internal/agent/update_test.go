@@ -7,6 +7,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -23,14 +25,65 @@ import (
 )
 
 // fakeRelease serves a release location: a signed manifest, its signature
-// and the tarball.
+// and the tarball, each with an ETag, answering 304 Not Modified to a
+// request that names it. It counts each file's requests, those that asked
+// only whether it changed (conditional) and the 304s among them, and keeps
+// when each signature request came.
 type fakeRelease struct {
-	mu       sync.Mutex
-	manifest []byte
-	sig      []byte
-	tarball  []byte
-	binary   []byte
-	srv      *httptest.Server
+	mu          sync.Mutex
+	manifest    []byte
+	sig         []byte
+	tarball     []byte
+	binary      []byte
+	requests    map[string]int
+	conditional map[string]int
+	notModified map[string]int
+	sigTimes    []time.Time
+	// status answers every request instead, with retryAfter as its
+	// Retry-After when set.
+	status     int
+	retryAfter string
+	// held keeps requests waiting until it is closed, and pending counts
+	// them meanwhile.
+	held    chan struct{}
+	pending int
+	srv     *httptest.Server
+}
+
+func (r *fakeRelease) count(name string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.requests[name]
+}
+
+func (r *fakeRelease) counts(name string) (requests, conditional, notModified int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.requests[name], r.conditional[name], r.notModified[name]
+}
+
+// answer has every request answered with status (0: the files again).
+func (r *fakeRelease) answer(status int, retryAfter string) {
+	r.mu.Lock()
+	r.status, r.retryAfter = status, retryAfter
+	r.mu.Unlock()
+}
+
+// hold keeps requests waiting until the returned func lets them go.
+func (r *fakeRelease) hold() (let func()) {
+	ch := make(chan struct{})
+	r.mu.Lock()
+	r.held = ch
+	r.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.mu.Lock()
+			r.held = nil
+			r.mu.Unlock()
+			close(ch)
+		})
+	}
 }
 
 func (r *fakeRelease) publish(t *testing.T, priv ed25519.PrivateKey, v string) {
@@ -56,17 +109,54 @@ func (r *fakeRelease) publish(t *testing.T, priv ed25519.PrivateKey, v string) {
 
 func (r *fakeRelease) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
+	if held := r.held; held != nil {
+		r.pending++
+		r.mu.Unlock()
+		<-held
+		r.mu.Lock()
+		r.pending--
+	}
 	defer r.mu.Unlock()
-	switch filepath.Base(req.URL.Path) {
+	name := filepath.Base(req.URL.Path)
+	if r.requests == nil {
+		r.requests, r.conditional, r.notModified = map[string]int{}, map[string]int{}, map[string]int{}
+	}
+	r.requests[name]++
+	if name == update.SignatureFile {
+		r.sigTimes = append(r.sigTimes, time.Now())
+	}
+	inm := req.Header.Get("If-None-Match")
+	if inm != "" || req.Header.Get("If-Modified-Since") != "" {
+		r.conditional[name]++
+	}
+	if r.status != 0 {
+		if r.retryAfter != "" {
+			w.Header().Set("Retry-After", r.retryAfter)
+		}
+		w.WriteHeader(r.status)
+		return
+	}
+	var body []byte
+	switch name {
 	case update.ManifestFile:
-		w.Write(r.manifest)
+		body = r.manifest
 	case update.SignatureFile:
-		w.Write(r.sig)
+		body = r.sig
 	case update.TarballFile:
-		w.Write(r.tarball)
+		body = r.tarball
 	default:
 		http.NotFound(w, req)
+		return
 	}
+	sum := sha256.Sum256(body)
+	etag := `"` + hex.EncodeToString(sum[:8]) + `"`
+	w.Header().Set("ETag", etag)
+	if inm == etag {
+		r.notModified[name]++
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Write(body)
 }
 
 // updateEnv is an agent built as release 0.2.0 that trusts a test key and

@@ -311,6 +311,16 @@ type UpdateInfo struct {
 	CheckError  string        `json:"checkError,omitempty"`
 	Installing  string        `json:"installing,omitempty"`
 	LastResult  *UpdateResult `json:"lastResult,omitempty"`
+	// AutoCheck is Settings' Check for updates automatically: whether the
+	// agent looks for a new release by itself, when it starts and about
+	// every half hour (0.4.9).
+	AutoCheck bool `json:"autoCheck"`
+}
+
+// UpdateAutoRequest turns the automatic check for a new release on or off.
+type UpdateAutoRequest struct {
+	On    bool   `json:"on"`
+	Actor string `json:"actor"`
 }
 
 // UpdateResult is how the last update ended: updated, rolled_back (the new

@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, AuditEntry, MachineView, Me, UsageStatsView } from '@/api/types'
+import type { Action, AuditEntry, MachineView, Me, UpdateInfo, UsageStatsView } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GlobalSettingsPage } from './settings'
 
@@ -144,5 +144,47 @@ describe('Usage stats', () => {
     await renderSettings(usage({}), viewer)
     expect(card().textContent).toContain('On · sent a minute after Playkeeper starts, then twice a day')
     expect(toggle()).toBeNull()
+  })
+})
+
+const update = (over: Partial<UpdateInfo>): UpdateInfo => ({ current: '0.4.8', supported: true, latest: '0.4.8', available: false, checkedAt: new Date(Date.now() - 12 * 60_000).toISOString(), autoCheck: true, ...over })
+
+async function renderUpdates(view: UpdateInfo, who: Me = me) {
+  vi.mocked(client.get).mockImplementation(((path: string) => (path === `/api/machines/${local.id}/update` ? Promise.resolve(view) : new Promise(() => {}))) as typeof client.get)
+  const r = createRoot(document.body.appendChild(document.createElement('div')))
+  root = r
+  await act(async () => r.render(<WorkspaceContext.Provider value={{ ...workspace([local]), me: who }}>{<GlobalSettingsPage page={{ name: 'settings' }} />}</WorkspaceContext.Provider>))
+  await act(async () => {})
+}
+
+const updates = () => document.querySelector('#updates') as HTMLElement
+const autoSwitch = () => updates().querySelector('[role="switch"]') as HTMLElement | null
+
+describe('Check for updates automatically', () => {
+  it('is on unless turned off, says in one line what it does, and turns off with its switch', async () => {
+    vi.mocked(client.put).mockResolvedValue(update({ autoCheck: false }))
+    await renderUpdates(update({}))
+    expect(updates().textContent).toContain('Check for updates automaticallyAsks playkeeper.io about every 30 minutes whether a new version is out.')
+    expect(autoSwitch()?.getAttribute('aria-checked')).toBe('true')
+    await act(async () => autoSwitch()?.click())
+    expect(client.put).toHaveBeenCalledWith(`/api/machines/${local.id}/update/auto`, { on: false })
+    expect(autoSwitch()?.getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('is off when it was turned off', async () => {
+    await renderUpdates(update({ autoCheck: false }))
+    expect(autoSwitch()?.getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('isn’t there for those who can’t manage the machine, or where this build can’t update', async () => {
+    const viewer: Me = { ...me, user: { username: 'pia', role: 'member' }, access: { ...me.access, role: 'viewer', can: ['view', 'account.manage', 'machines.view'] } }
+    await renderUpdates(update({}), viewer)
+    expect(updates().textContent).toContain('You have the latest version')
+    expect(updates().textContent).not.toContain('Check for updates automatically')
+    await act(async () => root?.unmount())
+    document.body.innerHTML = ''
+    await renderUpdates(update({ supported: false, reason: 'This is a development build (dev); it does not install releases.' }))
+    expect(updates().textContent).toContain('This is a development build')
+    expect(autoSwitch()).toBeNull()
   })
 })
