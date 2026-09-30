@@ -849,13 +849,14 @@ var errMachineGone = errors.New("the machine was removed")
 // recordServers is claimServers' record in one transaction that takes the
 // write lock first. It returns the servers the machine runs and those it
 // newly disputes, or errMachineGone for a machine that is no longer joined.
-// A server whose record names a removed machine goes to this one, as when
-// the same host joins again, unless it's a copy a move left on a machine
-// since removed, stopped before its server moved (adoptStaleCopy). One
-// another machine runs, of which a move left a copy on a machine since
-// removed, is that copy (adoptLeftCopy). Only records from up to listedAt,
-// when the listing was asked for, can be forgotten, so a server made
-// meanwhile keeps its record.
+// A server listed that's surely a copy a move left on a machine since
+// removed is taken for that copy (adoptLeftCopy). Otherwise one whose record
+// names a removed machine goes to this one, as when the same host joins
+// again, unless a failed move left a copy of it on a machine removed too,
+// which it can't be told from: then, as for one another machine runs, this
+// machine disputes it. Only records from up to listedAt, when the listing
+// was asked for, can be forgotten, so a server made meanwhile keeps its
+// record.
 func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, now time.Time) (out []map[string]any, disputed []string, err error) {
 	ctx := context.Background()
 	err = s.immediate(ctx, func(c *sql.Conn) error {
@@ -903,21 +904,26 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 				}
 			case err != nil:
 				return err
-			case owner != m.ID && !ownerActive:
-				if adopted, err := adoptStaleCopy(ctx, c, id, m.ID, sv); err != nil {
-					return err
-				} else if adopted {
-					continue
-				}
-				if _, err := c.ExecContext(ctx, `UPDATE server_machines SET machine_id = ?, status = ?, seen_at = ?, disputed_by = '' WHERE server_id = ?`, m.ID, string(b), millis(now), id); err != nil {
-					return err
-				}
-				s.log.Info("a machine takes over a server of a removed machine", "machine", m.ID, "server", id, "removed", owner)
 			case owner != m.ID:
-				if adopted, err := adoptLeftCopy(ctx, c, id, m.ID); err != nil {
+				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerActive)
+				if err != nil {
 					return err
-				} else if adopted {
+				}
+				if adopted {
 					continue
+				}
+				unsure := false
+				if !ownerActive {
+					if unsure, err = failedCopyLeft(ctx, c, id); err != nil {
+						return err
+					}
+				}
+				if !ownerActive && !unsure {
+					if _, err := c.ExecContext(ctx, `UPDATE server_machines SET machine_id = ?, status = ?, seen_at = ?, disputed_by = '' WHERE server_id = ?`, m.ID, string(b), millis(now), id); err != nil {
+						return err
+					}
+					s.log.Info("a machine takes over a server of a removed machine", "machine", m.ID, "server", id, "removed", owner)
+					break
 				}
 				disputes = append(disputes, id)
 				if disputedBy != m.ID {
@@ -925,7 +931,11 @@ func (s *Server) recordServers(m machine, servers []map[string]any, listedAt, no
 						return err
 					}
 					disputed = append(disputed, id)
-					s.log.Warn("a machine lists a server another machine runs", "machine", m.ID, "server", id, "runs on", owner)
+					if unsure {
+						s.log.Warn("a machine lists a server whose machine was removed, which can't be told from a copy a failed move left on a machine removed too", "machine", m.ID, "server", id)
+					} else {
+						s.log.Warn("a machine lists a server another machine runs", "machine", m.ID, "server", id, "runs on", owner)
+					}
 				}
 				continue
 			default:

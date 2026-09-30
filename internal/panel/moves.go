@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -1074,43 +1075,56 @@ func leftCopy(ctx context.Context, q querier, id, machineID string, userID int64
 // removed that weren't deleted.
 const leftOnRemoved = `server_id = ? AND left_at = 0 AND machine_id NOT IN (SELECT id FROM machines WHERE revoked_at = 0)`
 
-// adoptLeftCopy takes server id on machine machineID for a copy a move
-// left, when a move left one on a machine since removed that wasn't
-// deleted: a removed machine's host joins again only as another machine,
-// so what it lists of the server is that copy, which it deletes as the
-// removed machine would have. It reports whether there was one.
-func adoptLeftCopy(ctx context.Context, q querier, id, machineID string) (bool, error) {
-	res, err := q.ExecContext(ctx, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days, switched_at)
-		SELECT server_id, ?, user_id, keep_days, switched_at FROM left_copies WHERE `+leftOnRemoved+` LIMIT 1
-		ON CONFLICT(server_id, machine_id) DO NOTHING`, machineID, id)
-	if err != nil {
+// adoptLeftCopy takes server id, as machine machineID lists it (sv), for
+// one of the copies moves left of it on machines since removed, and has
+// machineID delete it as that machine would have: a removed machine's host
+// joins again only as another machine. It's taken only for what it surely
+// is: a move's copy, when it stopped before the server's requests went where
+// it moved, as the copy did when its move stopped it; or a failed move's
+// copy, which never was the server, while the server's own machine is joined
+// and runs it (ownerActive). One running, or stopped since, may be the
+// server, so it never is. Each copy is taken once, and the others stay for
+// their hosts. It reports whether it was taken.
+func adoptLeftCopy(ctx context.Context, q querier, id, machineID string, sv map[string]any, ownerActive bool) (bool, error) {
+	var from string
+	err := q.QueryRowContext(ctx, `SELECT machine_id FROM left_copies WHERE `+leftOnRemoved+` AND switched_at > ? ORDER BY switched_at, machine_id LIMIT 1`, id, listedStop(sv)).Scan(&from)
+	if isNoRows(err) && ownerActive {
+		err = q.QueryRowContext(ctx, `SELECT machine_id FROM left_copies WHERE `+leftOnRemoved+` AND switched_at = 0 ORDER BY machine_id LIMIT 1`, id).Scan(&from)
+	}
+	switch {
+	case isNoRows(err):
+		return false, nil
+	case err != nil:
 		return false, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return false, nil
+	if _, err := q.ExecContext(ctx, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days, switched_at)
+		SELECT server_id, ?, user_id, keep_days, switched_at FROM left_copies WHERE server_id = ? AND machine_id = ?
+		ON CONFLICT(server_id, machine_id) DO NOTHING`, machineID, id, from); err != nil {
+		return false, err
 	}
-	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE `+leftOnRemoved, id)
+	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, from)
 	return err == nil, err
 }
 
-// adoptStaleCopy is adoptLeftCopy for a server whose own machine was
-// removed too, where machineID may be either host joining again: it takes
-// the server machineID lists as sv for the copy only when that stopped
-// before the server's requests went where it moved, as the copy did when
-// its move stopped it, and never for the server where it moved. A copy
-// whose switch isn't known (0) never is, as every stop comes after it.
-func adoptStaleCopy(ctx context.Context, q querier, id, machineID string, sv map[string]any) (bool, error) {
-	var switched int64
-	err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(switched_at), 0) FROM left_copies WHERE `+leftOnRemoved, id).Scan(&switched)
-	if err != nil {
-		return false, err
-	}
+// listedStop is when the server listed as sv stopped, in milliseconds, or
+// the latest time there is for one that isn't stopped or doesn't say when.
+// Docker's stop times are real ones, so it's after any switch time of 0.
+func listedStop(sv map[string]any) int64 {
 	stoppedAt, _ := sv["stoppedAt"].(string)
-	stopped, perr := time.Parse(time.RFC3339Nano, stoppedAt)
-	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {
-		return false, nil
+	stopped, err := time.Parse(time.RFC3339Nano, stoppedAt)
+	if sv["phase"] != string(api.PhaseStopped) || err != nil {
+		return math.MaxInt64
 	}
-	return adoptLeftCopy(ctx, q, id, machineID)
+	return millis(stopped)
+}
+
+// failedCopyLeft reports whether a failed move left a copy of server id on
+// a machine since removed, which a listing of it can't be told from once
+// the server's own machine was removed too.
+func failedCopyLeft(ctx context.Context, q querier, id string) (bool, error) {
+	var n int
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM left_copies WHERE `+leftOnRemoved+` AND switched_at = 0`, id).Scan(&n)
+	return n > 0, err
 }
 
 // abandonMove ends mv, a move that failed before its server's requests
