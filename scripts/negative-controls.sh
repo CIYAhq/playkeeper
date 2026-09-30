@@ -9180,7 +9180,7 @@ control "moving customers: only to a machine with room for their plan" internal/
   ./internal/panel '^TestAMoveGoesOnlyWhereTheCustomerFits$'
 control "moving customers: only to a machine that keeps servers away from itself" internal/panel/moves.go \
   'if err == nil && !g.Host {' \
-  'if false {' \
+  'if false && err == nil && !g.Host {' \
   ./internal/panel '^TestAMoveGoesOnlyWhereTheCustomerFits$'
 control "moving customers: a move to the fullest machine passes over one it can't guard" internal/panel/moves.go \
   'others = slices.DeleteFunc(others, func(r machineRoom) bool { return r.ID == target.ID })' \
