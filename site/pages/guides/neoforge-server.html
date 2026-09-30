@@ -88,7 +88,7 @@ java.lang.NoClassDefFoundError: net/neoforged/neoforge/event/level/BlockEvent$Br
   <div class="error-card reveal">
     <h3>Sodium, a mod for players' games, on the server</h3>
     <code class="err">java.lang.NoClassDefFoundError: org/lwjgl/Version</code>
-    <p>{{template "icon" "arrow-right"}}LWJGL draws the game on players' screens, and servers don't have it. Take graphics and menu mods off the server. A Fabric server skipped the same mod without a word: <a href="/guides/fabric-server">how Fabric handles it</a>.</p>
+    <p>{{template "icon" "arrow-right"}}LWJGL draws the game on players' screens, and servers don't have it. Take graphics and menu mods off the server. From Playkeeper 0.4.8, the Overview says sodium only runs in players' games, not on servers, and Remove sodium starts the server without it, keeping the file aside. A Fabric server skipped the same mod without a word: <a href="/guides/fabric-server">how Fabric handles it</a>.</p>
   </div>
 </section>
 
@@ -117,7 +117,7 @@ java.lang.NoClassDefFoundError: net/neoforged/neoforge/event/level/BlockEvent$Br
   </ol>
   {{template "cardshot" (dict "Name" "guide-mods-tab" "Alt" "The Mods tab: mods added by hand, with what friends need of each, and the modpack's own mods." "Sizes" $article)}}
   <ol class="steps" start="3">
-    <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div><h3 class="step-title">When a mod fails to start</h3><p>The Overview names it. For our Balm crash it said Balm failed to start, and offered to update or remove its file.</p></div></li>
+    <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div><h3 class="step-title">When a mod fails to start</h3><p>The Overview names it. For our Balm crash it said Balm failed to start, and offered to update or remove its file. From 0.4.8 it names a mod that only runs in players' games too, like our Sodium, and offers to remove it.</p></div></li>
     <li class="step reveal"><span class="step-n" aria-hidden="true">4</span><div><h3 class="step-title">Share the mods with friends</h3><p>Share with friends makes one link to a page with a file for the Modrinth App or Prism Launcher. Server-only mods stay out of it.</p></div></li>
   </ol>
 </section>
