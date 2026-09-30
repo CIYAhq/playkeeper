@@ -138,6 +138,9 @@ type Server struct {
 	// has its reconciler look now (see whop_customers.go).
 	whopMu   sync.Mutex
 	whopKick chan struct{}
+	// redirects are Whop's last answers on the redirect URIs Sign in with
+	// Whop may send (see signInRedirect).
+	redirects redirectChecks
 	// hosting is the hosting core billing providers call, and notifier what
 	// the core calls to tell customers something (see hosting.go). sales is
 	// what the fleet tells how many more of each plan fit (see whop_stock.go).
@@ -578,6 +581,11 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/whop", needSessionCSRF, actSellOnWhop, s.hWhopDisconnect},
 		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
 		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
+		// The dashboard on the standard HTTPS port (dashboard443.go): it
+		// changes the dashboard's address, like the machine's address does.
+		{"GET", "/api/dashboard-port", needSession, actViewMachines, s.hDashboardPort},
+		{"PUT", "/api/dashboard-port", needSessionCSRF, actManageMachine, s.hDashboardPortSet},
+		{"POST", "/api/dashboard-port/retry", needSessionCSRF, actManageMachine, s.hDashboardPortRetry},
 		// Hetzner stock (hetzner.go): the owner's alone.
 		{"GET", "/api/hetzner", needSession, actWatchStock, s.hHetzner},
 		{"PUT", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerSet},
@@ -773,7 +781,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"+s.reachSource()+"; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
@@ -1804,7 +1812,7 @@ func (s *Server) serve(ctx context.Context, ln net.Listener, tc *tls.Config) err
 func (s *Server) httpServer(addr string, tc *tls.Config) *http.Server {
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           s.Handler(),
+		Handler:           s.panelPortHandler(),
 		TLSConfig:         tc,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,

@@ -43,6 +43,9 @@ func (s *Server) publicRoutes() []publicRoute {
 		{prefix: whopWebhookPath, limits: whopWebhookLimits, ownRefusals: true, handler: s.whopWebhook()},
 		// Sign in with Whop: leaving for Whop, and coming back.
 		{prefix: whopSignInPrefix, limits: whopSignInLimits, handler: s.whopSignIn()},
+		// The dashboard on the standard HTTPS port: a browser's check that it
+		// reaches port 443 (dashboard443.go).
+		{prefix: reachPath, limits: reachLimits, handler: http.HandlerFunc(s.hReach)},
 	}
 }
 

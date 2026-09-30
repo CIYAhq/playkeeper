@@ -23,10 +23,13 @@ import (
 
 // The public page at the machine's address: what anyone who types a
 // server's address into a browser sees, on ports 443 and 80 (pageports.go).
-// Those ports serve nothing else: not the dashboard, its API, /mcp or
-// machine links. Every route goes through the page's own public group,
-// which limits each address and logs no path, and a Host other than the
-// machine's address gets the group's one 404.
+// Those ports serve nothing else, unless Serve the dashboard on the
+// standard HTTPS port is on: port 443 then answers the machine's name with
+// the dashboard, where the page stays for someone who isn't signed in
+// (dashboard443.go). Machine links never answer there. Every route of the
+// page goes through its own public group, which limits each address and
+// logs no path, and a Host other than the machine's address gets the
+// group's one 404.
 
 const (
 	pageDataPrefix = "/api/public/server-page"
@@ -64,6 +67,9 @@ var rePageSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}$`)
 // for, the ports it serves on, and a short cache of the agent's answers.
 type pageSite struct {
 	group *publicGroup
+	// signInRoot is the page at the dashboard's root on port 443, with its
+	// way to sign in, limited as the page's own root is.
+	signInRoot http.Handler
 	// kick asks the port keeper to look again now.
 	kick chan struct{}
 
@@ -71,9 +77,15 @@ type pageSite struct {
 	host string
 	// hosts are the servers' own addresses the page also answers for.
 	hosts []string
-	ports api.PublicPagePorts
-	held  [2]*pageListener
-	next  [2]time.Time
+	// on is whether a server is on the page, and dashboard whether port 443
+	// answers host with the dashboard; reached is set once a browser from
+	// outside the machine has, and reporting while the agent is being told
+	// so, the last time at reportedAt (dashboard443.go).
+	on, dashboard, reached, reporting bool
+	reportedAt                        time.Time
+	ports                             api.PublicPagePorts
+	held                              [2]*pageListener
+	next                              [2]time.Time
 
 	fetch sync.Mutex
 	cmu   sync.Mutex
@@ -96,6 +108,7 @@ func (s *Server) newPageSite() *pageSite {
 		{prefix: acmePrefix, limits: acmeLimits, handler: readOnly(http.HandlerFunc(s.hPageACME))},
 		{prefix: "/", limits: pageLimits, handler: readOnly(http.HandlerFunc(s.hPageRoot))},
 	}, s.now)
+	p.signInRoot = p.group.guard(publicRoute{prefix: "/", limits: pageLimits, handler: readOnly(http.HandlerFunc(s.hPageSignInRoot))}, newLimiter(pageLimits.perMinute, time.Minute, s.now))
 	return p
 }
 
@@ -111,6 +124,14 @@ func (p *pageSite) hostNow() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.host
+}
+
+// dashboardOnly reports whether the ports are held for the dashboard alone,
+// with no server on the page.
+func (p *pageSite) dashboardOnly() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.dashboard && !p.on
 }
 
 // answers reports whether the Host header host names the machine or one of
@@ -144,6 +165,14 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 		if !tls && !check {
 			if to, ok := s.pageRedirect(r); ok {
 				http.Redirect(w, r, to, http.StatusPermanentRedirect)
+				return
+			}
+			// Held for the dashboard alone, port 80 only sends browsers to
+			// it over HTTPS: with no server on the page there's nothing to
+			// show over plain HTTP.
+			if s.page.dashboardOnly() {
+				w.Header().Set("Cache-Control", "no-store")
+				http.NotFound(w, r)
 				return
 			}
 		}
@@ -189,6 +218,18 @@ func (s *Server) hPageRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	s.writePage(w, r, false)
+}
+
+// hPageSignInRoot serves the page at the dashboard's root on port 443, with
+// a way to sign in to the dashboard.
+func (s *Server) hPageSignInRoot(w http.ResponseWriter, r *http.Request) {
+	s.writePage(w, r, true)
+}
+
+// writePage answers with the page for the address r asked for; signIn
+// adds its way to sign in, for the page at the dashboard's own root.
+func (s *Server) writePage(w http.ResponseWriter, r *http.Request, signIn bool) {
 	page, _ := s.pageData(r.Context(), r.Host)
 	scheme := "http"
 	if r.TLS != nil {
@@ -196,7 +237,7 @@ func (s *Server) hPageRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	card := scheme + "://" + r.Host + pageDataPrefix + "/card.png?at=" + strconv.FormatInt(s.now().Unix()/int64(cardEvery.Seconds()), 10)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(serverPageHTML(s.indexHTML(), page, card))
+	w.Write(serverPageHTML(s.indexHTML(), page, card, signIn))
 }
 
 func (s *Server) indexHTML() []byte {
@@ -209,9 +250,10 @@ func (s *Server) indexHTML() []byte {
 }
 
 // serverPageHTML is index with its root marked as the server page and the
-// head describing page for link previews, with its share card at card.
-// Everything from the page is escaped.
-func serverPageHTML(index []byte, page api.PublicPage, card string) []byte {
+// head describing page for link previews, with its share card at card, and
+// marked as offering to sign in when signIn is set. Everything from the page
+// is escaped.
+func serverPageHTML(index []byte, page api.PublicPage, card string, signIn bool) []byte {
 	title, desc := pageMeta(page)
 	head := "<title>" + html.EscapeString(title) + "</title>"
 	if desc != "" {
@@ -231,7 +273,11 @@ func serverPageHTML(index []byte, page api.PublicPage, card string) []byte {
 		}
 	}
 	if loc := reRoot.FindStringIndex(out); loc != nil {
-		out = out[:loc[0]] + `<div id="root" data-page="server">` + out[loc[1]:]
+		root := `<div id="root" data-page="server">`
+		if signIn {
+			root = `<div id="root" data-page="server" data-sign-in="true">`
+		}
+		out = out[:loc[0]] + root + out[loc[1]:]
 	}
 	return []byte(out)
 }
