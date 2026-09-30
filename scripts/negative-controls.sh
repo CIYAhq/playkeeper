@@ -9545,6 +9545,10 @@ control "kept backups: the copy a move left goes even when nothing of it can be 
   '		case err != nil && keep.whole:' \
   '		case err != nil && keep.whole && false:' \
   ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
+control "kept backups: the copy a move left keeps its whole folder or none of its backups" internal/agent/keptbackups.go \
+  '	case whole:' \
+  '	case whole && false:' \
+  ./internal/agent '^TestACopyAMoveLeftKeepsItsWholeFolder$'
 control "kept backups: a whole folder is kept only with the days to keep it" internal/agent/keptbackups.go \
   '	case req.KeepFinalBackupDays == 0 && req.KeptFor == "" && !req.KeepWhole:' \
   '	case req.KeepFinalBackupDays == 0 && req.KeptFor == "":' \
