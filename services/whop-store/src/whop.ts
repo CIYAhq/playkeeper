@@ -11,6 +11,8 @@ export interface Env {
   WHOP_API_ORIGIN?: string
   WHOP_ACCOUNT_ID?: string
   WHOP_API_KEY?: string
+  /** The Playkeeper Cloud app a hosted copy of the store connects, app_…; unset for a store that connects its own Playkeeper. */
+  PLAYKEEPER_CLOUD_APP?: string
 }
 
 export interface Account {
@@ -61,6 +63,8 @@ export interface StoreData {
   business: string
   products: Product[]
   plans: Plan[]
+  /** PLAYKEEPER_CLOUD_APP, as set. */
+  cloudApp?: string
 }
 
 export class WhopError extends Error {
@@ -180,5 +184,5 @@ export async function readStore(env: Env, fetcher: typeof fetch = fetch): Promis
     list('/products', { account_id: accountID }, product),
     list('/variants', { account_id: accountID }, plan),
   ])
-  return { account: me, business: accountID, products, plans }
+  return { account: me, business: accountID, products, plans, cloudApp: setting(env, 'PLAYKEEPER_CLOUD_APP') }
 }

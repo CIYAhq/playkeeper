@@ -251,8 +251,8 @@ export const pageModules: Record<string, string[]> = {
   '/account/two-factor': ['pages/account.tsx'],
 }
 
-/** Page modules the click-through opens no page of: the invite page, Overview › How it's running, the public server page, which only ports 443 and 80 serve (server-page.spec.ts checks it), and a seller's view of their store, which opens only inside Whop with Whop's token. */
-export const uncrawled = ['pages/join.tsx', 'pages/server/running.tsx', 'pages/server-page.tsx', 'pages/whop-seller-view.tsx']
+/** Page modules the click-through opens no page of: the invite page, Overview › How it's running, the public server page, which only ports 443 and 80 serve (server-page.spec.ts checks it), and a seller's page with its view of their store, which open only inside Whop with Whop's token. */
+export const uncrawled = ['pages/join.tsx', 'pages/server/running.tsx', 'pages/server-page.tsx', 'pages/whop-seller.tsx', 'pages/whop-seller-view.tsx']
 
 /** The pages of `uncrawled` whose accessibility and width views.spec.ts checks, and the modules that draw them. */
 export const viewPages: Record<string, string[]> = {

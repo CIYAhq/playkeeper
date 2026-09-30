@@ -1919,6 +1919,8 @@ export interface Access {
   awaitingConfirmation?: boolean
   /** A customer whose server is being set up, waiting for room on a machine. */
   waitingForRoom?: boolean
+  /** A customer waiting for room again, having lost the machine they had. */
+  waitingAgain?: boolean
   /** A creator's machine: the one their servers go on. */
   home?: string
   /** A customer whose plan ended: when their servers are deleted unless they renew. */
@@ -2029,6 +2031,12 @@ export interface WhopSignIn {
   redirectUri?: string
   /** The redirect URL sign-ins use instead while Whop lists only that one: the dashboard's address with the panel's port, from before it answered without one. */
   using?: string
+}
+
+/** A seller's store as their page inside Whop opens it: new when this open registered it, and what it's waiting on, if anything. */
+export interface WhopSellerOpen {
+  store: { id: string; title: string; route?: string; problem?: string }
+  new: boolean
 }
 
 /**

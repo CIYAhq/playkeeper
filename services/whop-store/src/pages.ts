@@ -114,7 +114,11 @@ function closed(s: Storefront) {
 <h3>Not taking orders yet</h3>
 <p>${nameOf(s)} opens here soon. Come back in a little while.</p>
 ${s.dashboard ? html`<p>Already a customer? <a href="${s.dashboard}">Sign in to your dashboard</a>.</p>` : ''}
-<p class="fine">Setting up this store? Install <a href="https://playkeeper.io">Playkeeper</a> on your server and connect this store in its Settings › Sell on Whop. Turn on Sign in with Whop there, with a Whop app that has <code>oauth:token_exchange</code> on its own Permissions tab, not on an API key. Then make your plans visible on Whop. <a href="https://playkeeper.io/guides/start-a-minecraft-hosting-company">Every step</a></p>
+${
+  s.cloudApp
+    ? html`<p class="fine">Setting up this store? Playkeeper Cloud runs your customers’ servers, with nothing to install. <a class="btn btn-outline btn-sm" href="https://whop.com/apps/${s.cloudApp}/install">Connect Playkeeper Cloud</a> and approve it for this business, picking it in Whop’s business picker.</p>`
+    : html`<p class="fine">Setting up this store? Install <a href="https://playkeeper.io">Playkeeper</a> on your server and connect this store in its Settings › Sell on Whop. Turn on Sign in with Whop there, with a Whop app that has <code>oauth:token_exchange</code> on its own Permissions tab, not on an API key. Then make your plans visible on Whop. <a href="https://playkeeper.io/guides/start-a-minecraft-hosting-company">Every step</a></p>`
+}
 </div>`
 }
 

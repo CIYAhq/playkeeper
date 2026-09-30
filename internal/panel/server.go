@@ -42,6 +42,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/portshare"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
+	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
 type Options struct {
@@ -142,6 +143,9 @@ type Server struct {
 	whopKickMu  sync.Mutex
 	whopKicked  map[string]bool
 	whopKickAll bool
+	// whopTokens checks the tokens Whop's proxy adds to a seller's page and
+	// its calls (see whop_sellerpage.go).
+	whopTokens *whop.UserTokens
 	// redirects are Whop's last answers on the redirect URIs Sign in with
 	// Whop may send (see signInRedirect).
 	redirects redirectChecks
@@ -181,8 +185,15 @@ type Server struct {
 		sync.Mutex
 		at     time.Time
 		used   map[int64]int64
+		usedOn map[string]map[int64]int64
 		failed map[string]string
+		// recounts counts the counts asked for at once (recountDisk).
+		recounts int
 	}
+	// diskSending is held while a machine is sent its disk limits, and
+	// by a move from sending the machine a server goes to its limits
+	// until the server's requests go there (switchTo).
+	diskSending sync.Mutex
 	// dnsMu serialises sending the dashboard's machine its DNS zone with
 	// the owner's switch (see dnsanswers.go).
 	dnsMu sync.Mutex
@@ -254,6 +265,8 @@ func New(opts Options) (*Server, error) {
 		saleRoomKick: make(chan struct{}, 1),
 	}
 	s.movesCtx, s.movesCancel = context.WithCancel(context.Background())
+	jwks, _ := whop.JWKSURL(opts.Config.WhopAPIURL)
+	s.whopTokens = &whop.UserTokens{URL: jwks}
 	s.hosting = customerCore{s: s}
 	s.notifier = billingNotifier{s: s}
 	s.sales = whopStock{s: s}
@@ -755,8 +768,8 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				// A customer waiting for room has no machine yet, and is
 				// told so whichever one the path names.
 				if mid := r.PathValue("mid"); mid != "" && !s.machineShown(r.Context(), acct, mid) {
-					if s.customerWaiting(r.Context(), acct) {
-						writeRefusal(w, errWaitingForRoom)
+					if err := s.waitingRefusal(r.Context(), acct); err != nil {
+						writeRefusal(w, err)
 					} else {
 						writeErr(w, http.StatusNotFound, api.CodeNotFound, "Machine not found.", "")
 					}
@@ -797,12 +810,21 @@ func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 }
 
+// whopSellerCSP is a seller's page's Content-Security-Policy, which Whop
+// shows inside its own frames (see whop_sellerpage.go). No site may frame
+// any other page of the dashboard.
+const whopSellerCSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors https://whop.com https://*.whop.com; base-uri 'none'; form-action 'self'"
+
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"+s.reachSource()+"; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		if strings.HasPrefix(r.URL.Path, whopSellerPage) {
+			h.Set("Content-Security-Policy", whopSellerCSP)
+		} else {
+			h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"+s.reachSource()+"; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+			h.Set("X-Frame-Options", "DENY")
+		}
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
@@ -1073,9 +1095,11 @@ type accessBody struct {
 	NeedsTwoFactor       bool `json:"needsTwoFactor,omitempty"`
 	AwaitingConfirmation bool `json:"awaitingConfirmation,omitempty"`
 	// WaitingForRoom is set for a customer whose server is being set up,
-	// waiting for room on a machine (see readyserver.go), and Home for a
-	// creator is the machine their servers go on (homeMachine).
+	// waiting for room on a machine (see readyserver.go), WaitingAgain too
+	// once they've lost the machine they had, and Home for a creator is the
+	// machine their servers go on (homeMachine).
 	WaitingForRoom bool   `json:"waitingForRoom,omitempty"`
+	WaitingAgain   bool   `json:"waitingAgain,omitempty"`
 	Home           string `json:"home,omitempty"`
 	// PausedUntil is set for a customer whose plan ended: when their servers
 	// are deleted unless they renew (see pausing.go). ServersDeleted is set
@@ -1097,7 +1121,8 @@ func (s *Server) meBody(sess session) map[string]any {
 		"csrfToken": sess.CSRF,
 		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
-			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), Home: s.creatorHome(a), PausedUntil: s.pausedUntil(a),
+			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), WaitingAgain: s.waitingAgain(context.Background(), a),
+			Home: s.creatorHome(a), PausedUntil: s.pausedUntil(a),
 			ServersDeleted: s.serversDeleted(a), FinalBackups: s.hasFinalBackups(a), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),

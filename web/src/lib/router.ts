@@ -49,12 +49,15 @@ export type Route =
   | { name: 'machine-details'; id: string }
   // Selling servers through a store on Whop.
   | { name: 'whop' }
+  // A seller's page inside their Whop dashboard, public; store is "" for an address that can't be a business's.
+  | { name: 'whop-seller'; store: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 const reCode = /^[A-Za-z0-9]{1,64}$/
 export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
 const rePackToken = /^[A-Za-z0-9]{22}$/
 const reMachineId = /^[a-z2-9]{10}$/
+const reWhopBusiness = /^biz_[A-Za-z0-9]{1,60}$/
 
 /** The link token of the shared map at /map/<token>, or undefined on any other page. */
 export function publicMapToken(pathname: string): string | undefined {
@@ -153,6 +156,9 @@ export function parse(pathname: string, search = ''): Route {
       return { name: 'home' }
     case 'packs':
       return { name: 'pack', token: second && rePackToken.test(second) && !third ? second : '' }
+    case 'whop':
+      if (second === 'seller') return { name: 'whop-seller', store: third && reWhopBusiness.test(third) && parts.length === 3 ? third : '' }
+      return { name: 'home' }
   }
   return { name: 'home' }
 }
@@ -210,6 +216,8 @@ export function href(route: Route): string {
       return `/settings/machines/${route.id}`
     case 'whop':
       return '/settings/whop'
+    case 'whop-seller':
+      return route.store ? `/whop/seller/${route.store}` : '/whop/seller'
     default: {
       const unreachable: never = route
       return unreachable

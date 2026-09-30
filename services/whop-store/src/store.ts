@@ -46,6 +46,8 @@ export interface Storefront {
   terms: string
   /** Empty while the store isn't taking orders. */
   shelves: Shelf[]
+  /** The Playkeeper Cloud app a hosted copy connects on Whop, "" for a store that connects its own Playkeeper. */
+  cloudApp?: string
 }
 
 /**
@@ -152,5 +154,6 @@ export function storefront(data: StoreData): Storefront {
     dashboard: [...selling.values()][0]?.dashboard ?? '',
     terms: terms ? terms.href : '',
     shelves: shelves.map((s) => s.shelf),
+    cloudApp: /^app_[A-Za-z0-9]{1,60}$/.test(data.cloudApp ?? '') ? data.cloudApp : '',
   }
 }
