@@ -8,6 +8,7 @@ import { WhopSellerPage } from './whop-seller'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
+  get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => new Promise(() => {})),
 }))
 
@@ -25,6 +26,8 @@ async function render(store: string): Promise<string> {
 
 beforeEach(() => {
   vi.mocked(client.post).mockReset()
+  vi.mocked(client.get).mockReset()
+  vi.mocked(client.get).mockImplementation(() => new Promise(() => {}))
 })
 
 afterEach(async () => {
@@ -75,6 +78,25 @@ describe('a seller’s page inside Whop', () => {
     expect(await render('biz_other')).toContain('Only this business’s team on Whop can open its Playkeeper Cloud page.')
     vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(401, { code: 'whop_token', error: 'This page opens inside…' }))
     expect(await render('biz_other')).toContain('Open this page from your Whop dashboard, which tells Playkeeper who you are.')
+  })
+
+  it('shows the seller’s view of the store once it’s open, read through a relative address', async () => {
+    vi.mocked(client.post).mockResolvedValueOnce({ store: { id: 'biz_other', title: 'Other Hosting' }, new: true })
+    vi.mocked(client.get).mockResolvedValueOnce({ store: { id: 'biz_other', title: 'Other Hosting', state: 'closed', why: 'Not open yet' }, plans: [], customers: [], earnings: [] })
+    await render('biz_other')
+    await act(async () => {})
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Your store isn’t taking orders.Not open yet')
+    expect(text).toContain('No customers yet.')
+  })
+
+  it('reads no view of a store that isn’t open to whoever’s looking', async () => {
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(409, { code: 'whop_not_approved', error: 'Not approved.', params: { installUrl: 'https://whop.com/apps/app_x/install' } }))
+    await render('biz_other')
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(403, { code: 'whop_not_team', error: 'Only the business’s team…' }))
+    await render('biz_other')
+    expect(vi.mocked(client.get)).not.toHaveBeenCalled()
   })
 
   it('calls nothing for an address that can’t be a business’s page', async () => {

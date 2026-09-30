@@ -85,20 +85,25 @@ func fromSellerPage(r *http.Request) bool {
 }
 
 // whopSeller answers the calls a seller's page makes: opening the store,
-// POST {store}/open.
+// POST {store}/open, and reading the seller's view of it, GET {store} (see
+// sellerview.go).
 func (s *Server) whopSeller() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		store, action, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, whopSellerPrefix), "/")
-		if !strings.HasPrefix(store, "biz_") || !reWhopID.MatchString(store) || action != "open" {
+		store, action, sub := strings.Cut(strings.TrimPrefix(r.URL.Path, whopSellerPrefix), "/")
+		if !strings.HasPrefix(store, "biz_") || !reWhopID.MatchString(store) || sub && action != "open" {
 			http.NotFound(w, r)
 			return
 		}
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
+		method, answer := http.MethodGet, s.hWhopSellerView
+		if sub {
+			method, answer = http.MethodPost, s.hWhopSellerOpen
+		}
+		if r.Method != method {
+			w.Header().Set("Allow", method)
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		s.hWhopSellerOpen(w, r, store)
+		answer(w, r, store)
 	})
 }
 

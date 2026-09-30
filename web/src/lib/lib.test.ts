@@ -3,6 +3,7 @@ import { templateQuery } from '@/api/templates'
 import type { Address, Catalog, CatalogEntry, Me, ProjectRole, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MachineView, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { budgetAdvice, createRequest, freeName, heapMB, styleMemory, versionCards, versionLine } from '@/components/app/create'
 import { activityText } from '@/components/app/activity'
+import { serverState } from '@/components/app/bits'
 import { lineRuns } from '@/components/app/line-chart'
 import { axisLabel } from '@/components/app/players-chart'
 import { packRequest } from '@/pages/new-server'
@@ -416,6 +417,9 @@ describe('server state', () => {
     expect(whyNot(server(), 'change', true)).toBe('Waiting for the Playkeeper agent to answer.')
     expect(whyNot(server(), 'restart', 'Can’t reach home-server')).toBe('Can’t reach home-server')
     expect(whyNot(server(), 'restart', undefined)).toBeUndefined()
+    for (const action of ['start', 'stop', 'restart', 'command', 'change', 'backup', 'pregen', 'restore'] as const) {
+      expect(whyNot(server({ moving: true, phase: 'stopped' }), action, 'Can’t reach home-server')).toBe('This server is being moved. It’s back in a few minutes.')
+    }
     expect(busyReason(server())).toBeUndefined()
     expect(busyReason(server({ operation: backup }))).toBe('Backing up Survival. Try again when it’s done.')
   })
@@ -516,6 +520,15 @@ describe('crash helper', () => {
     expect(statusLabel(server({ phase: 'stopped', crash: crash({ start: true }) }))).toBe('Couldn’t start')
     expect(statusLabel(server({ phase: 'crashed' }))).toBe('Crashed')
     expect(statusLabel(server({ phase: 'stopped' }))).toBe('Stopped')
+  })
+
+  it('calls a server being moved one being moved, whatever it last said, and offers nothing to do to it', () => {
+    for (const phase of ['stopped', 'online', 'crashed', 'asleep'] as const) {
+      expect(statusLabel(server({ phase, moving: true, crash: crash({ start: true }) }))).toBe('Being moved')
+      expect(statusTone(server({ phase, moving: true }))).toBe('busy')
+      expect(serverState(server({ phase, moving: true }), false).label, phase).toBe('Being moved')
+      expect(controls(server({ phase, moving: true })), phase).toMatchObject({ canStart: false, canStop: false, canRestart: false, canBackup: false })
+    }
   })
 
   it('tells a port taken on the machine from one taken inside the server', () => {

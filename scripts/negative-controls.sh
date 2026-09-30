@@ -8567,8 +8567,8 @@ control "suspending: a store's customers are suspended with it" internal/panel/s
   'did, err := id < 0, error(nil)' \
   ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
 control "suspending: lifting a store lifts its customers" internal/panel/whop_customers.go \
-  's.liftWithStore(ctx, st)' \
-  '_ = st' \
+  'if read == nil {' \
+  'if false {' \
   ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
 control "suspending: a lifted store's customers wait for its memberships to be read" internal/panel/whop_customers.go \
   'if read == nil {' \
@@ -8673,8 +8673,8 @@ control "leaving: a store that left tells its customers while it can" internal/p
   '_ = c' \
   ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
 control "leaving: the owner's list says a store left" internal/panel/suspension.go \
-  'if !st.LeftAt.IsZero() {' \
-  'if false {' \
+  'v.LeftAt = &st.LeftAt' \
+  '_ = st.LeftAt' \
   ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
 control "leaving: a store that left is back when added again" internal/panel/whop_stores.go \
   'return s.bringBackWhopStore(ctx, a)' \
@@ -8737,6 +8737,91 @@ webcontrol "closing: the owner's list says a store isn't open yet" web/src/pages
   "if (s.closedWhy) return t('whop.stores.closed', { why: s.closedWhy })" \
   '' \
   src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
+
+# A seller's view of their store (internal/panel/sellerview.go, the hosted
+# blueprint's 3.1): its plans, customers and earnings are its own store's
+# alone; a payment is kept once, for its store, with amounts that add up;
+# a suspension's reason stays the owner's. The seller's page shows it once
+# the store is open, reading it through a relative address, only by GET,
+# for the business's team with Whop's token, from the page itself; and it
+# counts money in its smallest unit.
+control "seller view: a store's plans are its own" internal/panel/sellerview.go \
+  'FROM whop_plans p WHERE p.store_id = ? AND' \
+  'FROM whop_plans p WHERE (p.store_id = ? OR 1) AND' \
+  ./internal/panel '^TestASellersViewShowsTheirStoreAlone$'
+control "seller view: a plan's customers are its store's" internal/panel/sellerview.go \
+  'WHERE m.store_id = p.store_id AND m.plan_id = p.plan_id' \
+  'WHERE m.plan_id = p.plan_id' \
+  ./internal/panel '^TestASellersViewShowsTheirStoreAlone$'
+control "seller view: a customer's account is the store's" internal/panel/sellerview.go \
+  'FROM customers WHERE provider = ? AND store = ? AND subject = ?' \
+  'FROM customers WHERE provider = ? AND (store = ? OR 1) AND subject = ?' \
+  ./internal/panel '^TestASellersViewShowsTheirStoreAlone$'
+control "seller view: a suspended customer shows as suspended" internal/panel/sellerview.go \
+  'if state == CustomerSuspended {' \
+  'if false {' \
+  ./internal/panel '^TestASellersViewShowsTheirStoreAlone$'
+control "seller view: a store's earnings are its own" internal/panel/sellerview.go \
+  'FROM whop_payments WHERE store_id = ?' \
+  'FROM whop_payments WHERE (store_id = ? OR 1)' \
+  ./internal/panel '^TestAStoresEarningsAddUpByMonth$'
+control "seller view: refunds come off the sales" internal/panel/sellerview.go \
+  'm.Sales += amount - refunded' \
+  'm.Sales += amount' \
+  ./internal/panel '^TestAStoresEarningsAddUpByMonth$'
+control "seller view: a payment never moves to another store" internal/panel/sellerview.go \
+  'refunded = excluded.refunded, updated_at = excluded.updated_at WHERE whop_payments.store_id = excluded.store_id' \
+  'refunded = excluded.refunded, updated_at = excluded.updated_at' \
+  ./internal/panel '^TestKeepWhopPaymentKeepsEachPaymentOnceForItsStore$'
+control "seller view: a payment for a store the dashboard doesn't sell for isn't kept" internal/panel/sellerview.go \
+  'FROM whop_stores WHERE store_id = ?' \
+  'FROM whop_stores WHERE store_id = ? OR 1' \
+  ./internal/panel '^TestKeepWhopPaymentKeepsEachPaymentOnceForItsStore$'
+control "seller view: a payment's amounts add up" internal/panel/sellerview.go \
+  'p.Refunded > p.Amount || p.Share > p.Amount' \
+  'false' \
+  ./internal/panel '^TestKeepWhopPaymentKeepsEachPaymentOnceForItsStore$'
+control "seller view: a suspension's reason stays the owner's" internal/panel/sellerview.go \
+  'v.Store.State = "suspended"' \
+  'v.Store.State, v.Store.Why = "suspended", st.SuspendReason' \
+  ./internal/panel '^TestASellersViewSaysHowTheStoreStands$'
+control "seller view: the dashboard's own store has none" internal/panel/sellerview.go \
+  'case !ok || st.Via != whopViaApp:' \
+  'case !ok:' \
+  ./internal/panel '^TestASellersViewSaysHowTheStoreStands$'
+# shellcheck disable=SC2016
+webcontrol "seller view: the page reads its store through a relative address, which carries Whop's token" web/src/pages/whop-seller-view.tsx \
+  '`/api/public/whop/seller/${store}`' \
+  '`https://playkeeper.invalid/api/public/whop/seller/${store}`' \
+  src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
+webcontrol "seller view: earnings are counted in the currency's smallest unit" web/src/pages/whop-seller-view.tsx \
+  'return f.format(amount / 10 ** (f.resolvedOptions().maximumFractionDigits ?? 2))' \
+  'return f.format(amount)' \
+  src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
+control "seller view: the view is read from the seller's page itself" internal/panel/sellerview.go \
+  'if !fromSellerPage(r) {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
+control "seller view: only the business's team reads its view, with Whop's token" internal/panel/sellerview.go \
+  'if _, err := s.sellerAuth(r, store); err != nil {' \
+  'if _, err := s.sellerAuth(r, store); false && err != nil {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
+control "seller view: a store that isn't open here has no view" internal/panel/sellerview.go \
+  'case errors.Is(err, errNoSellerView):' \
+  'case false:' \
+  ./internal/panel '^TestASellersPageReadsTheirStoresView$'
+control "seller view: the view is read only by GET, and the store opened only by POST" internal/panel/whop_sellerpage.go \
+  'if r.Method != method {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
+control "seller view: nothing under a store's address answers but its open" internal/panel/whop_sellerpage.go \
+  '!reWhopID.MatchString(store) || sub && action != "open" {' \
+  '!reWhopID.MatchString(store) || sub && len(action) < 0 {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
+webcontrol "seller view: the seller's page shows the view once the store is open" web/src/pages/whop-seller.tsx \
+  '<SellerStoreView store={store} />' \
+  '' \
+  src/pages/whop-seller.test.tsx 'read through a relative address'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
@@ -10652,6 +10737,66 @@ control "removing a machine: a server left on it doesn't stop its customer's mov
   'case errors.Is(err, errNotFound):' \
   'case false:' \
   ./internal/panel '^TestARemovedMachinesCustomersGetRoomElsewhere$'
+webcontrol "moving customers: nothing can be done to a server being moved" web/src/lib/phase.ts \
+  "if (st.moving) return t('reason.moving')" \
+  "if (false) return t('reason.moving')" \
+  src/lib/lib.test.ts 'why a control can'
+webcontrol "moving customers: a server being moved says so" web/src/lib/phase.ts \
+  "if (st.moving) return t('status.moving')" \
+  "if (false) return t('status.moving')" \
+  src/lib/lib.test.ts 'calls a server being moved one being moved'
+webcontrol "moving customers: the dashboard's machine's customers are the owner's alone" web/src/pages/machine.tsx \
+  "{can(ws.me, 'machines.customers') && <CustomerList machine={m} card />}" \
+  '<CustomerList machine={m} card />' \
+  src/pages/pages.test.tsx 'lists the customers on the dashboard'
+webcontrol "moving customers: a customer goes where the owner picks" web/src/pages/machine-customers.tsx \
+  'to === fullest ? {} : { machineId: to }' \
+  '{}' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: only machines that take customers are offered" web/src/pages/machine-customers.tsx \
+  "(x.kind === 'local' || x.takesCustomers || x.id === home)" \
+  'true' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: a customer with servers left on a machine goes to their own machine by default" web/src/pages/machine-customers.tsx \
+  'setTo(home || fullest)' \
+  'setTo(fullest)' \
+  src/pages/pages.test.tsx 'their own machine by default'
+webcontrol "moving customers: a customer's own machine is offered though it takes no new customers" web/src/pages/machine-customers.tsx \
+  ' || x.id === home))' \
+  '))' \
+  src/pages/pages.test.tsx 'their own machine by default'
+webcontrol "moving customers: the machine a customer is on isn't offered" web/src/pages/machine-customers.tsx \
+  'x.id !== from.id && ' \
+  '' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: a move that stopped is tried again to their own machine" web/src/pages/machine-customers.tsx \
+  'c.machineId ? { machineId: c.machineId } : {}' \
+  '{ machineId: m.id }' \
+  src/pages/pages.test.tsx 'tries their move again to their own machine'
+webcontrol "moving customers: a customer whose servers go on another machine has some still here" web/src/pages/machine-customers.tsx \
+  'const theirs = c.machineId === m.id' \
+  'const theirs = true' \
+  src/pages/pages.test.tsx 'lists customers a stopped move left servers with'
+webcontrol "removing a machine: only the owner removes one customers are on, on its page" web/src/pages/machines.tsx \
+  "const ownerOnly = !!m.customers && !can(ws.me, 'machines.customers')" \
+  'const ownerOnly = false' \
+  src/pages/pages.test.tsx 'leaves removing a machine customers are on to the owner'
+webcontrol "moving customers: a server being moved offers nothing to do to it" web/src/lib/phase.ts \
+  "const reachable = st.exists && !st.moving && st.phase !== 'docker_unavailable'" \
+  "const reachable = st.exists && st.phase !== 'docker_unavailable'" \
+  src/lib/lib.test.ts 'offers nothing to do to it'
+webcontrol "moving customers: a server's status pill says it's being moved" web/src/components/app/bits.tsx \
+  "return { tone, label: statusLabel(st), labelClass: 'text-info-foreground' }" \
+  "return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }" \
+  src/lib/lib.test.ts 'offers nothing to do to it'
+webcontrol "moving customers: the sidebar says a server is being moved" web/src/components/app/shell.tsx \
+  '<span className="text-xs text-info-foreground">{statusLabel(s)}</span>' \
+  '<span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>' \
+  src/pages/pages.test.tsx 'says a server being moved is being moved'
+webcontrol "moving customers: a server's card on Home says it's being moved" web/src/pages/home.tsx \
+  '{statusLabel(s)}' \
+  '{s.phase}' \
+  src/pages/pages.test.tsx 'says on its card that a server being moved is being moved'
 control "moving customers: a customer whose servers are apart gives none more memory" internal/panel/creators.go \
   '(!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID)' \
   '(!ok || memoryMB > cur) && false' \
