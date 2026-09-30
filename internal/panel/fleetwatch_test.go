@@ -284,6 +284,37 @@ func TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce(t *testing.T) {
 	e.posted(t, []map[string]any{{"memoryMB": 2048}, {"kind": "overbooked", "memoryMB": 2048}}, "overbooked")
 }
 
+// A joined machine that's connected but doesn't answer spends only its own
+// time in the room count: the other machines' room is still watched.
+func TestAMachineThatDoesntAnswerLeavesTheOthersRoomWatched(t *testing.T) {
+	_, e, own := connectedWhop(t)
+	ctx := context.Background()
+	e.reply("GET", "/v1/servers", `[]`)
+	e.reply("GET", "/v1/machine", liveMachine(6144, true))
+	ra := newRemoteAgent()
+	e.joinedAs(t, own.cookie, own.csrf, ra)
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}
+	if _, err := (customerCore{s: e.srv}).StartCustomer(ctx, alex, starter); err != nil {
+		t.Fatal(err)
+	}
+	if err := (customerCore{s: e.srv}).ChangeCustomerPlan(ctx, alex, CustomerPlan{ID: "plan_big", Name: "Big", Servers: 2, MemoryMB: 8192}); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	ra.handle("GET /v1/machine", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	was := fleetAskTimeout
+	fleetAskTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { fleetAskTimeout = was })
+	e.srv.watchFleet(ctx)
+	e.posted(t, []map[string]any{{"kind": "overbooked", "machine": "the dashboard's machine", "memoryMB": 2048}}, "overbooked")
+}
+
 // A look that can't read the plans on sale is skipped, not taken for a
 // dashboard without a fleet, so what the watch keeps stays: nothing is
 // posted again once the plans read.

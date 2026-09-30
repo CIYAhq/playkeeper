@@ -10757,6 +10757,12 @@ control "fleet watch: the machines' room has the time the watch gives a machine"
   'rctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)' \
   'rctx, cancel := context.WithCancel(ctx)' \
   ./internal/panel '^TestAMachineThatDoesntAnswerHoldsUpNoLook$'
+control "fleet watch: a machine that spends its time leaves the waiting customers to read" internal/panel/fleetwatch.go \
+  '	waiting, err := s.waitingMemory(ctx)
+	return rooms, waiting, err' \
+  '	waiting, err := s.waitingMemory(rctx)
+	return rooms, waiting, err' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesTheOthersRoomWatched$'
 control "fleet watch: an overbooked machine is short of some memory" internal/agent/discord.go \
   'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 1, maxFleetMemory)' \
   'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 0, maxFleetMemory)' \

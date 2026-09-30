@@ -161,9 +161,7 @@ func (s *Server) watchFleet(ctx context.Context) {
 	for _, h := range ended {
 		posts = append(posts, s.keepBusiestHour(ctx, h)...)
 	}
-	rctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)
-	rooms, waiting, err := s.roomsNow(rctx)
-	cancel()
+	rooms, waiting, err := s.roomsNow(ctx)
 	if err != nil {
 		s.log.Warn("could not work out the machines' room to watch it", "err", err)
 	} else {
@@ -407,12 +405,16 @@ func (s *Server) watchRoom(plans []SalePlan, rooms []machineRoom, waiting []int)
 	return nil
 }
 
-// roomsNow is the machines as placement sees them, and the memory each
-// customer waiting for room needs, with no customer placed meanwhile.
+// roomsNow is the machines as placement sees them, each asked within the
+// time the watch gives a machine, and the memory each customer waiting for
+// room needs, with no customer placed meanwhile. A machine that spends that
+// time leaves the rest to read in the look's own.
 func (s *Server) roomsNow(ctx context.Context) ([]machineRoom, []int, error) {
 	s.placeMu.Lock()
 	defer s.placeMu.Unlock()
-	rooms, err := s.fleetRooms(ctx, 0)
+	rctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)
+	defer cancel()
+	rooms, err := s.fleetRooms(rctx, 0)
 	if err != nil {
 		return nil, nil, err
 	}
