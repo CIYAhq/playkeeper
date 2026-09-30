@@ -7878,6 +7878,14 @@ control "stores: a grant that can't be checked changes nothing" internal/panel/w
   "return \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
   'return ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a store that needed a look is read again once it can be" internal/panel/whop_customers.go \
+  'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
+  'SET problem = ?, polled_at = 0 WHERE' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
+control "stores: a store that needed a look reads every membership again once it can" internal/panel/whop_customers.go \
+  'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
+  'SET problem = ?, synced_at = 0 WHERE' \
+  ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: an app store waits for the app's key" internal/panel/whop_stores.go \
   'if key == "" {' \
   'if false {' \
