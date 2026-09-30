@@ -1,0 +1,18 @@
+{
+  "status": "passing",
+  "checked": "2026-09-30",
+  "release": "0.4.9",
+  "build": "129",
+  "doneSeconds": 11.924,
+  "addons": [
+    {
+      "name": "AI Build Battle",
+      "source": "playkeeper",
+      "slug": "ai-build-battle",
+      "version": "0.1.0",
+      "licence": "AGPL-3.0-only",
+      "downloads": 0
+    }
+  ],
+  "crossplay": true
+}
