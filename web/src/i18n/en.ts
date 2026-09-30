@@ -2837,7 +2837,7 @@ export const en = {
   'whop.disconnected': 'Stopped selling on Whop',
   'whop.customers': 'Customers',
   'whop.noCustomers': 'No customers yet. Each one gets their account and server from their plan, and hears from you in the store’s support chat on Whop.',
-  'whop.noWebhook': 'Whop can’t tell this dashboard about customers as they buy yet, so it checks every few minutes.',
+  'whop.noWebhook': 'Whop can’t tell this dashboard about customers as they buy yet, so it checks every minute.',
   'whop.customer.starting': 'Setting up their account',
   'whop.customer.active': 'Active',
   'whop.customer.activeAs': 'Active as {account}',

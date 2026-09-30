@@ -116,10 +116,20 @@ func (c *Client) User(ctx context.Context, id string) (User, error) {
 
 // Owner is the one user who owns the account the key belongs to.
 func (c *Client) Owner(ctx context.Context) (User, error) {
+	return c.ownerAt(ctx, "/accounts/me")
+}
+
+// OwnerOf is the one user who owns an account the key reaches by id, as an
+// app's key reaches each business that installed the app.
+func (c *Client) OwnerOf(ctx context.Context, accountID string) (User, error) {
+	return c.ownerAt(ctx, "/accounts/"+url.PathEscape(accountID))
+}
+
+func (c *Client) ownerAt(ctx context.Context, path string) (User, error) {
 	var a struct {
 		Owner User `json:"owner"`
 	}
-	err := c.do(ctx, http.MethodGet, "/accounts/me", nil, nil, &a)
+	err := c.do(ctx, http.MethodGet, path, nil, nil, &a)
 	if err == nil && a.Owner.ID == "" {
 		err = errors.New("Whop didn't say who owns the account")
 	}

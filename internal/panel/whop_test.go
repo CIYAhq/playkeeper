@@ -45,8 +45,10 @@ type fakeWhop struct {
 	plans                               []map[string]any
 	patches                             []string
 	keysSeen                            map[string]bool
-	// webhooks are the endpoints the dashboard added, by id.
-	webhooks map[string]map[string]any
+	// webhooks are the endpoints the dashboard added, by id; hooksDown
+	// makes adding one fail.
+	webhooks  map[string]map[string]any
+	hooksDown bool
 	// memberships are the store's, by id; users the buyers' usernames.
 	memberships map[string]map[string]any
 	users       map[string]string
@@ -262,6 +264,11 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		if _, ok := body["api_version"]; ok {
 			w.WriteHeader(http.StatusBadRequest)
 			io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"api_version is no longer supported. New webhooks always use the v1 events; pin payload shapes with api_version_date instead."}}`)
+			return
+		}
+		if f.hooksDown {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
 			return
 		}
 		id := "hook_" + strings.Repeat("x", len(f.webhooks)+1)

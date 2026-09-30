@@ -2105,13 +2105,13 @@ describe('Sell on Whop', () => {
     expect(text).toContain('samcraftsPaused: their plan ended · Old plan · Up to 2 servers with 8 GB')
     expect(text).toContain('user_kaiSetting up their account · Starter · Up to 1 server with 4 GBThis dashboard can’t host customers yet.')
     expect(text).toContain('leebuildsTheir plan ended')
-    expect(text).not.toContain('checks every few minutes')
+    expect(text).not.toContain('so it checks every minute')
   })
 
   it('says when Whop can’t tell the dashboard about customers as they buy', async () => {
     answer({ '/api/whop': { ...open, webhook: false, customers: [] } })
     const text = await render(<SellOnWhopSection />, owner)
-    expect(text).toContain('so it checks every few minutes')
+    expect(text).toContain('so it checks every minute')
     expect(text).toContain('No customers yet.')
   })
 

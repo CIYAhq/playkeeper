@@ -2006,7 +2006,7 @@ export interface WhopStore {
   takenOverBy?: string
   takenOverAt?: string
   plans: WhopPlan[]
-  /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
+  /** Whether Whop tells the dashboard about memberships as they change. The dashboard also reads them every 10 minutes, or every minute without it. */
   webhook: boolean
   customers: WhopCustomer[]
   /** Sign in with Whop's setup, once a store is connected. */
