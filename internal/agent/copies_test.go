@@ -1247,6 +1247,10 @@ func TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed(t *testing.T) {
 			}
 			c.lets(t, r)
 			for _, w := range ways {
+				// Counted from before the folder can't be read: a reconcile
+				// tick may look at it before the test does, and the agent
+				// logs it once, whoever looks first.
+				logged := strings.Count(e.warnings.String(), "restore staging folder can't be read")
 				undo := w.unreadable(t, r.stagingAt)
 				if undo == nil {
 					t.Logf("%s: skipped, root reads folders without permission", w.name)
@@ -1254,7 +1258,6 @@ func TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed(t *testing.T) {
 				}
 				var once sync.Once
 				t.Cleanup(func() { once.Do(undo) })
-				logged := strings.Count(e.warnings.String(), "restore staging folder can't be read")
 				c.keeps(t, r)
 				c.keeps(t, r)
 				if n := strings.Count(e.warnings.String(), "restore staging folder can't be read") - logged; n != 1 {
