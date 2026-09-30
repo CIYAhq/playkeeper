@@ -179,7 +179,8 @@ func TestAStoreThatLeftIsBackOnceAddedAgain(t *testing.T) {
 
 // A store that leaves while suspended ends its customers' plans, so once
 // its suspension is lifted they're paused, not suspended, even with the
-// app uninstalled.
+// app uninstalled and a membership Whop told of that it can no longer
+// confirm.
 func TestLiftingAStoreThatLeftLeavesItsCustomersPaused(t *testing.T) {
 	f, e, own := storesWithCustomers(t)
 	ctx := context.Background()
@@ -195,6 +196,9 @@ func TestLiftingAStoreThatLeftLeavesItsCustomersPaused(t *testing.T) {
 	e.reconcile()
 	if info := storeAccount(t, e, "biz_other", "user_alex"); info.State != CustomerSuspended {
 		t.Fatalf("alex at Other once it left, suspended: %+v", info)
+	}
+	if err := e.srv.keepMembership("biz_other", whop.Membership{ID: "mem_alex9", UserID: "user_alex", PlanID: "plan_other", Status: "active"}, true); err != nil {
+		t.Fatal(err)
 	}
 	if r := e.do(t, "DELETE", "/api/whop/stores/biz_other/suspension", "", own.auth()); r.status != http.StatusOK {
 		t.Fatalf("lifting Other Hosting's suspension: %d %v", r.status, r.body)
