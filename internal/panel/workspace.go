@@ -391,9 +391,11 @@ type machine struct {
 	addedBy    string
 	// customersAt and customersBy say when and by whom the owner confirmed
 	// a joined machine takes customers (see machinecustomers.go), zero
-	// until they do.
-	customersAt time.Time
-	customersBy string
+	// until they do, and customersStopped when the owner last stopped it
+	// (see autoconfirm.go).
+	customersAt      time.Time
+	customersBy      string
+	customersStopped time.Time
 }
 
 var reMachineID = regexp.MustCompile(`^[a-z2-9]{10}$`)
@@ -448,7 +450,7 @@ func (s *Server) ensureOwnerMember(userID int64) {
 // machines lists the machines the panel manages, the local one first and
 // removed ones left out.
 func (s *Server) machines() ([]machine, error) {
-	rows, err := s.db.Query(`SELECT id, project_id, name, kind, endpoint, created_at, joined_from, created_by, customers_at, customers_by FROM machines
+	rows, err := s.db.Query(`SELECT id, project_id, name, kind, endpoint, created_at, joined_from, created_by, customers_at, customers_by, customers_stopped_at FROM machines
 		WHERE revoked_at = 0 ORDER BY kind != ?, created_at, id`, localKind)
 	if err != nil {
 		return nil, err
@@ -457,10 +459,11 @@ func (s *Server) machines() ([]machine, error) {
 	var out []machine
 	for rows.Next() {
 		var m machine
-		var created, customers int64
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Kind, &m.dials, &created, &m.joinedFrom, &m.addedBy, &customers, &m.customersBy); err != nil {
+		var created, customers, stopped int64
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Kind, &m.dials, &created, &m.joinedFrom, &m.addedBy, &customers, &m.customersBy, &stopped); err != nil {
 			return nil, err
 		}
+		m.customersStopped = fromMillis(stopped)
 		switch m.Kind {
 		case localKind:
 			m.agent = s.agent

@@ -849,6 +849,11 @@ describe('machine events', () => {
     expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on' }], 0)).toBe('Confirmed it takes customers')
     expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_off' }], 0)).toBe('Stopped taking new customers')
   })
+
+  it('say when the dashboard confirmed a machine itself, on finding it in the owner’s Hetzner project', () => {
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on', actor: 'hetzner:fleet-1' }], 0)).toBe('Found in your Hetzner project as fleet-1, so it takes customers')
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on', actor: 'hetzner:' }], 0)).toBe('hetzner: confirmed it takes customers')
+  })
 })
 
 describe('join addresses', () => {

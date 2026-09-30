@@ -361,6 +361,11 @@ func (s *Server) checkStock(ctx context.Context) time.Duration {
 	switch limited, until := hetzner.RateLimited(err); {
 	case err == nil:
 		s.noteStock(w, stock, now)
+		qctx, cancel := context.WithTimeout(ctx, stockTimeout)
+		if err := s.confirmFromHetzner(qctx, c); err != nil {
+			s.log.Info("could not look for joined machines in the Hetzner project", "err", err)
+		}
+		cancel()
 		return stockEvery
 	case hetzner.TokenRefused(err):
 		w.Refused, w.Problem = true, "Hetzner no longer takes the token, so the watch stopped. Paste a new read-only token."

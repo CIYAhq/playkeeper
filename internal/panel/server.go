@@ -146,8 +146,11 @@ type Server struct {
 	sales    saleStock
 	// hetznerMu serialises the Hetzner stock watch's changes and checks,
 	// so a check never writes over a token the owner just replaced (see
-	// hetzner.go).
-	hetznerMu sync.Mutex
+	// hetzner.go), and guards confirmFailed, when each joined machine
+	// found in the owner's Hetzner project last couldn't be confirmed (see
+	// autoconfirm.go).
+	hetznerMu     sync.Mutex
+	confirmFailed map[string]time.Time
 	// placeMu serialises placing customers, so two never get the same room
 	// (see placement.go), roomKick has the customers waiting for room
 	// placed now (see machinecustomers.go), and saleRoomKick has the plans'

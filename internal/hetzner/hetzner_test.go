@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,70 @@ func TestStockReadsEachLocation(t *testing.T) {
 		if s.Locations[i] != l {
 			t.Fatalf("location %d: %+v, want %+v", i, s.Locations[i], l)
 		}
+	}
+}
+
+// serversPage is a page of GET /servers as Hetzner answers it, cut to the
+// fields that matter.
+func serversPage(next string, servers ...string) string {
+	return `{"servers":[` + strings.Join(servers, ",") + `],"meta":{"pagination":{"page":1,"per_page":25,"next_page":` + next + `}}}`
+}
+
+func TestServersReadsEveryPageAndEachServersAddresses(t *testing.T) {
+	var asked []string
+	c := fakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.Path+"?"+r.URL.RawQuery)
+		switch r.URL.Query().Get("page") {
+		case "1":
+			io.WriteString(w, serversPage("2",
+				`{"id":42,"name":"fleet-1","public_net":{"ipv4":{"ip":"203.0.113.7"},"ipv6":{"ip":"2a01:4f8:c17:1234::/64"}}}`,
+				`{"id":43,"name":"no-ipv4","public_net":{"ipv4":null,"ipv6":{"ip":"2a01:4f8:c17:5678::/64"}}}`))
+		default:
+			io.WriteString(w, serversPage("null", `{"id":44,"name":"fleet-2","public_net":{"ipv4":{"ip":"198.51.100.9"},"ipv6":null}}`))
+		}
+	})
+	servers, err := c.Servers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 || asked[0] != "/servers?page=1&per_page=25" || asked[1] != "/servers?page=2&per_page=25" {
+		t.Fatalf("asked %q", asked)
+	}
+	if len(servers) != 3 || servers[0].Name != "fleet-1" || servers[2].ID != 44 {
+		t.Fatalf("servers: %+v", servers)
+	}
+	for _, c := range []struct {
+		server int
+		addr   string
+		has    bool
+	}{
+		{0, "203.0.113.7", true},
+		{0, "::ffff:203.0.113.7", true},
+		{0, "2a01:4f8:c17:1234::1", true},
+		{0, "2a01:4f8:c17:1235::1", false},
+		{0, "203.0.113.8", false},
+		{1, "2a01:4f8:c17:5678:abcd::2", true},
+		{1, "0.0.0.0", false},
+		{2, "198.51.100.9", true},
+		{2, "2a01:4f8:c17:1234::1", false},
+	} {
+		if got := servers[c.server].Has(netip.MustParseAddr(c.addr)); got != c.has {
+			t.Errorf("%s has %s: %v, want %v", servers[c.server].Name, c.addr, got, c.has)
+		}
+	}
+}
+
+func TestServersStopsAtAPageThatGoesBackOrTooFar(t *testing.T) {
+	next := "1"
+	c := fakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, serversPage(next, `{"id":42,"name":"fleet-1","public_net":{}}`))
+	})
+	if servers, err := c.Servers(context.Background()); err != nil || len(servers) != 1 {
+		t.Fatalf("a next page that isn't after this one: %v, %v", servers, err)
+	}
+	next = "999"
+	if _, err := c.Servers(context.Background()); err == nil {
+		t.Fatal("a project with more pages than Playkeeper reads was read")
 	}
 }
 

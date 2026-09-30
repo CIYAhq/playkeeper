@@ -88,6 +88,13 @@ func (s *Server) setTakesCustomers(ctx context.Context, id, actor string, on boo
 	case err != nil:
 		return errDB
 	}
+	return s.takeCustomers(ctx, m, actor, on)
+}
+
+// takeCustomers is setTakesCustomers for m, with s.placeMu held. Stopping
+// is remembered, so the Hetzner token doesn't confirm m again (see
+// autoconfirm.go).
+func (s *Server) takeCustomers(ctx context.Context, m machine, actor string, on bool) error {
 	if on {
 		g, err := setNetworkGuard(ctx, m, actor, true)
 		if err != nil {
@@ -100,11 +107,12 @@ func (s *Server) setTakesCustomers(ctx context.Context, id, actor string, on boo
 	if m.customersAt.IsZero() != on {
 		return nil
 	}
-	at, by, result, detail := int64(0), "", "stopped", "takes no new customers; those it has stay"
+	at, by, stopped, result, detail := int64(0), "", millis(s.now()), "stopped", "takes no new customers; those it has stay"
 	if on {
-		at, by, result, detail = millis(s.now()), actor, "confirmed", "takes customers, with servers kept away from it"
+		at, by, stopped, result, detail = millis(s.now()), actor, millis(m.customersStopped), "confirmed", "takes customers, with servers kept away from it"
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE machines SET customers_at = ?, customers_by = ? WHERE id = ? AND kind = ? AND revoked_at = 0`, at, by, m.ID, remoteKind)
+	res, err := s.db.ExecContext(ctx, `UPDATE machines SET customers_at = ?, customers_by = ?, customers_stopped_at = ? WHERE id = ? AND kind = ? AND revoked_at = 0`,
+		at, by, stopped, m.ID, remoteKind)
 	if err != nil {
 		return errDB
 	}

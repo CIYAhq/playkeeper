@@ -517,6 +517,12 @@ ALTER TABLE customers ADD COLUMN final_backups_machine TEXT    NOT NULL DEFAULT 
 ALTER TABLE machines ADD COLUMN customers_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE machines ADD COLUMN customers_by TEXT    NOT NULL DEFAULT '';
 `,
+	// Confirming joined machines by themselves: when the owner last stopped
+	// a joined machine taking customers, after which the Hetzner token
+	// doesn't confirm it again, or 0 (see autoconfirm.go).
+	`
+ALTER TABLE machines ADD COLUMN customers_stopped_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (
