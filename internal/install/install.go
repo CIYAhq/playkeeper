@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -339,7 +340,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	if o.Join != "" {
 		add("join", "Dashboard", "info", "Once installed, this machine joins the dashboard at "+o.Join+". It dials out to it, so no port opens for it here.", "")
 	} else {
-		add("tls", "HTTPS", "info", "A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.", "")
+		add("tls", "HTTPS", "info", "The dashboard starts with a certificate of its own, so your browser warns that the connection isn't private: click Advanced, then Proceed. A free name in Machine settings ends the warning.", "")
 	}
 	return f
 }
@@ -463,6 +464,33 @@ func Plan(f Facts, o Options) []string {
 	return p
 }
 
+// publicHost is the address for the dashboard's link: host, the machine's
+// own, or, when that's a private one behind the provider's NAT, as on AWS,
+// Google Cloud, Azure and Oracle Cloud, the public one the names service
+// sees, so the link opens from home. A test install asks nothing.
+func publicHost(ctx context.Context, sys System, o Options, host string) string {
+	if !privateAddr(host) || sys.PublicIPv4 == nil || o.Usage.Test || testInstall(sys) {
+		return host
+	}
+	lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ip, err := sys.PublicIPv4(lctx)
+	if a, perr := netip.ParseAddr(ip); err != nil || perr != nil || !a.Is4() || privateAddr(ip) {
+		return host
+	}
+	return ip
+}
+
+// privateAddr reports whether host is an IPv4 address that only its own
+// network reaches: a private one (RFC 1918), a shared one (100.64.0.0/10)
+// or a link-local one.
+func privateAddr(host string) bool {
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.Is4() && (ip.IsPrivate() || ip.IsLinkLocalUnicast() || sharedAddrs.Contains(ip))
+}
+
+var sharedAddrs = netip.MustParsePrefix("100.64.0.0/10")
+
 // Short is the plan in a few plain lines. It goes right above the question,
 // the last thing on the screen, where people look; the plan's details are
 // above it for whoever reads them.
@@ -505,15 +533,18 @@ type Manifest struct {
 	Units             []string  `json:"units"`
 	FirewallRules     []string  `json:"firewallRules"`
 	// Firewall is the firewall FirewallRules are in: "firewalld", in
-	// FirewallZone, or "" for ufw. FirewallZoneFiles are the zone's files
-	// firewalld didn't have before the install changed it, and
-	// FirewallZoneBefore its saved settings then.
+	// FirewallZone, "iptables" (rejectAll), or "" for ufw.
+	// FirewallZoneFiles are the zone's files firewalld didn't have before
+	// the install changed it, and FirewallZoneBefore its saved settings then.
 	Firewall           string   `json:"firewall,omitempty"`
 	FirewallZone       string   `json:"firewallZone,omitempty"`
 	FirewallZoneFiles  []string `json:"firewallZoneFiles,omitempty"`
 	FirewallZoneBefore string   `json:"firewallZoneBefore,omitempty"`
-	ReusedData         bool     `json:"reusedData"`
-	KeptOnUninstall    []string `json:"keptOnUninstall"`
+	// FirewallFamilies are the iptables commands whose rules FirewallRules
+	// are in, for Firewall "iptables": "iptables" and maybe "ip6tables".
+	FirewallFamilies []string `json:"firewallFamilies,omitempty"`
+	ReusedData       bool     `json:"reusedData"`
+	KeptOnUninstall  []string `json:"keptOnUninstall"`
 	// PackageManager installed PackagesInstalled: "dnf", or "" for apt.
 	PackageManager string `json:"packageManager,omitempty"`
 	// NetBeforeDocker is the host network as it was before Playkeeper
@@ -554,7 +585,11 @@ type installer struct {
 
 // Result is what a successful install prints for the user.
 type Result struct {
-	URL         string
+	URL string
+	// PrivateHost says URL's address is a private one: the machine's own
+	// behind a provider's NAT, when its public one wasn't found.
+	PrivateHost bool
+
 	SetupCode   string
 	Fingerprint string
 	Duration    time.Duration
@@ -918,7 +953,8 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 
 	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on", PanelPort: cfg.PanelPort, GamePort: cfg.GamePort, Provider: in.f.Provider}
 	if !cfg.NoPanel {
-		res.URL, res.ExistingAdm = fmt.Sprintf("https://%s:%d", in.f.PanelURLHost, cfg.PanelPort), in.f.ExistingAdmin
+		host := publicHost(ctx, sys, in.o, in.f.PanelURLHost)
+		res.URL, res.ExistingAdm, res.PrivateHost = fmt.Sprintf("https://%s:%d", host, cfg.PanelPort), in.f.ExistingAdmin, privateAddr(host)
 		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", code: "certificate", do: func() error {
 			tlsDir := sys.P(cfg.TLSDir())
 			fp, err := panel.EnsureSelfSignedCert(tlsDir, sys.Now())
@@ -1157,22 +1193,36 @@ const acmeRule = "80/tcp"
 
 const port80Why = "Port 80 is only for Let's Encrypt's checks of your own domain; nothing answers on it otherwise."
 
-// firewallRules are the rules the installer adds to ufw or firewalld: the
-// panel, the first server, the dashboard without a port with the public
+// firewallRules are the rules the installer adds to the machine's firewall:
+// the panel, the first server, the dashboard without a port with the public
 // server page, and Let's Encrypt's checks. A machine that joins another
 // dashboard runs no dashboard of its own, so it gets only the first
 // server's.
 func firewallRules(o Options) []string {
+	return portRules(o.ports(), o.Join == "")
+}
+
+// installRules are the rules firewallRules gave the install that wrote cfg.
+func installRules(cfg config.Config) []string {
+	if cfg.NoPanel {
+		return portRules([]int{cfg.GamePort}, false)
+	}
+	return portRules([]int{cfg.PanelPort, cfg.GamePort}, true)
+}
+
+// portRules are the rules for ports, and on a machine with a dashboard,
+// port 443's and port 80's.
+func portRules(ports []int, dashboard bool) []string {
 	var out []string
 	add := func(r string) {
 		if !contains(out, r) {
 			out = append(out, r)
 		}
 	}
-	for _, p := range o.ports() {
+	for _, p := range ports {
 		add(strconv.Itoa(p) + "/tcp")
 	}
-	if o.Join == "" {
+	if dashboard {
 		add(httpsRule)
 		add(acmeRule)
 	}

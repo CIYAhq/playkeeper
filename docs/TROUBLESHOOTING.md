@@ -44,7 +44,7 @@ Customers can't sign in with Whop at the new address? Until the Whop app lists i
 
 ## Certificate warning
 
-- Until the dashboard has a name, it uses its own self-signed certificate, so the browser warns. The installer printed the certificate's SHA-256 fingerprint: continue only if the browser shows the same one.
+- Until the dashboard has a name, it uses its own self-signed certificate, so the browser says the connection isn't private. That's expected: click **Advanced**, then **Proceed** (in Safari, **Show Details**, then **visit this website**). To check that it's your own VPS, compare the certificate's SHA-256 fingerprint in the browser with the one on the installer's last line.
 - **Machine settings › Address** gives the dashboard a free `yourname.playkeeper.me` name or your own domain, with a certificate from Let's Encrypt that renews by itself, and the warning goes away. The IP address keeps the self-signed certificate.
 
 ## Out of memory

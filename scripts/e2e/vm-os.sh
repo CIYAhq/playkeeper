@@ -31,8 +31,8 @@
 #             signed with a key a/ trusts, as scripts/e2e/update-releases.sh
 #             makes them
 #   OS_PREP   what the system has before Playkeeper, as a provider's image or
-#             its admin could have it (os_prep): firewalld, podman or
-#             docker-selinux
+#             its admin could have it (os_prep): firewalld, podman,
+#             docker-selinux or oracle-iptables
 # Remote commands are single-quoted on purpose so they expand in the guest.
 # shellcheck disable=SC2016
 set -euo pipefail
@@ -152,8 +152,10 @@ unchanged() {
 
 # os_prep leaves the system the way OS_PREP says, as a provider's image or
 # its admin could have: firewalld turned on (as Oracle Cloud's images have
-# it), Podman running a container that starts again at boot, or Docker
-# Engine from Docker's repository running containers under SELinux labels.
+# it), Podman running a container that starts again at boot, Docker Engine
+# from Docker's repository running containers under SELinux labels, or, as
+# Oracle Cloud's Ubuntu images come, iptables rules saved for
+# iptables-persistent that let in SSH and reject everything else.
 os_prep() {
   case ${OS_PREP:-} in
     firewalld)
@@ -166,6 +168,20 @@ os_prep() {
       g 'set -e; . /etc/os-release; printf "[docker-ce-stable]\nname=Docker CE Stable\nbaseurl=https://download.docker.com/linux/centos/${VERSION_ID%%.*}/\$basearch/stable\nenabled=1\ngpgcheck=1\ngpgkey=https://download.docker.com/linux/centos/gpg\n" | sudo tee /etc/yum.repos.d/docker-ce.repo >/dev/null' &&
         lab_dnf "$G" -q install docker-ce docker-ce-cli containerd.io &&
         g 'set -e; sudo mkdir -p /etc/docker; echo "{\"selinux-enabled\": true}" | sudo tee /etc/docker/daemon.json >/dev/null; sudo systemctl enable --now docker; echo "Docker $(sudo docker version --format "{{.Server.Version}}") from Docker'"'"'s repository, with SELinux labelling"'
+      ;;
+    oracle-iptables)
+      g 'set -e
+echo "iptables-persistent iptables-persistent/autosave_v4 boolean false" | sudo debconf-set-selections
+echo "iptables-persistent iptables-persistent/autosave_v6 boolean false" | sudo debconf-set-selections
+for try in 1 2 3; do sudo apt-get update -qq && break; sleep $((try * 15)); done
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables-persistent >/dev/null
+printf "%s\n" "*filter" ":INPUT ACCEPT [0:0]" ":FORWARD ACCEPT [0:0]" ":OUTPUT ACCEPT [0:0]" \
+  "-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT" "-A INPUT -p icmp -j ACCEPT" "-A INPUT -i lo -j ACCEPT" \
+  "-A INPUT -p udp --sport 123 -j ACCEPT" "-A INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT" \
+  "-A INPUT -j REJECT --reject-with icmp-host-prohibited" "-A FORWARD -j REJECT --reject-with icmp-host-prohibited" "COMMIT" |
+  sudo tee /etc/iptables/rules.v4 >/dev/null
+sudo netfilter-persistent reload >/dev/null 2>&1
+echo "iptables as on Oracle Cloud: SSH gets in, then $(sudo iptables -S INPUT | tail -1 | cut -d" " -f3-), saved in /etc/iptables/rules.v4"'
       ;;
     *)
       echo "unknown OS_PREP '$OS_PREP'"
@@ -226,6 +242,15 @@ if [ -n "$rpm" ]; then
   avc=${avc:-0}
 fi
 ok "$(grep -m1 'Operating system' "$OUT/preflight.txt" | sed -E 's/^ *\[(ok  |WARN)\] *Operating system *//')"
+
+if [ "${OS_PREP:-}" = oracle-iptables ]; then
+  step "preflight names Oracle Cloud's iptables, which the install opens the ports in"
+  grep -q 'Firewall (iptables).*iptables is active; the installer will allow .* before its last rule, which rejects everything else' "$OUT/preflight.txt" ||
+    fail "preflight didn't name the iptables rules that reject everything: $(grep -m1 'Firewall' "$OUT/preflight.txt")"
+  g 'sudo cat /etc/iptables/rules.v4' >"$OUT/rules.v4-before"
+  g 'sudo iptables -S INPUT' >"$OUT/input-before.txt"
+  ok "$(grep -m1 -o 'iptables is active.*' "$OUT/preflight.txt")"
+fi
 
 if [ "${OS_PREP:-}" = podman ]; then
   step "podman-docker is refused, with the command that removes it"
@@ -398,6 +423,13 @@ if [ "${OS_PREP:-}" = podman ]; then
   podman_serves "after the uninstall" | tee -a "$OUT/podman.txt" || fail "Podman's container stopped serving after the uninstall"
 fi
 ok "$(wc -l <"$OUT/world-after-uninstall.txt") world and backup files unchanged; Docker and every package the install added removed"
+
+if [ "${OS_PREP:-}" = oracle-iptables ]; then
+  step "Oracle Cloud's iptables are as they were: running and saved"
+  g 'sudo cat /etc/iptables/rules.v4' | diff "$OUT/rules.v4-before" - >"$OUT/rules.v4.diff" || fail "uninstall left /etc/iptables/rules.v4 changed: $(head -c 300 "$OUT/rules.v4.diff")"
+  g 'sudo iptables -S INPUT' | diff "$OUT/input-before.txt" - >"$OUT/input.diff" || fail "uninstall left the INPUT chain changed: $(head -c 300 "$OUT/input.diff")"
+  ok "/etc/iptables/rules.v4 and the running INPUT chain are what they were before the install; the dashboard opened through them, after the reboot too"
+fi
 
 touch "$OUT/passed"
 echo

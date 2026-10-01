@@ -76,6 +76,55 @@ func TestInstallSummaryForFirstInstallAndReinstall(t *testing.T) {
 	}
 }
 
+// The browser's warning is what most people see first, so the summary says
+// what to click; the fingerprint is an extra check on its own last line,
+// which scripts/e2e/vm-e2e.sh reads.
+func TestInstallSummarySaysWhatToClickAtTheBrowsersWarning(t *testing.T) {
+	for _, res := range []*install.Result{
+		{URL: "https://192.0.2.10:8443", SetupCode: "abc123", Fingerprint: "4E:FA:00", Duration: time.Second},
+		{URL: "https://192.0.2.10:8443", Fingerprint: "4E:FA:00", Duration: time.Second, ExistingAdm: true},
+	} {
+		var b bytes.Buffer
+		writeInstallSummary(&b, res)
+		out := b.String()
+		for _, want := range []string{"Click Advanced, then Proceed", "this warning is expected", "Safari: Show Details, then visit this website", "\nTo check the certificate in your browser, its SHA-256 fingerprint is 4E:FA:00\n"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("the summary lacks %q:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "Continue only if") {
+			t.Errorf("the summary still makes the fingerprint a condition:\n%s", out)
+		}
+		if steps, check := strings.Index(out, "  3. "), strings.Index(out, "SHA-256 fingerprint"); steps < 0 || check < steps {
+			t.Errorf("the fingerprint comes before the steps end:\n%s", out)
+		}
+	}
+}
+
+// A setup link with a private address, which the installer couldn't swap for
+// the public one, says so and where the public one is, after an install and
+// after an upgrade; a public one needs no line.
+func TestInstallSummarySaysWhenTheAddressIsPrivate(t *testing.T) {
+	var private, public, upgraded, upgradedPublic bytes.Buffer
+	writeInstallSummary(&private, &install.Result{URL: "https://10.0.0.5:8443", PrivateHost: true, SetupCode: "abc123", Fingerprint: "AA:BB"})
+	writeInstallSummary(&public, &install.Result{URL: "https://203.0.113.7:8443", SetupCode: "abc123", Fingerprint: "AA:BB"})
+	writeUpgradeSummary(&upgraded, &install.Result{URL: "https://10.0.0.5:8443", PrivateHost: true, Upgraded: true, FromVersion: "0.4.15", Fingerprint: "AA:BB"})
+	writeUpgradeSummary(&upgradedPublic, &install.Result{URL: "https://203.0.113.7:8443", Upgraded: true, FromVersion: "0.4.15", Fingerprint: "AA:BB"})
+	want := "\n10.0.0.5 is this VPS's private address: if the link won't open, use the public IP from your provider's console in its place.\n"
+	for _, out := range []string{private.String(), upgraded.String()} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, out)
+		}
+	}
+	for _, out := range []string{public.String(), upgradedPublic.String()} {
+		for _, bad := range []string{"private address", "is not your public address"} {
+			if strings.Contains(out, bad) {
+				t.Errorf("a public address's summary says %q:\n%s", bad, out)
+			}
+		}
+	}
+}
+
 // Right under the link, the summary says what to do when it won't open: the
 // provider's firewall steps, for the provider the installer told, with the
 // install's own ports.

@@ -44,7 +44,6 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	}
 	res := &Result{FromVersion: old, NoPanel: cfg.NoPanel}
 	if !cfg.NoPanel {
-		res.URL = fmt.Sprintf("https://%s:%d", primaryIP(), cfg.PanelPort)
 		if b, err := os.ReadFile(sys.P(filepath.Join(cfg.TLSDir(), "cert.pem"))); err == nil {
 			res.Fingerprint, _ = panel.FingerprintPEM(b)
 		}
@@ -83,7 +82,8 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Playkeeper %s is installed on this server. This upgrades it to %s in place:\n", old, newVersion)
-	for _, line := range upgradePlan(sys, cfg, old, newVersion, allow80, httpsRuleDue(sys, cfg, m)) {
+	fw, due := rulesDue(sys, cfg, m)
+	for _, line := range upgradePlan(sys, cfg, old, newVersion, allow80, fw, due) {
 		fmt.Fprintf(out, "  %s\n", line)
 	}
 	fmt.Fprintln(out)
@@ -113,7 +113,11 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	if allow80 {
 		allowACMEPort(sys, cfg, out)
 	}
-	allowHTTPSPort(sys, cfg, out)
+	allowRulesDue(sys, cfg, out)
+	if !cfg.NoPanel {
+		host := publicHost(ctx, sys, o, primaryIP())
+		res.URL, res.PrivateHost = fmt.Sprintf("https://%s:%d", host, cfg.PanelPort), privateAddr(host)
+	}
 	res.Upgraded = true
 	res.Duration = sys.Now().Sub(start)
 	return res, nil
@@ -174,7 +178,7 @@ func busyWith(ctx context.Context, sys System, cfg config.Config) string {
 	return ""
 }
 
-func upgradePlan(sys System, cfg config.Config, old, newVersion string, allow80 bool, https hostFirewall) []string {
+func upgradePlan(sys System, cfg config.Config, old, newVersion string, allow80 bool, fw hostFirewall, due []string) []string {
 	kept, restart, services := "settings and admin account", "agent and panel restart", "the "+AgentUnit+" and "+PanelUnit+" services"
 	if cfg.NoPanel {
 		kept, restart, services = "and settings", "agent restarts", "the "+AgentUnit+" service"
@@ -194,8 +198,12 @@ func upgradePlan(sys System, cfg config.Config, old, newVersion string, allow80 
 	if allow80 {
 		p = append(p, "Firewall:  ufw allow "+acmeRule+" once "+newVersion+" is running. "+port80Why)
 	}
-	if https != nil {
-		p = append(p, "Firewall:  allow "+httpsRule+" in "+https.short()+https.where()+" once "+newVersion+" is running. "+webPortsWhy)
+	if fw != nil {
+		why := ""
+		if contains(due, httpsRule) {
+			why = " " + webPortsWhy
+		}
+		p = append(p, "Firewall:  allow "+joinAnd(due)+" in "+fw.short()+fw.where()+", once "+newVersion+" is running."+why)
 	}
 	return append(p, "Saves:     a copy of Playkeeper "+old+" in "+PreviousDir(cfg)+"; it is put back automatically if "+newVersion+" does not come up healthy")
 }
