@@ -13147,6 +13147,24 @@ control "make version-lists never drops a type it couldn't keep" cmd/version-lis
   'case unreadable != nil:' \
   'case false:' \
   ./cmd/version-lists '^TestAFailedTypeIsNeverDroppedFromTheLists$'
+# After Bugbot's finding on aec0ac7e: a caller that leaves doesn't make an
+# upstream look down.
+control "a Paper list fetch outlives a caller that leaves" internal/agent/versions.go \
+  'cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)' \
+  'cctx, cancel := context.WithTimeout(ctx, 30*time.Second)' \
+  ./internal/agent '^TestACallerThatLeavesDoesNotMakeAnUpstreamLookDown$'
+control "a waiter that leaves records no failure of the upstream" internal/agent/software.go \
+  'if ctx.Err() != nil {
+		// The caller left; the fetch, if it goes on, says how it went.' \
+  'if false {
+		// The caller left; the fetch, if it goes on, says how it went.' \
+  ./internal/agent '^TestACallerThatLeavesDoesNotMakeAnUpstreamLookDown$'
+control "a cancelled restore lookup isn't kept as PaperMC's answer" internal/agent/versions.go \
+  'e, err := a.fill().RestoreBuild(cctx, mc, build)
+	if ctx.Err() != nil {' \
+  'e, err := a.fill().RestoreBuild(cctx, mc, build)
+	if false {' \
+  ./internal/agent '^TestACallerThatLeavesDoesNotMakeAnUpstreamLookDown$'
 control "a built-in list with a download on a foreign host is refused" internal/minecraft/software/builtin.go \
   'if !servesFrom(a.Upstream, a.Hosts) {' \
   'if false && !servesFrom(a.Upstream, a.Hosts) {' \

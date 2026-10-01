@@ -303,6 +303,10 @@ func (a *Agent) typeList(ctx context.Context, typ string) (versionList, error) {
 	if err == nil {
 		return versionList{entries: entries, at: at}, nil
 	}
+	if ctx.Err() != nil {
+		// The caller left; the fetch, if it goes on, says how it went.
+		return versionList{}, err
+	}
 	a.log.Warn("could not load a server type's version list", "type", typ, "err", err)
 	var l versionList
 	var saved savedCatalog
@@ -462,6 +466,9 @@ func (a *Agent) typeBuildList(ctx context.Context, typ, mc string) (buildList, e
 	})
 	if err == nil {
 		return buildList{builds: bs, at: at}, nil
+	}
+	if ctx.Err() != nil {
+		return buildList{}, err
 	}
 	var l buildList
 	var saved savedBuilds
