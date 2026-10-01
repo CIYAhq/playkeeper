@@ -1136,6 +1136,20 @@ control "a restart does not start the handoff timeouts over" internal/agent/upda
   'since = st.ModTime()' \
   'since = a.now()' \
   ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "an update operation ends after its audit entry" internal/agent/update.go \
+  '		if err = a.insertAudit(tx, "", actor, action, target, result, detail); err == nil {
+			err = writeOperation(tx, op)
+		}' \
+  '		if err = writeOperation(tx, op); err == nil {
+			err = a.insertAudit(tx, "", actor, action, target, result, detail)
+		}' \
+  ./internal/agent '^TestAnUpdatesResultIsStoredWithWhatTheAgentSaysAboutIt$'
+control "an update's result is stored under the update's lock" internal/agent/update.go \
+  '	a.upd.mu.Lock()
+	defer a.upd.mu.Unlock()
+	var op *api.Operation' \
+  '	var op *api.Operation' \
+  ./internal/agent '^TestAnUpdatesResultIsStoredWithWhatTheAgentSaysAboutIt$'
 control "an updater that waited does not install over what the installer installed" internal/install/selfupdate.go \
   'if installed != current {' \
   'if false && installed != current {' \

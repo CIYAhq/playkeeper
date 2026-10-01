@@ -309,6 +309,62 @@ func TestUpdateIsVerifiedStagedAndHandedToTheUpdater(t *testing.T) {
 	}
 }
 
+// Whoever sees an update's operation ended finds it audited and finds the
+// result in what the agent says about the update: the end is stored with
+// its audit entry, the entry first, while the agent holds the update's lock,
+// and what it says changes before the lock goes. The test holds the
+// database's write lock as the result comes in, so the agent waits to store
+// it, and asking about the update must wait too.
+func TestAnUpdatesResultIsStoredWithWhatTheAgentSaysAboutIt(t *testing.T) {
+	e, _, _ := updateEnv(t)
+	e.create()
+	for _, q := range []string{
+		`CREATE TABLE unaudited(id TEXT)`,
+		`CREATE TRIGGER update_unaudited AFTER UPDATE OF status ON operations
+			WHEN NEW.kind = 'update' AND NEW.status != 'running' AND NOT EXISTS (SELECT 1 FROM audit WHERE action = 'update.' || NEW.phase)
+			BEGIN INSERT INTO unaudited VALUES (NEW.id); END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	op := e.applyUpdate("0.2.1")
+	ctx := context.Background()
+	conn, err := e.a.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	e.writeUpdateResult(update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeUpdated, Actor: "admin", FinishedAt: time.Now().UTC()})
+	held := false
+	for deadline := time.Now().Add(5 * time.Second); !held && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if e.a.upd.mu.TryLock() {
+			e.a.upd.mu.Unlock()
+			continue
+		}
+		held = true
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+	if !held {
+		t.Fatal("the agent answered about the update while it waited to store the update's result")
+	}
+	e.waitFor("the result to be reported", func() bool {
+		o, _ := e.a.loadOperation(op.ID)
+		return o.Status == api.OpSucceeded
+	})
+	if info := e.a.updateInfo(); info.Installing != "" || info.LastResult == nil || info.LastResult.Outcome != update.OutcomeUpdated {
+		t.Fatalf("the operation ended, and the agent says: %+v", info)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM unaudited`); n != 0 {
+		t.Fatal("the update's operation was stored as ended before its audit entry")
+	}
+}
+
 func TestAnUpdateKeepsRunningAcrossAgentRestartsUntilTheUpdaterReports(t *testing.T) {
 	e, _, _ := updateEnv(t)
 	e.create()

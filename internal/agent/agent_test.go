@@ -1200,12 +1200,14 @@ func TestLogRotationNeitherDuplicatesNorStalls(t *testing.T) {
 func TestCrashIsDetectedSessionMarkedIncompleteAndRecovered(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
+	e.rcon.setOnline("PkBotBuilder")
 	e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
 	e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 	e.fd.crash(137)
 	e.waitFor("crash handled", func() bool {
 		return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`) == 1
 	})
+	e.rcon.letGo("PkBotBuilder")
 	var reason string
 	var uncertain int
 	e.a.db.QueryRow(`SELECT end_reason, end_uncertain FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason, &uncertain)
@@ -1254,9 +1256,11 @@ func TestExitWhileTheAgentWasDownIsNotCounted(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newAgentEnv(t)
 			e.create()
+			e.rcon.setOnline("PkBotBuilder")
 			e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
 			e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 			e.stop()
+			e.rcon.letGo("PkBotBuilder")
 			tc.stop(e.fd)
 			e.fd.mu.Lock()
 			e.fd.logDelay = 300 * time.Millisecond
@@ -1390,9 +1394,11 @@ func TestAgentRestartBringsBackAServerThatShouldBeRunning(t *testing.T) {
 	t.Run("a container created but never started", func(t *testing.T) {
 		e := newAgentEnv(t)
 		e.create()
+		e.rcon.setOnline("PkBotBuilder")
 		e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
 		e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 		e.stop()
+		e.rcon.letGo("PkBotBuilder")
 		// The agent was killed after creating the container and before starting it.
 		e.fd.mu.Lock()
 		c := e.fd.byName[e.cname()]
