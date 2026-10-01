@@ -318,6 +318,12 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	if len(f.shareWrites) != 0 {
 		t.Fatalf("a plan's problem set shares: %v", f.shareWrites)
 	}
+	f.mu.Lock()
+	partner := f.installed["biz_other"].partner
+	f.mu.Unlock()
+	if partner != "" {
+		t.Fatalf("a plan's problem made %s the business's partner on Whop", partner)
+	}
 	f.setOtherPlan("plan_other", map[string]any{"trial_period_days": 0, "metadata": map[string]any{}})
 	sell("no hosting plan", http.StatusConflict, "no hosting plan yet")
 	f.setOtherPlan("plan_other", map[string]any{"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})

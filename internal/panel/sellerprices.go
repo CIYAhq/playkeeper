@@ -88,11 +88,22 @@ type sellerPrice struct {
 }
 
 // sellerPriceOf is a hosting plan as its seller prices it, and false for a
-// plan that isn't one: one whose metadata allows no servers, that has no
-// product or that's archived, as for Playkeeper's share (whopShareWants).
+// plan that isn't one (hostedPlan) or that's archived, since an archived
+// plan no longer sells.
 func sellerPriceOf(p whop.Plan) (sellerPrice, bool) {
+	if p.Visibility == "archived" {
+		return sellerPrice{}, false
+	}
+	return hostedPlan(p)
+}
+
+// hostedPlan is a hosting plan, archived or not, as Open the store judges
+// it, with what stops it selling hosting as its Problem; false for a plan
+// that isn't one: one whose metadata allows no servers or that has no
+// product, as for Playkeeper's share (whopShareWants).
+func hostedPlan(p whop.Plan) (sellerPrice, bool) {
 	servers, memoryMB, ok := whop.PlanAllowance(p.Metadata)
-	if !ok || p.Visibility == "archived" || p.Product.ID == "" {
+	if !ok || p.Product.ID == "" {
 		return sellerPrice{}, false
 	}
 	sp := sellerPrice{ID: p.ID, Title: cmpOr(p.Title, p.ID), Servers: servers, MemoryMB: memoryMB, Price: centsOf(p.RenewalPrice),

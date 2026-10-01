@@ -80,7 +80,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 			biz = b
 		case strings.HasPrefix(route, "GET /memberships/") && fb.memberships[id] != nil:
 			biz = b
-		case strings.HasPrefix(route, "PATCH /variants/") && fb.plan(id) != nil:
+		case (strings.HasPrefix(route, "PATCH /variants/") || strings.HasPrefix(route, "GET /variants/")) && fb.plan(id) != nil:
 			biz = b
 		case (strings.HasPrefix(route, "GET /products/") || strings.HasPrefix(route, "PATCH /products/")) && fb.products[id] != nil:
 			biz = b
@@ -93,6 +93,11 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b := f.installed[biz]
+	if b == nil && strings.HasPrefix(route, "GET /variants/") {
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such variant"}}`)
+		return
+	}
 	if b == nil {
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"You do not have permission to access this resource"}}`)
@@ -130,7 +135,15 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		}
 		page(data)
 	case route == "GET /variants":
-		page(b.plans)
+		var listed []map[string]any
+		for _, p := range b.plans {
+			if !b.unlistArchived || p["visibility"] != "archived" {
+				listed = append(listed, p)
+			}
+		}
+		page(listed)
+	case strings.HasPrefix(route, "GET /variants/"):
+		json.NewEncoder(w).Encode(b.plan(id))
 	case route == "GET /memberships":
 		plan := r.URL.Query().Get("plan_id")
 		var data []map[string]any

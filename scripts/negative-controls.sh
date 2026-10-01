@@ -8509,6 +8509,53 @@ control "share: setting it again takes it as a percentage of the full price" int
   'map[string]any{"commission_type": "percentage", "commission_value": percent, "revenue_basis": "pre_fees"}' \
   'map[string]any{"commission_value": percent}' \
   ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: an archived plan someone still has needs its share" internal/panel/whop_share.go \
+  'if p.Visibility != "archived" || held[p.ID] != "" {' \
+  'if p.Visibility != "archived" {' \
+  ./internal/panel '^TestAnArchivedPlanSomeoneStillHasNeedsItsShare$'
+control "share: a plan someone has that Whop no longer lists is read by its id" internal/panel/whop_share.go \
+  'if seen[id] {' \
+  'if true {' \
+  ./internal/panel '^TestAnArchivedPlanSomeoneStillHasNeedsItsShare$'
+control "share: a plan someone has that's gone from Whop is a problem" internal/panel/whop_share.go \
+  'problems = append(problems, gone...)' \
+  '_ = gone' \
+  ./internal/panel '^TestAPlanSomeoneHasThatsGoneFromWhopIsAProblem$'
+control "share: a one-time purchase doesn't make its plan one someone has" internal/panel/whop_share.go \
+  'AND m.status IN `+whopAppHosting' \
+  'AND m.status IN `+whopAccess' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+control "share: each hosting plan is held to Open the store's rules" internal/panel/whop_share.go \
+  'if sp.Problem != "" {' \
+  'if sp.Problem != "" && false {' \
+  ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "share: a plan past the fleet's limits is a problem" internal/panel/whop_share.go \
+  'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {' \
+  'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" && false {' \
+  ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "hosting: a one-time purchase gives no servers in an app store" internal/panel/whop_customers.go \
+  'if via == whopViaApp && status == "completed" {' \
+  'if false && via == whopViaApp && status == "completed" {' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+control "hosting: an app store's one-time purchase gives no servers, in a query" internal/panel/whop_customers.go \
+  "OR m.status = 'completed' AND NOT EXISTS (SELECT 1 FROM whop_stores hv WHERE hv.store_id = m.store_id AND hv.via = 'app'))" \
+  "OR m.status = 'completed')" \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+# shellcheck disable=SC2016
+control "hosting: a one-time purchase keeps no servers running past a cancelled plan" internal/panel/whop_customers.go \
+  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)' \
+  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0)' \
+  ./internal/panel '^TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn$'
+# shellcheck disable=SC2016
+control "hosting: signing in on a one-time purchase in an app store makes no account" internal/panel/whop_signin.go \
+  'AND m.stale = 0 AND `+whopHostingSQL, store, store, whopUserID)' \
+  'AND m.stale = 0 AND m.status IN `+whopAccess, store, store, whopUserID)' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+# shellcheck disable=SC2016
+control "hosting: a one-time purchase in an app store holds no deletion" internal/panel/erasure.go \
+  'AND m.whop_user_id = ? AND `+whopHostingSQL+`' \
+  'AND m.whop_user_id = ? AND m.status IN `+whopAccess+`' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
 control "share paid: only Playkeeper's share line counts" internal/panel/whop_share.go \
   'if l.Origin != whopShareOrigin || l.Settled.Currency != "usd" {' \
   'if l.Settled.Currency != "usd" {' \
@@ -8884,8 +8931,8 @@ control "deleting customers: buying again cancels a deletion that waits for a mo
   'if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan && false {' \
   ./internal/panel '^TestBuyingAgainCancelsADeletionWaitingForAMove$'
 control "deleting customers: a renewal Whop's API hasn't confirmed counts as a plan" internal/panel/erasure.go \
-  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.status IN' \
-  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.stale = 0 AND m.status IN' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND ' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.stale = 0 AND ' \
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
 control "deleting customers: a store that left holds no plan" internal/panel/erasure.go \
   'WHERE st.store_id = m.store_id AND st.left_at != 0)' \

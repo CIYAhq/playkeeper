@@ -222,6 +222,13 @@ func (c *Client) Plans(ctx context.Context, accountID string) ([]Plan, error) {
 	return list[Plan](ctx, c, "/variants", url.Values{"account_id": {accountID}})
 }
 
+// Plan reads one plan by its id, archived or not.
+func (c *Client) Plan(ctx context.Context, id string) (Plan, error) {
+	var p Plan
+	err := c.do(ctx, http.MethodGet, "/variants/"+url.PathEscape(id), nil, nil, &p)
+	return p, err
+}
+
 // SetPlanStock limits how many more of a plan can sell to n, which Whop
 // enforces at checkout.
 func (c *Client) SetPlanStock(ctx context.Context, planID string, n int) error {
