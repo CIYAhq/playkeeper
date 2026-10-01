@@ -601,3 +601,71 @@ func TestADeletedCustomersEndedMembershipIsntKeptAgain(t *testing.T) {
 		t.Fatalf("kim's memberships kept: %v", kept)
 	}
 }
+
+// leftStoresCustomer has kim buy at Other Hosting, which then leaves, as a
+// store whose grant has been gone for a week does, and its pass pauses kim.
+// Kim's membership there is still stored as active: nothing reads a store
+// that left.
+func leftStoresCustomer(t *testing.T, f *fakeWhop, e *env) CustomerAccountInfo {
+	t.Helper()
+	ctx := context.Background()
+	f.mu.Lock()
+	f.users["user_kim"] = "kim"
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	e.reconcile()
+	f.mu.Lock()
+	f.installed["biz_other"].revoked = true
+	f.mu.Unlock()
+	if err := e.srv.whopStoreLeft(ctx, "biz_other", "The Playkeeper Cloud app's grant has lacked member:basic:read for 7 days"); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	kim := storeAccount(t, e, "biz_other", "user_kim")
+	if kim.State != CustomerPaused {
+		t.Fatalf("kim of a store that left is %s", kim.State)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM whop_memberships WHERE membership_id = 'mem_kim' AND status = 'active'`); n != 1 {
+		t.Fatalf("kim's membership at the store that left: %d active", n)
+	}
+	return kim
+}
+
+// The owner deletes a customer of a store that left on request. Its stored
+// memberships aren't a plan: nothing reads them any more, and nothing
+// starts its customers again until it's back and open.
+func TestACustomerOfAStoreThatLeftIsDeletedOnRequest(t *testing.T) {
+	f, e, own := twoStores(t)
+	ctx := context.Background()
+	kim := leftStoresCustomer(t, f, e)
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	if r := e.do(t, "DELETE", customerDeletePath(kim.UserID), `{"confirm":"`+kim.Username+`"}`, own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("deleting kim, paused since their store left: %d %v", r.status, r.body)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := (customerCore{s: e.srv}).CustomerAccount(ctx, whopProvider, "biz_other", "user_kim"); ok {
+		t.Fatal("kim, whose store left, still has an account")
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM whop_memberships WHERE whop_user_id = 'user_kim'`); n != 0 {
+		t.Fatalf("kim's memberships at the store that left: %d", n)
+	}
+}
+
+// A customer of a store that left is deleted the owner's days after their
+// servers were, as any customer whose plan ended is.
+func TestACustomerOfAStoreThatLeftIsDeletedDaysAfterTheirServers(t *testing.T) {
+	f, e, _ := twoStores(t)
+	ctx := context.Background()
+	kim := leftStoresCustomer(t, f, e)
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	e.clock.add(graceDays*24*time.Hour + time.Minute)
+	e.srv.deleteLapsedCustomers(ctx)
+	e.clock.add(defaultCustomerRetention*24*time.Hour + time.Minute)
+	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := (customerCore{s: e.srv}).CustomerAccount(ctx, whopProvider, "biz_other", "user_kim"); ok {
+		t.Fatal("kim, whose store left, wasn't deleted 30 days after their servers")
+	}
+	if rows := e.auditRows(t, "customer.erase"); len(rows) != 1 || !strings.HasPrefix(rows[0], "playkeeper "+kim.Username+" succeeded") {
+		t.Fatalf("the audit log: %v", rows)
+	}
+}
