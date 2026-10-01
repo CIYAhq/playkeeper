@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs a Go package's tests in shards, and checks that the shards together
 # ran every test. The agent's tests mostly wait on timers, so CI runs all
-# their shards side by side on one runner; the dashboard's under the race
+# their shards side by side on one runner; the panel's under the race
 # detector keep every core busy, so CI splits their shards between runners.
 #   scripts/go-test-shard.sh --jobs N PACKAGE [OUT] [TIMES] [R/M]
 #                                                 all N shards at once, each test in the shard
