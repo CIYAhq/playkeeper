@@ -2899,7 +2899,7 @@ describe('Onboarding', () => {
     expect(text).toContain('Friends join on port 25565')
     expect(text).not.toContain('friends can’t join')
     const how = [...document.querySelectorAll('a')].find((a) => a.textContent === 'How to open a port')
-    expect(how?.getAttribute('href')).toBe('https://playkeeper.io/ports')
+    expect(how?.getAttribute('href')).toBe('https://playkeeper.io/docs/troubleshooting#friends-cant-join')
     expect(document.querySelectorAll('li .text-warning')).toHaveLength(0)
   })
 })
