@@ -63,8 +63,7 @@
   // Custom events for the analytics (Settings.Analytics), which its funnels
   // are built from, each with the page it happened on. oa.js loads async, so
   // an event before it has loaded waits for it. Pages without the analytics,
-  // like the share page /t, send nothing. A page's own script hears each one
-  // as playkeeper:count on document, as /start's ad pixel does.
+  // like the share page /t, send nothing.
   var counter = $('script[data-collector]');
   var waiting = [];
   var tracker = function () { return window.oa && typeof window.oa.track === 'function' ? window.oa : null; };
@@ -72,7 +71,6 @@
   // with oa.js's next batch, which a page on its way out can miss.
   function count(name, props, leaving) {
     props.where = location.pathname;
-    document.dispatchEvent(new CustomEvent('playkeeper:count', { detail: { name: name, props: props } }));
     if (!counter) return;
     var oa = tracker();
     if (!oa) { waiting.push([name, props]); return; }

@@ -595,23 +595,15 @@ func TestChannels(t *testing.T) {
 	}
 }
 
-// Whop's ad pixel is on /start alone: only its page names the Whop business
-// and loads start.js, and only its location's Content-Security-Policy lets
-// Whop's origin and the pixel's blob worker in, and its film, as the
-// locations of the pages that play one do (TestFilms). /start stays out of
-// search engines and the sitemap. With no pixel set, no policy names Whop.
+// /start, where the Meta ads land, has a location of its own: it lets the
+// page's film in, with the policy of the pages that play one (TestFilms),
+// and keeps /start out of search engines, as the page keeps itself out of
+// the sitemap. Like every page, it loads no ad pixel (TestNoPageLoadsAnAdPixel).
 // A page's channel must be one of the settings'.
 func TestStartPage(t *testing.T) {
 	o := build(t, Default)
 	const share = `<button type="button" class="install-share" data-share hidden>`
 	for p, html := range pages(o) {
-		has := strings.Contains(html, `data-whop-pixel="biz_bbmk63HMB3yZ4c"`) && strings.Contains(html, "/assets/js/start.")
-		if has != (p == "/start") {
-			t.Errorf("%s: carries the ad pixel %v, want %v", p, has, p == "/start")
-		}
-		if strings.Contains(html, "t.whop.tw") {
-			t.Errorf("%s names t.whop.tw in its HTML; start.js loads it", p)
-		}
 		// Send to my computer, beside both Copy buttons on /, /start and the
 		// AI build battle's page, where most visitors are on phones.
 		want := 0
@@ -639,24 +631,16 @@ func TestStartPage(t *testing.T) {
 	nginx := string(o.Nginx)
 	site := between(nginx, `set $csp "`, `";`)
 	own := between(between(nginx, "location = /start {", "}"), `set $csp "`, `";`)
-	if strings.Contains(site, "whop") || strings.Contains(site, "worker-src") || strings.Contains(site, "media-src") {
-		t.Errorf("the site's policy lets in what only /start needs: %s", site)
+	if site != o.Policy || strings.Contains(site, "media-src") {
+		t.Errorf("the site's policy lets in the film only /start and the pages that play one need: %s", site)
 	}
-	for _, want := range []string{"script-src 'self' https://analytics-c.ciya.so https://t.whop.tw;", "media-src 'self';", "worker-src blob:;",
-		"connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://stats.playkeeper.io https://t.whop.tw;"} {
-		if !strings.Contains(own, want) {
-			t.Errorf("/start's policy doesn't say %s: %s", want, own)
-		}
+	if own != o.FilmPolicy {
+		t.Errorf("/start's policy is %q, want the film policy %q", own, o.FilmPolicy)
 	}
 	for _, want := range []string{"set $robots noindex;", "try_files /start.html =404;", "add_header X-Robots-Tag $robots always;"} {
 		if !strings.Contains(nginx, want) {
 			t.Errorf("nginx's include doesn't say %s", want)
 		}
-	}
-	off := Default
-	off.WhopPixel = ""
-	if own := between(between(string(build(t, off).Nginx), "location = /start {", "}"), `set $csp "`, `";`); strings.Contains(own, "whop") || strings.Contains(own, "worker-src") {
-		t.Errorf("with no pixel set, /start's policy still lets it in: %s", own)
 	}
 	noStart := Default
 	noStart.Channels = slices.DeleteFunc(slices.Clone(Default.Channels), func(c Channel) bool { return c.Code == "start" })

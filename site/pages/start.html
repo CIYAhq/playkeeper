@@ -7,19 +7,16 @@ noindex: true
 og: landing
 channel: start
 share: true
+film: true
 styles: css/start.css
-scripts: js/start.js
 */}}
 
 {{/* Where the Meta ads land: the ads' headlines, the start channel's command
      with Send to my computer for the phones the ads are seen on, the film,
-     and plain answers, each true for the current release. Whop's ad
-     pixel loads here and on no other page (js/start.js, Settings.WhopPixel),
-     and the note at the end says what it does. The pixel reads the fields of
-     any form, tags links to whop.com and posts to every frame, so keep all
-     three off this page. */}}
+     and plain answers, each true for the current release. Like every page,
+     it loads no ad pixel (TestNoPageLoadsAnAdPixel). */}}
 {{define "main"}}{{$poster := img "film/launch-poster.webp"}}
-<section class="band-chalk start-hero" aria-labelledby="page-title" data-whop-pixel="{{.Settings.WhopPixel}}">
+<section class="band-chalk start-hero" aria-labelledby="page-title">
   <div class="container start-row">
     <div class="start-text">
       <h1 id="page-title" class="h1-hero start-h1"><span class="line hero-rise">One command.</span> <span class="line line-green hero-rise">Your Minecraft server.</span></h1>
@@ -63,14 +60,6 @@ scripts: js/start.js
       <li>{{template "icon" "check"}}<span>Invite links that put friends on the allowlist, and co-admins with their own sign-in.</span></li>
       <li>{{template "icon" "check"}}<span>Updates that are signed and roll back if something goes wrong.</span></li>
     </ul>
-  </div>
-</section>
-
-<section class="band band-white start-note" aria-labelledby="note-title">
-  <div class="container container-narrow">
-    <h2 id="note-title">About this page</h2>
-    <p>This page, and no other on playkeeper.io, loads Whop's ad pixel, so our ads on Facebook and Instagram can tell who visits, who copies the install command or sends this page to their computer, and who opens the live demo. It sets two cookies: <code>_wuid</code>, a visitor ID kept on playkeeper.io for two years, and <code>_wuid_link</code>, which your browser then sends with every request to playkeeper.io and the addresses under it: the rest of this site, and dashboards still on a free name from before free names moved to playkeeper.me. Dashboards under playkeeper.me never get it. It also keeps a fingerprint of your device in your browser, and sends Whop this visit with your browser's details, the ad's IDs from this page's address, how long you stay, and whether you copy the command, send the page to your computer or open the live demo. Whop passes that on to Meta. The Send to my computer button shares this page's address as it is, ad IDs included, so Whop can tell a visit from your computer came from the same ad.</p>
-    <p>The pixel doesn't load if your browser sends Global Privacy Control or Do Not Track. To remove what it stored, clear playkeeper.io's cookies and site data in your browser. The rest of playkeeper.io counts visits without cookies.</p>
   </div>
 </section>
 {{end}}
