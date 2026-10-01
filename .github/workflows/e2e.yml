@@ -515,11 +515,14 @@ jobs:
           path: /tmp/evidence
           retention-days: 7
 
+  # The 125 MB of packages WebKit and Chromium need come from Ubuntu's mirror,
+  # which took over 18 minutes for them twice on 1 Oct 2026 and sent others at
+  # 47 kB/s that day: 44 minutes for these, on top of 5 for the rest.
   site:
     name: Site image — build it, check every page, /sizing, /demo/, /t, /healthz and the /install script, walk the live demo
     if: inputs.parts == 'all' || contains(format(',{0},', inputs.parts), ',site,')
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build the playkeeper.io image and check what it serves
