@@ -408,23 +408,27 @@ func TestAStartedCustomerIsntPausedWhileTheirPaymentCantBeChecked(t *testing.T) 
 
 // A payment check waiting for its next try is tried at once when the
 // dashboard starts again (retryWhopNow), as a customer's call is, so a
-// release or the end of a Whop outage needs no wait.
+// release needs no wait: as when Whop adds a payment's revenue share line a
+// little after the payment, once the payments read has kept it without.
 func TestAPaymentCheckWaitingIsTriedAtOnceOnStartingAgain(t *testing.T) {
 	f, e, _ := twoStores(t)
 	core := useFakeCore(e)
 	f.mu.Lock()
 	f.users["user_kim"] = "kimbuilds"
 	b := f.installed["biz_other"]
-	b.paymentsDown = true
 	f.mu.Unlock()
 	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	f.mu.Lock()
+	share := b.fees["pay_mem_kim"]
+	b.fees["pay_mem_kim"] = []map[string]any{}
+	f.mu.Unlock()
 	e.clock.add(2 * whopPollEvery)
 	e.reconcile()
 	if calledFor(core.got(), "start ", "user_kim") {
-		t.Fatal("kim started while Whop failed their payment check")
+		t.Fatal("kim started before their payment carried Playkeeper's share")
 	}
 	f.mu.Lock()
-	b.paymentsDown = false
+	b.fees["pay_mem_kim"] = share
 	f.mu.Unlock()
 	e.clock.add(time.Second)
 	e.srv.retryWhopNow()
@@ -653,14 +657,14 @@ func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	}
 	f.mu.Lock()
 	b.refunds[0]["status"] = "succeeded"
-	b.payments[0]["refunded_amount"] = map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
+	b.payments[0]["refunded_amount"] = map[string]any{"amount": "6.00", "currency": "usd", "decimals": 2}
 	retry := b.payments[len(b.payments)-1]
 	retry["status"], retry["paid_at"] = "paid", e.clock.now().UTC().Format(time.RFC3339)
 	f.mu.Unlock()
 	e.clock.add(90 * time.Minute)
 	e.reconcile()
-	if _, _, refunded, _, _ := kept("pay_renew"); refunded != 1200 {
-		t.Fatalf("the refunded renewal: %d refunded", refunded)
+	if _, _, refunded, _, _ := kept("pay_renew"); refunded != 600 {
+		t.Fatalf("the renewal refunded in part: %d refunded", refunded)
 	}
 	if amount, share, _, _, _ := kept("pay_retry"); amount != 1200 || share != 850 {
 		t.Fatalf("the renewal paid on a retry: %d paid, %d shared", amount, share)

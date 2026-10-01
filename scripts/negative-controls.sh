@@ -9003,13 +9003,13 @@ control "share paid: at least the plan's share" internal/panel/whop_share.go \
   'max(n, -n) >= want' \
   'max(n, -n) > 0' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
-control "share paid: a refunded payment doesn't count" internal/panel/whop_share.go \
-  'if whopRefundedInFull(pay) {' \
-  'if false {' \
+control "share paid: a refunded payment doesn't count, even the only one" internal/panel/whop_share.go \
+  'if len(kept) == 0 {' \
+  'if len(kept) == 0 { kept = pays }; if false {' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "share paid: the membership's latest payment" internal/panel/whop_share.go \
-  'pay := pays[0]' \
-  'pay := pays[len(pays)-1]' \
+  'pay := kept[0]' \
+  'pay := kept[len(kept)-1]' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "share paid: Whop is asked for the newest payments" internal/whop/payments.go \
   '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(paymentsRead)}}' \
@@ -9073,16 +9073,16 @@ control "grant watch: a grant Whop couldn't check counts neither way" internal/p
   'default:' \
   ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
 control "payment check: an app store's customer is hosted by their paid plan" internal/panel/whop_customers.go \
-  'wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
-  '_, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
+  'wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc, grace)' \
+  '_, waits, unsure = s.whopPaidPlan(ctx, c, st, wc, grace)' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 control "payment check: a membership counts only as far as a payment of it carried the share" internal/panel/whop_share_hooks.go \
   'if h.paidFor() {' \
   'if true {' \
   ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
 control "payment check: a membership not paid for its plan is checked while the store is open" internal/panel/whop_share_hooks.go \
-  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
-  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) && false {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) && false {' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 control "payment check: a membership moved to more memory gives what it was paid for" internal/panel/whop_share_hooks.go \
   'if h.Paid.memoryMB > 0 {' \
@@ -9134,7 +9134,7 @@ control "payments: the one a customer starts on is kept for the seller's view" i
   '_ = whopUserID' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "payments: renewals are read on the share check's schedule" internal/panel/whop_share_hooks.go \
-  's.whopReadPayments(ctx, c, *st)' \
+  's.whopReadPayments(ctx, c, *st, problem == "")' \
   '' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payments: a refund keeps its payment again" internal/panel/whop_share_hooks.go \
@@ -9158,8 +9158,8 @@ control "share fresh: a pass that didn't read the store checks the share when a 
   '(plansRead || false)' \
   ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
 control "share fresh: a payment counts only after the share was found right" internal/panel/whop_share_hooks.go \
-  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
-  'if h.checkDue(now) && st.ClosedWhy == "" {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" {' \
   ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
 control "share fresh: only a share found right recently counts" internal/panel/whop_share_hooks.go \
   'return err == nil && at > 0 && s.now().Sub(time.UnixMilli(at)) < whopShareFresh' \
@@ -9170,8 +9170,8 @@ control "share fresh: the share check notes when it found the share right" inter
   's.noteWhopShareRight(ctx, st.ID, false)' \
   ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
 control "share fresh: the share is checked out of turn only for a payment check that's due" internal/panel/whop_share_hooks.go \
-  'if h.checkDue(now) {' \
-  'if h.checkDue(now) || true {' \
+  'if h.lapsed(since).checkDue(now.UnixMilli()) {' \
+  'if h.lapsed(since).checkDue(now.UnixMilli()) || true {' \
   ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
 control "share unchecked: a share check that keeps failing closes the store" internal/panel/whop_share_hooks.go \
   's.noteWhopShareUnchecked(ctx, st, err)' \
@@ -9185,6 +9185,78 @@ control "share unchecked: an answer from Whop starts the hour afresh" internal/p
   'if err := s.whopWatchClear(ctx, st.ID, "share_unchecked_since"); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "later payments: what a membership was paid for lapses with its payment" internal/panel/whop_customers.go \
+  'if h.Paid.memoryMB > 0 && h.PaidAt.Before(since) {' \
+  'if false && h.Paid.memoryMB > 0 && h.PaidAt.Before(since) {' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: the pass counts a payment only so long" internal/panel/whop_share_hooks.go \
+  'switch h = h.lapsed(since); {' \
+  'switch {' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: the payment check takes no payment older than it pays for" internal/panel/whop_share.go \
+  'if at := pay.PaidTime(); !at.IsZero() && at.Before(since) {' \
+  'if at := pay.PaidTime(); false && !at.IsZero() && at.Before(since) {' \
+  ./internal/panel '^(TestAMembershipNoRenewalPaidStopsPastItsGrace|TestARestartNeedsAPaymentFromItsBillingPeriod)$'
+control "later payments: a customer running keeps a membership through the grace" internal/panel/whop_share_hooks.go \
+  'return whopBillingPeriod + grace' \
+  'return whopBillingPeriod + grace*0' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: a restart needs a payment from its billing period" internal/panel/whop_share_hooks.go \
+  'if wc.Applied != "" && !wc.Paused {' \
+  'if wc.Applied != "" {' \
+  ./internal/panel '^TestARestartNeedsAPaymentFromItsBillingPeriod$'
+control "later payments: the pause says why" internal/panel/whop_customers.go \
+  'cmpOr(wc.Why, "their Whop membership is "+cmpOr(wc.Latest, "gone"))' \
+  '"their Whop membership is "+cmpOr(wc.Latest, "gone")' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: renewals are read with the store's payments" internal/panel/whop_share_hooks.go \
+  's.noteWhopRenewal(ctx, st, pay, lines, shareRight)' \
+  '_ = lines' \
+  ./internal/panel '^TestARenewalThatCarriedTheShareKeepsItsMembership$'
+control "later payments: only while the share is right" internal/panel/whop_share_hooks.go \
+  's.whopReadPayments(ctx, c, *st, problem == "")' \
+  's.whopReadPayments(ctx, c, *st, true)' \
+  ./internal/panel '^TestARenewalReadWhileTheShareIsWrongDoesntCount$'
+control "later payments: a renewal without the share doesn't count" internal/panel/whop_share_hooks.go \
+  'if isNoRows(err) || err == nil && !whopSharePaidIn(lines, whopShareFor(part.memoryMB)) {' \
+  'if isNoRows(err) {' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund of a payment of a membership the upgrade counted as paid has it checked again" internal/panel/whop_share_hooks.go \
+  "WHERE store_id = ? AND membership_id = ? AND paid_payment IN (?, '')\`" \
+  "WHERE store_id = ? AND membership_id = ? AND paid_payment IN (?)\`" \
+  ./internal/panel '^TestARefundAfterTheUpgradeIsntLost$'
+control "later payments: a refund of the payment a membership was paid with has it checked again" internal/panel/whop_share_hooks.go \
+  'UPDATE whop_membership_checks SET paid_at = 0, next_check_at = 0' \
+  'UPDATE whop_membership_checks SET paid_at = paid_at, next_check_at = next_check_at' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund counts whatever the share check found" internal/panel/whop_share_hooks.go \
+  's.noteWhopRenewal(ctx, st, pay, lines, shareRight)' \
+  'if shareRight { s.noteWhopRenewal(ctx, st, pay, lines, shareRight) }' \
+  ./internal/panel '^TestARefundReadWhileTheShareIsWrongStillCounts$'
+control "later payments: the payment check skips payments refunded in full" internal/panel/whop_share.go \
+  'kept := slices.DeleteFunc(slices.Clone(pays), whopRefundedInFull)' \
+  'kept := pays' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund not checked since keeps a customer running as they are" internal/panel/whop_share_hooks.go \
+  '} else if !h.Answered || refunded {' \
+  '} else if !h.Answered || refunded && false {' \
+  ./internal/panel '^TestARefundReadWhileTheShareIsWrongStillCounts$'
+control "later payments: a lapsed membership the check refused gives nothing" internal/panel/whop_share_hooks.go \
+  'answered = MAX(answered, excluded.answered), paid_mb = CASE WHEN ? THEN 0 ELSE paid_mb END`' \
+  'answered = MAX(answered, excluded.answered), paid_mb = CASE WHEN ? AND 0 THEN 0 ELSE paid_mb END`' \
+  ./internal/panel '^TestAMembershipWhoseOnlyPaymentIsRefundedStops$'
+control "later payments: the owner sets the grace" internal/panel/whop_share_hooks.go \
+  'days = app.RenewalGraceDays' \
+  '_ = app' \
+  ./internal/panel '^TestTheRenewalGraceIsTheOwnersToSet$'
+control "later payments: the grace is 0 to 30 days" internal/panel/whop_app.go \
+  'if days < 0 || days > whopRenewalGraceMax {' \
+  'if days < 0 {' \
+  ./internal/panel '^TestTheRenewalGraceIsTheOwnersToSet$'
+control "later payments: the upgrade counts memberships found paid as paid that day" internal/panel/auth.go \
+  "UPDATE whop_membership_checks SET paid_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000 WHERE paid_mb > 0;" \
+  'SELECT 1;' \
+  ./internal/panel '^TestTheUpgradeCountsMembershipsFoundPaidAsPaidThatDay$'
 control "leaving: a store that comes back sheds the share check's closure" internal/panel/leaving.go \
   'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?' \
   'DELETE FROM whop_store_closures WHERE 0 AND store_id = ? AND closed_by = ?' \

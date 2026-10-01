@@ -903,6 +903,18 @@ CREATE TABLE public_pages (
   changed_at INTEGER NOT NULL
 );
 `,
+	// Later payments (see whopPaidPlan): how many days a renewal may be late
+	// before its membership stops giving servers, the owner's to change; and
+	// when each membership's latest payment that carried Playkeeper's share
+	// was made, and which payment it was. A membership already found paid
+	// counts as paid on the day of the upgrade, so nobody's servers stop for
+	// it: its next renewal is read like any other.
+	`
+ALTER TABLE whop_app ADD COLUMN renewal_grace_days INTEGER NOT NULL DEFAULT 7;
+ALTER TABLE whop_membership_checks ADD COLUMN paid_at      INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_membership_checks ADD COLUMN paid_payment TEXT    NOT NULL DEFAULT '';
+UPDATE whop_membership_checks SET paid_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000 WHERE paid_mb > 0;
+`,
 }
 
 const (
