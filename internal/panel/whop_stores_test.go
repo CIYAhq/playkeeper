@@ -133,7 +133,11 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 	case route == "GET /products":
 		var data []map[string]any
 		for _, p := range slices.Sorted(maps.Keys(b.products)) {
-			data = append(data, map[string]any{"id": p, "title": "Minecraft server", "metadata": b.products[p]})
+			visibility := "visible"
+			if b.hidden[p] {
+				visibility = "hidden"
+			}
+			data = append(data, map[string]any{"id": p, "title": cmpOr(b.titles[p], "Minecraft server"), "visibility": visibility, "metadata": b.products[p]})
 		}
 		page(data)
 	case route == "GET /variants":
@@ -159,9 +163,16 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		page(data)
 	case strings.HasPrefix(route, "GET /memberships/"):
 		json.NewEncoder(w).Encode(b.memberships[id])
-	case strings.HasPrefix(route, "PATCH /products/") && f.marksDown:
+	case strings.HasPrefix(route, "PATCH /products/") && (f.marksDown || body["visibility"] != nil && b.hideDown):
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the access_pass:update scope."}}`)
+	case strings.HasPrefix(route, "PATCH /products/") && body["visibility"] != nil:
+		if b.hidden == nil {
+			b.hidden = map[string]bool{}
+		}
+		b.hidden[id] = body["visibility"] == "hidden"
+		b.hides = append(b.hides, id)
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": cmpOr(b.titles[id], "Minecraft server"), "visibility": body["visibility"], "metadata": b.products[id]})
 	case strings.HasPrefix(route, "PATCH /products/"):
 		meta := whop.Metadata{}
 		m, _ := body["metadata"].(map[string]any)

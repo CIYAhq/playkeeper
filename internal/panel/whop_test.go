@@ -61,6 +61,13 @@ type fakeBusiness struct {
 	unlistArchived bool
 	sharesDown     bool
 	paymentsDown   bool
+	// titles names products by id, "Minecraft server" for one not here,
+	// hidden are those hidden from the store's page on Whop, hides the
+	// products hidden, in order, and hideDown makes Whop refuse hiding one.
+	titles   map[string]string
+	hidden   map[string]bool
+	hides    []string
+	hideDown bool
 }
 
 // fakeChat is an installed business's support chat with one customer.

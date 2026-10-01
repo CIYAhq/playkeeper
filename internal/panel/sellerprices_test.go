@@ -791,3 +791,48 @@ func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 		t.Fatalf("Fix my plans on an open store: %d %v, plans changed %v", r.status, r.body, f.termSets)
 	}
 }
+
+// Open the store hides the free Playkeeper Hosting product Whop adds to each
+// blueprint copy for its website, so the store's page shows the hosting
+// plans alone. A product of the seller's own, free or not, stays, and so
+// does one with that name that sells hosting. Whop refusing leaves the
+// store closed, and Update the store doesn't hide it again.
+func TestOpenTheStoreHidesTheWebsitesFreeProduct(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	f.mu.Lock()
+	b := f.installed["biz_other"]
+	b.titles = map[string]string{"prod_site": "Playkeeper Hosting", "prod_discord": "Discord", "prod_other": "Playkeeper Hosting"}
+	b.products["prod_site"], b.products["prod_discord"] = whop.Metadata{}, whop.Metadata{}
+	f.mu.Unlock()
+	f.addOtherPlan(map[string]any{"id": "plan_site", "title": "Website", "plan_type": "one_time", "initial_price": 0, "product": map[string]any{"id": "prod_site", "title": "Playkeeper Hosting"}})
+	f.addOtherPlan(map[string]any{"id": "plan_discord", "title": "Community", "plan_type": "one_time", "initial_price": 0, "product": map[string]any{"id": "prod_discord", "title": "Discord"}})
+	sell := func() resp {
+		t.Helper()
+		return e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
+	}
+	hidden := func() []string {
+		t.Helper()
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return slices.Clone(b.hides)
+	}
+	f.mu.Lock()
+	b.hideDown = true
+	f.mu.Unlock()
+	if r := sell(); r.status != http.StatusBadGateway || len(hidden()) != 0 {
+		t.Fatalf("Open the store with Whop refusing to hide the website's product: %d %v, hidden %v", r.status, r.body, hidden())
+	}
+	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != whopNotOpenYetWhy {
+		t.Fatalf("a store whose website's product stayed opened: %q", st.ClosedWhy)
+	}
+	f.mu.Lock()
+	b.hideDown = false
+	f.mu.Unlock()
+	if r := sell(); r.status != http.StatusOK || r.body["open"] != true || !slices.Equal(hidden(), []string{"prod_site"}) {
+		t.Fatalf("Open the store: %d %v, hidden %v", r.status, r.body, hidden())
+	}
+	if r := sell(); r.status != http.StatusOK || len(hidden()) != 1 {
+		t.Fatalf("Update the store: %d %v, hidden %v", r.status, r.body, hidden())
+	}
+}
