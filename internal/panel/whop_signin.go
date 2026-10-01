@@ -219,9 +219,9 @@ func signInKey(state, secret string) string {
 func (s *Server) finishWhopSignIn(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
-	setHostCookie(w, whopSignInCookie, "", -1, http.SameSiteLaxMode)
 	// The state must be one this browser left with, by the secret in its
-	// cookie, and is used once.
+	// cookie, and is used once. A cookie that matches no sign-in may be a
+	// newer tab's, so only the sign-in found for it ends it.
 	state := q.Get("state")
 	c, err := r.Cookie(whopSignInCookie)
 	if err != nil || state == "" || c.Value == "" || len(c.Value) > 128 {
@@ -231,7 +231,12 @@ func (s *Server) finishWhopSignIn(w http.ResponseWriter, r *http.Request) {
 	var verifier, store, redirect string
 	var created int64
 	err = s.db.QueryRowContext(ctx, `DELETE FROM whop_signins WHERE state_hash = ? RETURNING verifier, created_at, store_id, redirect_uri`, signInKey(state, c.Value)).Scan(&verifier, &created, &store, &redirect)
-	if err != nil || s.now().Sub(time.UnixMilli(created)) > whopSignInFor {
+	if err != nil {
+		backToSignIn(w, r, "expired", "")
+		return
+	}
+	setHostCookie(w, whopSignInCookie, "", -1, http.SameSiteLaxMode)
+	if s.now().Sub(time.UnixMilli(created)) > whopSignInFor {
 		backToSignIn(w, r, "expired", "")
 		return
 	}
