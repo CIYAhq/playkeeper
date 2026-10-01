@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
@@ -338,6 +340,63 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	}
 	if len(f.shareWrites) != writes {
 		t.Fatalf("a suspended store, or one that left, set shares: %v", f.shareWrites)
+	}
+}
+
+// waitForLock waits until a call in the function named fn waits for a
+// mutex, as a seller's change does for whopMu while the store's pass holds
+// it.
+func waitForLock(t *testing.T, fn string) {
+	t.Helper()
+	buf := make([]byte, 1<<20)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		n := runtime.Stack(buf, true)
+		for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+			if strings.Contains(g, "(*Mutex).lockSlow") && strings.Contains(g, fn) {
+				return
+			}
+		}
+	}
+	t.Fatalf("no call in %s waited for a lock", fn)
+}
+
+// A seller's change that waits while the owner suspends the store, or while
+// it leaves, doesn't change it: the change looks at the store once it holds
+// the lock the suspension and the store's pass hold.
+func TestASellersChangeThatWaitsSeesASuspensionOrLeaving(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	waiting := func(path, body, fn string, meanwhile string) resp {
+		t.Helper()
+		e.srv.whopMu.Lock()
+		done := make(chan resp, 1)
+		go func() { done <- e.asSeller(t, "POST", path, body, token, nil) }()
+		waitForLock(t, fn)
+		if _, err := e.srv.db.Exec(meanwhile, e.clock.now().UnixMilli()); err != nil {
+			t.Error(err)
+		}
+		e.srv.whopMu.Unlock()
+		select {
+		case r := <-done:
+			return r
+		case <-time.After(30 * time.Second):
+			t.Fatal("the seller's change didn't answer")
+			return resp{}
+		}
+	}
+	r := waiting("biz_other/sell", `{}`, "hWhopSellerSell", `UPDATE whop_stores SET suspended_at = ?, suspend_reason = 'griefing' WHERE store_id = 'biz_other'`)
+	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "suspended") {
+		t.Fatalf("Open the store for a store suspended while it waited: %d %v", r.status, r.body)
+	}
+	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != whopNotOpenYetWhy || len(f.shareWrites) != 0 {
+		t.Fatalf("a store suspended while Open the store waited: closed %q, shares set %v", st.ClosedWhy, f.shareWrites)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE whop_stores SET suspended_at = 0, suspend_reason = '' WHERE store_id = 'biz_other'`); err != nil {
+		t.Fatal(err)
+	}
+	r = waiting("biz_other/prices", `{"plan":"plan_other","price":"15"}`, "hWhopSellerSetPrice", `UPDATE whop_stores SET left_at = ?, left_why = 'uninstalled' WHERE store_id = 'biz_other'`)
+	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "left") || len(f.priceSets) != 0 {
+		t.Fatalf("pricing a store that left while it waited: %d %v, prices set %v", r.status, r.body, f.priceSets)
 	}
 }
 
