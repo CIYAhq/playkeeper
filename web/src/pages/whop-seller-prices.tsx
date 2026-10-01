@@ -25,7 +25,12 @@ const offered = (p: SellerPrice) => (p.price >= p.floor ? p.price : p.suggested)
  * rule it can't, it says what to change in Whop, in a plain line each.
  * Otherwise it lists each plan at the price the page offers, and Looks good
  * saves the ones that changed. edit is the same once the store is open, to
- * change its prices. notice is what Fix my plans last changed.
+ * change its prices, except that it always lists them, with Back: Fix my
+ * plans is for a store that isn't open yet, and Update the store says what
+ * a plan added since needs. notice is what Fix my plans last changed.
+ * onPrices hands the page new prices to start the step again with, from
+ * Fix my plans or Check again; onSaved hands it the prices saved so far
+ * when a later one failed, and the step stays as it is, saying why.
  */
 export function PricesStep({
   store,
@@ -33,6 +38,7 @@ export function PricesStep({
   notice,
   edit,
   onPrices,
+  onSaved,
   onDone,
   onBack,
 }: {
@@ -41,6 +47,7 @@ export function PricesStep({
   notice?: string
   edit?: boolean
   onPrices: (prices: SellerPrices, changed?: string) => void
+  onSaved: (prices: SellerPrices) => void
   onDone: (prices: SellerPrices) => void
   onBack?: () => void
 }) {
@@ -116,19 +123,27 @@ export function PricesStep({
       {failed}
     </p>
   )
+  const back = onBack && (
+    <Button type="button" variant="ghost" className="max-sm:w-full" onClick={onBack}>
+      {t('sellerFlow.back')}
+    </Button>
+  )
 
   if (prices.plans.length === 0) {
     return (
       <>
         <StepHeader step={step} title={title} lead={t('sellerFlow.prices.none')} />
-        <Button size="lg" className="mt-6 max-sm:w-full" loading={busy} onClick={() => void checkAgain()}>
-          {t('sellerFlow.checkAgain')}
-        </Button>
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button size="lg" className="max-sm:w-full" loading={busy} onClick={() => void checkAgain()}>
+            {t('sellerFlow.checkAgain')}
+          </Button>
+          {back}
+        </div>
         {problem}
       </>
     )
   }
-  if (prices.fixable) {
+  if (!edit && prices.fixable) {
     return (
       <>
         <StepHeader step={step} title={title} lead={t('sellerFlow.fix.lead')} />
@@ -139,7 +154,7 @@ export function PricesStep({
       </>
     )
   }
-  if (prices.blocked?.length) {
+  if (!edit && prices.blocked?.length) {
     return (
       <>
         <StepHeader step={step} title={title} lead={t('sellerFlow.blocked.lead')} />
@@ -181,11 +196,7 @@ export function PricesStep({
           <Button type="submit" size="lg" className="max-sm:w-full" loading={busy}>
             {edit ? t('sellerFlow.prices.save') : t('sellerFlow.prices.looksGood')}
           </Button>
-          {onBack && (
-            <Button type="button" variant="ghost" className="max-sm:w-full" onClick={onBack}>
-              {t('sellerFlow.back')}
-            </Button>
-          )}
+          {back}
         </div>
       </form>
       {problem}
