@@ -446,6 +446,36 @@ func showHostedPlans(ctx context.Context, c *whop.Client, plans []whop.Plan) err
 	return nil
 }
 
+// whopWebsiteProduct is the title of the free product Whop adds to each
+// blueprint copy for its website.
+const whopWebsiteProduct = "Playkeeper Hosting"
+
+// hideWebsiteProduct hides the store's website product (whopWebsiteProduct)
+// from its page on Whop, so buyers see the hosting plans alone: one with
+// that title whose plans among plans that sell neither give servers nor
+// charge anything. A product already hidden is left alone.
+func hideWebsiteProduct(ctx context.Context, c *whop.Client, st whopStore, plans []whop.Plan) error {
+	products, err := c.Products(ctx, st.ID)
+	if err != nil {
+		return err
+	}
+	sells := map[string]bool{}
+	for _, p := range plans {
+		if _, hosting := hostedPlan(p); p.Visibility != "archived" && (hosting || !p.Free()) {
+			sells[p.Product.ID] = true
+		}
+	}
+	for _, p := range products {
+		if !strings.EqualFold(strings.TrimSpace(p.Title), whopWebsiteProduct) || sells[p.ID] || p.Visibility == "hidden" || p.Visibility == "archived" {
+			continue
+		}
+		if err := c.HideProduct(ctx, p.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // readWhopStoreSoon has the store's next pass read it from Whop, and has
 // that pass come now.
 func (s *Server) readWhopStoreSoon(ctx context.Context, id string) {
@@ -685,11 +715,12 @@ type sellerOpened struct {
 // or above the floor, and allow what the fleet runs (sellerPricesFrom).
 // Then Playkeeper's share is set on each hosting product, putting right any
 // share the seller changed (syncWhopShares, with force), and only when that
-// leaves nothing wrong are the hosting products marked for the store site
-// and the hosting plans made visible there, and the store opens, for its
-// seller's reason alone. A refusal leaves an open store open: only its
-// pass closes it. One for plans gives each a line with its problems, and
-// says once how to meet the rules they break (refusedPlans).
+// leaves nothing wrong are the hosting products marked for the store site,
+// the hosting plans made visible there and the website's free product
+// hidden (hideWebsiteProduct), and the store opens, for its seller's reason
+// alone. A refusal leaves an open store open: only its pass closes it. One
+// for plans gives each a line with its problems, and says once how to meet
+// the rules they break (refusedPlans).
 func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store string) {
 	st, user, c, ok := s.sellerStore(w, r, store)
 	if !ok {
@@ -740,6 +771,10 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		return
 	}
 	if err := showHostedPlans(ctx, c, plans); err != nil {
+		s.sellerRefusal(w, err)
+		return
+	}
+	if err := hideWebsiteProduct(ctx, c, st, plans); err != nil {
 		s.sellerRefusal(w, err)
 		return
 	}
