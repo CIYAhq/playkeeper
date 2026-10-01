@@ -561,3 +561,68 @@ func TestALookCutShortKeepsThePorts(t *testing.T) {
 		t.Fatalf("after a look the joined machine didn't answer in time: on %v, port 443 %+v", on, https)
 	}
 }
+
+// The owner's off holds whatever the machine answers: the dashboard records
+// it before asking the machine, so one that refuses it, or answers with an
+// error, can't keep its page up, and the owner still hears its error. On
+// waits for the machine to take it.
+func TestAMachineThatRefusesTheOwnersOffLosesItsPage(t *testing.T) {
+	j := newJoinedPage(t)
+	h := j.e.srv.pageHandler(true)
+	pageOn := func() bool {
+		t.Helper()
+		j.e.clock.add(pageCacheFor + time.Second)
+		resp, _ := pageGet(t, h, "GET", cobblemonName, "/")
+		return resp.StatusCode == http.StatusOK
+	}
+	if !pageOn() {
+		t.Fatal("the page isn't on to start with")
+	}
+	j.ra.handle("POST /v1/servers/"+cobblemonID+"/public-page", func(w http.ResponseWriter, r *http.Request) {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Something went wrong.", "")
+	})
+	path := "/api/servers/" + cobblemonID + "/public-page"
+	if r := j.e.do(t, "POST", path, `{"enabled":false}`, auth(j.cookie, j.csrf)); r.status < 400 {
+		t.Fatalf("the machine's refusal reached the owner as %d %v", r.status, r.body)
+	}
+	if pageOn() {
+		t.Fatal("a machine that refused the owner's off kept its page on")
+	}
+	if r := j.e.do(t, "POST", path, `{"enabled":true}`, auth(j.cookie, j.csrf)); r.status < 400 {
+		t.Fatalf("the machine's refusal of on reached the owner as %d %v", r.status, r.body)
+	}
+	if on, known := j.e.srv.pageRecord(cobblemonID); on || !known || pageOn() {
+		t.Fatalf("an on the machine refused: record on %v, known %v", on, known)
+	}
+}
+
+// A joined machine that doesn't answer, or answers with an error, says
+// nothing about its servers' pages: a look keeps what the page holds, and
+// only a page off on the dashboard's record or the machine's word gives
+// the ports back.
+func TestAMachineThatDoesntAnswerLeavesThePortsHeld(t *testing.T) {
+	j := newJoinedPage(t)
+	j.e.reply("GET", "/v1/public-page/state", `{"host":"beta.playkeeper.me","on":false}`)
+	ctx := context.Background()
+	j.e.srv.lookAtPage(ctx)
+	j.e.srv.page.mu.Lock()
+	j.e.srv.page.ports.HTTPS = api.PagePort{Port: 443, State: api.PortOpen}
+	j.e.srv.page.mu.Unlock()
+	j.ra.handle("GET /v1/servers/"+cobblemonID+"/public-page/shown", func(w http.ResponseWriter, r *http.Request) {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Something went wrong.", "")
+	})
+	j.e.clock.add(pageCacheFor + time.Second)
+	j.e.srv.lookAtPage(ctx)
+	j.e.srv.page.mu.Lock()
+	on, https := j.e.srv.page.on, j.e.srv.page.ports.HTTPS
+	j.e.srv.page.mu.Unlock()
+	if !on || https.State != api.PortOpen {
+		t.Fatalf("after a look the joined machine answered with an error: on %v, port 443 %+v", on, https)
+	}
+	j.e.srv.setPageRecord(cobblemonID, false)
+	j.e.clock.add(pageCacheFor + time.Second)
+	j.e.srv.lookAtPage(ctx)
+	if st := j.e.srv.page.portsNow(); st.HTTPS.State != api.PortOff {
+		t.Fatalf("with the page off on the dashboard's record: %+v", st)
+	}
+}

@@ -109,6 +109,9 @@ type pageAnswer struct {
 	contentType string
 	ok          bool
 	until       time.Time
+	// answered is set when the answer is what was said, ok or not, rather
+	// than one nobody gave (joinedpage.go).
+	answered bool
 }
 
 // answerCache keeps a machine's answers for the page for pageCacheFor,
@@ -635,7 +638,9 @@ func (s *Server) hPublicPage(w http.ResponseWriter, r *http.Request, _ *session)
 
 // hPublicPageSet changes a server's switches for the page, and records
 // whether its page is on as the dashboard set it, which a server on a
-// joined machine needs beside its machine's word (see joinedpage.go).
+// joined machine needs beside its machine's word (see joinedpage.go). Off
+// is recorded before the machine is asked, so a machine that refuses it
+// can't keep its page up; on, only once the machine takes it.
 func (s *Server) hPublicPageSet(w http.ResponseWriter, r *http.Request, sess *session) {
 	m, ok := s.target(w, r)
 	if !ok {
@@ -646,15 +651,19 @@ func (s *Server) hPublicPageSet(w http.ResponseWriter, r *http.Request, sess *se
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Request body must be a JSON object.", "")
 		return
 	}
+	id := r.PathValue("id")
+	if req.Enabled != nil && !*req.Enabled {
+		s.setPageRecord(id, false)
+		s.pageChanged()
+	}
 	req.Actor = sess.User.Username
 	var v api.PublicPageView
 	if _, err := m.agent.Do(asActor(r.Context(), sess.User.Username), http.MethodPost, agentPath("/v1/servers/{id}/public-page", r), nil, req, &v); err != nil {
 		s.agentFailure(w, err)
 		return
 	}
-	id := r.PathValue("id")
-	if req.Enabled != nil {
-		s.setPageRecord(id, *req.Enabled)
+	if req.Enabled != nil && *req.Enabled {
+		s.setPageRecord(id, true)
 	}
 	s.pageChanged()
 	s.pageView(m, id, &v)

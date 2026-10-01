@@ -65,35 +65,39 @@ func (s *Server) pageAnswers(ctx context.Context, host string) bool {
 }
 
 // anyJoinedPageOn reports whether a server on a joined machine is on the
-// page at its name, and known false when ctx ended before every machine
-// had answered and none said one was. Each machine is asked about its
-// servers in turn, the machines side by side, and only until ctx ends, so
-// a machine slow to answer holds up no look of the port keeper past its
-// deadline.
+// page at its name, and known false when one was left unanswered and none
+// said it was on: its machine didn't answer, or not before ctx ended. Each
+// machine is asked about its servers in turn, the machines side by side,
+// and only until ctx ends, so a machine slow to answer holds up no look of
+// the port keeper past its deadline.
 func (s *Server) anyJoinedPageOn(ctx context.Context) (on, known bool) {
 	byMachine := map[string][]joinedName{}
 	for _, j := range s.zoneNames() {
 		byMachine[j.machineID] = append(byMachine[j.machineID], j)
 	}
 	const (
-		answeredOff = iota
-		answeredOn
-		cutShort
+		allOff = iota
+		someOn
+		unanswered
 	)
 	answers := make(chan int, len(byMachine))
 	for _, names := range byMachine {
 		go func() {
+			answer := allOff
 			for _, j := range names {
 				if ctx.Err() != nil {
-					answers <- cutShort
+					answers <- unanswered
 					return
 				}
-				if _, ok := s.joinedPage(ctx, j); ok {
-					answers <- answeredOn
+				switch on, known := s.joinedPageState(ctx, j); {
+				case on:
+					answers <- someOn
 					return
+				case !known:
+					answer = unanswered
 				}
 			}
-			answers <- answeredOff
+			answers <- answer
 		}()
 	}
 	known = true
@@ -101,9 +105,9 @@ func (s *Server) anyJoinedPageOn(ctx context.Context) (on, known bool) {
 		select {
 		case a := <-answers:
 			switch a {
-			case answeredOn:
+			case someOn:
 				return true, true
-			case cutShort:
+			case unanswered:
 				known = false
 			}
 		case <-ctx.Done():
@@ -132,23 +136,46 @@ func (s *Server) joinedAnswers(id string) *answerCache {
 // joinedPage is what the page shows at j's address, from j's machine at
 // most once every pageCacheFor.
 func (s *Server) joinedPage(ctx context.Context, j joinedName) (api.PublicPage, bool) {
-	a, ok := s.joinedAnswers(j.machineID).get(ctx, s.now, "page "+j.id+" "+j.address, func(ctx context.Context) (pageAnswer, bool) {
-		m, ok := s.joinedMachine(j)
-		if !ok || !s.joinedPublic(ctx, m, j.id) {
-			return pageAnswer{}, false
-		}
-		var shown api.PublicServerShown
-		if !askJoined(ctx, m, "/v1/servers/"+url.PathEscape(j.id)+"/public-page/shown", &shown) {
-			return pageAnswer{}, false
-		}
-		b, err := json.Marshal(api.PublicPage{Address: j.address, Servers: []api.PublicServer{s.joinedServer(ctx, shown, j)}})
-		return pageAnswer{body: b}, err == nil
-	})
+	a, ok := s.joinedAnswer(ctx, j)
 	var page api.PublicPage
 	if !ok || json.Unmarshal(a.body, &page) != nil {
 		return api.PublicPage{}, false
 	}
 	return page, true
+}
+
+// joinedPageState reports whether j is on the page at its name, and known
+// false when that's unknown: its machine didn't answer, or doesn't run it
+// as far as the dashboard knows, as during a move.
+func (s *Server) joinedPageState(ctx context.Context, j joinedName) (on, known bool) {
+	a, ok := s.joinedAnswer(ctx, j)
+	return ok, a.answered
+}
+
+// joinedAnswer is the page's answer about j: answered when the dashboard's
+// record says it's off the page, or its machine says it's on or off.
+func (s *Server) joinedAnswer(ctx context.Context, j joinedName) (pageAnswer, bool) {
+	return s.joinedAnswers(j.machineID).get(ctx, s.now, "page "+j.id+" "+j.address, func(ctx context.Context) (pageAnswer, bool) {
+		m, ok := s.joinedMachine(j)
+		if !ok {
+			return pageAnswer{}, false
+		}
+		switch public, known := s.joinedPublic(ctx, m, j.id); {
+		case !known:
+			return pageAnswer{}, false
+		case !public:
+			return pageAnswer{answered: true}, false
+		}
+		var shown api.PublicServerShown
+		switch status, ok := askJoined(ctx, m, "/v1/servers/"+url.PathEscape(j.id)+"/public-page/shown", &shown); {
+		case status == http.StatusNotFound:
+			return pageAnswer{answered: true}, false
+		case !ok:
+			return pageAnswer{}, false
+		}
+		b, err := json.Marshal(api.PublicPage{Address: j.address, Servers: []api.PublicServer{s.joinedServer(ctx, shown, j)}})
+		return pageAnswer{body: b, answered: true}, err == nil
+	})
 }
 
 // joinedMachine is j's machine while the dashboard knows it runs j: not
@@ -162,32 +189,34 @@ func (s *Server) joinedMachine(j joinedName) (machine, bool) {
 }
 
 // askJoined asks the joined machine m for path, and reads at most
-// maxShownBytes of its JSON answer into out.
-func askJoined(ctx context.Context, m machine, path string, out any) bool {
+// maxShownBytes of its JSON answer into out. status is its answer's, 0 for
+// none.
+func askJoined(ctx context.Context, m machine, path string, out any) (status int, ok bool) {
 	resp, err := m.agent.Raw(ctx, http.MethodGet, path, nil, nil, nil, false)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || mediaType(resp.Header.Get("Content-Type")) != "application/json" {
-		return false
+		return resp.StatusCode, false
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxShownBytes))
-	return err == nil && json.Unmarshal(b, out) == nil
+	return resp.StatusCode, err == nil && json.Unmarshal(b, out) == nil
 }
 
 // joinedPublic reports whether the dashboard's record has server id, on the
-// joined machine m, on the page. A server whose page the dashboard never
-// set takes m's word for it once (pageRecordOr).
-func (s *Server) joinedPublic(ctx context.Context, m machine, id string) bool {
+// joined machine m, on the page, and known false while it can't say. A
+// server whose page the dashboard never set takes m's word for it once
+// (pageRecordOr).
+func (s *Server) joinedPublic(ctx context.Context, m machine, id string) (public, known bool) {
 	if on, known := s.pageRecord(id); known {
-		return on
+		return on, true
 	}
 	var v api.PublicPageView
-	if !askJoined(ctx, m, "/v1/servers/"+url.PathEscape(id)+"/public-page", &v) {
-		return false
+	if _, ok := askJoined(ctx, m, "/v1/servers/"+url.PathEscape(id)+"/public-page", &v); !ok {
+		return false, false
 	}
-	return s.pageRecordOr(id, v.Enabled)
+	return s.pageRecordOr(id, v.Enabled), true
 }
 
 // pageRecord is whether the dashboard's record has server id on the page,
