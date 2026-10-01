@@ -632,8 +632,10 @@ func TestAnAppStoreIsReadEveryTenMinutesNotEveryPass(t *testing.T) {
 	}
 	from := f.askedSoFar()
 	e.reconcile()
+	e.clock.add(whopShareFresh)
+	e.reconcile()
 	if asked := f.askedSince(from, "GET /variants", "GET /affiliates/", "GET /payments", "GET /refunds"); len(asked) > 0 {
-		t.Fatalf("a pass a minute after the store was read asked Whop for %q", asked)
+		t.Fatalf("passes a minute and three minutes after the store was read asked Whop for %q", asked)
 	}
 	e.clock.add(whopPollEvery)
 	from = f.askedSoFar()
