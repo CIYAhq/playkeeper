@@ -76,6 +76,34 @@ func TestInstallSummaryForFirstInstallAndReinstall(t *testing.T) {
 	}
 }
 
+// Right under the link, the summary says what to do when it won't open: the
+// provider's firewall steps, for the provider the installer told, with the
+// install's own ports.
+func TestInstallSummarySaysWhatToDoWhenTheLinkWontOpen(t *testing.T) {
+	for _, c := range []struct {
+		res  install.Result
+		want string
+	}{
+		{install.Result{SetupCode: "abc123", PanelPort: 8443, GamePort: 25565, Provider: install.Providers[0]},
+			"\n     Won't open? Open ports 8443 and 25565 in AWS's firewall: https://playkeeper.io/ports#aws\n"},
+		{install.Result{SetupCode: "abc123", PanelPort: 9443, GamePort: 25570},
+			"\n     Won't open? Open ports 9443 and 25570 in your provider's firewall: https://playkeeper.io/ports\n"},
+		{install.Result{ExistingAdm: true, PanelPort: 8443, GamePort: 25565, Provider: install.Providers[3]},
+			"\n     Won't open? Open ports 8443 and 25565 in Oracle Cloud's firewall: https://playkeeper.io/ports#oracle-cloud\n"},
+	} {
+		c.res.URL, c.res.Fingerprint = "https://192.0.2.10:8443", "AA:BB"
+		var b bytes.Buffer
+		writeInstallSummary(&b, &c.res)
+		out := b.String()
+		if !strings.Contains(out, c.want) {
+			t.Errorf("the summary lacks %q:\n%s", c.want, out)
+		}
+		if strings.Index(out, "Won't open?") > strings.Index(out, "  2. ") {
+			t.Errorf("the line isn't under the link:\n%s", out)
+		}
+	}
+}
+
 func TestDevStaysOffTheRealNamesServiceAndLetsEncrypt(t *testing.T) {
 	cfg := config.Default()
 	devDefaults(&cfg)
