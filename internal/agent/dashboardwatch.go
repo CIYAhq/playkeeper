@@ -228,7 +228,7 @@ func (a *Agent) lookAtDashboard() {
 		}
 		return
 	}
-	a.watch.n.SetServer(discord.ServerInfo{DashboardURL: "https://" + d.Address})
+	a.watch.n.SetServer(discord.ServerInfo{DashboardURL: dashboardURL(d)})
 	if up {
 		if a.watch.posted {
 			a.watch.n.Notify(discord.DashboardBack(d.Name, minutesSince(a.watch.downSince, now)))
@@ -246,6 +246,17 @@ func (a *Agent) lookAtDashboard() {
 		a.watch.n.Notify(discord.DashboardDown(d.Name, minutesSince(a.watch.downSince, now)))
 		a.watch.posted = true
 	}
+}
+
+// dashboardURL is where the watch's messages open the dashboard: the address
+// the machine joined, which leaves out the panel's port 8443, with its
+// port, or "" when it can't be read.
+func dashboardURL(d machinelink.Dashboard) string {
+	addr, err := machinelink.ParseAddress(d.Address)
+	if err != nil {
+		return ""
+	}
+	return "https://" + addr.HostPort()
 }
 
 // linkUp reads the state the link keeps at path: whether it's connected and

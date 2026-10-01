@@ -37,7 +37,9 @@ func (e *agentEnv) joinDashboardAs(pub ed25519.PublicKey, machineID string) ed25
 	if err := os.MkdirAll(e.cfg.LinkDir(), 0o700); err != nil {
 		e.t.Fatal(err)
 	}
-	d := machinelink.Dashboard{Address: "panel.example.com:8443", Key: pub, MachineID: machineID, Name: "m2", JoinedAt: time.Now()}
+	// A join keeps the address as people write it, without the panel's port.
+	addr := machinelink.Address{Host: "panel.example.com", Port: machinelink.DefaultPort}.String()
+	d := machinelink.Dashboard{Address: addr, Key: pub, MachineID: machineID, Name: "m2", JoinedAt: time.Now()}
 	if err := d.Save(e.cfg.LinkDashboardPath()); err != nil {
 		e.t.Fatal(err)
 	}
@@ -142,6 +144,21 @@ func TestAJoinedMachinePostsOnlyThatItsDashboardCantBeReachedAndIsBack(t *testin
 	}
 	if _, out := e.call("GET", "/v1/discord", nil); out["connected"] != false {
 		t.Fatalf("the dashboard's webhook connected this machine's own Discord: %v", out)
+	}
+}
+
+func TestTheWatchOpensTheDashboardAtTheAddressItJoinedWithItsPort(t *testing.T) {
+	for addr, want := range map[string]string{
+		"panel.example.com":          "https://panel.example.com:8443",
+		"panel.example.com:9443":     "https://panel.example.com:9443",
+		"https://panel.example.com/": "https://panel.example.com:8443",
+		"[2001:db8::1]":              "https://[2001:db8::1]:8443",
+		"203.0.113.10:443":           "https://203.0.113.10:443",
+		"panel example.com":          "",
+	} {
+		if got := dashboardURL(machinelink.Dashboard{Address: addr}); got != want {
+			t.Errorf("joined at %q, the messages open %q, want %q", addr, got, want)
+		}
 	}
 }
 

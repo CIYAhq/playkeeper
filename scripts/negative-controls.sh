@@ -12159,6 +12159,10 @@ control "dashboard watch: a join is the id its dashboard gave the machine" inter
   'return d.Fingerprint() + " " + d.MachineID' \
   'return d.Fingerprint()' \
   ./internal/agent '^TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook$'
+control "dashboard watch: its messages open the dashboard at the address it joined, with its port" internal/agent/dashboardwatch.go \
+  'return "https://" + addr.HostPort()' \
+  'return "https://" + d.Address' \
+  ./internal/agent '^(TestTheWatchOpensTheDashboardAtTheAddressItJoinedWithItsPort|TestAJoinedMachinePostsOnlyThatItsDashboardCantBeReachedAndIsBack)$'
 # shellcheck disable=SC2016
 control "dashboard watch: the dashboard clears its webhook" internal/agent/dashboardwatch.go \
   'res, err := a.db.Exec(`DELETE FROM dashboard_watch WHERE id = 1`)' \
