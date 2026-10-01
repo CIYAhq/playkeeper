@@ -843,6 +843,11 @@ INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_t
   JOIN whop_customers c ON c.store_id = m.store_id AND c.whop_user_id = m.whop_user_id AND c.applied != '' AND c.paused = 0
   WHERE m.stale = 0 AND m.status IN ('trialing', 'active', 'canceling', 'past_due');
 `,
+	// When the share check last found each app store's share right, 0 once
+	// it found it wrong (see whopShareFresh).
+	`
+ALTER TABLE whop_share_watch ADD COLUMN share_right_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (

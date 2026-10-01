@@ -501,3 +501,129 @@ func TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships(t *testing.T) {
 		t.Fatalf("once a payment carried the 8 GB share: the core's calls %q, problem %q", calls, problem())
 	}
 }
+
+// An app store is read, its share checked and its payments read every
+// whopPollEvery, not every pass: reading it doesn't mark its products, so
+// no address of theirs is compared with the dashboard's. A customer whose
+// payment was checked doesn't have the share checked out of turn.
+func TestAnAppStoreIsReadEveryTenMinutesNotEveryPass(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	e.reconcile()
+	if !calledFor(core.got(), "start ", "user_kim") {
+		t.Fatalf("kim didn't start: %q", core.got())
+	}
+	e.clock.add(time.Minute)
+	if e.srv.whopStoreDue(t.Context(), e.otherStore(t)) {
+		t.Fatal("an app store read a minute ago is due again")
+	}
+	from := f.askedSoFar()
+	e.reconcile()
+	if asked := f.askedSince(from, "GET /variants", "GET /affiliates/", "GET /payments", "GET /refunds"); len(asked) > 0 {
+		t.Fatalf("a pass a minute after the store was read asked Whop for %q", asked)
+	}
+	e.clock.add(whopPollEvery)
+	from = f.askedSoFar()
+	e.reconcile()
+	if asked := f.askedSince(from, "GET /variants", "GET /affiliates/aff_biz_other/overrides"); len(asked) < 2 {
+		t.Fatalf("ten minutes on, the store's plans and share weren't read: %q", asked)
+	}
+}
+
+// A payment's fee lines don't say whom its share went to, so a payment
+// counts only once the share check found Playkeeper's share right within
+// whopShareFresh. A pass that didn't read the store checks the share first
+// when a payment waits on it, and while it can't, nobody starts. So a
+// seller who swaps Playkeeper for a partner of their own at the same
+// percentage between the store's reads gets nobody started meanwhile.
+func TestAPaymentCountsOnlyAfterTheShareWasFoundRight(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	e.reconcile()
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	b.sharesDown = true
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	e.clock.add(whopShareFresh)
+	e.reconcile()
+	if calledFor(core.got(), "start ", "user_kim") {
+		t.Fatal("kim started while Playkeeper's share couldn't be checked")
+	}
+	if st := e.otherStore(t); st.ClosedWhy != "" {
+		t.Fatalf("a share check Whop failed closed the store: %q", st.ClosedWhy)
+	}
+	f.mu.Lock()
+	b.sharesDown = false
+	kept := b.shares
+	b.shares = nil
+	f.mu.Unlock()
+	e.clock.add(time.Minute)
+	e.reconcile()
+	if calledFor(core.got(), "start ", "user_kim") {
+		t.Fatal("kim started on a payment whose share another partner may have had")
+	}
+	if st := e.otherStore(t); st.ClosedWhy != "Playkeeper's share on Minecraft server was removed." {
+		t.Fatalf("Playkeeper's share removed between the store's reads: closed %q", st.ClosedWhy)
+	}
+	f.mu.Lock()
+	b.shares = kept
+	f.mu.Unlock()
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	if !calledFor(core.got(), "start ", "user_kim") {
+		t.Fatalf("once the share was right again, kim didn't start: %q", core.got())
+	}
+}
+
+// The payments read keeps each payment's fee lines once: a payment its
+// overlap lists again isn't read again, unless more of it was refunded.
+func TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded(t *testing.T) {
+	f, e, _ := twoStores(t)
+	useFakeCore(e)
+	e.reconcile()
+	f.mu.Lock()
+	b := f.installed["biz_other"]
+	at := e.clock.now().Add(time.Minute).UTC().Format(time.RFC3339)
+	b.payments = append([]map[string]any{{"id": "pay_renew", "status": "paid", "membership_id": "mem_kim", "plan_id": "plan_other", "product_id": "prod_other",
+		"created_at": at, "paid_at": at, "user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}}, b.payments...)
+	if b.fees == nil {
+		b.fees = map[string][]map[string]any{}
+	}
+	b.fees["pay_renew"] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
+		"settlement_amount": map[string]any{"amount": "8.50", "currency": "usd", "decimals": 2}}}
+	f.mu.Unlock()
+	from := f.askedSoFar()
+	reads := func() int { return len(f.askedSince(from, "GET /payments/pay_renew/fees")) }
+	refunded := func() int64 {
+		var n int64
+		if err := e.srv.db.QueryRow(`SELECT refunded FROM whop_payments WHERE payment_id = 'pay_renew'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	if n := reads(); n != 1 {
+		t.Fatalf("the renewal's fee lines were read %d times", n)
+	}
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	if n := reads(); n != 1 {
+		t.Fatalf("the read after, whose overlap lists the renewal again: its fee lines read %d times", n)
+	}
+	f.mu.Lock()
+	b.refunds = append(b.refunds, map[string]any{"id": "ref_1", "payment_id": "pay_renew", "status": "succeeded", "created_at": e.clock.now().UTC().Format(time.RFC3339)})
+	b.payments[0]["refunded_amount"] = map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
+	f.mu.Unlock()
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	if n, back := reads(), refunded(); n != 2 || back != 1200 {
+		t.Fatalf("once it was refunded: its fee lines read %d times, %d refunded", n, back)
+	}
+}
