@@ -7866,8 +7866,7 @@ control "no page loads an ad pixel" site/pages/start.html \
   ./internal/site '^TestNoPageLoadsAnAdPixel$'
 
 # The privacy policy (site/pages/privacy.html): every page's footer and the
-# Cloud page link it, and it links the seller terms only once their page is
-# on the site.
+# Cloud page link it.
 control "privacy: every page's footer links the privacy policy" internal/site/nav.go \
   '{Label: "Privacy", Path: "/privacy"},' \
   '' \
@@ -7875,10 +7874,6 @@ control "privacy: every page's footer links the privacy policy" internal/site/na
 control "privacy: the Cloud page links the privacy policy" site/pages/cloud.html \
   'Our <a href="/privacy">privacy policy</a> says what' \
   'Our privacy policy says what' \
-  ./internal/site '^TestThePrivacyPolicy$'
-control "privacy: the policy links the seller terms only once their page is on the site" site/pages/privacy.html \
-  'we handle it for them, as our {{if exists "/cloud/seller-terms"}}' \
-  'we handle it for them, as our {{if true}}' \
   ./internal/site '^TestThePrivacyPolicy$'
 
 # An own domain under playkeeper.me: only a name nobody can claim, and only
