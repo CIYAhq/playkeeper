@@ -3014,7 +3014,7 @@ shcontrol "a shard runs the tests a panic kept from starting" scripts/go-test-sh
 # shellcheck disable=SC2016
 shcontrol "runners' parts of the shards side by side run every shard between them" scripts/go-test-shard.sh \
   'ours=$(seq "$r" "$m" "$jobs")' \
-  'ours=$(seq "$r" "$m" "$((jobs - 1))")' \
+  'ours=$(seq "$r" "$m" "$((jobs - m + 1))")' \
   scripts/go-test-shard_test.sh
 # shellcheck disable=SC2016
 shcontrol "a runner's part fails when one of its shards didn't run all of its tests" scripts/go-test-shard.sh \
