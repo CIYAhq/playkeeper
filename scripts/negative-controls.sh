@@ -8320,6 +8320,22 @@ control "app webhook: with it, an app store is read every ten minutes" internal/
   'return whopPollEvery' \
   'return whopPollUnhooked' \
   ./internal/panel '^TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes$'
+control "memberships: one 404 deletes nothing of an app store's" internal/panel/whop_customers.go \
+  'if whop.NotFound(err) && st.Via == whopViaApp {' \
+  'if whop.NotFound(err) && false {' \
+  ./internal/panel '^TestOne404OnAnAppStoresMembershipPausesNobody$'
+control "memberships: a 404 has the next pass read every membership" internal/panel/whop_customers.go \
+  'SET polled_at = 0 WHERE store_id = ?' \
+  'SET polled_at = polled_at WHERE store_id = ?' \
+  ./internal/panel '^TestOne404OnAnAppStoresMembershipPausesNobody$'
+control "memberships: one the full read lists again is found" internal/panel/whop_customers.go \
+  'updated_at = excluded.updated_at, not_found_at = 0,' \
+  'updated_at = excluded.updated_at,' \
+  ./internal/panel '^TestOne404OnAnAppStoresMembershipPausesNobody$'
+control "memberships: one the full read doesn't list either is gone" internal/panel/whop_customers.go \
+  'AND stale = 1 AND not_found_at > 0' \
+  'AND stale = 1 AND not_found_at < 0' \
+  ./internal/panel '^TestOne404OnAnAppStoresMembershipPausesNobody$'
 control "app key: Settings shows its ending alone" internal/panel/whop_app.go \
   'KeyEnding: whop.Ending(app.Key)' \
   'KeyEnding: app.Key' \
@@ -8409,6 +8425,18 @@ control "seller page: only Whop's frames show it" internal/panel/server.go \
   'frame-ancestors https://whop.com https://*.whop.com;' \
   'frame-ancestors *;' \
   ./internal/panel '^TestOnlyTheSellersPageMayBeFramedAndOnlyByWhop$'
+control "seller page: the limits are each seller's own" internal/panel/whop_sellerpage.go \
+  'if ok, wait := perMinute.allow(seller); !ok {' \
+  'if ok, wait := perMinute.allow("everyone"); !ok {' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
+control "seller page: a seller past their limit is refused" internal/panel/whop_sellerpage.go \
+  'if ok, wait := perMinute.allow(seller); !ok {' \
+  'if ok, wait := perMinute.allow(seller); !ok && false {' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
+control "seller page: one address is bounded only against floods" internal/panel/public.go \
+  '{prefix: whopSellerPrefix, limits: whopSellerProxyLimits,' \
+  '{prefix: whopSellerPrefix, limits: publicLimits{perMinute: 60, open: 8, read: whopCallsFor + 10*time.Second, write: whopCallsFor + 10*time.Second},' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
 webcontrol "seller page: only a business's id reaches its call" web/src/lib/router.ts \
   'third && reWhopBusiness.test(third) && parts.length === 3' \
   'third && parts.length === 3' \

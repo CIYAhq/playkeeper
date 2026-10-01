@@ -814,6 +814,12 @@ CREATE TABLE erased_customers (
   PRIMARY KEY (store_id, subject_hash)
 );
 `,
+	// When a read of one app store's membership didn't find it, 0 while
+	// it's found: the store's next full read settles it (see
+	// refreshWhopMemberships).
+	`
+ALTER TABLE whop_memberships ADD COLUMN not_found_at INTEGER NOT NULL DEFAULT 0;
+`,
 	// What the payment check found for each app store's membership that
 	// gives servers (see whopPaidPlan): the plan it gave, and its servers,
 	// memory and disk, when a payment of it last carried Playkeeper's share,

@@ -66,6 +66,34 @@ func (e *env) openAsSeller(t *testing.T, biz, token string, hdr map[string]strin
 	return e.do(t, "POST", whopSellerPrefix+biz+"/open", `{}`, h)
 }
 
+// One seller's calls don't hold up another's, though every seller's page
+// comes through Whop's proxy, from the same address: the limits are each
+// seller's own, once Whop's token says who they are. Calls without a
+// valid token count against nobody's limits.
+func TestOneSellersCallsDontHoldUpAnothers(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	f.mu.Lock()
+	f.team["biz_other"] = []string{"user_mate"}
+	f.mu.Unlock()
+	refused := 0
+	for range whopSellerLimits.perMinute + 5 {
+		if r := e.asSeller(t, "GET", "biz_other/prices", "", token, nil); r.status == http.StatusTooManyRequests {
+			refused++
+		}
+	}
+	if refused == 0 {
+		t.Fatal("a seller's page past its limit wasn't refused")
+	}
+	for range whopSellerLimits.perMinute + 5 {
+		if r := e.asSeller(t, "GET", "biz_other/prices", "", "", nil); r.status == http.StatusTooManyRequests {
+			t.Fatalf("a call without a token was limited: %d %v", r.status, r.body)
+		}
+	}
+	if r := e.asSeller(t, "GET", "biz_other/prices", "", f.sellerToken(e, whopTestApp, "user_mate"), nil); r.status != http.StatusOK {
+		t.Fatalf("another seller, once the first used up their limit: %d %v", r.status, r.body)
+	}
+}
+
 // A seller opens the Playkeeper Cloud app's page in their Whop dashboard:
 // their business becomes an app store, named as its products say, at the
 // address its memberships give once there are some, and closed until its
