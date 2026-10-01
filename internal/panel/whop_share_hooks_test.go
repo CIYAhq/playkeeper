@@ -146,9 +146,10 @@ func TestAPlanSomeoneHasThatsGoneFromWhopIsAProblem(t *testing.T) {
 }
 
 // A hosting plan the seller adds after Open the store is held to its rules
-// at the next share check: one that's one-time, yearly, under the floor or
-// on a free trial closes the store for its share, naming the plan, and its
-// buyer doesn't start, though their payment carried the share.
+// at the next share check: one that's one-time, yearly, under the floor,
+// on a free trial or past the fleet's limits closes the store for its
+// share, naming the plan, and its buyer doesn't start, though their
+// payment carried the share.
 func TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules(t *testing.T) {
 	for _, c := range []struct {
 		name, status, says string
@@ -158,6 +159,8 @@ func TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules(t *testing.T) {
 		{"yearly", "active", "New: It doesn't renew every month", map[string]any{"plan_type": "renewal", "billing_period": 365, "renewal_price": 12}},
 		{"under the floor", "active", "New: It charges $9.00, under the $12.00 floor for 4 GB", map[string]any{"plan_type": "renewal", "billing_period": 30, "renewal_price": 9}},
 		{"on a free trial", "active", "New: It has a free trial", map[string]any{"plan_type": "renewal", "billing_period": 30, "renewal_price": 12, "trial_period_days": 3}},
+		{"past the fleet's limits", "active", "New: It allows 20 servers, and hosted plans allow 1 to 10", map[string]any{"plan_type": "renewal", "billing_period": 30, "renewal_price": 12,
+			"metadata": map[string]any{whop.MetaServers: "20", whop.MetaMemoryGB: "4"}}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f, e, _ := twoStores(t)

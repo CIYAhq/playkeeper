@@ -8529,6 +8529,10 @@ control "share: each hosting plan is held to Open the store's rules" internal/pa
   'if sp.Problem != "" {' \
   'if sp.Problem != "" && false {' \
   ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "share: a plan past the fleet's limits is a problem" internal/panel/whop_share.go \
+  'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {' \
+  'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" && false {' \
+  ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
 control "hosting: a one-time purchase gives no servers in an app store" internal/panel/whop_customers.go \
   'if via == whopViaApp && status == "completed" {' \
   'if false && via == whopViaApp && status == "completed" {' \

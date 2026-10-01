@@ -183,10 +183,14 @@ func TestAProductsShareCoversEachOfItsPlans(t *testing.T) {
 	yearly.BillingPeriod = 365
 	euros.Currency = "eur"
 	trial.TrialDays = 3
+	crowded, roomy := plan("crowded", "prod_e", 0, 12, "4"), plan("roomy", "prod_e", 0, 400, "128")
+	crowded.Metadata[whop.MetaServers] = "20"
 	for _, c := range []struct {
 		p    whop.Plan
 		says string
 	}{
+		{crowded, "crowded: It allows 20 servers, and hosted plans allow 1 to 10"},
+		{roomy, "roomy: It allows 128 GB, and hosted plans allow 1 GB to 64 GB"},
 		{once, "once: It doesn't renew every month"},
 		{yearly, "yearly: It doesn't renew every month"},
 		{euros, "euros: It's priced in EUR"},
