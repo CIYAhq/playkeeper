@@ -501,6 +501,33 @@ func TestTheDashboardLinksOnlyPagesTheSiteHas(t *testing.T) {
 	}
 }
 
+// The privacy policy is at /privacy and says who's behind it, which version
+// it is and where to write. Every page's footer links it, and so does the
+// Cloud page. It links the seller terms only once their page exists.
+func TestThePrivacyPolicy(t *testing.T) {
+	built := pages(build(t, Default))
+	policy, ok := built["/privacy"]
+	if !ok {
+		t.Fatal("there is no /privacy")
+	}
+	for _, want := range []string{"CIYA TECHNOLOGIES LTD, Pyrrou 11, 4105 Limassol, Cyprus", "Version of 1 October 2026", `<a href="mailto:me@siya.digital">me@siya.digital</a>`} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("the privacy policy doesn't say %s", want)
+		}
+	}
+	for p, html := range built {
+		if strings.Contains(html, `<footer class="site-footer">`) && !strings.Contains(between(html, `<footer class="site-footer">`, "</footer>"), `href="/privacy"`) {
+			t.Errorf("%s's footer doesn't link the privacy policy", p)
+		}
+	}
+	if !strings.Contains(built["/cloud"], `<a href="/privacy">privacy policy</a>`) {
+		t.Error("the Cloud page doesn't link the privacy policy")
+	}
+	if _, terms := built["/cloud/seller-terms"]; !terms && strings.Contains(policy, `href="/cloud/seller-terms"`) {
+		t.Error("the privacy policy links seller terms that aren't there")
+	}
+}
+
 // Nothing on the site collects an email address; the pricing cards that come
 // later offer Watch releases on GitHub.
 func TestNoEmailForms(t *testing.T) {
