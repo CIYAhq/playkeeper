@@ -56,6 +56,12 @@ export interface ButtonProps extends useRender.ComponentProps<"button"> {
   loading?: boolean;
   /** Playkeeper: disables the button and says why, as its tooltip and description. */
   disabledReason?: string;
+  /**
+   * Playkeeper: with a disabledReason, the button stays focusable and
+   * pressable, marked disabled with aria-disabled, and a press calls this
+   * instead of onClick, so a tap or a key can say why where a tooltip can't.
+   */
+  onDisabledPress?: () => void;
 }
 
 export function Button({
@@ -67,10 +73,13 @@ export function Button({
   loading = false,
   disabled: disabledProp,
   disabledReason,
+  onDisabledPress,
+  onClick,
   ...props
 }: ButtonProps): React.ReactElement {
   const isDisabled: boolean = Boolean(loading || disabledProp || disabledReason);
   const reason = isDisabled && !loading ? disabledReason : undefined;
+  const pressable = Boolean(reason && onDisabledPress && !disabledProp);
   const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] =
     render ? undefined : "button";
 
@@ -89,12 +98,20 @@ export function Button({
     className: cn(
       buttonVariants({ className, size, variant }),
       reason && "disabled:pointer-events-auto disabled:cursor-not-allowed",
+      pressable && "cursor-not-allowed opacity-64 shadow-none",
     ),
     title: reason,
-    "aria-disabled": loading || undefined,
+    "aria-disabled": loading || pressable || undefined,
+    "data-disabled": pressable ? "" : undefined,
     "data-loading": loading ? "" : undefined,
     "data-slot": "button",
-    disabled: isDisabled,
+    disabled: isDisabled && !pressable,
+    onClick: pressable
+      ? (e: React.MouseEvent<HTMLButtonElement>) => {
+          e.preventDefault();
+          onDisabledPress?.();
+        }
+      : onClick,
     type: typeValue,
   };
 

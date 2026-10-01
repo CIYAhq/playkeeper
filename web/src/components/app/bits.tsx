@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { CheckIcon, CopyIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, ExternalLinkIcon } from 'lucide-react'
 import { playerHeadUrl } from '@/api/client'
 import type { Operation, ServerStatus } from '@/api/types'
 import { Button, type ButtonProps } from '@/components/ui/button'
@@ -249,6 +249,16 @@ export function CopyButton({ text, label, copiedLabel, toast, ...props }: { text
 }
 
 /** A section label: 11 px uppercase. */
+/** The Minecraft EULA, opened in a new tab: a link of its own after the sentence that accepts it, so the sentence can tick its box. */
+export function EulaLink({ className }: { className?: string }) {
+  return (
+    <a href={t('eula.url')} target="_blank" rel="noreferrer" className={cn('inline-flex items-center gap-0.5 font-medium whitespace-nowrap text-primary underline underline-offset-2', className)} onClick={(e) => e.stopPropagation()}>
+      {t('eula.read')}
+      <ExternalLinkIcon className="size-3" aria-hidden="true" />
+    </a>
+  )
+}
+
 export function SectionLabel({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cn('section-label', className)}>{children}</div>
 }
