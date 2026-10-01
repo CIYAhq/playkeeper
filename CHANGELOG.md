@@ -11,6 +11,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Fixed: pre-generation could retry a task once more than it should after the server ran out of memory, instead of pausing it for memory. When a task is paused, resumed, cancelled or ends, its line in the activity is now stored together with it.
 - Fixed: deleting a copy somewhere else from a store that takes over a minute no longer says the agent isn't running, or on a joined machine that it didn't answer, while cutting the deletion off. The dashboard waits for the store, up to the two minutes the agent gives it.
 - Fixed: when something a server or the machine was doing ended, it showed as free a moment before that was recorded as ended, so the activity could still say it was running.
+- Fixed: a server that restarted just as the agent began reading its log, such as right after the agent itself started, was taken for the run before it until it stopped again. A crash then passed for a clean stop, with no crash alert, and **How it's running** could count the run before's garbage collection.
 
 ## 0.4.13
 
