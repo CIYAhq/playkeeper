@@ -7059,11 +7059,13 @@ control "joined page: a move records whether the server was on the page where it
   'if on, ok := movedPublicPage(state); ok {' \
   'if on, ok := movedPublicPage(state); ok && false {' \
   ./internal/panel '^TestAMoveKeepsWhetherAServerWasOnThePage$'
+# shellcheck disable=SC2016
 control "joined page: a deleted server's record of the page goes with it" internal/panel/workspace.go \
   '		`DELETE FROM public_pages WHERE ` + gone,
 ' \
   '' \
   ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
+# shellcheck disable=SC2016
 control "joined page: deleting a customer forgets whether their servers were on the page" internal/panel/erasure.go \
   '`DELETE FROM public_pages WHERE server_id = ?`, ' \
   '' \
