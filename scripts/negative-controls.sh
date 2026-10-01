@@ -3011,6 +3011,21 @@ shcontrol "a shard runs the tests a panic kept from starting" scripts/go-test-sh
   'todo=$(grep -vxF -e "$started" <<<"$todo" || true)' \
   'todo=' \
   scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "runners' parts of the shards side by side run every shard between them" scripts/go-test-shard.sh \
+  'ours=$(seq "$r" "$m" "$jobs")' \
+  'ours=$(seq "$r" "$m" "$((jobs - 1))")' \
+  scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "a runner's part fails when one of its shards didn't run all of its tests" scripts/go-test-shard.sh \
+  'missed=$(for k in $ours; do comm -23 <(sort -u "$out/mine-$k.txt") <(sort -u "$out/ran-$k.txt"); done)' \
+  'missed=' \
+  scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "a part past the runners or the shards is refused" scripts/go-test-shard.sh \
+  ' || [ "$r" -gt "$m" ] || [ "$m" -gt "$jobs" ]; then' \
+  '; then' \
+  scripts/go-test-shard_test.sh
 shcontrol "a module download the proxy dropped is tried again" scripts/net-retry.sh \
   "transient='stream error|" \
   "transient='" \
