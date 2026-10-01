@@ -849,6 +849,8 @@ describe('Overview', () => {
     expect(steps[1]).toContain('Downloaded Paper 26.1.2 and checked it')
     expect(steps[2]).toContain('Downloading the template’s plugins')
     expect(steps[2]).toContain('2 of 5 files · each one checked · 1 skipped: Simple Voice Chat')
+    // The agent checks the port from the VPS itself, which says nothing of a provider's firewall.
+    expect(steps[4]).toBe('Checking the server answers on port 25565')
     expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40')
   })
 
@@ -2674,7 +2676,7 @@ describe('Modpacks', () => {
   })
 
   it('says what a pack’s server downloads, not Paper', () => {
-    expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
+    expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you once it’s running.')
     expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')
     expect(createNote(4, 'modpack', 'forge')).toContain('downloads Forge and the pack’s mods')
     expect(createNote(4, 'modpack', '')).not.toContain('Paper')
@@ -2885,15 +2887,20 @@ describe('Onboarding', () => {
     expect(checkAgain()?.textContent).toBe('Check again')
   })
 
-  it('checks the machine in plain words, with the provider firewall to do by hand', async () => {
+  it('checks the machine in plain words, with the provider firewall a note that doesn’t count against it', async () => {
     answer({ '/preflight': preflight })
     const text = await render(<Onboarding />, workspace({ servers: [] }))
     expect(text).toContain('Checking this VPS')
     expect(text).toContain('Memory: 16 GB')
     expect(text).toContain('Ubuntu 24.04 on x86-64')
     expect(text).toContain('Port 25565 is free')
-    expect(text).toContain('Your provider’s firewall')
-    expect(text).toContain('6 of 7 look good')
+    expect(text).toContain('6 of 6 look good')
+    // The VPS can't see its provider's firewall, so the note neither warns nor counts.
+    expect(text).toContain('Friends join on port 25565')
+    expect(text).not.toContain('friends can’t join')
+    const how = [...document.querySelectorAll('a')].find((a) => a.textContent === 'How to open a port')
+    expect(how?.getAttribute('href')).toBe('https://playkeeper.io/ports')
+    expect(document.querySelectorAll('li .text-warning')).toHaveLength(0)
   })
 })
 

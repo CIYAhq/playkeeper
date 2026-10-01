@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, InfoIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
 import type { LogsResponse, Me, Operation, Preflight, PreflightCheck, ServerStatus } from '@/api/types'
@@ -256,7 +256,6 @@ function CheckStage({ onNext }: { onNext: () => void }) {
     if (!pre) return []
     const out = pre.checks.map((c) => ({ key: c.id, status: c.status, ...checkText(c, live?.memoryTotalMB, live?.diskFreeBytes, port) }))
     if (live) out.splice(3, 0, { key: 'os', status: 'pass' as const, title: t('onboarding.check.os', { os: live.os, arch: live.arch }), hint: t('onboarding.check.osHint') })
-    out.push({ key: 'firewall', status: 'info' as const, title: t('onboarding.check.firewall'), hint: t('onboarding.check.firewallHint', { port }) })
     return out
   }, [pre, live, port])
   const ok = rows.filter((r) => r.status === 'pass').length
@@ -287,18 +286,26 @@ function CheckStage({ onNext }: { onNext: () => void }) {
               <span className="min-w-0">
                 <span className="block text-[13px] font-semibold max-sm:text-[15px]">{r.title}</span>
                 {r.hint && <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{r.hint}</span>}
-                {r.key === 'firewall' && (
-                  <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                    {t('onboarding.check.firewallLink')}
-                    <ExternalLinkIcon className="size-3" aria-hidden="true" />
-                  </a>
-                )}
               </span>
             </li>
           ))}
         </ul>
       ) : (
-        !error && <ListSkeleton rows={7} face="mt-px size-[18px] rounded-full" rowClassName={checkRowClass} className={checkListClass} label={t('onboarding.checking')} />
+        !error && <ListSkeleton rows={6} face="mt-px size-[18px] rounded-full" rowClassName={checkRowClass} className={checkListClass} label={t('onboarding.checking')} />
+      )}
+      {/* The provider's firewall can't be seen from the VPS, so it's a note, not a check that counts. */}
+      {pre && (
+        <div className="mt-3 flex gap-3 rounded-2xl border border-border bg-muted/40 px-3 py-3 max-sm:rounded-3xl max-sm:bg-white max-sm:px-4">
+          <InfoIcon className="mt-px size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold max-sm:text-[15px]">{t('onboarding.check.portNote', { port })}</span>
+            <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{t('onboarding.check.portNoteHint')}</span>
+            <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex min-h-6 items-center gap-1 text-xs font-medium text-primary hover:underline max-sm:text-[13px]">
+              {t('onboarding.check.firewallLink')}
+              <ExternalLinkIcon className="size-3" aria-hidden="true" />
+            </a>
+          </span>
+        </div>
       )}
       {pre && !pre.ok && <p className="mt-3 text-[13px] text-destructive-foreground">{t('onboarding.checkBlocked')}</p>}
       {phone ? (
