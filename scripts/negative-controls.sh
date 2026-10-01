@@ -8409,6 +8409,18 @@ control "seller page: only Whop's frames show it" internal/panel/server.go \
   'frame-ancestors https://whop.com https://*.whop.com;' \
   'frame-ancestors *;' \
   ./internal/panel '^TestOnlyTheSellersPageMayBeFramedAndOnlyByWhop$'
+control "seller page: the limits are each seller's own" internal/panel/whop_sellerpage.go \
+  'if ok, wait := perMinute.allow(seller); !ok {' \
+  'if ok, wait := perMinute.allow("everyone"); !ok {' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
+control "seller page: a seller past their limit is refused" internal/panel/whop_sellerpage.go \
+  'if ok, wait := perMinute.allow(seller); !ok {' \
+  'if ok, wait := true, time.Duration(0); !ok {' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
+control "seller page: one address is bounded only against floods" internal/panel/public.go \
+  '{prefix: whopSellerPrefix, limits: whopSellerProxyLimits,' \
+  '{prefix: whopSellerPrefix, limits: publicLimits{perMinute: 60, open: 8, read: whopCallsFor + 10*time.Second, write: whopCallsFor + 10*time.Second},' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
 webcontrol "seller page: only a business's id reaches its call" web/src/lib/router.ts \
   'third && reWhopBusiness.test(third) && parts.length === 3' \
   'third && parts.length === 3' \

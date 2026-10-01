@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -26,9 +27,15 @@ const (
 	whopSellerPage = "/whop/seller/"
 )
 
-// whopSellerLimits bound a seller's page, which calls a few times as it
-// loads, each call waiting on a few of Whop's answers.
-var whopSellerLimits = publicLimits{perMinute: 60, open: 8, read: whopCallsFor + 10*time.Second, write: whopCallsFor + 10*time.Second}
+// whopSellerLimits bound one seller's page, which calls a few times as it
+// loads, each call waiting on a few of Whop's answers. They're the
+// seller's own, once Whop's token says who they are (whopSeller), since
+// every seller's page comes through Whop's proxy, from the same few
+// addresses; whopSellerProxyLimits bound one address, only against floods.
+var (
+	whopSellerLimits      = publicLimits{perMinute: 60, open: 8}
+	whopSellerProxyLimits = publicLimits{perMinute: 6000, open: 256, read: whopCallsFor + 10*time.Second, write: whopCallsFor + 10*time.Second}
+)
 
 var (
 	errSellerNoApp   = errors.New("Playkeeper Cloud doesn't sell for businesses on this dashboard yet")
@@ -98,6 +105,9 @@ func (s *Server) whopSeller() http.Handler {
 		"prices": {http.MethodGet: s.hWhopSellerPrices, http.MethodPost: s.hWhopSellerSetPrice},
 		"sell":   {http.MethodPost: s.hWhopSellerSell},
 	}
+	perMinute := newLimiter(whopSellerLimits.perMinute, time.Minute, s.now)
+	var mu sync.Mutex
+	open := map[string]int{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		store, action, sub := strings.Cut(strings.TrimPrefix(r.URL.Path, whopSellerPrefix), "/")
 		methods, known := calls[action]
@@ -111,8 +121,49 @@ func (s *Server) whopSeller() http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		// A call without a valid token is refused as it comes (sellerAuth),
+		// and counts against nobody's limits.
+		if seller := s.sellerTokenUser(r); seller != "" {
+			if ok, wait := perMinute.allow(seller); !ok {
+				refuse(w, http.StatusTooManyRequests, wait)
+				return
+			}
+			mu.Lock()
+			busy := open[seller] >= whopSellerLimits.open
+			if !busy {
+				open[seller]++
+			}
+			mu.Unlock()
+			if busy {
+				refuse(w, http.StatusTooManyRequests, time.Second)
+				return
+			}
+			defer func() {
+				mu.Lock()
+				if open[seller]--; open[seller] <= 0 {
+					delete(open, seller)
+				}
+				mu.Unlock()
+			}()
+		}
 		answer(w, r, store)
 	})
+}
+
+// sellerTokenUser is the Whop user the request's token is for, when it's a
+// valid one for the Playkeeper Cloud app, and "" otherwise.
+func (s *Server) sellerTokenUser(r *http.Request) string {
+	appID, _, err := s.whopAppClient(r.Context())
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
+	defer cancel()
+	user, err := s.whopTokens.Verify(ctx, r.Header.Get(whop.UserTokenHeader), appID, s.now())
+	if err != nil {
+		return ""
+	}
+	return user
 }
 
 // whopSellerView is how a seller's store stands, for their page.
