@@ -3024,6 +3024,11 @@ describe('Onboarding', () => {
       expect(field()?.placeholder).toBe('Optional')
       await typeName('bad name')
       expect(create()?.title).toBe('Minecraft usernames are 3–16 letters, numbers or underscores.')
+      // Create pressed now moves to the name, whose hint already says why, rather than saying it again.
+      await press('Create my server')
+      expect(document.activeElement).toBe(field())
+      expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0)
+      expect(vi.mocked(client.post).mock.calls.some(([path]) => path.endsWith('/servers'))).toBe(false)
       await typeName('Steve_Builds')
       expect(create()?.title).toBe('')
       await press('Create my server')

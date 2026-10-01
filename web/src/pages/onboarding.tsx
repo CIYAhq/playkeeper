@@ -413,6 +413,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
   // Pressing Create before it can say why next to what's missing.
   const [explained, setExplained] = useState(false)
   const eulaBox = useRef<HTMLElement>(null)
+  const ownNameBox = useRef<HTMLInputElement>(null)
   const [ownName, setOwnName] = useState(() => ws.prefs[ownNameKey] ?? '')
 
   useEffect(() => {
@@ -481,11 +482,13 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
     : t('style.summary', { type: typeName(c.type), version: version?.minecraftVersion ?? '', memory: formatMB(c.memoryMB), total: formatMB(catalog.hostMemoryMB), name: c.name })
   const blocked = createBlocked(c, version) ?? ownNameProblem(ownName)
   const eulaMissing = !!blocked && !versionBlocked(c, version) && !!c.name.trim() && !c.eula
+  // Only the Minecraft name is wrong, and its field already says why.
+  const ownNameWrong = !createBlocked(c, version) && !!ownNameProblem(ownName)
   const explain = () => {
     setExplained(true)
-    if (!eulaMissing) return
-    eulaBox.current?.focus()
-    eulaBox.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const box = eulaMissing ? eulaBox.current : ownNameWrong ? ownNameBox.current : null
+    box?.focus()
+    box?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }
   const { cards, older } = versionCards(catalog.versions, ws.servers)
   const versionChoices = [...cards.map((x) => x.entry), ...older].map((e) => ({ value: e.id, label: e.minecraftVersion, hint: e.experimental ? t('common.experimental') : e.recommended ? t('new.latestStable') : t('new.build', { build: e.paperBuild }) }))
@@ -504,7 +507,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           phone={phone}
         />
         <MoreOptions hardcore={c.hardcore} onHardcore={(hardcore) => update({ hardcore })} level={c.levelType} onLevel={(levelType) => update({ levelType })} phone={phone} />
-        <OwnNameField value={ownName} onChange={setOwnName} className={cn(phone ? 'rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')} />
+        <OwnNameField value={ownName} onChange={setOwnName} inputRef={ownNameBox} className={cn(phone ? 'rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')} />
         <EulaCheck
           checked={c.eula}
           onChange={(eula) => {
@@ -517,7 +520,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           className={cn(phone ? 'min-h-14 rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')}
         />
         <VersionsFrom catalog={catalog} className="px-1" />
-        {explained && blocked && !eulaMissing && (
+        {explained && blocked && !eulaMissing && !ownNameWrong && (
           <p className="text-[13px] text-destructive-foreground" role="alert">
             {blocked}
           </p>
