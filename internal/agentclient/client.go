@@ -26,13 +26,17 @@ type Client struct {
 	socket string
 }
 
+// Timeout bounds a request that isn't a stream, from sending it to the end
+// of its answer. A client takes it when it's made; tests shorten it.
+var Timeout = 60 * time.Second
+
 func New(socket string) *Client {
 	dial := func(ctx context.Context, _, _ string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, "unix", socket)
 	}
 	return &Client{
-		hc:     &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{DialContext: dial, MaxIdleConns: 8}},
+		hc:     &http.Client{Timeout: Timeout, Transport: &http.Transport{DialContext: dial, MaxIdleConns: 8}},
 		stream: &http.Client{Transport: &http.Transport{DialContext: dial, DisableKeepAlives: true}},
 		socket: socket,
 	}
@@ -43,7 +47,7 @@ func New(socket string) *Client {
 // ErrUnavailable it returns.
 func Via(rt http.RoundTripper) *Client {
 	return &Client{
-		hc:     &http.Client{Timeout: 60 * time.Second, Transport: rt},
+		hc:     &http.Client{Timeout: Timeout, Transport: rt},
 		stream: &http.Client{Transport: rt},
 	}
 }
