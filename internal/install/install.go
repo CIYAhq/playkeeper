@@ -457,6 +457,33 @@ func Plan(f Facts, o Options) []string {
 	return p
 }
 
+// Short is the plan in a few plain lines. It goes right above the question,
+// the last thing on the screen, where people look; the plan's details are
+// above it for whoever reads them.
+func Short(f Facts, o Options) []string {
+	what := "Playkeeper"
+	if !f.DockerPresent {
+		what = "Docker and Playkeeper"
+	}
+	lines := []string{"In short:", "  • installs " + what}
+	if o.Join != "" {
+		lines = append(lines, fmt.Sprintf("  • joins your dashboard at %s; Minecraft servers here use port %d", o.Join, o.GamePort))
+	} else {
+		lines = append(lines, fmt.Sprintf("  • your dashboard on port %d, and your first Minecraft server on %d", o.PanelPort, o.GamePort))
+	}
+	if f.Firewall != nil {
+		var ports []string
+		for _, r := range firewallRules(o) {
+			ports = append(ports, strings.TrimSuffix(r, "/tcp"))
+		}
+		lines = append(lines, "  • opens ports "+joinAnd(ports)+" in "+f.Firewall.short())
+	}
+	if f.ReuseData {
+		lines = append(lines, "  • keeps the worlds and backups already here")
+	}
+	return append(lines, "  • nothing else changes; undo it any time: sudo playkeeper uninstall (keeps your worlds and backups)")
+}
+
 // Manifest records everything an install created, for uninstall.
 type Manifest struct {
 	Version           string    `json:"version"`
@@ -565,7 +592,11 @@ func Run(ctx context.Context, sys System, o Options, version string) (*Result, e
 	for _, line := range Plan(f, o) {
 		fmt.Fprintf(out, "  %s\n", line)
 	}
-	fmt.Fprintf(out, "\nTo undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)\n\n")
+	fmt.Fprintln(out)
+	for _, line := range Short(f, o) {
+		fmt.Fprintln(out, line)
+	}
+	fmt.Fprintln(out)
 	if !o.Yes {
 		fmt.Fprint(out, "Proceed? [y/N] ")
 		ans, _ := bufio.NewReader(o.In).ReadString('\n')
