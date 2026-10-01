@@ -229,6 +229,37 @@ func TestAPlansLeastChargeIsWhatOnePaymentCharges(t *testing.T) {
 	}
 }
 
+// A share can be set for a price that isn't on Whop yet, as the seller's
+// page does before lowering one: the share the new price needs comes
+// first, while the plan on Whop still charges the old price. With no new
+// price it's the share check as ever.
+func TestAShareIsSetForAPriceBeforeItsOnWhop(t *testing.T) {
+	f, e, _, st := shareEnv(t)
+	f.mu.Lock()
+	f.installed["biz_other"].plans[0]["renewal_price"] = 15
+	f.mu.Unlock()
+	if problem := e.syncShares(t, st, true); problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 56.67 {
+		t.Fatalf("at $15: %q, %v", problem, f.share("biz_other", "prod_other"))
+	}
+	c, err := e.srv.whopClientFor(t.Context(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problem, err := e.srv.syncWhopSharesAt(t.Context(), c, st, false, map[string]float64{"plan_other": 12}); err != nil || problem != "" ||
+		f.share("biz_other", "prod_other")["commission_value"] != 70.84 {
+		t.Fatalf("before the price goes down to $12: %q, %v, %v", problem, err, f.share("biz_other", "prod_other"))
+	}
+	f.mu.Lock()
+	price := f.installed["biz_other"].plans[0]["renewal_price"]
+	f.mu.Unlock()
+	if price != 15 {
+		t.Fatalf("the plan's price on Whop changed: %v", price)
+	}
+	if problem, err := e.srv.syncWhopSharesAt(t.Context(), c, st, false, nil); err != nil || problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 56.67 {
+		t.Fatalf("with no new price, at $15 on Whop: %q, %v, %v", problem, err, f.share("biz_other", "prod_other"))
+	}
+}
+
 // A share the seller removes, lowers below what the price needs, or
 // changes from a percentage of the full price is a problem, and stays as
 // they left it until Open the store sets it right. One they raise stays,

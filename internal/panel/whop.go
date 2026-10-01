@@ -590,24 +590,30 @@ var errNoDashboardAddress = errors.New("This machine has no address with a certi
 // then the other dashboard still sells. A plan another store has stays
 // that store's.
 func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, storeID string, claim bool) error {
+	_, err := s.readWhopStorePlans(ctx, c, storeID, claim)
+	return err
+}
+
+// readWhopStorePlans is readWhopStore, with the plans Whop listed.
+func (s *Server) readWhopStorePlans(ctx context.Context, c *whop.Client, storeID string, claim bool) ([]whop.Plan, error) {
 	st, ok, err := s.whopStoreByID(ctx, storeID)
 	switch {
 	case err != nil:
-		return err
+		return nil, err
 	case !ok:
-		return fmt.Errorf("this dashboard doesn't sell for %s", storeID)
+		return nil, fmt.Errorf("this dashboard doesn't sell for %s", storeID)
 	}
 	// Only the key store's products carry the one-seller marks, so an app
 	// store's aren't read.
 	var products []whop.Product
 	if st.Via == whopViaKey {
 		if products, err = c.Products(ctx, storeID); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	plans, err := c.Plans(ctx, storeID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	selling := map[string]bool{}
 	err = s.immediate(ctx, func(conn *sql.Conn) error {
@@ -657,43 +663,43 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, storeID stri
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if st.Via != whopViaKey {
-		return nil
+		return plans, nil
 	}
 	dash, err := s.dashboardURL(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	markedAs, takenBy := st.MarkedAs, st.TakenOverBy
 	switch {
 	case takenBy != "" && !claim:
-		return nil
+		return plans, nil
 	case takenBy != "" && dash == "":
-		return errNoDashboardAddress
+		return nil, errNoDashboardAddress
 	case !claim && dash != "":
 		if taken, err := s.noticeTakeover(ctx, storeID, products, dash, markedAs); taken || err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := s.markWhopProducts(ctx, c, storeID, products, dash, []string{dash, markedAs}, claim && dash != ""); err != nil {
-		return err
+		return nil, err
 	}
 	if dash != "" && dash != markedAs {
 		if _, err := s.db.ExecContext(ctx, `UPDATE whop_stores SET marked_as = ? WHERE store_id = ?`, dash, storeID); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if takenBy != "" {
 		if _, err := s.db.ExecContext(ctx, `UPDATE whop_stores SET taken_over_by = '', taken_over_at = 0 WHERE store_id = ?`, storeID); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if dash == "" && len(selling) > 0 {
-		return errNoDashboardAddress
+		return nil, errNoDashboardAddress
 	}
-	return nil
+	return plans, nil
 }
 
 // noticeTakeover records that another dashboard took the store over when

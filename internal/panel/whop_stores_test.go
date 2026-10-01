@@ -111,7 +111,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	}
 	switch {
-	case route == "GET /permissions" && f.permissionsDown, route == "GET /memberships" && f.membershipsDown:
+	case route == "GET /permissions" && f.permissionsDown, route == "GET /memberships" && f.membershipsDown,
+		route == "GET /affiliates/aff_"+biz+"/overrides" && b.sharesDown:
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
 	case route == "GET /permissions":
