@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ArrowUpRightIcon } from 'lucide-react'
 import { api, get, post } from '@/api/client'
-import type { Me, PublicBoard, PublicPageView, ServerStatus } from '@/api/types'
+import type { PagePort, PublicBoard, PublicPageView, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { useNow } from '@/components/app/bits'
 import { SettingRow } from '@/components/app/controls'
@@ -34,7 +34,7 @@ export function PublicPageRows({ server: s }: { server: ServerStatus }) {
   const v = view.data
   const enabled = pending?.enabled ?? v?.enabled ?? false
   const players = pending?.players ?? v?.players ?? false
-  const locked = stale ? t('reason.noAgent') : !v ? t('common.loading') : pending ? t('reason.saving') : !can(ws.me, 'servers.manage') ? t('publicPage.notAllowed') : !v.ports ? otherMachineText(ws.me) : undefined
+  const locked = stale ? t('reason.noAgent') : !v ? t('common.loading') : pending ? t('reason.saving') : !can(ws.me, 'servers.manage') ? t('publicPage.notAllowed') : undefined
 
   async function save(next: { enabled?: boolean; players?: boolean }) {
     setPending(next)
@@ -200,20 +200,12 @@ function BoardRow({ server: s, board, enabled, onChange }: { server: ServerStatu
   )
 }
 
-/** Why a server off the dashboard's machine has no page; a creator or customer hears of no other machine. */
-function otherMachineText(me: Me): string {
-  return can(me, 'machines.view') ? t('publicPage.otherMachine') : t('common.notForThisServerYet')
-}
-
 /** The page row's line: where it answers, or why browsers can't reach it. */
 function Reach({ view, server: s, onRetry }: { view: PublicPageView; server: ServerStatus; onRetry: () => Promise<void> }) {
-  const ws = useWorkspace()
   const r = pageReach(view)
   switch (r.kind) {
     case 'off':
       return <>{t('publicPage.offHint')}</>
-    case 'otherMachine':
-      return <>{otherMachineText(ws.me)}</>
     case 'noAddress':
       return <NoAddress server={s} />
     case 'live':
@@ -227,7 +219,7 @@ function Reach({ view, server: s, onRetry }: { view: PublicPageView; server: Ser
         <>
           {t('publicPage.liveHint')} <PageLink url={r.url} />
           <span className="mt-1 block">
-            {portProblem(r.https)} <Retry server={s} onRetry={onRetry} />
+            <PortLine port={r.https} server={s} onRetry={onRetry} />
           </span>
         </>
       )
@@ -236,16 +228,38 @@ function Reach({ view, server: s, onRetry }: { view: PublicPageView; server: Ser
     case 'waiting':
       return <>{t('publicPage.waiting')}</>
     case 'blocked':
-      return (
-        <>
-          {portProblem(r.port)} {r.port.state !== 'denied' && <Retry server={s} onRetry={onRetry} />}
-        </>
-      )
+      return <PortLine port={r.port} server={s} onRetry={onRetry} />
     default: {
       const unreachable: never = r
       return unreachable
     }
   }
+}
+
+/**
+ * Why a port can't serve the page, and what to do: try again once another program let it go, or, for a server on a
+ * joined machine without a certificate for its address, the dashboard machine's setting that gives every server one.
+ */
+function PortLine({ port, server: s, onRetry }: { port: PagePort; server: ServerStatus; onRetry: () => Promise<void> }) {
+  const ws = useWorkspace()
+  if (port.state === 'no_certificate') {
+    const at = ws.machines.find((m) => m.kind === 'local')
+    return (
+      <>
+        {portProblem(port)}{' '}
+        {at && can(ws.me, 'machines.view') && (
+          <a {...linkPath(`/machines/${at.id}/settings`)} className="font-medium text-success-strong hover:underline">
+            {t('publicPage.certificateLink')}
+          </a>
+        )}
+      </>
+    )
+  }
+  return (
+    <>
+      {portProblem(port)} {port.state !== 'denied' && <Retry server={s} onRetry={onRetry} />}
+    </>
+  )
 }
 
 function PageLink({ url }: { url: string }) {
@@ -257,17 +271,23 @@ function PageLink({ url }: { url: string }) {
   )
 }
 
+/**
+ * Why the page has no address yet. A server on a joined machine has its page at its address without a port, which the
+ * dashboard's machine gives it once it answers DNS for its domain; whoever manages machines is sent there.
+ */
 function NoAddress({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const { machine } = useServerMachine(s)
-  const link: ReactNode = machine && can(ws.me, 'machines.view') ? (
-    <a {...linkPath(`/machines/${machine.id}/settings`)} className="font-medium text-success-strong hover:underline">
-      {t('publicPage.addressLink')}
+  const joined = machine?.kind === 'remote'
+  const at = joined ? ws.machines.find((m) => m.kind === 'local') : machine
+  const link: ReactNode = at && can(ws.me, 'machines.view') ? (
+    <a {...linkPath(`/machines/${at.id}/settings`)} className="font-medium text-success-strong hover:underline">
+      {joined ? t('publicPage.namesLink') : t('publicPage.addressLink')}
     </a>
   ) : null
   return (
     <>
-      {t('publicPage.noAddress')} {link}
+      {joined ? t('publicPage.noNameYet') : t('publicPage.noAddress')} {link}
     </>
   )
 }

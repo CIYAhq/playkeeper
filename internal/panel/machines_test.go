@@ -813,6 +813,7 @@ func TestARemovedMachinesServersKeepTheirInvites(t *testing.T) {
 						[]any{"req-" + server, "inv-" + server, server, now}},
 					{`INSERT INTO player_origins(server_id, player_uuid, player_name, invite_id, joined_at) VALUES(?, 'uuid-alex', 'Alex', ?, ?)`,
 						[]any{server, "inv-" + server, now}},
+					{`INSERT INTO public_pages(server_id, enabled, changed_at) VALUES(?, 1, ?)`, []any{server, now}},
 				} {
 					if _, err := e.srv.db.Exec(q.sql, q.args...); err != nil {
 						t.Fatal(err)
@@ -826,7 +827,7 @@ func TestARemovedMachinesServersKeepTheirInvites(t *testing.T) {
 				if server == "rstuvwxyzq" && !tc.kept {
 					want = 0
 				}
-				for _, table := range []string{"invites", "join_requests", "player_origins"} {
+				for _, table := range []string{"invites", "join_requests", "player_origins", "public_pages"} {
 					var n int
 					if err := e.srv.db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE server_id = ?`, server).Scan(&n); err != nil || n != want {
 						t.Errorf("%s of %s: %d, want %d (%v)", table, server, n, want, err)

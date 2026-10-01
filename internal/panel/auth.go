@@ -893,6 +893,16 @@ ALTER TABLE whop_share_watch ADD COLUMN share_right_at INTEGER NOT NULL DEFAULT 
 	`
 ALTER TABLE whop_share_watch ADD COLUMN share_unchecked_since INTEGER NOT NULL DEFAULT 0;
 `,
+	// Whether each server is on the public page as the dashboard last set
+	// it, which a server on a joined machine needs beside its machine's word
+	// (see joinedpage.go).
+	`
+CREATE TABLE public_pages (
+  server_id  TEXT    PRIMARY KEY,
+  enabled    INTEGER NOT NULL,
+  changed_at INTEGER NOT NULL
+);
+`,
 	// Later payments (see whopPaidPlan): how many days a renewal may be late
 	// before its membership stops giving servers, the owner's to change; and
 	// when each membership's latest payment that carried Playkeeper's share

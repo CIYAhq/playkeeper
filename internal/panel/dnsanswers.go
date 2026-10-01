@@ -61,11 +61,13 @@ func (s *Server) setDNSAnswers(ctx context.Context, on bool) error {
 
 // dnsPlan is the zone the dashboard's machine answers for its address, the
 // records the domain's parent adds, and the ones there the zone takes over;
-// or why there's none (api.DNSUnavailable*).
+// or why there's none (api.DNSUnavailable*). machine are the domain's own A
+// and AAAA records, which point at the dashboard's machine.
 type dnsPlan struct {
 	zone        dnszone.Zone
 	add, remove []api.DNSRecord
 	unavailable string
+	machine     []dnszone.Record
 }
 
 // planDNS builds the zone for addr, the dashboard machine's address.
@@ -119,6 +121,7 @@ func planDNS(addr api.Address) dnsPlan {
 		p.add = append(p.add, api.DNSRecord{Type: m.Type, Name: ns, Value: m.Value, TTL: 300})
 	}
 	p.add = append(p.add, api.DNSRecord{Type: "NS", Name: host, Value: ns, TTL: 3600})
+	p.machine = machine
 	return p
 }
 

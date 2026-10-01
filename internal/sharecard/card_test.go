@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEveryGlyphIsFiveByEight(t *testing.T) {
@@ -62,6 +63,44 @@ func TestNamesWrapAndShrinkToFit(t *testing.T) {
 	}
 	if lines, _ := fit(strings.Repeat("W", 400), 500, []int{4}, 1); len(lines) != 1 || width(lines[0], 4) > 500 {
 		t.Fatalf("one long word: %q", lines)
+	}
+}
+
+// A cut line keeps exactly what cutting a character at a time would, and a
+// card with lines far too long costs about what one with short lines does.
+func TestALongLineIsCutOffAtOnce(t *testing.T) {
+	slow := func(s string, w, scale int) string {
+		if width(s, scale) <= w {
+			return s
+		}
+		r := []rune(s)
+		for len(r) > 0 && width(string(r)+"...", scale) > w {
+			r = r[:len(r)-1]
+		}
+		return strings.TrimRight(string(r), " ") + "..."
+	}
+	for _, s := range []string{"Claude tries to beat Minecraft", strings.Repeat("ab ", 300), strings.Repeat("W", 400), "a", ""} {
+		for _, w := range []int{0, 5, 40, 500, 840, 1072} {
+			for _, scale := range []int{1, 4, 5, 8} {
+				if got, want := truncate(s, w, scale), slow(s, w, scale); got != want {
+					t.Errorf("truncate(%d characters, %d, %d) = %q, want %q", len([]rune(s)), w, scale, got, want)
+				}
+			}
+		}
+	}
+	long := strings.Repeat("a", 200000)
+	done := make(chan error, 1)
+	go func() {
+		_, err := PNG(Card{Name: long, Status: long, Headline: long, Address: long})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a card with lines of 200,000 characters took over 10 seconds")
 	}
 }
 
