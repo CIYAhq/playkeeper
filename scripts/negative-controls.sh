@@ -8715,7 +8715,7 @@ control "payments: a payment kept isn't read again" internal/panel/whop_share_ho
   ./internal/panel '^TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded$'
 control "payments: a payment refunded since it was kept is read again" internal/panel/whop_share_hooks.go \
   'return err == nil && kept == min(refunded, amount)' \
-  'return err == nil' \
+  'return err == nil && (kept == min(refunded, amount) || true)' \
   ./internal/panel '^TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded$'
 control "share fresh: a pass that didn't read the store checks the share when a payment waits on it" internal/panel/whop_customers.go \
   '(plansRead || s.whopShareDue(ctx, st))' \
@@ -8735,7 +8735,7 @@ control "share fresh: the share check notes when it found the share right" inter
   ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
 control "share fresh: the share is checked out of turn only for a payment check that's due" internal/panel/whop_share_hooks.go \
   'if h.checkDue(now) {' \
-  'if true {' \
+  'if h.checkDue(now) || true {' \
   ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
 control "app store cadence: an app store's products have no address to compare" internal/panel/whop_customers.go \
   '	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {' \
