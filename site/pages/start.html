@@ -23,7 +23,7 @@ styles: css/start.css
       <p class="hero-sub hero-after">Rent a VPS, paste one command, and Playkeeper sets up your Minecraft: Java Edition server. Then everything happens in your browser, and friends can be playing tonight.</p>
       <div class="hero-after">{{template "install" (dict "ID" true "Cmd" (installFor .Page.Channel) "Share" .Page.Share)}}</div>
       <p class="start-vps hero-after">Don't have a VPS yet? They cost from a few dollars a month. <a class="link-arrow" href="/sizing">Which one to rent{{template "icon" "arrow-right"}}</a></p>
-      <p class="start-how hero-after">Paste it into the VPS over SSH. It checks the machine and asks before it changes anything.</p>
+      <p class="start-how hero-after">Paste it into your VPS's terminal (<a href="#questions">how?</a>). It checks the machine and asks before it changes anything.</p>
       <div class="hero-actions hero-after">
         <a class="btn btn-outline btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
       </div>
@@ -44,6 +44,7 @@ styles: css/start.css
       <div><dt>A VPS, which costs money</dt><dd>Playkeeper is free, but you rent the server it runs on, and more friends or big modpacks need a bigger one. <a href="/sizing">Which size?</a></dd></div>
       <div><dt>{{systemsShort}}</dt><dd>On an x86_64 or 64-bit ARM machine with at least {{sizing.Min.Cores}} CPU cores, {{sizing.Min.MemoryGB}} GB of memory and {{sizing.Min.DiskGB}} GB of free disk.</dd></div>
       <div><dt>A computer for one step</dt><dd>You paste the command into the VPS from a terminal. After that, everything happens in the browser, on your phone too.</dd></div>
+      <div><dt>Two ports open</dt><dd>8443 for the dashboard and 25565 for players. Hetzner, DigitalOcean and Vultr leave them open; anywhere else, <a href="/ports">here's how</a>.</dd></div>
       <div><dt>Minecraft: Java Edition</dt><dd>Paper, Purpur, Vanilla, Fabric, Quilt, NeoForge and Forge servers, as many as the VPS fits.</dd></div>
       <div><dt>Nothing else to pay for</dt><dd>Free and open source (AGPL-3.0): every feature, with no ads, limits or trial.</dd></div>
     </dl>
@@ -60,6 +61,16 @@ styles: css/start.css
       <li>{{template "icon" "check"}}<span>Invite links that put friends on the allowlist, and co-admins with their own sign-in.</span></li>
       <li>{{template "icon" "check"}}<span>Updates that are signed and roll back if something goes wrong.</span></li>
     </ul>
+  </div>
+</section>
+
+<section class="band band-white">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Title" "If you get stuck" "Items" (list
+      (qa "How do I paste the command into my VPS?" `On a Mac, open Terminal; on Windows, open Terminal or PowerShell. Type <code>ssh root@</code> and your VPS's IP address, press Enter, then type the password from your provider's email: it stays invisible as you type. Paste the command with ⌘V on a Mac, or a right-click on Windows. No terminal? Your provider's panel has a <strong>Console</strong> button.`)
+      (qa "The browser says the connection isn't private." "That's expected on a new server: click <strong>Advanced</strong>, then <strong>Proceed</strong>. A free name for your VPS, in the dashboard, ends the warning.")
+      (qa "The link doesn't open." `Your provider's firewall is blocking it. <a href="/ports">Open ports 8443 and 25565</a>, then open the link again.`)
+    ))}}
   </div>
 </section>
 {{end}}

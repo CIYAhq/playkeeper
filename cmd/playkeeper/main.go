@@ -394,7 +394,18 @@ func writeUpgradeSummary(w io.Writer, res *install.Result) {
 	if res.Fingerprint != "" {
 		fmt.Fprintf(w, " (certificate fingerprint %s)", res.Fingerprint)
 	}
-	fmt.Fprintf(w, ".\nFrom now on, Playkeeper shows new versions in the dashboard (Settings) and installs them from there.\n")
+	fmt.Fprintf(w, ".\n")
+	writePrivateHost(w, res)
+	fmt.Fprintf(w, "From now on, Playkeeper shows new versions in the dashboard (Settings) and installs them from there.\n")
+}
+
+// writePrivateHost says when the link has the machine's private address,
+// because the installer couldn't find its public one, and where that is.
+func writePrivateHost(w io.Writer, res *install.Result) {
+	if res.PrivateHost {
+		host, _, _ := strings.Cut(strings.TrimPrefix(res.URL, "https://"), ":")
+		fmt.Fprintf(w, "%s is this VPS's private address: if the link won't open, use the public IP from your provider's console in its place.\n", host)
+	}
 }
 
 // runSelfUpdate is the updater that playkeeper-update.service starts.
@@ -427,6 +438,17 @@ func runUnits(args []string) error {
 	return json.NewEncoder(os.Stdout).Encode(install.Units(cfg, install.Joined(cfg, "/")))
 }
 
+// wontOpen is what to do when the dashboard's link doesn't open, which most
+// often means the provider's firewall drops its port: the provider's steps
+// for opening it, when the installer could tell the provider.
+func wontOpen(res *install.Result) string {
+	firewall := "your provider's firewall"
+	if res.Provider.Name != "" {
+		firewall = res.Provider.Name + "'s firewall"
+	}
+	return fmt.Sprintf("Won't open? Open ports %d and %d in %s: %s", res.PanelPort, res.GamePort, firewall, res.Provider.StepsURL())
+}
+
 // writeInstallSummary tells the user what to do next. A reinstall that kept an
 // admin account gets sign-in instructions instead of a setup code.
 func writeInstallSummary(w io.Writer, res *install.Result) {
@@ -434,8 +456,10 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 	if res.SetupCode != "" {
 		fmt.Fprintf(w, "  1. Open this link in your browser:\n       %s/setup#code=%s\n", res.URL, res.SetupCode)
 		fmt.Fprintf(w, "     (setup code: %s — works once, expires in 24 hours)\n", res.SetupCode)
+		fmt.Fprintf(w, "     %s\n", wontOpen(res))
 	} else {
 		fmt.Fprintf(w, "  1. Open %s and sign in with your existing admin account.\n", res.URL)
+		fmt.Fprintf(w, "     %s\n", wontOpen(res))
 	}
 	fmt.Fprintf(w, "  2. Your browser will warn that the certificate is self-signed. Continue only if it shows\n     this SHA-256 fingerprint:\n       %s\n", res.Fingerprint)
 	if res.SetupCode != "" {
@@ -443,7 +467,7 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 	} else {
 		fmt.Fprintf(w, "  3. Your worlds and backups were kept; the server starts again if it was running before.\n\n")
 	}
-	fmt.Fprintf(w, "If %s is not your public address, use your VPS's public IP instead.\n", strings.TrimPrefix(res.URL, "https://"))
+	writePrivateHost(w, res)
 	if res.Dashboard443 {
 		fmt.Fprintf(w, "Once you give it an address, the dashboard opens there without a port: allow TCP 443 in your provider's firewall too.\n")
 	}

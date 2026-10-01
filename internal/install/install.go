@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -109,6 +110,8 @@ type Facts struct {
 	// the dashboard answers there without a port once the machine has an
 	// address (config.Dashboard443) only on a new install that found it free.
 	Port443 string
+	// Provider is the cloud or VPS provider the machine runs at, if it tells.
+	Provider Provider
 }
 
 // Dashboard443 reports whether the install turns Serve the dashboard on the
@@ -316,20 +319,24 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		f.SudoLink = sudoMissesBin(sys)
 	}
 	ports := joinAnd(firewallRules(o))
-	why := ""
-	if o.Join == "" {
-		why = " " + webPortsWhy
+	// A machine with a dashboard says where its provider's firewall steps
+	// are right under the setup link, where they're needed (Result.Provider);
+	// a joined machine has no link, so its line says it here.
+	cloud := ""
+	if o.Join != "" {
+		cloud = " If your provider has a cloud firewall, allow " + ports + " there too."
 	}
 	if fw := activeFirewall(sys); fw != nil {
 		f.Firewall = fw
-		add("firewall", "Firewall ("+fw.short()+")", "info", fw.short()+" is active; the installer will allow "+ports+fw.where()+". If your provider has a cloud firewall, allow them there too."+why, "")
+		add("firewall", "Firewall ("+fw.short()+")", "info", fw.short()+" is active; the installer will allow "+ports+fw.where()+"."+cloud, "")
 	} else if name, allow := dropFirewall(sys, firewallRules(o)); name != "" {
-		add("firewall", "Firewall ("+name+")", "warn", name+" drops incoming connections that no rule allows, and the installer opens ports only in ufw and firewalld. Allow "+ports+" in "+name+" unless a rule already does, and in your provider's cloud firewall if it has one."+why,
+		add("firewall", "Firewall ("+name+")", "warn", name+" drops incoming connections that no rule allows, and the installer opens ports only in ufw and firewalld. Allow "+ports+" in "+name+" unless a rule already does."+cloud,
 			"For example: "+allow)
 	} else {
-		add("firewall", "Firewall", "info", "Found no firewall on this server that blocks incoming connections. If your provider has a cloud firewall, allow "+ports+" there."+why, "")
+		add("firewall", "Firewall", "info", "Found no firewall on this server that blocks incoming connections."+cloud, "")
 	}
 	f.PanelURLHost = primaryIP()
+	f.Provider = DetectProvider(sys)
 	if o.Join != "" {
 		add("join", "Dashboard", "info", "Once installed, this machine joins the dashboard at "+o.Join+". It dials out to it, so no port opens for it here.", "")
 	} else {
@@ -457,6 +464,60 @@ func Plan(f Facts, o Options) []string {
 	return p
 }
 
+// publicHost is the address for the dashboard's link: host, the machine's
+// own, or, when that's a private one behind the provider's NAT, as on AWS,
+// Google Cloud, Azure and Oracle Cloud, the public one the names service
+// sees, so the link opens from home. A test install asks nothing.
+func publicHost(ctx context.Context, sys System, o Options, host string) string {
+	if !privateAddr(host) || sys.PublicIPv4 == nil || o.Usage.Test || testInstall(sys) {
+		return host
+	}
+	lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ip, err := sys.PublicIPv4(lctx)
+	if a, perr := netip.ParseAddr(ip); err != nil || perr != nil || !a.Is4() || privateAddr(ip) {
+		return host
+	}
+	return ip
+}
+
+// privateAddr reports whether host is an IPv4 address that only its own
+// network reaches: a private one (RFC 1918), a shared one (100.64.0.0/10)
+// or a link-local one.
+func privateAddr(host string) bool {
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.Is4() && (ip.IsPrivate() || ip.IsLinkLocalUnicast() || sharedAddrs.Contains(ip))
+}
+
+var sharedAddrs = netip.MustParsePrefix("100.64.0.0/10")
+
+// Short is the plan in a few plain lines. It goes right above the question,
+// the last thing on the screen, where people look; the plan's details are
+// above it for whoever reads them.
+func Short(f Facts, o Options) []string {
+	what := "Playkeeper"
+	if !f.DockerPresent {
+		what = "Docker and Playkeeper"
+	}
+	lines := []string{"In short:", "  • installs " + what}
+	if o.Join != "" {
+		lines = append(lines, fmt.Sprintf("  • joins your dashboard at %s; Minecraft servers here use port %d", o.Join, o.GamePort))
+	} else {
+		lines = append(lines, fmt.Sprintf("  • your dashboard on port %d, and your first Minecraft server on %d", o.PanelPort, o.GamePort))
+	}
+	if f.Firewall != nil {
+		var ports []string
+		for _, r := range firewallRules(o) {
+			ports = append(ports, strings.TrimSuffix(r, "/tcp"))
+		}
+		lines = append(lines, "  • opens ports "+joinAnd(ports)+" in "+f.Firewall.short())
+	}
+	if f.ReuseData {
+		lines = append(lines, "  • keeps the worlds and backups already here")
+	}
+	return append(lines, "  • nothing else changes; undo it any time: sudo playkeeper uninstall (keeps your worlds and backups)")
+}
+
 // Manifest records everything an install created, for uninstall.
 type Manifest struct {
 	Version           string    `json:"version"`
@@ -472,15 +533,18 @@ type Manifest struct {
 	Units             []string  `json:"units"`
 	FirewallRules     []string  `json:"firewallRules"`
 	// Firewall is the firewall FirewallRules are in: "firewalld", in
-	// FirewallZone, or "" for ufw. FirewallZoneFiles are the zone's files
-	// firewalld didn't have before the install changed it, and
-	// FirewallZoneBefore its saved settings then.
+	// FirewallZone, "iptables" (rejectAll), or "" for ufw.
+	// FirewallZoneFiles are the zone's files firewalld didn't have before
+	// the install changed it, and FirewallZoneBefore its saved settings then.
 	Firewall           string   `json:"firewall,omitempty"`
 	FirewallZone       string   `json:"firewallZone,omitempty"`
 	FirewallZoneFiles  []string `json:"firewallZoneFiles,omitempty"`
 	FirewallZoneBefore string   `json:"firewallZoneBefore,omitempty"`
-	ReusedData         bool     `json:"reusedData"`
-	KeptOnUninstall    []string `json:"keptOnUninstall"`
+	// FirewallFamilies are the iptables commands whose rules FirewallRules
+	// are in, for Firewall "iptables": "iptables" and maybe "ip6tables".
+	FirewallFamilies []string `json:"firewallFamilies,omitempty"`
+	ReusedData       bool     `json:"reusedData"`
+	KeptOnUninstall  []string `json:"keptOnUninstall"`
 	// PackageManager installed PackagesInstalled: "dnf", or "" for apt.
 	PackageManager string `json:"packageManager,omitempty"`
 	// NetBeforeDocker is the host network as it was before Playkeeper
@@ -521,7 +585,11 @@ type installer struct {
 
 // Result is what a successful install prints for the user.
 type Result struct {
-	URL         string
+	URL string
+	// PrivateHost says URL's address is a private one: the machine's own
+	// behind a provider's NAT, when its public one wasn't found.
+	PrivateHost bool
+
 	SetupCode   string
 	Fingerprint string
 	Duration    time.Duration
@@ -538,6 +606,11 @@ type Result struct {
 	// Dashboard443 says the dashboard answers on port 443 once the machine
 	// has an address (config.Dashboard443).
 	Dashboard443 bool
+	// PanelPort and GamePort are the ports a provider's firewall must let
+	// through, and Provider whose firewall it is, for the line under the
+	// setup link.
+	PanelPort, GamePort int
+	Provider            Provider
 }
 
 // Run installs Playkeeper, or upgrades an existing install in place. On any
@@ -565,7 +638,11 @@ func Run(ctx context.Context, sys System, o Options, version string) (*Result, e
 	for _, line := range Plan(f, o) {
 		fmt.Fprintf(out, "  %s\n", line)
 	}
-	fmt.Fprintf(out, "\nTo undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)\n\n")
+	fmt.Fprintln(out)
+	for _, line := range Short(f, o) {
+		fmt.Fprintln(out, line)
+	}
+	fmt.Fprintln(out)
 	if !o.Yes {
 		fmt.Fprint(out, "Proceed? [y/N] ")
 		ans, _ := bufio.NewReader(o.In).ReadString('\n')
@@ -874,9 +951,10 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
-	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on"}
+	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on", PanelPort: cfg.PanelPort, GamePort: cfg.GamePort, Provider: in.f.Provider}
 	if !cfg.NoPanel {
-		res.URL, res.ExistingAdm = fmt.Sprintf("https://%s:%d", in.f.PanelURLHost, cfg.PanelPort), in.f.ExistingAdmin
+		host := publicHost(ctx, sys, in.o, in.f.PanelURLHost)
+		res.URL, res.ExistingAdm, res.PrivateHost = fmt.Sprintf("https://%s:%d", host, cfg.PanelPort), in.f.ExistingAdmin, privateAddr(host)
 		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", code: "certificate", do: func() error {
 			tlsDir := sys.P(cfg.TLSDir())
 			fp, err := panel.EnsureSelfSignedCert(tlsDir, sys.Now())
@@ -1115,22 +1193,36 @@ const acmeRule = "80/tcp"
 
 const port80Why = "Port 80 is only for Let's Encrypt's checks of your own domain; nothing answers on it otherwise."
 
-// firewallRules are the rules the installer adds to ufw or firewalld: the
-// panel, the first server, the dashboard without a port with the public
+// firewallRules are the rules the installer adds to the machine's firewall:
+// the panel, the first server, the dashboard without a port with the public
 // server page, and Let's Encrypt's checks. A machine that joins another
 // dashboard runs no dashboard of its own, so it gets only the first
 // server's.
 func firewallRules(o Options) []string {
+	return portRules(o.ports(), o.Join == "")
+}
+
+// installRules are the rules firewallRules gave the install that wrote cfg.
+func installRules(cfg config.Config) []string {
+	if cfg.NoPanel {
+		return portRules([]int{cfg.GamePort}, false)
+	}
+	return portRules([]int{cfg.PanelPort, cfg.GamePort}, true)
+}
+
+// portRules are the rules for ports, and on a machine with a dashboard,
+// port 443's and port 80's.
+func portRules(ports []int, dashboard bool) []string {
 	var out []string
 	add := func(r string) {
 		if !contains(out, r) {
 			out = append(out, r)
 		}
 	}
-	for _, p := range o.ports() {
+	for _, p := range ports {
 		add(strconv.Itoa(p) + "/tcp")
 	}
-	if o.Join == "" {
+	if dashboard {
 		add(httpsRule)
 		add(acmeRule)
 	}
