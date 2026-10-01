@@ -745,8 +745,9 @@ func TestTheSellersPricesSayWhatFixMyPlansCanChange(t *testing.T) {
 // Fix my plans, before the store opens, has each plan that renews do so
 // every month, in US dollars, with no free trial, keeping its price, and
 // says in a line what it changed. A plan that's right already is left
-// alone, and pressing it again changes nothing. Whop refusing leaves the
-// plans as they were. Once the store is open, its plans stay as they are.
+// alone, and so is one that isn't for hosting, and pressing it again
+// changes nothing. Whop refusing leaves the plans as they were. Once the
+// store is open, its plans stay as they are.
 func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
@@ -765,6 +766,8 @@ func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 		"product": map[string]any{"id": "prod_big", "title": "Big server"}})
 	f.addOtherPlan(map[string]any{"id": "plan_once", "title": "Once", "plan_type": "one_time", "initial_price": 12, "currency": "eur", "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"},
 		"product": map[string]any{"id": "prod_once", "title": "Once server"}})
+	f.addOtherPlan(map[string]any{"id": "plan_guide", "title": "Guide", "renewal_price": 50, "billing_period": 365, "currency": "eur", "trial_period_days": 7,
+		"product": map[string]any{"id": "prod_guide", "title": "Server guide"}})
 	f.termsDown = true
 	if r := fix(); r.status != http.StatusBadGateway || len(f.termSets) != 0 || other()["billing_period"] != 365 {
 		t.Fatalf("Fix my plans with Whop refusing: %d %v, plans changed %v", r.status, r.body, f.termSets)
@@ -798,19 +801,20 @@ func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 
 // Open the store hides the free Playkeeper Hosting product Whop adds to each
 // blueprint copy for its website, so the store's page shows the hosting
-// plans alone. A product of the seller's own, free or not, stays, and so
-// does one with that name that sells hosting. Whop refusing leaves the
-// store closed, and Update the store doesn't hide it again.
+// plans alone. A product of the seller's own stays, and so does one with
+// that name that sells hosting or charges for anything. Whop refusing
+// leaves the store closed, and Update the store doesn't hide it again.
 func TestOpenTheStoreHidesTheWebsitesFreeProduct(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
 	f.mu.Lock()
 	b := f.installed["biz_other"]
-	b.titles = map[string]string{"prod_site": "Playkeeper Hosting", "prod_discord": "Discord", "prod_other": "Playkeeper Hosting"}
-	b.products["prod_site"], b.products["prod_discord"] = whop.Metadata{}, whop.Metadata{}
+	b.titles = map[string]string{"prod_site": "Playkeeper Hosting", "prod_discord": "Discord", "prod_other": "Playkeeper Hosting", "prod_tips": "Playkeeper Hosting"}
+	b.products["prod_site"], b.products["prod_discord"], b.products["prod_tips"] = whop.Metadata{}, whop.Metadata{}, whop.Metadata{}
 	f.mu.Unlock()
 	f.addOtherPlan(map[string]any{"id": "plan_site", "title": "Website", "plan_type": "one_time", "initial_price": 0, "product": map[string]any{"id": "prod_site", "title": "Playkeeper Hosting"}})
 	f.addOtherPlan(map[string]any{"id": "plan_discord", "title": "Community", "plan_type": "one_time", "initial_price": 0, "product": map[string]any{"id": "prod_discord", "title": "Discord"}})
+	f.addOtherPlan(map[string]any{"id": "plan_tips", "title": "Tips", "renewal_price": 5, "product": map[string]any{"id": "prod_tips", "title": "Playkeeper Hosting"}})
 	sell := func() resp {
 		t.Helper()
 		return e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
