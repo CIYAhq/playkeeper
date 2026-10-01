@@ -477,8 +477,9 @@ func waitForLock(t *testing.T, fn string) {
 }
 
 // A seller's change that waits while the owner suspends the store, or while
-// it leaves, doesn't change it: the change looks at the store once it holds
-// the lock the suspension and the store's pass hold.
+// it leaves, doesn't change it: Open the store, Fix my plans and a price
+// each look at the store once they hold the lock the suspension and the
+// store's pass hold.
 func TestASellersChangeThatWaitsSeesASuspensionOrLeaving(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
@@ -507,6 +508,15 @@ func TestASellersChangeThatWaitsSeesASuspensionOrLeaving(t *testing.T) {
 	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != whopNotOpenYetWhy || len(f.shareWrites) != 0 {
 		t.Fatalf("a store suspended while Open the store waited: closed %q, shares set %v", st.ClosedWhy, f.shareWrites)
 	}
+	if _, err := e.srv.db.Exec(`UPDATE whop_stores SET suspended_at = 0, suspend_reason = '' WHERE store_id = 'biz_other'`); err != nil {
+		t.Fatal(err)
+	}
+	f.setOtherPlan("plan_other", map[string]any{"trial_period_days": 7})
+	r = waiting("biz_other/fix", `{}`, "hWhopSellerFix", `UPDATE whop_stores SET suspended_at = ?, suspend_reason = 'griefing' WHERE store_id = 'biz_other'`)
+	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "suspended") || len(f.termSets) != 0 {
+		t.Fatalf("Fix my plans for a store suspended while it waited: %d %v, plans changed %v", r.status, r.body, f.termSets)
+	}
+	f.setOtherPlan("plan_other", map[string]any{"trial_period_days": 0})
 	if _, err := e.srv.db.Exec(`UPDATE whop_stores SET suspended_at = 0, suspend_reason = '' WHERE store_id = 'biz_other'`); err != nil {
 		t.Fatal(err)
 	}
