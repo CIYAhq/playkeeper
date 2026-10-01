@@ -368,7 +368,7 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", read)
 	}
 	plansRead := s.refreshWhopPlans(ctx, c, st)
-	if st.Via == whopViaApp && plansRead && s.whopShareStep(ctx, c, &st) {
+	if st.Via == whopViaApp && (plansRead || s.whopShareDue(ctx, st)) && s.whopShareStep(ctx, c, &st) {
 		return
 	}
 	if s.whopTakenOver(st.ID) || !s.stillSellsFor(ctx, c, st) {
@@ -562,17 +562,19 @@ func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopSt
 }
 
 // whopStoreDue says whether the reconciler reads the store this pass: every
-// whopPollEvery; at once when the products name another address than the
-// dashboard's, since the store sends buyers there and the old one may no
-// longer answer (the dashboard losing port 443, say), but only a minute
-// after a read that failed; and two minutes after the last read when a
-// membership is of a plan the dashboard hasn't read yet.
+// whopPollEvery; at once when a key store's products name another address
+// than the dashboard's, since the store sends buyers there and the old one
+// may no longer answer (the dashboard losing port 443, say), but only a
+// minute after a read that failed; and two minutes after the last read
+// when a membership is of a plan the dashboard hasn't read yet. Reading
+// the store doesn't mark an app store's products (Open the store does), so
+// no address of theirs is kept to compare.
 func (s *Server) whopStoreDue(ctx context.Context, st whopStore) bool {
 	since := s.now().Sub(st.SyncedAt)
 	if since >= whopPollEvery {
 		return true
 	}
-	if st.Problem == "" || since >= time.Minute {
+	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {
 		if dash, err := s.dashboardURL(ctx); err == nil && dash != "" && dash != st.MarkedAs {
 			return true
 		}
@@ -626,6 +628,12 @@ type whopHosting struct {
 // what its plan gives now: the share is by memory alone.
 func (h whopHosting) paidFor() bool {
 	return h.Paid.memoryMB > 0 && h.Paid.memoryMB >= h.Part.memoryMB
+}
+
+// checkDue says whether the payment check looks at the membership at now,
+// in milliseconds: it isn't paid for its plan, and it's time to look again.
+func (h whopHosting) checkDue(now int64) bool {
+	return !h.paidFor() && h.NextCheckAt <= now
 }
 
 // planPart is one plan with an allowance that a customer's membership grants.

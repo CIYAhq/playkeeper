@@ -883,6 +883,11 @@ INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_t
   FROM held h JOIN matched a USING (store_id, whop_user_id)
   WHERE NOT a.same AND instr(a.ids, '+') = 0 AND (a.of_given = 1 AND h.plan_id = a.ids OR a.of_given = 0 AND a.n = 1);
 `,
+	// When the share check last found each app store's share right, 0 once
+	// it found it wrong (see whopShareFresh).
+	`
+ALTER TABLE whop_share_watch ADD COLUMN share_right_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (

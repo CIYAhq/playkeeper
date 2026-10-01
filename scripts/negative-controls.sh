@@ -6925,8 +6925,8 @@ control "the store's marks follow the dashboard's port at once" internal/panel/w
   'err == nil && false && dash != st.MarkedAs {' \
   ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
 control "a Whop refusing the marks is asked again a minute later, not every pass" internal/panel/whop_customers.go \
-  '	if st.Problem == "" || since >= time.Minute {' \
-  '	if true {' \
+  '	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {' \
+  '	if st.Via == whopViaKey {' \
   ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
 control "a new install leaves the dashboard on 8443 while something has port 443" internal/install/install.go \
   'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
@@ -8698,8 +8698,8 @@ control "payment check: a membership counts only as far as a payment of it carri
   'if true {' \
   ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
 control "payment check: a membership not paid for its plan is checked while the store is open" internal/panel/whop_share_hooks.go \
-  'if !h.paidFor() && st.ClosedWhy == "" && h.NextCheckAt <= now {' \
-  'if !h.paidFor() && st.ClosedWhy == "" && h.NextCheckAt <= now && false {' \
+  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) && false {' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 control "payment check: a membership moved to more memory gives what it was paid for" internal/panel/whop_share_hooks.go \
   'if h.Paid.memoryMB > 0 {' \
@@ -8759,9 +8759,41 @@ control "payments: a refund keeps its payment again" internal/panel/whop_share_h
   '_ = pay' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payments: only the hosting products' payments are kept" internal/panel/whop_share_hooks.go \
-  'if _, ok := hosting[pay.ProductID]; !ok {' \
-  'if _, ok := hosting[pay.ProductID]; !ok && false {' \
+  'if _, ok := hosting[pay.ProductID]; !ok || s.whopPaymentKept(ctx, st.ID, pay) {' \
+  'if _, ok := hosting[pay.ProductID]; !ok && false || s.whopPaymentKept(ctx, st.ID, pay) {' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a payment kept isn't read again" internal/panel/whop_share_hooks.go \
+  'if _, ok := hosting[pay.ProductID]; !ok || s.whopPaymentKept(ctx, st.ID, pay) {' \
+  'if _, ok := hosting[pay.ProductID]; !ok {' \
+  ./internal/panel '^TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded$'
+control "payments: a payment refunded since it was kept is read again" internal/panel/whop_share_hooks.go \
+  'return err == nil && kept == min(refunded, amount)' \
+  'return err == nil && (kept == min(refunded, amount) || true)' \
+  ./internal/panel '^TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded$'
+control "share fresh: a pass that didn't read the store checks the share when a payment waits on it" internal/panel/whop_customers.go \
+  '(plansRead || s.whopShareDue(ctx, st))' \
+  '(plansRead || false)' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: a payment counts only after the share was found right" internal/panel/whop_share_hooks.go \
+  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now) && st.ClosedWhy == "" {' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: only a share found right recently counts" internal/panel/whop_share_hooks.go \
+  'return err == nil && at > 0 && s.now().Sub(time.UnixMilli(at)) < whopShareFresh' \
+  'return err == nil && at > 0' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: the share check notes when it found the share right" internal/panel/whop_share_hooks.go \
+  's.noteWhopShareRight(ctx, st.ID, problem == "")' \
+  's.noteWhopShareRight(ctx, st.ID, false)' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: the share is checked out of turn only for a payment check that's due" internal/panel/whop_share_hooks.go \
+  'if h.checkDue(now) {' \
+  'if h.checkDue(now) || true {' \
+  ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
+control "app store cadence: an app store's products have no address to compare" internal/panel/whop_customers.go \
+  '	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {' \
+  '	if st.Problem == "" || since >= time.Minute {' \
+  ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
 control "payments: Whop is asked for a store's payments newest paid first" internal/whop/payments.go \
   '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
   '"first": {strconv.Itoa(100)}}' \

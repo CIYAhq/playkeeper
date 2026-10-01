@@ -122,8 +122,10 @@ type fakeWhop struct {
 	// doesn't know the filter might.
 	refuseFilter bool
 	// requests counts what the dashboard asked, and planReads its reads of
-	// the store's plans, which only reading the store does.
+	// the store's plans, which only reading the store does. asked is each
+	// request's method and path.
 	requests, planReads int
+	asked               []string
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
 	// the refresh tokens ended. noTokenExchange is an app without the
 	// oauth:token_exchange permission on Whop.
@@ -281,6 +283,7 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests++
+	f.asked = append(f.asked, r.Method+" "+r.URL.Path)
 	if r.URL.Path == "/.well-known/jwks.json" {
 		w.Write(whop.UserTokenKeys(whopTestTokenKid, &f.tokenKey.PublicKey))
 		return

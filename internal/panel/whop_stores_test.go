@@ -324,6 +324,27 @@ func (f *fakeWhop) buyAt(biz, id, user, plan, status string) map[string]any {
 	return m
 }
 
+// askedSince is each request asked since the first from, as method and
+// path, that starts with any of routes.
+func (f *fakeWhop) askedSince(from int, routes ...string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, a := range f.asked[from:] {
+		if slices.ContainsFunc(routes, func(r string) bool { return strings.HasPrefix(a, r) }) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// askedSoFar is how many requests the dashboard has asked, for askedSince.
+func (f *fakeWhop) askedSoFar() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.asked)
+}
+
 // sentIn is what went to the support chat of the business that installed
 // the app with user.
 func (f *fakeWhop) sentIn(biz, user string) []string {
