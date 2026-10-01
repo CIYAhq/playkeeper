@@ -9,6 +9,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Fixed: for a moment after an update of Playkeeper ended, Settings could still say it was being installed, and the update's line in the activity was stored a moment after it ended.
 - Fixed: when a copy somewhere else is made, fails, or is deleted, by the backup rules or by hand, its line in the activity is now stored together with it, so a crash at that moment can't keep one without the other.
 - Fixed: pre-generation could retry a task once more than it should after the server ran out of memory, instead of pausing it for memory. When a task is paused, resumed, cancelled or ends, its line in the activity is now stored together with it.
+- Fixed: deleting a copy somewhere else from a store that takes over a minute no longer says the agent isn't running, or on a joined machine that it didn't answer, while cutting the deletion off. The dashboard waits for the store, up to the two minutes the agent gives it.
 
 ## 0.4.13
 

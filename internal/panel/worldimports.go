@@ -120,6 +120,25 @@ func (s *Server) forwardLongThen(pattern string, then func(machine, *session, js
 	}
 }
 
+// deleteLong is forward for a DELETE that can take longer than the agent
+// client's minute: deleting an off-site copy waits up to two minutes on its
+// store.
+func (s *Server) deleteLong(pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, sess *session) {
+		m, ok := s.target(w, r)
+		if !ok {
+			return
+		}
+		resp, err := m.agent.Raw(asActor(r.Context(), sess.User.Username), "DELETE", agentPath(pattern, r), url.Values{"actor": {sess.User.Username}}, nil, nil, true)
+		if err != nil {
+			s.agentFailure(w, err)
+			return
+		}
+		defer resp.Body.Close()
+		relayJSON(w, resp, 64<<10)
+	}
+}
+
 // relayJSON passes an agent's JSON answer on, up to limit bytes, and returns
 // it, or nil when there was none to pass on.
 func relayJSON(w http.ResponseWriter, resp *http.Response, limit int64) json.RawMessage {
