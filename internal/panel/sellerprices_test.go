@@ -38,6 +38,10 @@ func openedAsSeller(t *testing.T) (*fakeWhop, *env, string) {
 	return f, e, token
 }
 
+// acceptingTerms is Open the store's call with the box "I accept the seller
+// terms" ticked.
+const acceptingTerms = `{"acceptTerms":true}`
+
 // sharesGoToSiya names the owner's own Whop account to receive
 // Playkeeper's share, as the owner does in Settings › Sell on Whop.
 func sharesGoToSiya(t *testing.T, e *env) {
@@ -230,7 +234,7 @@ func TestOpenTheStoreSetsPlaykeepersShareThenOpensIt(t *testing.T) {
 	f.setOtherProduct("prod_merch", whop.Metadata{"color": "green"})
 	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
 	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "visibility": "hidden", "renewal_price": 5, "product": map[string]any{"id": "prod_merch", "title": "Merch"}})
-	r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
+	r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil)
 	if r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store: %d %v", r.status, r.body)
 	}
@@ -280,7 +284,7 @@ func TestOpenTheStorePutsRightAShareThatPaysTooLittle(t *testing.T) {
 	f.installed["biz_other"].shares = []map[string]any{{"id": "ovr_old", "override_type": "rev_share", "product_id": "prod_other",
 		"commission_type": "percentage", "commission_value": 50.0, "revenue_basis": "pre_fees"}}
 	f.mu.Unlock()
-	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+	if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store: %d %v", r.status, r.body)
 	}
 	if share := f.share("biz_other", "prod_other"); share["id"] != "ovr_old" || share["commission_value"] != 70.84 {
@@ -299,7 +303,7 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
 	sell := func(name string, status int, says string) {
 		t.Helper()
-		r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
+		r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil)
 		if r.status != status || !strings.Contains(r.body["error"].(string), says) {
 			t.Fatalf("%s: %d %v", name, r.status, r.body)
 		}
@@ -346,7 +350,7 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	if _, err := e.srv.suspendWhopStore(t.Context(), "biz_other", "admin", "griefing"); err != nil {
 		t.Fatal(err)
 	}
-	r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
+	r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil)
 	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "suspended") {
 		t.Fatalf("a suspended store: %d %v", r.status, r.body)
 	}
@@ -362,7 +366,7 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	if err := e.srv.whopStoreLeft(t.Context(), "biz_other", "Playkeeper's share has been gone for 72 hours"); err != nil {
 		t.Fatal(err)
 	}
-	r = e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
+	r = e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil)
 	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "left Playkeeper Cloud") {
 		t.Fatalf("a store that left: %d %v", r.status, r.body)
 	}
@@ -387,7 +391,7 @@ func TestOpenTheStoreRefusesAPlanTheFleetDoesntRun(t *testing.T) {
 		{"1", "96", "Other: allows 96 GB", "It allows 96 GB, and hosted plans allow 1 GB to 64 GB."},
 	} {
 		f.setOtherPlan("plan_other", map[string]any{"metadata": map[string]any{whop.MetaServers: c.servers, whop.MetaMemoryGB: c.gb}})
-		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != c.line ||
+		if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusConflict || r.body["error"] != c.line ||
 			r.body["hint"] != "To open your store, allow 1 to 10 servers and 1 to 64 GB." {
 			t.Fatalf("Open the store with %s servers and %s GB: %d %v", c.servers, c.gb, r.status, r.body)
 		}
@@ -402,7 +406,7 @@ func TestOpenTheStoreRefusesAPlanTheFleetDoesntRun(t *testing.T) {
 		t.Fatalf("a plan the fleet doesn't run opened the store: %q", st.ClosedWhy)
 	}
 	f.setOtherPlan("plan_other", map[string]any{"renewal_price": 192, "metadata": map[string]any{whop.MetaServers: "10", whop.MetaMemoryGB: "64"}})
-	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+	if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store with 10 servers and 64 GB: %d %v", r.status, r.body)
 	}
 }
@@ -432,7 +436,7 @@ func TestOpenTheStoreRefusesAProductThatSellsAnotherPlan(t *testing.T) {
 				t.Fatalf("%s: %s's problem is %q", name, p.Title, p.Problem)
 			}
 		}
-		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != strings.Join(lines, "\n") || r.body["hint"] != hint {
+		if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusConflict || r.body["error"] != strings.Join(lines, "\n") || r.body["hint"] != hint {
 			t.Fatalf("Open the store with %s: %d %v", name, r.status, r.body)
 		}
 	}
@@ -454,7 +458,7 @@ func TestOpenTheStoreRefusesAProductThatSellsAnotherPlan(t *testing.T) {
 	}
 	f.setOtherProduct("prod_merch", whop.Metadata{})
 	f.setOtherPlan("plan_merch", map[string]any{"product": map[string]any{"id": "prod_merch", "title": "Merch"}})
-	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+	if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store with each plan on its own product, and Old archived on Other's: %d %v", r.status, r.body)
 	}
 }
@@ -501,7 +505,7 @@ func TestASellersChangeThatWaitsSeesASuspensionOrLeaving(t *testing.T) {
 			return resp{}
 		}
 	}
-	r := waiting("biz_other/sell", `{}`, "hWhopSellerSell", `UPDATE whop_stores SET suspended_at = ?, suspend_reason = 'griefing' WHERE store_id = 'biz_other'`)
+	r := waiting("biz_other/sell", acceptingTerms, "hWhopSellerSell", `UPDATE whop_stores SET suspended_at = ?, suspend_reason = 'griefing' WHERE store_id = 'biz_other'`)
 	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "suspended") {
 		t.Fatalf("Open the store for a store suspended while it waited: %d %v", r.status, r.body)
 	}
@@ -537,7 +541,7 @@ func TestOnlyTheBusinesssTeamPricesAndOpensItsStore(t *testing.T) {
 		{"GET", "biz_other/prices", ""},
 		{"POST", "biz_other/prices", `{"plan":"plan_other","price":"15"}`},
 		{"POST", "biz_other/fix", `{}`},
-		{"POST", "biz_other/sell", `{}`},
+		{"POST", "biz_other/sell", acceptingTerms},
 	} {
 		for name, c := range map[string]struct {
 			path, token string
@@ -594,7 +598,7 @@ func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
 	}
 	sell := func() resp {
 		t.Helper()
-		return e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
+		return e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil)
 	}
 	offered("a store not open yet", true, false)
 	if r := sell(); r.status != http.StatusOK || r.body["open"] != true {
@@ -650,7 +654,7 @@ func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
 func TestLoweringAPriceSetsTheShareFirst(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
-	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+	if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store: %d %v", r.status, r.body)
 	}
 	set := func(price string) resp {
@@ -806,7 +810,7 @@ func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 		t.Fatalf("Fix my plans again: %d %v, plans changed %v", r.status, r.body, f.termSets)
 	}
 	f.setOtherPlan("plan_once", map[string]any{"visibility": "archived"})
-	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+	if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store: %d %v", r.status, r.body)
 	}
 	f.setOtherPlan("plan_other", map[string]any{"trial_period_days": 3})
@@ -836,7 +840,7 @@ func TestOpenTheStoreHidesTheWebsitesFreeProduct(t *testing.T) {
 	f.addOtherPlan(map[string]any{"id": "plan_tips", "title": "Tips", "renewal_price": 5, "product": map[string]any{"id": "prod_tips", "title": "Playkeeper Hosting"}})
 	sell := func() resp {
 		t.Helper()
-		return e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
+		return e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil)
 	}
 	hidden := func() []string {
 		t.Helper()
