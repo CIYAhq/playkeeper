@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Tests scripts/package-cache.sh with stand-ins for dpkg-query and dpkg-deb on
-# PATH: a stand-in .deb holds the "package version architecture" it is for.
-# keep leaves only the .deb files of packages installed at their versions,
-# deletes apt's lock and partial downloads, names what's left by the files'
-# names whatever their order, and fails rather than leave nothing.
+# Tests scripts/package-cache.sh with stand-ins for dpkg, dpkg-query and
+# dpkg-deb on PATH: a stand-in .deb holds the "package version architecture"
+# it is for. keep leaves only the .deb files of packages installed at their
+# versions, deletes apt's lock and partial downloads, names what's left by
+# the files' names whatever their order, and fails rather than leave
+# nothing; prefix names the system and CPU, gives no set a prefix another
+# set's keys start with, and refuses a set name that could.
 # Assertions are written "condition || fail ...": fail always exits.
 # shellcheck disable=SC2015
 set -euo pipefail
@@ -95,5 +97,35 @@ st=0
 "$root/scripts/package-cache.sh" >/dev/null 2>&1 || st=$?
 [ "$st" = 2 ] || fail "no arguments must be a usage error (status $st)"
 ok "no arguments is a usage error"
+
+# prefix SET, with a stand-in dpkg and os-release.
+cat >"$t/bin/dpkg" <<'EOF'
+#!/bin/sh
+[ "$1" = --print-architecture ] && echo arm64
+EOF
+chmod +x "$t/bin/dpkg"
+printf 'ID=ubuntu\nVERSION_ID="24.04"\n' >"$t/os-release"
+prefix() { # SET: sets st and out
+  st=0
+  out=$(PATH="$t/bin:$PATH" PACKAGE_CACHE_OS_RELEASE="$t/os-release" "$root/scripts/package-cache.sh" prefix "$1" 2>/dev/null) || st=$?
+}
+prefix chromium
+[ "$st" = 0 ] && [ "$out" = "apt-packages-ubuntu24.04-arm64-chromium." ] || fail "chromium's prefix (status $st): '$out'"
+chromium=$out
+prefix chromium-webkit
+webkit=$out
+prefix vm-lab
+lab=$out
+for a in "$chromium" "$webkit" "$lab"; do
+  for b in "$chromium" "$webkit" "$lab"; do
+    [ "$a" = "$b" ] || [[ "${b}c18dd748af6158f1" != "$a"* ]] || fail "a key of one set starts with another set's prefix: '$a' matches '${b}c18dd748af6158f1'"
+  done
+done
+ok "a set's prefix names the system and CPU, and no set's keys start with another's prefix"
+for bad in "" Chromium chromium.webkit chromium/webkit chromium- -chromium "chromium webkit"; do
+  prefix "$bad"
+  [ "$st" = 2 ] && [ -z "$out" ] || fail "the set name '$bad' must be refused (status $st, printed '$out')"
+done
+ok "a set name with anything but lowercase letters, digits and inner hyphens is refused"
 
 echo "package-cache.sh: $checks checks passed"

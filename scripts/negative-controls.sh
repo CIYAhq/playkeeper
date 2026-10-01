@@ -3086,13 +3086,23 @@ shcontrol "only a network error is tried again" scripts/net-retry.sh \
   scripts/net-retry_test.sh
 # shellcheck disable=SC2016
 shcontrol "the package cache keeps only the versions installed" scripts/package-cache.sh \
-  '  grep -qxF "$what" <<<"$installed" || rm -f "$deb"' \
-  '  true' \
+  '      grep -qxF "$what" <<<"$installed" || rm -f "$deb"' \
+  '      true' \
   scripts/package-cache_test.sh
 # shellcheck disable=SC2016
 shcontrol "the package cache names no empty set" scripts/package-cache.sh \
-  'if [ -z "$names" ]; then' \
-  'if false; then' \
+  '    if [ -z "$names" ]; then' \
+  '    if false; then' \
+  scripts/package-cache_test.sh
+# shellcheck disable=SC2016
+shcontrol "one package set's cache keys never start with another's prefix" scripts/package-cache.sh \
+  '-$set."' \
+  '-$set-"' \
+  scripts/package-cache_test.sh
+# shellcheck disable=SC2016
+shcontrol "a package set's name is checked before it makes a cache key" scripts/package-cache.sh \
+  '    [[ $set =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || usage' \
+  '    [ -n "$set" ] || usage' \
   scripts/package-cache_test.sh
 # shellcheck disable=SC2016
 shcontrol "setup.sh tries the module download again after a network error" scripts/setup.sh \

@@ -30,8 +30,8 @@ runs:
       env:
         SET: ${{ inputs.set }}
       run: |
-        . /etc/os-release
-        echo "prefix=apt-packages-$ID$VERSION_ID-$(dpkg --print-architecture)-$SET-" >> "$GITHUB_OUTPUT"
+        prefix=$(scripts/package-cache.sh prefix "$SET")
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
     - name: The newest packages saved for the set
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
