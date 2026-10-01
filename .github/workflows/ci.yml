@@ -160,25 +160,25 @@ jobs:
       - name: make test-agent
         run: make test-agent OUT=/tmp/agent-tests
 
-  # Under the race detector the panel's tests would keep every core of one
-  # runner busy for longer than the other jobs take, so two runners each run
-  # four of eight shards side by side.
+  # Under the race detector the panel's tests keep a runner's cores busy for
+  # about 10 minutes, and a race build takes a minute more, so four runners
+  # each run four of 16 shards side by side and end with the other jobs.
   panel-race:
-    name: Panel unit tests under the race detector — runner ${{ matrix.part }} of 2, every test run
+    name: Panel unit tests under the race detector — runner ${{ matrix.part }} of 4, every test run
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        part: [1, 2]
+        part: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up pinned toolchains
         run: ./scripts/setup.sh
       - name: make test-panel-race
         env:
-          PART: ${{ matrix.part }}/2
-        run: make test-panel-race JOBS=8 OUT=/tmp/panel-race
+          PART: ${{ matrix.part }}/4
+        run: make test-panel-race JOBS=16 OUT=/tmp/panel-race
 
   # The web and installer-script unit tests, then the first-load budget: a
   # production build of the dashboard, about a second, which fails when a
