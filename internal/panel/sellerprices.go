@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -58,12 +59,14 @@ func parseSellerPrice(s string) (int64, error) {
 
 // sellerPrices is how a seller prices their store: its hosting plans, and
 // whether Open the store is theirs to press, as it is while the store is
-// closed and neither suspended nor gone. Problem is what's wrong with
-// Playkeeper's share once a price changed, if anything.
+// closed and neither suspended nor gone, or Update the store, the same
+// call once it's open. Problem is what's wrong with Playkeeper's share once
+// a price changed, if anything.
 type sellerPrices struct {
-	Plans   []sellerPrice `json:"plans"`
-	CanOpen bool          `json:"canOpen"`
-	Problem string        `json:"problem,omitempty"`
+	Plans     []sellerPrice `json:"plans"`
+	CanOpen   bool          `json:"canOpen"`
+	CanUpdate bool          `json:"canUpdate"`
+	Problem   string        `json:"problem,omitempty"`
 }
 
 // sellerPrice is one hosting plan as its seller prices it: what it allows,
@@ -190,18 +193,68 @@ func (s *Server) sellerPricesOf(ctx context.Context, c *whop.Client, st whopStor
 // sellerPricesFrom is the store's hosting plans among plans, as its seller
 // prices them. A plan that allows more or less than the fleet runs has that
 // as its problem, before any other: the store's pass would start none of
-// its buyers, and the floor follows from what it allows.
+// its buyers, and the floor follows from what it allows. A plan whose
+// product sells another plan that isn't archived has that on top of any
+// other problem (sharedProductProblems).
 func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 	v := sellerPrices{Plans: []sellerPrice{}, CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()}
+	shared := sharedProductProblems(slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool {
+		return p.Visibility == "archived"
+	}))
 	for _, p := range plans {
 		if sp, ok := sellerPriceOf(p); ok {
 			if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {
 				sp.Problem = problem
+			} else if shared[p.ID] != "" {
+				sp.Problem = strings.TrimSpace(sp.Problem + " " + shared[p.ID])
 			}
 			v.Plans = append(v.Plans, sp)
 		}
 	}
+	v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()
 	return v
+}
+
+// sharedProductProblems is, by plan id, what's wrong with each of plans
+// whose product has another of them, for hosting or not: Playkeeper's share
+// is one percentage on the whole product (Whop's single_product), set for
+// its neediest hosting plan, so it would take more than its share of another
+// hosting plan's payments, and a cut of a plan that isn't for hosting. Each
+// hosting product sells one plan. Which plans count is the caller's: those
+// that sell, for Open the store.
+func sharedProductProblems(plans []whop.Plan) map[string]string {
+	byProduct := map[string][]whop.Plan{}
+	for _, p := range plans {
+		if p.Product.ID != "" {
+			byProduct[p.Product.ID] = append(byProduct[p.Product.ID], p)
+		}
+	}
+	out := map[string]string{}
+	for _, same := range byProduct {
+		if len(same) < 2 {
+			continue
+		}
+		for _, p := range same {
+			var others []string
+			for _, o := range same {
+				if o.ID != p.ID {
+					others = append(others, cmpOr(o.Title, o.ID))
+				}
+			}
+			out[p.ID] = fmt.Sprintf("It shares its product, %s, with %s, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
+				cmpOr(p.Product.Title, p.Product.ID), andList(others))
+		}
+	}
+	return out
+}
+
+// andList writes names as a person lists them, such as "Plus, Max and
+// Merch".
+func andList(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 // allowanceProblem is what keeps a hosting plan that allows servers with
@@ -387,14 +440,16 @@ type sellerOpened struct {
 	Why  string `json:"why,omitempty"`
 }
 
-// hWhopSellerSell is a seller pressing Open the store. Every hosting plan
-// must renew monthly in US dollars, without a trial, at or above the floor,
-// and allow what the fleet runs (sellerPricesFrom).
+// hWhopSellerSell is a seller pressing Open the store, or Update the store
+// once it's open, which puts a hosting plan added since on the store site.
+// Every hosting plan must renew monthly in US dollars, without a trial, at
+// or above the floor, and allow what the fleet runs (sellerPricesFrom).
 // Then Playkeeper's share is set on each hosting product, putting right any
 // share the seller changed (syncWhopShares, with force), and only when that
 // leaves nothing wrong are the hosting products marked for the store site
 // and the hosting plans made visible there, and the store opens, for its
-// seller's reason alone.
+// seller's reason alone. A refusal leaves an open store open: only its
+// pass closes it.
 func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store string) {
 	st, user, c, ok := s.sellerStore(w, r, store)
 	if !ok {
@@ -454,7 +509,11 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", "Open the store: Playkeeper's share is set on each hosting product, the products are marked for the store site, and their plans are visible")
+	pressed := "Open the store"
+	if st.ClosedWhy == "" {
+		pressed = "Update the store"
+	}
+	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", pressed+": Playkeeper's share is set on each hosting product, the products are marked for the store site, and their plans are visible")
 	s.readWhopStoreSoon(ctx, st.ID)
 	out := sellerOpened{Open: open}
 	if !open {

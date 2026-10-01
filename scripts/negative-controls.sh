@@ -8146,8 +8146,8 @@ control "customers per store: a lapsed customer's message names their store" int
   'Scan(&info.customer.Provider, new(string), &info.customer.Subject' \
   ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
 control "customers per store: a sign-in keeps the store it's for" internal/panel/whop_signin.go \
-  'tokenHash(state), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
-  'tokenHash(state), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
+  'signInKey(state, secret), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
+  'signInKey(state, secret), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
   ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
 control "customers per store: coming back from Whop opens the store's account" internal/panel/whop_signin.go \
   'acct, ok, err := s.signInAccount(ctx, store, who.Subject)' \
@@ -9321,7 +9321,8 @@ webcontrol "seller view: the seller's page shows the view once the store is open
 # least $12 a month for each 4 GB, set on a plan renewing monthly in US
 # dollars, and an open store's share follows it. Open the store needs every
 # hosting plan to sell as it is, within what the fleet runs, before any
-# other problem, sets Playkeeper's share first, putting
+# other problem, on a product that sells it alone, sets Playkeeper's share
+# first, putting
 # right one that pays too little, marks the hosting products for the store
 # site, and only then opens the store, for its seller's reason alone.
 control "seller prices: a call comes from the seller's page itself" internal/panel/sellerprices.go \
@@ -9408,6 +9409,22 @@ control "seller prices: a plan with too many servers says so" internal/panel/sel
   'case servers < 1 || servers > invites.MaxAllowanceServers:' \
   'case servers < 1:' \
   ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a hosting product sells one plan" internal/panel/sellerprices.go \
+  'if len(same) < 2 {' \
+  'if len(same) < 2 || true {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a product's plan that isn't for hosting counts too" internal/panel/sellerprices.go \
+  'if p.Product.ID != "" {' \
+  'if _, _, hosting := whop.PlanAllowance(p.Metadata); hosting && p.Product.ID != "" {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: an archived plan doesn't share its product" internal/panel/sellerprices.go \
+  'return p.Visibility == "archived"' \
+  'return false' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a shared product comes on top of a plan's other problem" internal/panel/sellerprices.go \
+  'sp.Problem = strings.TrimSpace(sp.Problem + " " + shared[p.ID])' \
+  'sp.Problem = shared[p.ID]' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
 control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
   'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
   'CanOpen: st.ClosedWhy != ""' \
@@ -9468,6 +9485,22 @@ control "seller prices: Open the store opens its seller's reason alone" internal
   's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
   's.openWhopStore(ctx, st.ID, "share")' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: an open store offers Update the store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = false && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store is offered only once the store is open" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store isn't offered to a suspended store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.ClosedWhy == "" && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: the audit log tells an update from an opening" internal/panel/sellerprices.go \
+  'pressed = "Update the store"' \
+  'pressed = "Open the store"' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
 webcontrol "seller prices: the page sends the price the seller typed" web/src/pages/whop-seller-prices.tsx \
   '{ plan: p.id, price: value.trim() }' \
   '{ plan: p.id, price: typed(p.price) }' \
@@ -9477,9 +9510,25 @@ webcontrol "seller prices: the page offers Open the store only while the store c
   '{(' \
   src/pages/whop-seller-prices.test.tsx 'offers no Open the store'
 webcontrol "seller prices: Open the store goes once the store opened" web/src/pages/whop-seller-prices.tsx \
-  'setPrices((v) => v && { ...v, canOpen: !done.open })' \
+  'setPrices((v) => v && { ...v, canOpen: !done.open, canUpdate: done.open })' \
   'setPrices((v) => v)' \
   src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: Update the store comes once the store opened" web/src/pages/whop-seller-prices.tsx \
+  'canOpen: !done.open, canUpdate: done.open })' \
+  'canOpen: !done.open })' \
+  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: the page offers Update the store once the store is open" web/src/pages/whop-seller-prices.tsx \
+  '{prices.canUpdate && (' \
+  '{false && (' \
+  src/pages/whop-seller-prices.test.tsx 'updates an open store'
+webcontrol "seller prices: the page offers Update the store only once the store is open" web/src/pages/whop-seller-prices.tsx \
+  '{prices.canUpdate && (' \
+  '{(' \
+  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: the page says an update is done" web/src/pages/whop-seller-prices.tsx \
+  "t(update ? 'sellerPrices.updated' : 'sellerPrices.opened')" \
+  "t('sellerPrices.opened')" \
+  src/pages/whop-seller-prices.test.tsx 'updates an open store'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
@@ -11914,6 +11963,11 @@ control "Sign in with Whop's cookie never holds the state" internal/panel/whop_s
   'setHostCookie(w, whopSignInCookie, secret, ' \
   'setHostCookie(w, whopSignInCookie, state, ' \
   ./internal/panel '^TestSignInWithWhopOpensTheCustomersAccount$'
+control "a link back from Whop that matches no sign-in leaves the cookie, which may be another tab's" internal/panel/whop_signin.go \
+  '	state := q.Get("state")' \
+  '	setHostCookie(w, whopSignInCookie, "", -1, http.SameSiteLaxMode)
+	state := q.Get("state")' \
+  ./internal/panel '^TestASignInWithWhopThatMatchesNoneLeavesTheCookie$'
 control "every cookie the dashboard sets is for every path" internal/panel/cookies.go \
   'Path: "/", ' \
   'Path: "/api/", ' \

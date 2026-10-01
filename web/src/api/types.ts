@@ -2322,10 +2322,11 @@ export interface SellerMonth {
   kept: number
 }
 
-/** A seller's store as they price it: its hosting plans, whether Open the store is theirs to press, and what's wrong with Playkeeper's share once a price changed, if anything. */
+/** A seller's store as they price it: its hosting plans, whether Open the store is theirs to press, or Update the store once it's open, and what's wrong with Playkeeper's share once a price changed, if anything. */
 export interface SellerPrices {
   plans: SellerPrice[]
   canOpen: boolean
+  canUpdate: boolean
   problem?: string
 }
 
