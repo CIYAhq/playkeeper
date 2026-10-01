@@ -15,7 +15,9 @@ const monthsShown = 3
 
 /**
  * A seller's store once it's open, inside their page in Whop: a link to the
- * store, what it earned and its customers, kept short. Change prices and
+ * store's page on Whop, where buyers find its plans, what it earned and its
+ * customers, kept short. Whop answers for a business at its id as at its
+ * route, which a store has only once someone bought there. Change prices and
  * Update the store, for a plan added since, sit below. step is the steps'
  * count right after the seller opened the store, so they see they're done.
  * onChange tells the page the store changed, so it reads it again.
@@ -59,18 +61,16 @@ export function LiveView({
     <>
       <StepHeader step={step} title={t('sellerFlow.live.title')} lead={t('sellerFlow.live.lead')} />
       {view.store.state === 'needsLook' && view.store.why && <p className="mt-3 text-sm text-warning-foreground">{view.store.why}</p>}
-      {route && (
-        <a
-          href={`https://whop.com/${route}`}
-          target="_blank"
-          rel="noreferrer"
-          aria-label={t('common.external', { label: t('sellerFlow.live.visit') })}
-          className={cn(buttonVariants({ size: 'lg' }), 'mt-6 max-sm:w-full')}
-        >
-          {t('sellerFlow.live.visit')}
-          <ExternalLinkIcon className="size-4" aria-hidden="true" />
-        </a>
-      )}
+      <a
+        href={`https://whop.com/${route || store}`}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={t('common.external', { label: t('sellerFlow.live.visit') })}
+        className={cn(buttonVariants({ size: 'lg' }), 'mt-6 max-sm:w-full')}
+      >
+        {t('sellerFlow.live.visit')}
+        <ExternalLinkIcon className="size-4" aria-hidden="true" />
+      </a>
       <section className="mt-8" aria-labelledby="seller-earnings">
         <h2 id="seller-earnings" className="text-[15px] font-semibold">
           {t('sellerFlow.live.earnings')}
