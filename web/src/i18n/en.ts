@@ -335,9 +335,11 @@ export const en = {
   'style.summary': '{type} {version} · {memory} of {total} · named {name}',
 
   // EULA
-  'eula.accept': 'I accept the <link>Minecraft End User License Agreement</link>',
+  'eula.accept': 'I accept the Minecraft End User License Agreement',
   'eula.acceptShort': 'I accept the Minecraft EULA',
+  'eula.read': 'Read it',
   'eula.hint': 'Nothing is downloaded until you accept.',
+  'eula.nudge': 'Tick this box first.',
   'eula.url': 'https://www.minecraft.net/en-us/eula',
 
   // Overview

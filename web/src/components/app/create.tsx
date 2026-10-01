@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useId, useState, type Ref } from 'react'
 import { ChevronRightIcon, SearchIcon } from 'lucide-react'
 import type { Catalog, CatalogEntry, LevelType, MemoryBudget, MemorySizing, PlayStyle, ServerStatus } from '@/api/types'
 import { PlayArt, TypeLogo, WorldArt } from '@/components/app/art'
+import { EulaLink } from '@/components/app/bits'
 import { CardGroup, ChoiceCard } from '@/components/app/controls'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -10,7 +11,6 @@ import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { t, type MessageKey } from '@/i18n'
-import { rich } from '@/i18n/rich'
 import { formatLongDate, formatMB, relativeTime } from '@/lib/format'
 import { memorySegments, playersFor, share } from '@/lib/memory'
 import { softwareName, typeName } from '@/lib/servers'
@@ -407,23 +407,26 @@ export function MoreOptions({ hardcore, onHardcore, level, onLevel, phone }: { h
   )
 }
 
-export function EulaCheck({ checked, onChange, short, className }: { checked: boolean; onChange: (v: boolean) => void; short?: boolean; className?: string }) {
+/**
+ * The EULA box. Its whole row ticks it, the sentence included; the link
+ * after the sentence opens the EULA. nudge replaces the line under it, in
+ * red, after a press of a button it blocks said why.
+ */
+export function EulaCheck({ checked, onChange, short, nudge, checkboxRef, className }: { checked: boolean; onChange: (v: boolean) => void; short?: boolean; nudge?: string; checkboxRef?: Ref<HTMLElement>; className?: string }) {
+  const id = useId()
   return (
-    <label className={cn('flex items-start gap-3', className)}>
-      <Checkbox checked={checked} onCheckedChange={(c) => onChange(c === true)} className="mt-0.5" />
+    <label className={cn('flex items-start gap-3', className, nudge && 'border-destructive/48')}>
+      <Checkbox ref={checkboxRef} checked={checked} onCheckedChange={(c) => onChange(c === true)} aria-labelledby={`${id}-sentence`} aria-describedby={`${id}-hint`} aria-invalid={nudge ? true : undefined} className="mt-0.5" />
       <span>
-        <span className="block text-[13px] font-semibold max-sm:text-[15px]">
-          {short
-            ? t('eula.acceptShort')
-            : rich('eula.accept', {
-                link: (chunk) => (
-                  <a href={t('eula.url')} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2" onClick={(e) => e.stopPropagation()}>
-                    {chunk}
-                  </a>
-                ),
-              })}
+        <span className="block text-[13px] max-sm:text-[15px]">
+          <span id={`${id}-sentence`} className="font-semibold">
+            {short ? t('eula.acceptShort') : t('eula.accept')}
+          </span>{' '}
+          <EulaLink className="text-xs max-sm:text-[13px]" />
         </span>
-        <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{t('eula.hint')}</span>
+        <span id={`${id}-hint`} role={nudge ? 'alert' : undefined} className={cn('block text-xs max-sm:text-[13px]', nudge ? 'font-medium text-destructive-foreground' : 'text-muted-foreground')}>
+          {nudge ?? t('eula.hint')}
+        </span>
       </span>
     </label>
   )
