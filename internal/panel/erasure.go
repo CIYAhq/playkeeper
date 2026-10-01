@@ -103,16 +103,16 @@ func erasedSubject(store, subject string) string {
 }
 
 // forgottenSQL is true for a Whop user who was a customer of a store whom
-// the dashboard deleted, and isn't one there again, so the store's reads
-// leave out a membership of theirs that no longer gives access. Its
-// arguments are forgottenArgs.
-const forgottenSQL = `EXISTS(SELECT 1 FROM erased_customers WHERE store_id = ? AND subject_hash = ?)
-	AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ?)`
+// the dashboard deleted, so the store's reads leave out a membership of
+// theirs that no longer gives access, even once they buy again: they're a
+// new customer, without the memberships they had before. Its arguments are
+// forgottenArgs.
+const forgottenSQL = `EXISTS(SELECT 1 FROM erased_customers WHERE store_id = ? AND subject_hash = ?)`
 
 // forgottenArgs are forgottenSQL's arguments for the Whop user userID of
 // the store storeID.
 func forgottenArgs(storeID, userID string) []any {
-	return []any{storeID, erasedSubject(storeID, userID), whopProvider, storeID, userID}
+	return []any{storeID, erasedSubject(storeID, userID)}
 }
 
 // customerRetention is the days after a customer's servers were deleted
