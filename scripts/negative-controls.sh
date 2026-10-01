@@ -10233,7 +10233,7 @@ control "seller prices: Open the store marks the hosting products for the store 
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
 control "seller prices: only the hosting products are marked" internal/panel/sellerprices.go \
   'if !hosting[p.ID] {' \
-  'if false {' \
+  'if false && !hosting[p.ID] {' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
 control "seller prices: the store opens only once its products are marked" internal/panel/sellerprices.go \
   'if err := s.markHostedProducts(ctx, c, st, plans); err != nil {' \
@@ -10421,7 +10421,7 @@ control "seller prices: Open the store shows the hosting products on Whop" inter
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
 control "seller prices: only the hosting products are shown" internal/panel/sellerprices.go \
   'if !hosting[p.ID] || p.Visibility == "visible" || p.Visibility == "archived" {' \
-  'if p.Visibility == "visible" || p.Visibility == "archived" {' \
+  'if false && !hosting[p.ID] || p.Visibility == "visible" || p.Visibility == "archived" {' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
 control "seller prices: an archived hosting product stays archived" internal/panel/sellerprices.go \
   'p.Visibility == "visible" || p.Visibility == "archived" {' \
