@@ -1,0 +1,114 @@
+{{/*
+path: /ports
+title: Open ports 8443 and 25565 for Playkeeper on your VPS
+description: Your VPS provider's firewall can block Playkeeper. Open TCP 8443 for the dashboard and 25565 for players: steps for AWS, Google Cloud, Azure, Oracle and more.
+label: Open your VPS's ports
+*/}}
+
+{{/* Linked from the installer's last screen, as playkeeper.io/ports or
+     playkeeper.io/ports#<id> for the provider it tells it's on, so each
+     section's id is one the installer names (internal/install/provider.go).
+     Each step is one short sentence. */}}
+{{define "main"}}
+<section class="band band-white" aria-labelledby="page-title">
+  <div class="container container-narrow">
+    <h1 id="page-title" class="h1-page">Open your VPS's ports</h1>
+    <p class="lead">Playkeeper needs two: 8443 opens your dashboard, and 25565 lets friends join. If the installer's link won't open, your provider's firewall is blocking them.</p>
+    <div class="article prose">
+    <p>Find your provider, follow its steps, then open the link again.</p>
+    <ul>
+      <li><a href="#aws">AWS</a></li>
+      <li><a href="#google-cloud">Google Cloud</a></li>
+      <li><a href="#azure">Azure</a></li>
+      <li><a href="#oracle-cloud">Oracle Cloud</a></li>
+      <li><a href="#digitalocean">DigitalOcean</a></li>
+      <li><a href="#hetzner">Hetzner</a></li>
+      <li><a href="#vultr">Vultr</a></li>
+      <li><a href="#hostinger">Hostinger</a></li>
+      <li><a href="#linode">Linode (Akamai)</a></li>
+      <li><a href="#other">Another provider</a></li>
+    </ul>
+
+    <h2 id="aws">AWS</h2>
+    <ol>
+      <li>In the EC2 console, open <strong>Instances</strong>, pick your VPS, then its <strong>Security</strong> tab.</li>
+      <li>Click its security group, then <strong>Edit inbound rules</strong>.</li>
+      <li><strong>Add rule</strong>: <strong>Custom TCP</strong>, port <code>8443</code>, source <strong>Anywhere-IPv4</strong>.</li>
+      <li>Add one more for <code>25565</code>, then <strong>Save rules</strong>.</li>
+    </ol>
+    <p>On Lightsail, open your instance's <strong>Networking</strong> tab and add two rules under <strong>IPv4 Firewall</strong>: <strong>Custom</strong>, TCP, <code>8443</code> and <code>25565</code>.</p>
+
+    <h2 id="google-cloud">Google Cloud</h2>
+    <ol>
+      <li>Open <strong>VPC network › Firewall</strong>, then <strong>Create firewall rule</strong>.</li>
+      <li>Set <strong>Targets</strong> to <strong>All instances in the network</strong>, and <strong>Source IPv4 ranges</strong> to <code>0.0.0.0/0</code>.</li>
+      <li>Under <strong>Protocols and ports</strong>, tick <strong>TCP</strong>, type <code>8443,25565</code> and click <strong>Create</strong>.</li>
+    </ol>
+
+    <h2 id="azure">Azure</h2>
+    <ol>
+      <li>Open your virtual machine, then <strong>Networking</strong>.</li>
+      <li>Add an inbound port rule: destination port <code>8443</code>, protocol <strong>TCP</strong>, then <strong>Add</strong>.</li>
+      <li>Add one more for <code>25565</code>.</li>
+    </ol>
+
+    <h2 id="oracle-cloud">Oracle Cloud</h2>
+    <ol>
+      <li>Open your instance, click its <strong>subnet</strong>, then its <strong>security list</strong>.</li>
+      <li><strong>Add Ingress Rules</strong>: source CIDR <code>0.0.0.0/0</code>, protocol <strong>TCP</strong>, destination port <code>8443</code>.</li>
+      <li>Add one more for <code>25565</code>.</li>
+      <li>Oracle's Ubuntu has a firewall of its own too. Run this on the VPS: <code>sudo iptables -I INPUT -p tcp -m multiport --dports 8443,25565 -j ACCEPT &amp;&amp; sudo netfilter-persistent save</code></li>
+    </ol>
+
+    <h2 id="digitalocean">DigitalOcean</h2>
+    <p>A Droplet has no firewall unless you added one, so the ports are open. If you added a Cloud Firewall:</p>
+    <ol>
+      <li>Open <strong>Networking › Firewalls</strong> and your firewall.</li>
+      <li>Under <strong>Inbound Rules</strong>, add <strong>Custom</strong>, TCP, <code>8443</code>, from <strong>All IPv4</strong> and <strong>All IPv6</strong>.</li>
+      <li>Add one more for <code>25565</code>.</li>
+    </ol>
+
+    <h2 id="hetzner">Hetzner</h2>
+    <p>A Hetzner Cloud server has no firewall unless you added one, so the ports are open. If you added one:</p>
+    <ol>
+      <li>Open <strong>Firewalls</strong> and your firewall.</li>
+      <li>Under <strong>Inbound</strong>, add TCP <code>8443</code> from <strong>Any IPv4</strong> and <strong>Any IPv6</strong>.</li>
+      <li>Add one more for <code>25565</code>.</li>
+    </ol>
+
+    <h2 id="vultr">Vultr</h2>
+    <p>Vultr's Ubuntu turns on its own firewall, and Playkeeper opens the ports in it for you. If you also added a Vultr Firewall:</p>
+    <ol>
+      <li>Open <strong>Network › Firewall</strong> and your firewall group.</li>
+      <li>Add TCP <code>8443</code> and <code>25565</code>, from anywhere.</li>
+    </ol>
+
+    <h2 id="hostinger">Hostinger</h2>
+    <p>hPanel's firewall is off unless you turned it on, so the ports are open. If you turned it on:</p>
+    <ol>
+      <li>Open your VPS, then <strong>Security › Firewall</strong>, and <strong>Edit</strong> your firewall.</li>
+      <li><strong>Add rule</strong>: accept TCP <code>8443</code> from any source.</li>
+      <li>Add one more for <code>25565</code>.</li>
+    </ol>
+
+    <h2 id="linode">Linode (Akamai)</h2>
+    <p>A Linode has no firewall unless you added one, so the ports are open. If you added one:</p>
+    <ol>
+      <li>Open <strong>Firewalls</strong> and your firewall.</li>
+      <li><strong>Add an inbound rule</strong>: TCP, ports <code>8443, 25565</code>, from all IPv4 and IPv6, action <strong>Accept</strong>.</li>
+    </ol>
+
+    <h2 id="other">Another provider</h2>
+    <p>Look for <strong>Firewall</strong>, <strong>Security group</strong> or <strong>Network rules</strong> in your provider's panel, and allow TCP <code>8443</code> and <code>25565</code> from anywhere. If there's none, the ports are already open.</p>
+
+    <h2 id="still">Still won't open?</h2>
+    <ul>
+      <li>Use the whole link the installer printed, with <code>https://</code> and <code>:8443</code>.</li>
+      <li>On the VPS, <code>sudo playkeeper status</code> says whether Playkeeper is running.</li>
+      <li><a href="{{.Settings.Community.URL}}">{{.Settings.Community.Ask}}</a>: someone has seen it before.</li>
+    </ul>
+    <p>Later, a free name for your VPS uses TCP 443 and 80 too: open them the same way.</p>
+    </div>
+  </div>
+</section>
+{{end}}

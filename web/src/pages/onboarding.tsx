@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
@@ -7,7 +7,7 @@ import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
+import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
 import { PasswordField } from '@/components/app/password-field'
 import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
@@ -397,6 +397,9 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
   const [busy, setBusy] = useState(false)
   const [createError, setCreateError] = useState<string>()
   const [nameEdited, setNameEdited] = useState(false)
+  // Pressing Create before it can say why next to what's missing.
+  const [explained, setExplained] = useState(false)
+  const eulaBox = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (!catalog || c) return
@@ -460,6 +463,13 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
     ? t('onboarding.summaryPhone', { type: typeName(c.type), version: version?.minecraftVersion ?? '', world: t(`style.world.${c.levelType}`).toLowerCase(), memory: formatMB(c.memoryMB) })
     : t('style.summary', { type: typeName(c.type), version: version?.minecraftVersion ?? '', memory: formatMB(c.memoryMB), total: formatMB(catalog.hostMemoryMB), name: c.name })
   const blocked = createBlocked(c, version)
+  const eulaMissing = !!blocked && !versionBlocked(c, version) && !!c.name.trim() && !c.eula
+  const explain = () => {
+    setExplained(true)
+    if (!eulaMissing) return
+    eulaBox.current?.focus()
+    eulaBox.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
   const { cards, older } = versionCards(catalog.versions, ws.servers)
   const versionChoices = [...cards.map((x) => x.entry), ...older].map((e) => ({ value: e.id, label: e.minecraftVersion, hint: e.experimental ? t('common.experimental') : e.recommended ? t('new.latestStable') : t('new.build', { build: e.paperBuild }) }))
 
@@ -477,8 +487,23 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           phone={phone}
         />
         <MoreOptions hardcore={c.hardcore} onHardcore={(hardcore) => update({ hardcore })} level={c.levelType} onLevel={(levelType) => update({ levelType })} phone={phone} />
-        <EulaCheck checked={c.eula} onChange={(eula) => update({ eula })} short={phone} className={cn(phone ? 'min-h-14 rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')} />
+        <EulaCheck
+          checked={c.eula}
+          onChange={(eula) => {
+            update({ eula })
+            if (eula) setExplained(false)
+          }}
+          short={phone}
+          nudge={explained && eulaMissing ? t('eula.nudge') : undefined}
+          checkboxRef={eulaBox}
+          className={cn(phone ? 'min-h-14 rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')}
+        />
         <VersionsFrom catalog={catalog} className="px-1" />
+        {explained && blocked && !eulaMissing && (
+          <p className="text-[13px] text-destructive-foreground" role="alert">
+            {blocked}
+          </p>
+        )}
         {createError && (
           <p className="text-[13px] text-destructive-foreground" role="alert">
             {createError}
@@ -535,7 +560,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           </button>
         </p>
         <PhoneActions>
-          <Button size="touch" onClick={create} loading={busy} disabledReason={blocked}>
+          <Button size="touch" onClick={create} loading={busy} disabledReason={blocked} onDisabledPress={explain}>
             {t('onboarding.createMine')}
             <ArrowRightIcon />
           </Button>
@@ -556,7 +581,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
         <button type="button" className="shrink-0 text-xs font-semibold text-primary hover:underline" onClick={() => setChanging(true)}>
           {t('common.change')}
         </button>
-        <Button onClick={create} loading={busy} disabledReason={blocked}>
+        <Button onClick={create} loading={busy} disabledReason={blocked} onDisabledPress={explain}>
           {t('onboarding.createMine')}
           <ArrowRightIcon />
         </Button>

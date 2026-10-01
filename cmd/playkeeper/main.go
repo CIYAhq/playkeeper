@@ -438,6 +438,17 @@ func runUnits(args []string) error {
 	return json.NewEncoder(os.Stdout).Encode(install.Units(cfg, install.Joined(cfg, "/")))
 }
 
+// wontOpen is what to do when the dashboard's link doesn't open, which most
+// often means the provider's firewall drops its port: the provider's steps
+// for opening it, when the installer could tell the provider.
+func wontOpen(res *install.Result) string {
+	firewall := "your provider's firewall"
+	if res.Provider.Name != "" {
+		firewall = res.Provider.Name + "'s firewall"
+	}
+	return fmt.Sprintf("Won't open? Open ports %d and %d in %s: %s", res.PanelPort, res.GamePort, firewall, res.Provider.StepsURL())
+}
+
 // writeInstallSummary tells the user what to do next. A reinstall that kept an
 // admin account gets sign-in instructions instead of a setup code.
 func writeInstallSummary(w io.Writer, res *install.Result) {
@@ -445,8 +456,10 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 	if res.SetupCode != "" {
 		fmt.Fprintf(w, "  1. Open this link in your browser:\n       %s/setup#code=%s\n", res.URL, res.SetupCode)
 		fmt.Fprintf(w, "     (setup code: %s — works once, expires in 24 hours)\n", res.SetupCode)
+		fmt.Fprintf(w, "     %s\n", wontOpen(res))
 	} else {
 		fmt.Fprintf(w, "  1. Open %s and sign in with your existing admin account.\n", res.URL)
+		fmt.Fprintf(w, "     %s\n", wontOpen(res))
 	}
 	fmt.Fprintf(w, "  2. Your browser will warn that the certificate is self-signed. Continue only if it shows\n     this SHA-256 fingerprint:\n       %s\n", res.Fingerprint)
 	if res.SetupCode != "" {
