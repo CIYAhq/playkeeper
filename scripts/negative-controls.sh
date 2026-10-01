@@ -954,12 +954,18 @@ control "dnf's next try reads the metadata afresh" internal/install/packages.go 
   'if false && again {' \
   ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
 control "only a mirror's failure is tried again with dnf" internal/install/packages.go \
-  'return strings.Contains(out, "Failed to download metadata") || strings.Contains(out, "Error downloading packages")' \
+  'return slices.ContainsFunc(dnfMirrorFailures, func(s string) bool { return strings.Contains(out, s) })' \
   'return out != ""' \
   ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
 control "a mirror dnf moved on from isn't taken for one it gave up on" internal/install/packages.go \
-  '|| strings.Contains(out, "Error downloading packages")' \
-  '|| strings.Contains(out, "Error downloading packages") || strings.Contains(out, "Curl error")' \
+  '"All mirrors were already tried without success"}' \
+  '"All mirrors were already tried without success", "Curl error"}' \
+  ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
+# After Bugbot's finding on 5a0f9c7a: dnf 5, though no supported system has
+# it yet, says it in its own words.
+control "dnf 5's mirror failures are tried again too" internal/install/packages.go \
+  ', "Failed to download packages", "All mirrors were already tried without success"}' \
+  '}' \
   ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
 control "apt's next try updates the lists first" internal/install/packages.go \
   'func(bool) (string, error) {
