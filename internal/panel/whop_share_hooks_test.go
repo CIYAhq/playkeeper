@@ -1,12 +1,15 @@
 package panel
 
 import (
+	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
@@ -213,7 +216,8 @@ func TestAOneTimePurchaseGivesNoServersInAnAppStore(t *testing.T) {
 
 // A customer of an app store who cancels their monthly plan is reminded to
 // download their world, though they also have a one-time purchase there,
-// since that keeps none of their servers running.
+// since that keeps none of their servers running, even one the payment
+// check found paid.
 func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
 	f, e, _ := twoStores(t)
 	useFakeCore(e)
@@ -226,6 +230,10 @@ func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
 	f.mu.Unlock()
 	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
 	f.buyAt("biz_other", "mem_once", "user_kim", "plan_once", "completed")
+	if _, err := e.srv.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_title, paid_servers, paid_mb)
+		VALUES('biz_other', 'mem_once', 'plan_once', 'Once', 1, 4096)`); err != nil {
+		t.Fatal(err)
+	}
 	e.clock.add(2 * whopPollEvery)
 	e.reconcile()
 	f.mu.Lock()
@@ -236,6 +244,193 @@ func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
 	e.reconcile()
 	if msgs := f.sentIn("biz_other", "user_kim"); !slices.ContainsFunc(msgs, func(m string) bool { return strings.Contains(m, "You cancelled your Other Hosting plan") }) {
 		t.Fatalf("kim's chat at Other Hosting: %q", msgs)
+	}
+}
+
+// A customer of an app store who cancels the membership that keeps their
+// servers running is reminded to download their world, though another
+// membership of theirs goes on, since its payment never carried
+// Playkeeper's share and it gives them nothing.
+func TestACancellationIsRemindedThoughAnUnpaidMembershipGoesOn(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	f.buyAt("biz_other", "mem_free", "user_kim", "plan_other", "active")
+	f.mu.Lock()
+	b.fees["pay_mem_free"] = nil
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if !calledFor(core.got(), "start plan_other ", "user_kim") {
+		t.Fatalf("kim didn't start on their paid membership alone: %q", core.got())
+	}
+	f.mu.Lock()
+	b.memberships["mem_kim"]["status"], b.memberships["mem_kim"]["cancel_at_period_end"] = "canceling", true
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	e.reconcile()
+	if msgs := f.sentIn("biz_other", "user_kim"); !slices.ContainsFunc(msgs, func(m string) bool { return strings.Contains(m, "You cancelled your Other Hosting plan") }) {
+		t.Fatalf("kim's chat at Other Hosting: %q", msgs)
+	}
+}
+
+// The migration keeps, for each customer already started on an app store,
+// what the core was given for them as paid, and no more. A membership the
+// payment check had refused, an extra one or one moved to more memory, is
+// checked as any other, and one moved keeps what it was given meanwhile.
+func TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid(t *testing.T) {
+	at := slices.IndexFunc(panelMigrations, func(m string) bool { return strings.Contains(m, "CREATE TABLE whop_membership_checks") })
+	if at < 0 {
+		t.Fatal("no migration keeps what the payment check found")
+	}
+	path := filepath.Join(t.TempDir(), "panel.db")
+	db, err := store.Open(path, panelMigrations[:at])
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO whop_stores(store_id, via, connected_at) VALUES('biz_app', 'app', 1), ('biz_key', 'key', 1)`)
+	exec(`INSERT INTO whop_plans(store_id, plan_id, product_id, title, allowance_servers, allowance_memory_mb, allowance_from) VALUES
+		('biz_app', 'plan_other', 'prod_other', 'Other', 1, 4096, 'store'), ('biz_app', 'plan_big', 'prod_big', 'Big', 2, 8192, 'store'),
+		('biz_key', 'plan_starter', 'prod_mc', 'Starter', 1, 4096, 'store')`)
+	given := map[string]string{
+		"user_kim": "plan_other|1|4096|0", "user_dee": "plan_big+plan_other|3|12288|0", "user_alex": "plan_other|1|4096|0", "user_sam": "plan_small|1|4096|0",
+		"user_ray": "plan_other|1|4096|0", "user_lee": "plan_big+plan_other|3|12288|0", "user_pat": "plan_other|1|4096|0",
+		"user_max": strings.Repeat("plan_big+", 5) + "plan_big|10|49152|0",
+	}
+	for user, applied := range given {
+		exec(`INSERT INTO whop_customers(store_id, whop_user_id, applied, paused, updated_at) VALUES('biz_app', ?, ?, ?, 1)`, user, applied, user == "user_pat")
+	}
+	exec(`INSERT INTO whop_customers(store_id, whop_user_id, applied, updated_at) VALUES('biz_key', 'user_kit', 'plan_starter|1|4096|0', 1)`)
+	for _, m := range [][3]string{
+		{"mem_kim", "user_kim", "plan_other"}, {"mem_dee1", "user_dee", "plan_big"}, {"mem_dee2", "user_dee", "plan_other"},
+		{"mem_alex", "user_alex", "plan_other"}, {"mem_alex2", "user_alex", "plan_big"}, {"mem_sam", "user_sam", "plan_big"},
+		{"mem_ray1", "user_ray", "plan_other"}, {"mem_ray2", "user_ray", "plan_other"},
+		{"mem_lee1", "user_lee", "plan_big"}, {"mem_lee2", "user_lee", "plan_other"}, {"mem_lee3", "user_lee", "plan_other"}, {"mem_pat", "user_pat", "plan_other"},
+		{"mem_max1", "user_max", "plan_big"}, {"mem_max2", "user_max", "plan_big"}, {"mem_max3", "user_max", "plan_big"},
+		{"mem_max4", "user_max", "plan_big"}, {"mem_max5", "user_max", "plan_big"}, {"mem_max6", "user_max", "plan_big"},
+	} {
+		exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at) VALUES('biz_app', ?, ?, ?, 'active', 1)`, m[0], m[1], m[2])
+	}
+	exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at) VALUES('biz_key', 'mem_kit', 'user_kit', 'plan_starter', 'active', 1)`)
+	db.Close()
+	if db, err = store.Open(path, panelMigrations); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb FROM whop_membership_checks WHERE answered = 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var id, plan, title string
+		var servers, mb, disk int
+		if err := rows.Scan(&id, &plan, &title, &servers, &mb, &disk); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = fmt.Sprintf("%s %s %d/%d/%d", plan, title, servers, mb, disk)
+	}
+	want := map[string]string{
+		"mem_kim": "plan_other Other 1/4096/0", "mem_dee1": "plan_big Big 2/8192/0", "mem_dee2": "plan_other Other 1/4096/0",
+		"mem_alex": "plan_other Other 1/4096/0", "mem_sam": "plan_small plan_small 1/4096/0",
+	}
+	for i := 1; i <= 6; i++ {
+		want[fmt.Sprintf("mem_max%d", i)] = "plan_big Big 2/8192/0"
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("kept as paid: %v, want %v", got, want)
+	}
+}
+
+// A customer already started, one of whose memberships the payment check
+// has no answer for yet, as when the upgrade couldn't match what they hold
+// with what they were given, isn't paused while that answer can't be had:
+// while their store is closed, or while Whop fails the check. Once Whop
+// answers that it was paid, they go on as they were.
+func TestAStartedCustomerIsntPausedWhileTheirPaymentCantBeChecked(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	pass := func() []string {
+		n := len(core.got())
+		e.clock.add(2 * whopPollEvery)
+		e.reconcile()
+		return core.got()[n:]
+	}
+	if calls := pass(); !calledFor(calls, "start ", "user_kim") {
+		t.Fatalf("kim didn't start: %q", calls)
+	}
+	if _, err := e.srv.db.Exec(`DELETE FROM whop_membership_checks WHERE membership_id = 'mem_kim'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.closeWhopStore(t.Context(), "biz_other", "test", "Closed for the test."); err != nil {
+		t.Fatal(err)
+	}
+	if calls := pass(); len(calls) > 0 {
+		t.Fatalf("with the store closed and kim's payment unchecked: the core's calls %q", calls)
+	}
+	if _, err := e.srv.openWhopStore(t.Context(), "biz_other", "test"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	b.paymentsDown = true
+	f.mu.Unlock()
+	if calls := pass(); len(calls) > 0 {
+		t.Fatalf("while Whop fails kim's payment check: the core's calls %q", calls)
+	}
+	f.mu.Lock()
+	b.paymentsDown = false
+	f.mu.Unlock()
+	if calls := pass(); len(calls) > 0 {
+		t.Fatalf("once Whop answers that kim's membership was paid: the core's calls %q", calls)
+	}
+	var paid int
+	if err := e.srv.db.QueryRow(`SELECT paid_mb FROM whop_membership_checks WHERE membership_id = 'mem_kim' AND answered = 1`).Scan(&paid); err != nil || paid != 4096 {
+		t.Fatalf("kim's membership as checked: %d, %v", paid, err)
+	}
+}
+
+// A payment check waiting for its next try is tried at once when the
+// dashboard starts again (retryWhopNow), as a customer's call is, so a
+// release or the end of a Whop outage needs no wait.
+func TestAPaymentCheckWaitingIsTriedAtOnceOnStartingAgain(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	b.paymentsDown = true
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if calledFor(core.got(), "start ", "user_kim") {
+		t.Fatal("kim started while Whop failed their payment check")
+	}
+	f.mu.Lock()
+	b.paymentsDown = false
+	f.mu.Unlock()
+	e.clock.add(time.Second)
+	e.srv.retryWhopNow()
+	e.reconcile()
+	if !calledFor(core.got(), "start ", "user_kim") {
+		t.Fatalf("starting again didn't try kim's payment check at once: %q", core.got())
 	}
 }
 
@@ -472,23 +667,70 @@ func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	}
 }
 
-// A plan grows when it gives more servers or memory than the one applied.
-func TestAPlanGrowsWithMoreServersOrMemory(t *testing.T) {
-	applied := planKey(CustomerPlan{ID: "plan_a", Servers: 1, MemoryMB: 4096})
-	for _, c := range []struct {
-		p    CustomerPlan
-		want bool
-	}{
-		{CustomerPlan{Servers: 2, MemoryMB: 4096}, true},
-		{CustomerPlan{Servers: 1, MemoryMB: 8192}, true},
-		{CustomerPlan{Servers: 1, MemoryMB: 4096, DiskGB: 40}, false},
-		{CustomerPlan{Servers: 1, MemoryMB: 2048}, false},
-	} {
-		if got := whopPlanGrows(applied, c.p); got != c.want {
-			t.Errorf("%+v after %q: %v", c.p, applied, got)
-		}
+// An app store's customer is hosted only by memberships whose payment
+// carried Playkeeper's share: when their paid membership ends while another
+// of the same size, never paid, goes on, they're paused, and they start
+// again once a payment of it carries the share. A membership moved to a
+// plan with more memory gives what it was paid for until a payment carries
+// the share for its new plan.
+func TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	pass := func() []string {
+		n := len(core.got())
+		e.clock.add(2 * whopPollEvery)
+		e.reconcile()
+		return core.got()[n:]
 	}
-	if !whopPlanGrows("", CustomerPlan{Servers: 1, MemoryMB: 4096}) || !whopPlanGrows("a|b|c|d", CustomerPlan{Servers: 1, MemoryMB: 4096}) {
-		t.Error("a plan applied in a shape that can't be read doesn't count as growing")
+	problem := func() string {
+		var p string
+		e.srv.db.QueryRow(`SELECT problem FROM whop_customers WHERE store_id = 'biz_other' AND whop_user_id = 'user_kim'`).Scan(&p)
+		return p
+	}
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	for _, p := range []struct {
+		id, gb string
+		price  float64
+	}{{"plan_other2", "4", 12}, {"plan_other_big", "8", 24}} {
+		b.plans = append(b.plans, map[string]any{"id": p.id, "title": p.id, "visibility": "visible", "plan_type": "renewal", "billing_period": 30,
+			"currency": "usd", "renewal_price": p.price, "product": map[string]any{"id": "prod_other", "title": "Minecraft server"},
+			"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: p.gb}, "unlimited_stock": true})
+	}
+	f.mu.Unlock()
+	pay := func(id, membership, plan, share string) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		at := e.clock.now().UTC().Format(time.RFC3339)
+		b.payments = append([]map[string]any{{"id": id, "status": "paid", "membership_id": membership, "plan_id": plan, "product_id": "prod_other",
+			"created_at": at, "paid_at": at, "user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "24.00", "currency": "usd", "decimals": 2}}}, b.payments...)
+		b.fees[id] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
+			"settlement_amount": map[string]any{"amount": share, "currency": "usd", "decimals": 2}}}
+	}
+	f.buyAt("biz_other", "mem_a", "user_kim", "plan_other", "active")
+	if calls := pass(); !calledFor(calls, "start plan_other ", "user_kim") {
+		t.Fatalf("kim on a paid membership: %q", calls)
+	}
+	f.mu.Lock()
+	b.memberships["mem_b"] = map[string]any{"id": "mem_b", "status": "active", "plan_id": "plan_other2", "product_id": "prod_other", "user_id": "user_kim", "cancel_at_period_end": false}
+	b.memberships["mem_a"]["status"] = "expired"
+	f.mu.Unlock()
+	if calls := pass(); !calledFor(calls, "pause ", "user_kim") || !strings.Contains(problem(), "no paid payment") {
+		t.Fatalf("kim's paid membership ended while another, never paid, goes on: the core's calls %q, problem %q", calls, problem())
+	}
+	pay("pay_b", "mem_b", "plan_other2", "8.50")
+	if calls := pass(); !calledFor(calls, "start plan_other2 ", "user_kim") || problem() != "" {
+		t.Fatalf("once mem_b's payment carried the share: the core's calls %q, problem %q", calls, problem())
+	}
+	f.mu.Lock()
+	b.memberships["mem_b"]["plan_id"] = "plan_other_big"
+	f.mu.Unlock()
+	if calls := pass(); len(calls) != 0 || !strings.Contains(problem(), "didn't carry Playkeeper's share of $17.00") {
+		t.Fatalf("mem_b moved to 8 GB on a payment of the 4 GB share: the core's calls %q, problem %q", calls, problem())
+	}
+	pay("pay_big", "mem_b", "plan_other_big", "17.00")
+	if calls := pass(); !calledFor(calls, "change to plan_other_big ", "user_kim") || problem() != "" {
+		t.Fatalf("once a payment carried the 8 GB share: the core's calls %q, problem %q", calls, problem())
 	}
 }

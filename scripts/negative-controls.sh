@@ -8198,8 +8198,8 @@ control "stores: reading a store leaves another's plans" internal/panel/whop.go 
   "DELETE FROM whop_plans WHERE ? != '' AND plan_id NOT IN" \
   ./internal/panel '^TestReadingOneStoreLeavesAnothersPlans$'
 control "stores: a store's customers have its own memberships" internal/panel/whop_customers.go \
-  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? ORDER BY' \
-  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? OR 1 ORDER BY' \
+  'WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id' \
+  'WHERE m.store_id = ? OR 1 ORDER BY m.updated_at, m.membership_id' \
   ./internal/panel '^TestEachStoreStartsItsOwnCustomers$'
 control "stores: a store's customers are its own" internal/panel/whop_customers.go \
   'problem, updated_at FROM whop_customers WHERE store_id = ?`' \
@@ -8595,8 +8595,8 @@ control "hosting: an app store's one-time purchase gives no servers, in a query"
   ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
 # shellcheck disable=SC2016
 control "hosting: a one-time purchase keeps no servers running past a cancelled plan" internal/panel/whop_customers.go \
-  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)' \
-  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0)' \
+  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0' \
+  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0' \
   ./internal/panel '^TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn$'
 # shellcheck disable=SC2016
 control "hosting: signing in on a one-time purchase in an app store makes no account" internal/panel/whop_signin.go \
@@ -8689,10 +8689,63 @@ control "grant watch: a grant Whop couldn't check counts neither way" internal/p
   'case problem == "":' \
   'default:' \
   ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
-control "payment check: before a customer starts" internal/panel/whop_customers.go \
-  'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
-  'if err := error(nil); err != nil {' \
+control "payment check: an app store's customer is hosted by their paid plan" internal/panel/whop_customers.go \
+  'wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
+  '_, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: a membership counts only as far as a payment of it carried the share" internal/panel/whop_share_hooks.go \
+  'if h.paidFor() {' \
+  'if true {' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: a membership not paid for its plan is checked while the store is open" internal/panel/whop_share_hooks.go \
+  'if !h.paidFor() && st.ClosedWhy == "" && h.NextCheckAt <= now {' \
+  'if !h.paidFor() && st.ClosedWhy == "" && h.NextCheckAt <= now && false {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: a membership moved to more memory gives what it was paid for" internal/panel/whop_share_hooks.go \
+  'if h.Paid.memoryMB > 0 {' \
+  'if false {' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: the customer's page says what waits" internal/panel/whop_customers.go \
+  's.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)' \
+  '_ = waits' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: only the membership's own payment" internal/whop/payments.go \
+  'return p.MembershipID != membershipID || p.Status != "paid"' \
+  'return false' \
+  ./internal/panel '^TestThePaymentCheckTakesOnlyTheMembershipsOwnPayment$'
+control "payment check: only a paid payment" internal/whop/payments.go \
+  'return p.MembershipID != membershipID || p.Status != "paid"' \
+  'return p.MembershipID != membershipID' \
+  ./internal/whop '^TestPaidPaymentsAreOnlyTheMembershipsOwn$'
+# shellcheck disable=SC2016
+control "payment check: an unpaid membership doesn't hold back a cancellation's reminder" internal/panel/whop_customers.go \
+  'AND `+whopPaidIn(st.Via, "o")+`)`' \
+  'AND 1)`' \
+  ./internal/panel '^TestACancellationIsRemindedThoughAnUnpaidMembershipGoesOn$'
+control "payment check: the migration keeps one membership of the plan a customer was given, or their only one" internal/panel/auth.go \
+  'AND (a.of_given = 1 AND h.plan_id = a.ids OR a.of_given = 0 AND a.n = 1);' \
+  ';' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
+control "payment check: a started customer isn't given less while a membership of theirs has no answer" internal/panel/whop_customers.go \
+  'keep = unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)' \
+  'keep = false && unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)' \
+  ./internal/panel '^TestAStartedCustomerIsntPausedWhileTheirPaymentCantBeChecked$'
+control "payment check: Whop's answer that a membership wasn't paid counts as an answer" internal/panel/whop_share_hooks.go \
+  'case errors.As(err, &np):' \
+  'case false && errors.As(err, &np):' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: starting again tries a waiting payment check at once" internal/panel/whop_customers.go \
+  'UPDATE whop_membership_checks SET next_check_at = 0 WHERE next_check_at > 0' \
+  'UPDATE whop_membership_checks SET next_check_at = 0 WHERE 0' \
+  ./internal/panel '^TestAPaymentCheckWaitingIsTriedAtOnceOnStartingAgain$'
+control "payment check: the migration compares within an allowance's bounds" internal/panel/auth.go \
+  'min(sum(servers), 10) AS servers, min(sum(mb), 65536) AS mb' \
+  'sum(servers) AS servers, sum(mb) AS mb' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
+control "payment check: the migration keeps a moved membership as paid for what was given" internal/panel/auth.go \
+  'COALESCE((SELECT q.title FROM whop_plans q WHERE q.store_id = a.store_id AND q.plan_id = a.ids), a.ids), a.servers, a.mb, a.disk' \
+  'h.title, h.servers, h.mb, h.disk' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
 control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
   's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
   '_ = whopUserID' \
@@ -8721,11 +8774,6 @@ control "payments: a refund still unsettled is read again once it settles" inter
   'r.Unsettled() && !at.IsZero()' \
   'false && r.Unsettled() && !at.IsZero()' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
-control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
-  'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
-  'if false {' \
-  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
-
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.
 control "pausing: a paused customer only looks, downloads and looks after their account" internal/panel/workspace.go \
