@@ -118,6 +118,17 @@ func (s *server) followLoop(ctx context.Context) {
 			sleepCtx(ctx, s.opts.FollowRetry)
 			continue
 		}
+		// Docker ties a follow stream to the run going when it answers. After
+		// a restart since the look above, the stream would carry the next
+		// run's lines as this run's for as long as that run lasts, so it is
+		// read only if the container still has the run the follower saw.
+		if c.State.Running {
+			again, err := s.docker.ContainerInspect(ctx, c.ID)
+			if started, _ := again.State.Started(); err != nil || !started.Equal(runStart) {
+				scanner.Close()
+				continue
+			}
+		}
 		last := cur
 		last.Container = c.ID
 		lastSave := time.Now()
