@@ -31,8 +31,11 @@ func TestNewTokenHasTheInviteCodesShape(t *testing.T) {
 }
 
 // Every letter and digit comes up about as often, in every position: a
-// chi-squared test with 61 degrees of freedom, whose 99.99th percentile is
-// about 110.
+// chi-squared test with 61 degrees of freedom in each of the 22. A uniform
+// source goes over 170 in a position with a chance of 3.2e-12, so in some
+// position about once in 14 billion runs. Taking a byte modulo 62 without
+// skipping 248 and up, which favours the first eight letters, goes over it
+// in some position in all but about one run in 10^16.
 func TestNewTokenIsUniform(t *testing.T) {
 	const n = 20000
 	var counts [TokenLen][62]int
@@ -51,7 +54,7 @@ func TestNewTokenIsUniform(t *testing.T) {
 		for _, c := range counts[i] {
 			chi += (float64(c) - want) * (float64(c) - want) / want
 		}
-		if chi > 110 {
+		if chi > 170 {
 			t.Errorf("position %d: chi-squared %.1f", i, chi)
 		}
 	}
