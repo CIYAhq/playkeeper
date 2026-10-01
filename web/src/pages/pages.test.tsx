@@ -2872,6 +2872,56 @@ describe('Onboarding', () => {
   }
   const checkAgain = () => [...document.querySelectorAll('button')].find((b) => /^(Check again|Checked)$/.test(b.textContent ?? ''))
 
+  // The walkthrough of 1 Oct 2026: the free name cures the browser warning,
+  // but setup never offered it.
+  describe('the free name it offers', () => {
+    const none: Address = { kind: '', ip: '198.51.100.10', panelPort: 8443, base: 'playkeeper.me', servers: [], names: { url: 'https://names.playkeeper.io' } }
+    const admin = workspace({ servers: [], me: { ...me, user: { ...me.user, username: 'admin' } } })
+    const reserved = { name: 'admin', address: 'admin.playkeeper.me', available: false, code: 'name_reserved', message: 'Reserved.' }
+    const offer = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Get '))
+
+    it('is a free one, never a reserved one, and one button claims it while setup goes on', async () => {
+      answer({ '/preflight': preflight, '/address/available?name=admin': reserved, '/address/available': { available: true }, '/address': none })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      expect(document.body.textContent).toContain('A free name for this VPS')
+      expect(document.body.textContent).toContain('Your browser stops warning you.')
+      expect(document.body.textContent).toContain('By continuing you accept Let’s Encrypt’s terms.')
+      const name = /^Get ([a-z]+-[a-z]+-\d{2})\.playkeeper\.me$/.exec(offer()?.textContent ?? '')?.[1]
+      expect(name, offer()?.textContent).toBeDefined()
+
+      // Another name offers a different free one.
+      await act(async () => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Another name')?.click())
+      await act(async () => {})
+      const next = /^Get (.+)\.playkeeper\.me$/.exec(offer()?.textContent ?? '')?.[1]
+      expect(next).toBeDefined()
+      expect(next).not.toBe(name)
+
+      const claimed: Address = { ...none, kind: 'playkeeper', host: `${next}.playkeeper.me`, free: { name: next ?? '', state: 'active', dns: 'pending', claimedAt: new Date().toISOString(), refreshedAt: new Date().toISOString(), checkedAt: new Date().toISOString(), holdDays: 30 }, operation: { id: 'op1', kind: 'address.publish', status: 'running', phase: 'pointing', actor: 'admin', startedAt: new Date().toISOString() } }
+      answerPosts({ '/address/claim': claimed })
+      answer({ '/preflight': preflight, '/address': claimed })
+      await act(async () => offer()?.click())
+      expect(client.post).toHaveBeenCalledWith('/api/machines/m2345abcde/address/claim', { name: next, acceptTerms: true })
+      expect(document.body.textContent).toContain(`Getting ${next}.playkeeper.me`)
+      expect(document.body.textContent).toContain('You can carry on meanwhile.')
+      expect([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Looks good, continue'))?.disabled).toBe(false)
+    })
+
+    it('isn’t offered while the names service can’t be reached, or the machine has an address', async () => {
+      answer({ '/preflight': preflight, '/address/available': new client.ApiError(503, { error: 'Playkeeper couldn’t reach the free address service.', code: 'names_unreachable' }), '/address': none })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      expect(document.body.textContent).toContain('Checking this VPS')
+      expect(document.body.textContent).not.toContain('A free name for this VPS')
+
+      answer({ '/preflight': preflight, '/address': { ...none, kind: 'own', host: 'play.example.com' } })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      expect(document.body.textContent).not.toContain('A free name for this VPS')
+      expect(vi.mocked(client.get).mock.calls.some(([p]) => p.includes('/address/available'))).toBe(true)
+    })
+  })
+
   it('says the checks ran again, but not when they could not be run', async () => {
     answer({ '/preflight': preflight })
     await render(<Onboarding />, workspace({ servers: [] }))
