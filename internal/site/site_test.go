@@ -441,15 +441,17 @@ func TestCommunityIsOneSetting(t *testing.T) {
 
 // Playkeeper Cloud's seller terms are at /cloud/seller-terms, kept out of
 // search engines as /cloud is, and say who's behind them, which version
-// they are and where legal notices go. They link the privacy policy only
-// once its page is on the site.
+// they are, where sellers ask (the Discord's #sellers channel) and where
+// legal notices go. They link the privacy policy only once its page is on
+// the site.
 func TestTheSellerTerms(t *testing.T) {
 	built := pages(build(t, Default))
 	terms, ok := built["/cloud/seller-terms"]
 	if !ok {
 		t.Fatal("there is no /cloud/seller-terms")
 	}
-	for _, want := range []string{"CIYA TECHNOLOGIES LTD, Pyrrou 11, 4105 Limassol, Cyprus", "Version of 1 October 2026", `<a href="mailto:me@siya.digital">me@siya.digital</a>`, `<meta name="robots" content="noindex">`} {
+	for _, want := range []string{"CIYA TECHNOLOGIES LTD, Pyrrou 11, 4105 Limassol, Cyprus", "Version of 1 October 2026", `<a href="mailto:me@siya.digital">me@siya.digital</a>`,
+		`<a href="https://discord.gg/XexFT2pu8t">#sellers channel</a>`, `<meta name="robots" content="noindex">`} {
 		if !strings.Contains(terms, want) {
 			t.Errorf("the seller terms don't say %s", want)
 		}

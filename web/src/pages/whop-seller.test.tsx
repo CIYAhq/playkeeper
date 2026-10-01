@@ -126,12 +126,18 @@ describe('a seller’s page inside Whop', () => {
     expect(document.body.textContent).toContain('No customers yet.')
   })
 
-  it('links the seller terms and the privacy policy from every screen, beside Whop', async () => {
+  it('links Help in the sellers’ Discord channel, the seller terms and the privacy policy from every screen, beside Whop', async () => {
     const legal = () =>
       Object.fromEntries(
-        [...document.querySelectorAll('a')].filter((a) => ['Seller terms', 'Privacy'].includes(a.textContent ?? '')).map((a) => [a.textContent, `${a.getAttribute('href')} ${a.getAttribute('target')}`]),
+        [...document.querySelectorAll('a')]
+          .filter((a) => ['Help', 'Seller terms', 'Privacy'].includes(a.textContent ?? ''))
+          .map((a) => [a.textContent, `${a.getAttribute('href')} ${a.getAttribute('target')}`]),
       )
-    const want = { 'Seller terms': 'https://playkeeper.io/cloud/seller-terms _blank', Privacy: 'https://playkeeper.io/privacy _blank' }
+    const want = {
+      Help: 'https://discord.gg/XexFT2pu8t _blank',
+      'Seller terms': 'https://playkeeper.io/cloud/seller-terms _blank',
+      Privacy: 'https://playkeeper.io/privacy _blank',
+    }
     reads(
       () => closed,
       () => view('closed'),
