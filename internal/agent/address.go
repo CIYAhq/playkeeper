@@ -251,11 +251,7 @@ func (a *Agent) startAddressOp(kind, actor string, fn func(ctx context.Context, 
 		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Minute)
 		defer cancel()
 		err := runOp(ctx, h, fn)
-		a.addr.mu.Lock()
-		done := finishOp(op, h, err, a.now().UTC())
-		a.addr.op = nil
-		a.addr.mu.Unlock()
-		a.finishOperation("", "machine", &done)
+		a.endOp("", "machine", &a.addr.mu, op, h, err, func() { a.addr.op = nil })
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}

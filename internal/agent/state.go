@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -251,6 +252,20 @@ func (a *Agent) finishOperation(serverID, target string, op *api.Operation) {
 		a.saveOperation(op)
 		a.auditFor(serverID, op.Actor, op.Kind, target, op.Status, op.Error)
 	}
+}
+
+// endOp records how op ended with err and stores it, and only then clears
+// it from what runs with clear, so whoever sees no operation running finds
+// how the last one ended. mu guards op and what clear changes.
+func (a *Agent) endOp(serverID, target string, mu sync.Locker, op *api.Operation, h *opHandle, err error, clear func()) api.Operation {
+	mu.Lock()
+	done := finishOp(op, h, err, a.now().UTC())
+	mu.Unlock()
+	a.finishOperation(serverID, target, &done)
+	mu.Lock()
+	clear()
+	mu.Unlock()
+	return done
 }
 
 const operationColumns = `id, server_id, kind, status, phase, actor, started_at, finished_at, error, hint, detail`
