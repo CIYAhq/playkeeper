@@ -113,8 +113,10 @@ type fakeWhop struct {
 	marksDown bool
 	showDown  bool
 	// shareWrites are the revenue shares the app added or set, as
-	// "add <product> <percent>" or "set <share> <percent>".
+	// "add <product> <percent>" or "set <share> <percent>", and shareDown
+	// makes Whop refuse adding or setting one.
 	shareWrites []string
+	shareDown   bool
 	// refuseFilter refuses listing memberships by plan, as a Whop that
 	// doesn't know the filter might.
 	refuseFilter bool
