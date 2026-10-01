@@ -9197,6 +9197,10 @@ control "later payments: a renewal without the share doesn't count" internal/pan
   'if isNoRows(err) || err == nil && !whopSharePaidIn(lines, whopShareFor(part.memoryMB)) {' \
   'if isNoRows(err) {' \
   ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund of a payment of a membership the upgrade counted as paid has it checked again" internal/panel/whop_share_hooks.go \
+  "WHERE store_id = ? AND membership_id = ? AND paid_payment IN (?, '')\`" \
+  "WHERE store_id = ? AND membership_id = ? AND paid_payment IN (?)\`" \
+  ./internal/panel '^TestARefundAfterTheUpgradeIsntLost$'
 control "later payments: a refund of the payment a membership was paid with has it checked again" internal/panel/whop_share_hooks.go \
   'UPDATE whop_membership_checks SET paid_at = 0, next_check_at = 0' \
   'UPDATE whop_membership_checks SET paid_at = paid_at, next_check_at = next_check_at' \

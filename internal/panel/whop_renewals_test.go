@@ -128,7 +128,27 @@ func TestARefundReadWhileTheShareIsWrongStillCounts(t *testing.T) {
 	}
 }
 
-// A membership whose only payment is refunded in full stops at once, and
+// A membership the upgrade counted as paid, which doesn't know the payment
+// it was paid with, is checked again once one of its payments is refunded
+// in full, so a refund isn't lost in the upgrade's grace.
+func TestARefundAfterTheUpgradeIsntLost(t *testing.T) {
+	r := newRenewalEnv(t)
+	if _, err := r.e.srv.db.Exec(`UPDATE whop_membership_checks SET paid_at = ?, paid_payment = '' WHERE membership_id = 'mem_kim'`, r.start.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	r.f.mu.Lock()
+	b := r.f.installed["biz_other"]
+	b.refunds = append(b.refunds, map[string]any{"id": "ref_kim", "payment_id": "pay_mem_kim", "status": "succeeded",
+		"created_at": r.e.clock.now().UTC().Format(time.RFC3339)})
+	b.payments[slices.IndexFunc(b.payments, func(p map[string]any) bool { return p["id"] == "pay_mem_kim" })]["refunded_amount"] =
+		map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
+	r.f.mu.Unlock()
+	if calls := r.pass(20 * time.Minute); !calledFor(calls, "pause ", "user_kim") {
+		t.Fatalf("once the payment of kim's upgraded membership was refunded: the core's calls %q", calls)
+	}
+}
+
+// A membership whose only payment is refunded in full stops at once, and// A membership whose only payment is refunded in full stops at once, and
 // gives nothing until a newer payment carries the share.
 func TestAMembershipWhoseOnlyPaymentIsRefundedStops(t *testing.T) {
 	r := newRenewalEnv(t)

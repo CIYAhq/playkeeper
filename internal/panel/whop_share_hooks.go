@@ -306,7 +306,8 @@ func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopSt
 // membership was paid with leaves it with none, so the payment check looks
 // again at once for the latest it wasn't refunded (whopSharePaid), as the
 // payment before; whatever the share check found, since a refund only takes
-// away. Otherwise, while credit says the share check has just found the
+// away. A membership counted as paid by the upgrade, which doesn't know the
+// payment, is left with none by a refund of any of its payments. Otherwise, while credit says the share check has just found the
 // share right, one that carried Playkeeper's share for what the
 // membership's plan allows has it paid for its plan, and is the latest it
 // was paid with when it's newer than the one kept.
@@ -318,7 +319,7 @@ func (s *Server) noteWhopRenewal(ctx context.Context, st whopStore, pay whop.Pay
 	switch {
 	case whopRefundedInFull(pay):
 		_, err = s.db.ExecContext(ctx, `UPDATE whop_membership_checks SET paid_at = 0, next_check_at = 0
-			WHERE store_id = ? AND membership_id = ? AND paid_payment = ?`, st.ID, pay.MembershipID, pay.ID)
+			WHERE store_id = ? AND membership_id = ? AND paid_payment IN (?, '')`, st.ID, pay.MembershipID, pay.ID)
 	case !credit:
 		return
 	default:
