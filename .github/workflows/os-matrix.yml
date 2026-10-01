@@ -113,11 +113,14 @@ jobs:
         os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13,
           almalinux-9, almalinux-10, rocky-9, rocky-10, oraclelinux-9, centos-stream-9, amazonlinux-2023]
         # What the system has before Playkeeper (OS_PREP in vm-os.sh). Oracle
-        # Linux 9's image already runs firewalld, as on Oracle Cloud.
+        # Linux 9's image already runs firewalld, as on Oracle Cloud, and
+        # Ubuntu 22.04 gets the iptables rules Oracle Cloud's Ubuntu images
+        # come with.
         include:
           - { os: almalinux-9, prep: podman }
           - { os: rocky-9, prep: docker-selinux }
           - { os: rocky-10, prep: firewalld }
+          - { os: ubuntu-22.04, prep: oracle-iptables }
     steps:
       # The workflow's own commit first, for its package cache: the commit to
       # rehearse may be older than .github/actions/package-cache.
