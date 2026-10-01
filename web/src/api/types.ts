@@ -709,7 +709,11 @@ export interface Catalog {
   types: ServerType[]
   versions: CatalogEntry[]
   versionsError?: string
+  /** When the type's upstream listed the versions. */
   versionsCheckedAt?: string
+  /** Set while the upstream, versionsUpstream, can't be reached: the versions are the last list it gave, which this machine kept, or the list built into this Playkeeper. */
+  versionsFrom?: 'kept' | 'builtin'
+  versionsUpstream?: string
   memoryOptionsMB: number[]
   recommendedMemoryMB: number
   hostMemoryMB: number

@@ -2360,6 +2360,8 @@ export const en = {
   'new.modsSupport': 'most {type} mods support it',
   'new.modsNotReady': 'many mods aren’t ready yet',
   'new.notListed': '{version} isn’t listed until {type} supports it.',
+  'new.versionsKept': '{upstream} isn’t answering right now, so these are the versions it listed {when}.',
+  'new.versionsBuiltIn': '{upstream} isn’t answering right now, so these are the versions this Playkeeper came with, from {date}.',
   'new.friendsLoader': 'Friends get a pack with the loader and mods.',
   'new.friendsNeoForge': 'Friends get a pack with NeoForge and the mods.',
   'new.friendsForge': 'Friends get a pack with Forge and the mods.',

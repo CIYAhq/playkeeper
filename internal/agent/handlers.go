@@ -141,7 +141,7 @@ func (a *Agent) catalogFor(ctx context.Context, forServer, typ string, mods, plu
 	}
 	dates := make(chan map[string]time.Time, 1)
 	go func() { dates <- a.releaseDates(context.WithoutCancel(ctx)) }()
-	v, at, err := a.typeCatalog(ctx, typ)
+	l, err := a.typeList(ctx, typ)
 	var ae *apiError
 	switch {
 	case err != nil && typ == api.TypePaper:
@@ -152,9 +152,12 @@ func (a *Agent) catalogFor(ctx context.Context, forServer, typ string, mods, plu
 		c.VersionsError = fmt.Sprintf("Could not load the %s versions: %v.", typeName(typ), err)
 	default:
 		d := <-dates
-		c.Versions = withReleaseDates(v, d)
-		c.VersionsCheckedAt = &at
+		c.Versions = withReleaseDates(l.entries, d)
+		c.VersionsCheckedAt = &l.at
 		c.LatestRelease = latestRelease(d)
+		if l.from != fromUpstream {
+			c.VersionsFrom, c.VersionsUpstream = string(l.from), l.upstream
+		}
 	}
 	return c
 }

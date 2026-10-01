@@ -11,7 +11,7 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatMB } from '@/lib/format'
+import { formatLongDate, formatMB, relativeTime } from '@/lib/format'
 import { memorySegments, playersFor, share } from '@/lib/memory'
 import { softwareName, typeName } from '@/lib/servers'
 import { addonKind, formatReleased, hasBuilds, typeTexts } from '@/lib/software'
@@ -228,6 +228,14 @@ export function versionCards(versions: CatalogEntry[], servers: ServerStatus[] |
   }
   const older = stable.filter((v) => !cards.some((c) => c.entry.id === v.id))
   return { cards, older }
+}
+
+/** One quiet line saying the versions aren't the upstream's list from just now, and why; nothing when they are. */
+export function VersionsFrom({ catalog, className }: { catalog: Catalog | undefined; className?: string }) {
+  if (!catalog?.versionsFrom || !catalog.versionsCheckedAt) return null
+  const upstream = catalog.versionsUpstream || typeName(catalog.type)
+  const text = catalog.versionsFrom === 'kept' ? t('new.versionsKept', { upstream, when: relativeTime(catalog.versionsCheckedAt) }) : t('new.versionsBuiltIn', { upstream, date: formatLongDate(catalog.versionsCheckedAt) })
+  return <p className={cn('text-xs text-muted-foreground max-sm:text-[13px]', className)}>{text}</p>
 }
 
 export function VersionPicker({ catalog, servers, value, onChange, acceptExperimental, onAcceptExperimental, phone }: { catalog: Catalog | undefined; servers: ServerStatus[] | undefined; value: string; onChange: (id: string) => void; acceptExperimental: boolean; onAcceptExperimental: (v: boolean) => void; phone?: boolean }) {
