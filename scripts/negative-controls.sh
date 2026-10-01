@@ -7224,6 +7224,69 @@ control "joined page: the dashboard hears no link under the machine's own name" 
   '	ps, _ := s.publicServer(r.Context(), s.pageHost(), api.JoinAddress{})
 	out := api.PublicServerShown{PublicServer: ps, PackToken: sh.packToken}' \
   ./internal/agent '^TestThePageShowsTheDashboardAServerButNotTheMachinesAddress$'
+control "joined page: a server the dashboard hides doesn't count as on its machine's page" internal/agent/publicpage.go \
+  '		if rows.Scan(&id) == nil && !hidden[id] {' \
+  '		if rows.Scan(&id) == nil && (!hidden[id] || true) {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's own address isn't among the page's names" internal/agent/ownaddress.go \
+  '		if hidden[js.id] {' \
+  '		if hidden[js.id] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's own address answers like one nobody has" internal/agent/publicpage.go \
+  'only == nil || hidden[only.id] {' \
+  'only == nil || hidden[only.id] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the machine's page leaves a hidden server out" internal/agent/publicpage.go \
+  'j.ServerID != only.id || hidden[j.ServerID] {' \
+  'j.ServerID != only.id || hidden[j.ServerID] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's icon isn't served at its own address" internal/agent/publicpage.go \
+  's != nil && !hidden[s.id] {' \
+  's != nil && (!hidden[s.id] || true) {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's icon isn't served at the machine's name" internal/agent/publicpage.go \
+  '		if hidden[s.id] {' \
+  '		if hidden[s.id] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the agent reads which servers the dashboard hides" internal/agent/publicpage.go \
+  '		out[id] = true' \
+  '		out[id] = id == ""' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the dashboard hides a copy a move is making or left on its machine" internal/panel/serverpage.go \
+  '		if copyHidden(copies, id, now) {' \
+  '		if copyHidden(copies, id, now) && false {' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the dashboard hides a server its record has off" internal/panel/serverpage.go \
+  'SELECT server_id FROM public_pages WHERE enabled = 0' \
+  'SELECT server_id FROM public_pages WHERE enabled = 0 AND 0' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the keeper's look tells the agent what the dashboard hides" internal/panel/pageports.go \
+  'url.Values{"hidden": hidden}, nil, &st)' \
+  'url.Values{"hidden": hidden[:0]}, nil, &st)' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the page's read tells the agent what the dashboard hides" internal/panel/serverpage.go \
+  'url.Values{"host": {host}, "hidden": hidden}' \
+  'url.Values{"host": {host}, "hidden": hidden[:0]}' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: an icon's read tells the agent what the dashboard hides" internal/panel/serverpage.go \
+  'url.Values{"host": {r.Host}, "hidden": hidden}' \
+  'url.Values{"host": {r.Host}, "hidden": hidden[:0]}' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: a move that left a copy has the page look again" internal/panel/moves.go \
+  '	s.pageChanged()
+	return nil
+}
+
+// leftCopy records' \
+  '	return nil
+}
+
+// leftCopy records' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: Settings show a server on the dashboard's machine off while its record has it off" internal/panel/serverpage.go \
+  '} else if on, known := s.pageRecord(id); known && !on {' \
+  '} else if on, known := s.pageRecord(id); known && !on && false {' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
 control "the share card cuts a line too long at once" internal/sharecard/card.go \
   '	keep := max(0, (w/scale+1)/advance-len("..."))
 	r := []rune(s)
