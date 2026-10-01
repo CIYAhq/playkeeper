@@ -628,11 +628,11 @@ func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
 // Lowering a price on an open store sets the share the new price needs
 // first, with force, and only then the price, so no payment at the lower
 // price pays less than Playkeeper's share: with Whop refusing the price,
-// the share is raised already, until the store's next read finds the old
-// price and puts it back. A share Whop won't set, or a problem with the
-// shares, refuses the change, and the price stays. Raising a price sets it
-// first, and the share follows after, since a share above what a price
-// needs still pays Playkeeper's.
+// the share is raised already, until the store's next read, which comes at
+// once, finds the old price and puts it back. A share Whop won't set, or a
+// problem with the shares, refuses the change, and the price stays.
+// Raising a price sets it first, and the share follows after, since a
+// share above what a price needs still pays Playkeeper's.
 func TestLoweringAPriceSetsTheShareFirst(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
@@ -671,8 +671,12 @@ func TestLoweringAPriceSetsTheShareFirst(t *testing.T) {
 	f.shareDown = false
 	f.addOtherPlan(map[string]any{"id": "plan_year", "title": "Yearly", "billing_period": 365, "renewal_price": 120,
 		"product": map[string]any{"id": "prod_year", "title": "Yearly server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
-	if r := set("15"); r.status != http.StatusConflict || !strings.Contains(fmt.Sprint(r.body["error"]), "Yearly: It doesn't renew every month") || share() != 42.5 || len(f.priceSets) != 1 {
-		t.Fatalf("a lower price while a plan breaks the rules: %d %v, the share %v, prices set %v", r.status, r.body, share(), f.priceSets)
+	if r := set("15"); r.status != http.StatusConflict || !strings.Contains(fmt.Sprint(r.body["error"]), "Yearly: It doesn't renew every month") || len(f.priceSets) != 1 {
+		t.Fatalf("a lower price while a plan breaks the rules: %d %v, prices set %v", r.status, r.body, f.priceSets)
+	}
+	e.reconcile()
+	if share() != 42.5 {
+		t.Fatalf("the share once the store's next read finds Other at $20 still, after a refused lower price: %v", share())
 	}
 	f.setOtherPlan("plan_year", map[string]any{"visibility": "archived"})
 	if r := set("15"); r.status != http.StatusOK || share() != 56.67 || !slices.Equal(f.priceSets, []string{"plan_other=20", "plan_other=15"}) {
