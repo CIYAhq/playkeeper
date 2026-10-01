@@ -296,7 +296,8 @@ func (s *Server) reconcileWhop(ctx context.Context, only map[string]bool) {
 // reconcileWhopStore brings the store's customers in line with their
 // memberships: it keeps the key store's webhook pointing at the dashboard,
 // reads the store's memberships and plans from Whop, keeps each of its
-// plans' stock to what the machines can take, makes the core's calls for
+// plans' stock to what the machines can take, and an app store's hosting
+// products on its page there while it sells, makes the core's calls for
 // its customers, and sends the messages waiting to go in its chats.
 func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	if st.TakenOverBy != "" {
@@ -331,11 +332,13 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 	}
 	// A suspended store, or one that left, sells nothing, and its pass does
 	// little else: each of its plans, a new one included, gets a stock of 0
-	// on Whop, and a store that left tells its customers their plans ended.
+	// on Whop, its hosting products are hidden there, and a store that left
+	// tells its customers their plans ended.
 	if left || !st.SuspendedAt.IsZero() {
 		s.refreshWhopPlans(ctx, c, st)
 		s.stopWhopSales(ctx, st.ID)
 		s.pushWhopStock(ctx, c, st.ID)
+		s.listWhopProducts(ctx, c, st, false)
 		if left {
 			s.sendWhopMessages(ctx, c, st)
 		}
@@ -379,6 +382,7 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 		s.stopWhopSales(ctx, st.ID)
 	}
 	s.pushWhopStock(ctx, c, st.ID)
+	s.listWhopProducts(ctx, c, st, st.ClosedWhy == "")
 	s.syncWhopCustomers(ctx, c, st)
 	if read == nil {
 		s.liftWithStore(ctx, st)

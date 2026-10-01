@@ -22,7 +22,8 @@ import (
 // so lifting it leaves the account active, or paused when its plan ended,
 // with a fresh grace period since it couldn't sign in meanwhile. A
 // suspended store sells nothing: the fleet keeps no room for its plans,
-// each plan's stock is 0 on Whop, and its pass starts nobody.
+// each plan's stock is 0 on Whop, its hosting products are hidden there,
+// and its pass starts nobody.
 
 // actSuspendCustomers suspends customers and stores, and lifts it. Only the
 // owner may, so actNeeds leaves it out.

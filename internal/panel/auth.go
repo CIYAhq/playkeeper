@@ -927,6 +927,18 @@ CREATE TABLE whop_terms_accepted (
   PRIMARY KEY (store_id, version, whop_user)
 );
 `,
+	// Each hosting product an app store's pass looked at while the store sold
+	// nothing, and whether it hid the product from the store's page on Whop
+	// then, so selling again shows those it hid and no other (see
+	// listWhopProducts).
+	`
+CREATE TABLE whop_unlisted_products (
+  store_id   TEXT    NOT NULL,
+  product_id TEXT    NOT NULL,
+  hid        INTEGER NOT NULL,
+  PRIMARY KEY (store_id, product_id)
+);
+`,
 }
 
 const (
