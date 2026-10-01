@@ -98,10 +98,10 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 
 // Sized marks body as size bytes long, such as an upload passed on with the
 // Content-Length it arrived with, so the agent, or a machine link on the way,
-// can refuse one too large before reading any of it. A negative size is
-// unknown.
+// can refuse one too large before reading any of it. A size of 0 or less is
+// left unknown.
 func Sized(body io.ReadCloser, size int64) io.Reader {
-	if size < 0 {
+	if size <= 0 {
 		return body
 	}
 	return &sized{ReadCloser: body, size: size}
@@ -125,9 +125,6 @@ func (c *Client) Raw(ctx context.Context, method, path string, q url.Values, bod
 	}
 	if s, ok := body.(*sized); ok {
 		req.ContentLength = s.size
-		if s.size == 0 {
-			req.Body = http.NoBody
-		}
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)

@@ -145,7 +145,7 @@ func TestRawSendsTheSizeASizedBodyHas(t *testing.T) {
 	}{
 		{"upload", 6, `6 "upload"`},
 		{"upload", -1, `-1 "upload"`},
-		{"", 0, `0 ""`},
+		{"", 0, `-1 ""`},
 	} {
 		body := &closeCounter{Reader: strings.NewReader(tc.body)}
 		resp, err := c.Raw(context.Background(), "POST", "/v1/servers/abc/icon", nil, Sized(body, tc.size), nil, true)
@@ -157,7 +157,7 @@ func TestRawSendsTheSizeASizedBodyHas(t *testing.T) {
 		if string(got) != tc.want {
 			t.Errorf("a body of %d bytes reached the agent as %s, want %s", tc.size, got, tc.want)
 		}
-		if tc.size != 0 && body.closed.Load() == 0 {
+		if body.closed.Load() == 0 {
 			t.Errorf("a body of %d bytes was left open", tc.size)
 		}
 	}
