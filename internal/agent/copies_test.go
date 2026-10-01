@@ -546,10 +546,11 @@ func TestARecordedCopyIsAlreadyCountedAndOutOfTheQueue(t *testing.T) {
 	}
 }
 
-// Whoever sees a copy's failed try, or a copy the rules deleted, finds it
-// audited: each is stored with its audit entry, the entry first. The
-// triggers note each one stored while its entry was missing.
-func TestAFailedTryAndACopyTheRulesDeleteAreAlreadyAudited(t *testing.T) {
+// Whoever sees a copy made, a copy's failed try, or a copy deleted by the
+// rules or by hand finds it audited: each is stored with its audit entry,
+// the entry first. The triggers note each one stored while its entry was
+// missing.
+func TestCopiesMadeFailedAndDeletedAreAlreadyAudited(t *testing.T) {
 	dest := &fakeDest{stored: map[string]offsite.Copy{}}
 	prev := openOffsite
 	openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
@@ -557,6 +558,9 @@ func TestAFailedTryAndACopyTheRulesDeleteAreAlreadyAudited(t *testing.T) {
 	e := newAgentEnv(t)
 	for _, q := range []string{
 		`CREATE TABLE unaudited(what TEXT)`,
+		`CREATE TRIGGER copy_unaudited AFTER INSERT ON offsite_copies
+			WHEN NOT EXISTS (SELECT 1 FROM audit WHERE action = 'offsite.copied' AND target = NEW.backup_id)
+			BEGIN INSERT INTO unaudited VALUES ('the copy of ' || NEW.backup_id); END`,
 		`CREATE TRIGGER try_unaudited AFTER UPDATE OF attempts ON offsite_uploads
 			WHEN NEW.attempts = 1 AND NOT EXISTS (SELECT 1 FROM audit WHERE action = 'offsite.copy_failed' AND target = NEW.backup_id)
 			BEGIN INSERT INTO unaudited VALUES ('the failed try of ' || NEW.backup_id); END`,
@@ -591,6 +595,14 @@ func TestAFailedTryAndACopyTheRulesDeleteAreAlreadyAudited(t *testing.T) {
 	e.waitFor("the rules to delete the first copy", func() bool {
 		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, first) == 0
 	})
+	var file string
+	if err := e.a.db.QueryRow(`SELECT file_name FROM offsite_copies WHERE backup_id = ?`, second).Scan(&file); err != nil {
+		t.Fatal(err)
+	}
+	name := offsite.CopyName(file)
+	if code, out := e.callWhenFree("DELETE", e.sp("/offsite/copies/"+url.PathEscape(name))+"?actor=admin", nil); code != http.StatusOK || out["deleted"] != name {
+		t.Fatalf("delete by hand: %d %v", code, out)
+	}
 	rows, err := e.a.db.Query(`SELECT what FROM unaudited`)
 	if err != nil {
 		t.Fatal(err)

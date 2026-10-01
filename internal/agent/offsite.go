@@ -1446,7 +1446,8 @@ func (s *server) noteCopyCheck(archive string, note func(cp *copyRecord)) {
 	}
 }
 
-// hOffsiteCopyDelete deletes a copy where it is kept, then its record.
+// hOffsiteCopyDelete deletes a copy where it is kept, then its record with
+// its audit entry.
 func (s *server) hOffsiteCopyDelete(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.URL.Query().Get("actor"))
 	if err != nil {
@@ -1480,11 +1481,11 @@ func (s *server) hOffsiteCopyDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, automationError(err))
 		return
 	}
-	if _, err := s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID); err != nil {
+	if err := s.execAudited(actor, "offsite.copy_deleted", backupID, "succeeded", name,
+		`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID); err != nil {
 		writeError(w, err)
 		return
 	}
-	s.audit(actor, "offsite.copy_deleted", backupID, "succeeded", name)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": name})
 }
 
@@ -1940,11 +1941,10 @@ func (s *server) uploadFailed(ctx context.Context, job uploadJob, err error) {
 // copyDone records a finished copy, then applies the rules at the
 // destination and, when nothing else runs, on this machine.
 func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow, b *api.Backup, cp offsite.Copy) {
-	if err := s.recordCopy(b, cp); err != nil {
+	if err := s.recordCopy(b, cp, offsitePlace(row.cfg.Config)); err != nil {
 		s.log.Warn("a finished copy could not be recorded", "server", s.id, "backup", b.ID, "err", err)
 		return
 	}
-	s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+offsitePlace(row.cfg.Config))
 	s.pruneOffsite(ctx, dest)
 	if !s.busy() {
 		if release, ok := s.holdOpLock(); ok {
@@ -1954,16 +1954,20 @@ func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow,
 	}
 }
 
-// recordCopy stores a finished copy together with its count and its leaving
-// the queue, the copy last, so whoever sees it recorded finds it counted and
-// no longer queued, and a crash can't keep one without the others.
-func (s *server) recordCopy(b *api.Backup, cp offsite.Copy) error {
+// recordCopy stores a finished copy, made to place, together with its audit
+// entry, its count and its leaving the queue, the entry first and the copy
+// last, so whoever sees it recorded finds it audited, counted and no longer
+// queued, and a crash can't keep one without the others.
+func (s *server) recordCopy(b *api.Backup, cp offsite.Copy, place string) error {
 	raw, _ := json.Marshal(cp)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := s.insertAudit(tx, s.id, "playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+place); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id); err != nil {
 		return err
 	}
