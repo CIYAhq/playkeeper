@@ -44,11 +44,21 @@ type pageAgent struct {
 	// page is on.
 	answer  func(api.PagePortsRequest) (api.PublicPagePorts, []*os.File)
 	retried atomic.Int32
+	// bare is a machine with no address, whose page is off; claimed names
+	// what wants port 80 meanwhile.
+	bare    atomic.Bool
+	claimed atomic.Pointer[string]
 }
 
 func (a *pageAgent) handle(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/v1/public-page/state" && a.bare.Load():
+			st := api.PublicPageState{}
+			if c := a.claimed.Load(); c != nil {
+				st.HTTPClaimed = *c
+			}
+			writeJSON(w, 200, st)
 		case r.URL.Path == "/v1/public-page/state":
 			writeJSON(w, 200, api.PublicPageState{Host: pageHostName, On: a.on.Load(), Hosts: a.hosts})
 		case r.URL.Path == "/v1/public-page" && a.on.Load() && slices.ContainsFunc(a.hosts, func(h string) bool { return pageHost(r.URL.Query().Get("host"), h) }):
@@ -315,6 +325,126 @@ func TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate(t *testing.
 	}
 	if c, err := e.srv.pageCertificate(&tls.ClientHelloInfo{ServerName: pageHostName}); err != nil || c == nil {
 		t.Fatalf("port 443 has no certificate for the name: %v", err)
+	}
+}
+
+// The fresh-install walkthrough of 1 Oct 2026: the machine's IP address
+// typed without its port, which a browser sends to port 80, was refused.
+// Port 80 sends any of its IP addresses to the dashboard on its own port,
+// path and all; a name the page doesn't answer keeps its 404, Let's
+// Encrypt's checks still reach the agent, and port 443 sends nothing.
+func TestPort80SendsTheMachinesIPAddressToTheDashboard(t *testing.T) {
+	a := &pageAgent{}
+	a.on.Store(true)
+	e := newPageEnv(t, a)
+	plain := e.srv.pageHandler(false)
+	for host, want := range map[string]string{
+		"198.51.100.20":         "https://198.51.100.20:8443/setup?a=1",
+		"198.51.100.20:80":      "https://198.51.100.20:8443/setup?a=1",
+		"[2001:db8::20]":        "https://[2001:db8::20]:8443/setup?a=1",
+		"[2001:db8::20]:80":     "https://[2001:db8::20]:8443/setup?a=1",
+		"[::ffff:198.51.100.2]": "https://198.51.100.2:8443/setup?a=1",
+	} {
+		resp, _ := pageGet(t, plain, "GET", host, "/setup?a=1")
+		if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != want || resp.Header.Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: %d %q %q", host, resp.StatusCode, resp.Header.Get("Location"), resp.Header.Get("Cache-Control"))
+		}
+	}
+	for _, host := range []string{"other.example.org", "198.51.100.20.nip.io", ""} {
+		if resp, _ := pageGet(t, plain, "GET", host, "/"); resp.StatusCode != 404 {
+			t.Errorf("%q: %d %q", host, resp.StatusCode, resp.Header.Get("Location"))
+		}
+	}
+	if resp, body := pageGet(t, plain, "GET", "198.51.100.20", "/.well-known/acme-challenge/tok3n"); resp.StatusCode != 200 || body != "tok3n.key" {
+		t.Fatalf("a check at the IP address: %d %q", resp.StatusCode, body)
+	}
+	if resp, _ := pageGet(t, e.srv.pageHandler(true), "GET", "198.51.100.20", "/"); resp.StatusCode != 404 {
+		t.Fatalf("port 443 for the IP address: %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+}
+
+// Without an address, the keeper holds port 80 alone, to send browsers at
+// the IP address to the dashboard, until something else wants the port or
+// the machine has an address with nothing on the page.
+func TestTheKeeperHoldsPort80ForTheDashboardWhileTheMachineHasNoAddress(t *testing.T) {
+	listen := func() (*os.File, int) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := ln.(*net.TCPListener).File()
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+		return f, port
+	}
+	a := &pageAgent{asks: make(chan api.PagePortsRequest, 4)}
+	var plain int
+	a.answer = func(want api.PagePortsRequest) (api.PublicPagePorts, []*os.File) {
+		out := api.PublicPagePorts{HTTPS: api.PagePort{Port: 443, State: api.PortOff}, HTTP: api.PagePort{Port: 80, State: api.PortOff}}
+		if !want.HTTP || want.HTTPS || !want.Pointer {
+			return out, nil
+		}
+		f, p := listen()
+		plain, out.HTTP = p, api.PagePort{Port: p, State: api.PortOpen}
+		return out, []*os.File{f}
+	}
+	a.bare.Store(true)
+	logs := &lockedBuffer{}
+	e := newPageEnvLogging(t, a, logs)
+	ctx := context.Background()
+
+	e.srv.lookAtPage(ctx)
+	if want := <-a.asks; want != (api.PagePortsRequest{HTTP: true, Pointer: true}) {
+		t.Fatalf("without an address the keeper asked for %+v", want)
+	}
+	resp, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Get("http://127.0.0.1:" + strconv.Itoa(plain) + "/")
+	if err != nil {
+		t.Fatalf("port 80 doesn't answer: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "https://127.0.0.1:8443/" {
+		t.Fatalf("port 80 at the IP address: %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	e.srv.lookAtPage(ctx)
+	if len(a.asks) != 0 {
+		t.Fatalf("holding port 80, the keeper asked again for %+v", <-a.asks)
+	}
+
+	// A web server comes to want the port: it's given back, and not asked
+	// for while it's wanted.
+	nginx := "nginx"
+	a.claimed.Store(&nginx)
+	e.srv.lookAtPage(ctx)
+	if st := e.srv.page.portsNow(); st.HTTP.State != api.PortOff {
+		t.Fatalf("with nginx wanting port 80 the keeper kept it: %+v", st)
+	}
+	if ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(plain)); err != nil {
+		t.Fatalf("port 80 wasn't given back: %v", err)
+	} else {
+		ln.Close()
+	}
+	if !strings.Contains(logs.String(), `msg="port 80 goes back to a program that wants it" holder=nginx`) {
+		t.Fatalf("giving port 80 back wasn't logged:\n%s", logs.String())
+	}
+	e.srv.lookAtPage(ctx)
+	if len(a.asks) != 0 {
+		t.Fatalf("with port 80 wanted the keeper asked for %+v", <-a.asks)
+	}
+	a.claimed.Store(nil)
+	e.srv.lookAtPage(ctx)
+	if want := <-a.asks; !want.Pointer {
+		t.Fatalf("once nothing else wanted port 80 the keeper asked for %+v", want)
+	}
+
+	// The machine gets an address with nothing on the page: the port goes
+	// back, and nothing is asked for.
+	a.bare.Store(false)
+	e.srv.lookAtPage(ctx)
+	if st := e.srv.page.portsNow(); st.HTTP.State != api.PortOff || len(a.asks) != 0 {
+		t.Fatalf("with an address and the page off: %+v, %d asks", st, len(a.asks))
 	}
 }
 

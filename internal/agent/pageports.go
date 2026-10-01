@@ -72,8 +72,13 @@ func (a *Agent) takePagePorts(ctx context.Context, want api.PagePortsRequest) (a
 	}
 	st := a.publicPageState(nil)
 	joined := want.Joined && st.Host != ""
-	if !st.On && !st.Dashboard && !joined || !want.HTTPS && !want.HTTP {
+	pointer := want.Pointer && st.Host == ""
+	if !st.On && !st.Dashboard && !joined && !pointer || !want.HTTPS && !want.HTTP {
 		return api.PublicPagePorts{HTTPS: out[0], HTTP: out[1]}, nil
+	}
+	pointerOnly := !st.On && !st.Dashboard && !joined
+	if pointerOnly {
+		asked[0] = false
 	}
 	if a.opts.Uptime() < pageSettle {
 		for i := range out {
@@ -95,9 +100,14 @@ func (a *Agent) takePagePorts(ctx context.Context, want api.PagePortsRequest) (a
 			files = append(files, f)
 		}
 	}
-	// A joined server's page changes no setting here and leaves no audit
-	// entry, so the ports going to the panel for it alone are logged.
-	if len(files) > 0 && !st.On && !st.Dashboard {
+	// A joined server's page and the pointer change no setting here and
+	// leave no audit entry, so the ports going to the panel for them alone
+	// are logged.
+	switch {
+	case len(files) == 0 || st.On || st.Dashboard:
+	case pointerOnly:
+		a.log.Info("port 80 goes to the panel to send browsers at the IP address to the dashboard, while the machine has no address")
+	default:
 		a.log.Info("the public page's ports go to the panel for a server on a joined machine", "https", out[0].State, "http", out[1].State)
 	}
 	return result(), files

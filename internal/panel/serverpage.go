@@ -225,6 +225,10 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 		check := !tls && strings.HasPrefix(r.URL.Path, acmePrefix)
 		if !check && !s.pageAnswers(r.Context(), r.Host) {
 			w.Header().Set("Cache-Control", "no-store")
+			if to, ok := s.dashboardPointer(r); ok && !tls {
+				http.Redirect(w, r, to, http.StatusFound)
+				return
+			}
 			http.NotFound(w, r)
 			return
 		}
@@ -246,6 +250,18 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 		w.Header().Set("Content-Security-Policy", pageCSP)
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// dashboardPointer is where plain HTTP to one of the machine's IP addresses
+// goes: the dashboard on its own port, which a browser given the bare
+// address never tries. A name the page doesn't answer keeps its 404: it may
+// not be this machine's at all.
+func (s *Server) dashboardPointer(r *http.Request) (string, bool) {
+	ip := net.ParseIP(strings.Trim(hostName(r.Host), "[]"))
+	if ip == nil || s.cfg.PanelPort == 0 {
+		return "", false
+	}
+	return "https://" + net.JoinHostPort(ip.String(), strconv.Itoa(s.cfg.PanelPort)) + r.URL.RequestURI(), true
 }
 
 // pageChanged forgets the page's answers after the owner changed what it

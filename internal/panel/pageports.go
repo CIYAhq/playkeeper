@@ -120,17 +120,27 @@ func (s *Server) lookAtPage(ctx context.Context) {
 		p.dashboard, p.reached = st.Dashboard, st.Dashboard && st.Reached
 	}
 	dashboard := p.dashboard
+	https, plain := p.held[0] != nil, p.held[1] != nil
 	p.mu.Unlock()
 	if !current {
 		// A visit was noted or the switch turned off while the agent was
 		// being asked: another look reads what the agent says since.
 		s.kickPage()
 	}
-	if !on && !dashboard {
+	// Without an address, port 80 sends a browser that typed the machine's
+	// IP address to the dashboard's port, until something else wants it.
+	pointer := !on && !dashboard && st.Host == "" && st.HTTPClaimed == ""
+	if !on && !dashboard && (!pointer || https) {
+		if plain && st.Host == "" && st.HTTPClaimed != "" {
+			s.log.Info("port 80 goes back to a program that wants it", "holder", st.HTTPClaimed)
+		}
 		s.closePagePorts(api.PortOff)
 		return
 	}
 	want := s.pagePortsWanted()
+	if pointer {
+		want.HTTPS, want.Pointer = false, true
+	}
 	if !want.HTTPS && !want.HTTP {
 		return
 	}
