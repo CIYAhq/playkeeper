@@ -499,14 +499,21 @@ func (s *Server) whopClosedFor(ctx context.Context, storeID, by string) (bool, e
 // membership was paid for lapses, and the check looks for a newer payment.
 // What waits is waiting, "" when nothing does, and unsure is whether a
 // membership that gives nothing never had Whop's answer, paid or not
-// (whopNotPaid), so what it would give isn't known yet.
+// (whopNotPaid), or had the payment it was paid with refunded and no check
+// since, so what it would give isn't known yet.
 func (s *Server) whopPaidPlan(ctx context.Context, c *whop.Client, st whopStore, wc whopCustomer, grace time.Duration) (plan CustomerPlan, waiting string, unsure bool) {
 	now := s.now()
 	since := now.Add(-whopPaidFor(wc, grace))
 	var parts []planPart
 	var waits []string
 	for _, h := range wc.Hosting {
-		if h = h.lapsed(since); h.Lapsed && !h.PaidAt.IsZero() {
+		// A refund of the payment it was paid with leaves it paid at no
+		// time, until the check finds the payment before or refuses it.
+		refunded := h.Paid.memoryMB > 0 && h.PaidAt.IsZero()
+		switch h = h.lapsed(since); {
+		case refunded:
+			h.Problem = "its payment on Whop (" + h.PaidPayment + ") was refunded, so its server waits for the payment before it to be checked"
+		case h.Lapsed:
 			h.Problem = "no payment on Whop has carried Playkeeper's share for it since " + h.PaidAt.UTC().Format("2 January") + ", so its server waits"
 		}
 		if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {
@@ -519,8 +526,10 @@ func (s *Server) whopPaidPlan(ctx context.Context, c *whop.Client, st whopStore,
 					at = now
 				}
 				h.Paid, h.Problem, h.Answered, h.PaidAt, h.PaidPayment = h.Part, "", true, at, pay.ID
+				refunded = false
 			case errors.As(err, &np):
-				h.Problem, h.Answered = err.Error(), true
+				h.Problem, h.Answered, h.Refused = err.Error(), true, true
+				refunded = false
 			default:
 				h.Problem = err.Error()
 				var we *whop.Error
@@ -536,7 +545,7 @@ func (s *Server) whopPaidPlan(ctx context.Context, c *whop.Client, st whopStore,
 		}
 		if h.Paid.memoryMB > 0 {
 			parts = append(parts, h.Paid)
-		} else if !h.Answered {
+		} else if !h.Answered || refunded {
 			unsure = true
 		}
 		if h.Problem != "" {
@@ -548,7 +557,8 @@ func (s *Server) whopPaidPlan(ctx context.Context, c *whop.Client, st whopStore,
 
 // keepWhopMembershipCheck keeps what the payment check found for a
 // membership: what it gives as paid for, with the payment it was paid with,
-// or why it isn't and when to look again.
+// or why it isn't and when to look again. One whose payment lapsed and the
+// check refused gives nothing until a newer payment carries the share.
 func (s *Server) keepWhopMembershipCheck(store string, h whopHosting) {
 	now := s.now()
 	var err error
@@ -562,8 +572,8 @@ func (s *Server) keepWhopMembershipCheck(store string, h whopHosting) {
 	} else {
 		_, err = s.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, problem, attempts, next_check_at, checked_at, answered) VALUES(?,?,?,1,?,?,?)
 			ON CONFLICT(store_id, membership_id) DO UPDATE SET problem = excluded.problem, attempts = attempts + 1, next_check_at = excluded.next_check_at, checked_at = excluded.checked_at,
-			answered = MAX(answered, excluded.answered)`,
-			store, h.ID, h.Problem, now.Add(whopBackoff(h.Attempts)).UnixMilli(), now.UnixMilli(), h.Answered)
+			answered = MAX(answered, excluded.answered), paid_mb = CASE WHEN ? THEN 0 ELSE paid_mb END`,
+			store, h.ID, h.Problem, now.Add(whopBackoff(h.Attempts)).UnixMilli(), now.UnixMilli(), h.Answered, h.Refused && h.Lapsed)
 	}
 	if err != nil {
 		s.log.Error("could not keep what the payment check found", "store", store, "membership", h.ID, "err", err)

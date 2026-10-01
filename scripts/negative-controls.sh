@@ -8620,13 +8620,13 @@ control "share paid: at least the plan's share" internal/panel/whop_share.go \
   'max(n, -n) >= want' \
   'max(n, -n) > 0' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
-control "share paid: a refunded payment doesn't count" internal/panel/whop_share.go \
-  'if whopRefundedInFull(pay) {' \
-  'if false {' \
+control "share paid: a refunded payment doesn't count, even the only one" internal/panel/whop_share.go \
+  'if len(kept) == 0 {' \
+  'if len(kept) == 0 { kept = pays }; if false {' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "share paid: the membership's latest payment" internal/panel/whop_share.go \
-  'pay := pays[0]' \
-  'pay := pays[len(pays)-1]' \
+  'pay := kept[0]' \
+  'pay := kept[len(kept)-1]' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "share paid: Whop is asked for the newest payments" internal/whop/payments.go \
   '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(paymentsRead)}}' \
@@ -8850,6 +8850,14 @@ control "later payments: the payment check skips payments refunded in full" inte
   'kept := slices.DeleteFunc(slices.Clone(pays), whopRefundedInFull)' \
   'kept := pays' \
   ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund not checked since keeps a customer running as they are" internal/panel/whop_share_hooks.go \
+  '} else if !h.Answered || refunded {' \
+  '} else if !h.Answered || refunded && false {' \
+  ./internal/panel '^TestARefundReadWhileTheShareIsWrongStillCounts$'
+control "later payments: a lapsed membership the check refused gives nothing" internal/panel/whop_share_hooks.go \
+  'answered = MAX(answered, excluded.answered), paid_mb = CASE WHEN ? THEN 0 ELSE paid_mb END`' \
+  'answered = MAX(answered, excluded.answered), paid_mb = CASE WHEN ? AND 0 THEN 0 ELSE paid_mb END`' \
+  ./internal/panel '^TestAMembershipWhoseOnlyPaymentIsRefundedStops$'
 control "later payments: the owner sets the grace" internal/panel/whop_share_hooks.go \
   'days = app.RenewalGraceDays' \
   '_ = app' \

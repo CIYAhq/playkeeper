@@ -88,7 +88,9 @@ func TestAMembershipNoRenewalPaidStopsPastItsGrace(t *testing.T) {
 
 // A refund counts whatever the share check finds when it's read, since it
 // only takes away: one read while Playkeeper's share is wrong still leaves
-// the membership without the payment refunded.
+// the membership without the payment refunded. Its customer, already
+// running, stays as they are until the check can look for the payment
+// before, and runs on that payment once it does.
 func TestARefundReadWhileTheShareIsWrongStillCounts(t *testing.T) {
 	r := newRenewalEnv(t)
 	renewed := r.start.Add(30 * 24 * time.Hour)
@@ -103,14 +105,50 @@ func TestARefundReadWhileTheShareIsWrongStillCounts(t *testing.T) {
 	b.payments[slices.IndexFunc(b.payments, func(p map[string]any) bool { return p["id"] == "pay_renew" })]["refunded_amount"] =
 		map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
 	r.f.mu.Unlock()
-	r.pass(20 * time.Minute)
+	if calls := r.pass(20 * time.Minute); len(calls) > 0 {
+		t.Fatalf("the renewal's refund read without the share: the core's calls %q", calls)
+	}
 	var paidAt int64
+	var payment string
 	if err := r.e.srv.db.QueryRow(`SELECT paid_at FROM whop_membership_checks WHERE membership_id = 'mem_kim'`).Scan(&paidAt); err != nil || paidAt == renewed.UnixMilli() {
 		t.Fatalf("kim's membership once its renewal's refund was read without the share: paid %v, %v", time.UnixMilli(paidAt).UTC(), err)
 	}
 	r.f.mu.Lock()
 	b.shares = kept
 	r.f.mu.Unlock()
+	if calls := r.pass(20 * time.Minute); len(calls) > 0 {
+		t.Fatalf("once the share was right again: the core's calls %q", calls)
+	}
+	if err := r.e.srv.db.QueryRow(`SELECT paid_at, paid_payment FROM whop_membership_checks WHERE membership_id = 'mem_kim'`).Scan(&paidAt, &payment); err != nil ||
+		paidAt != r.start.UnixMilli() || payment != "pay_mem_kim" {
+		t.Fatalf("kim's membership once checked again: paid %v by %q, %v", time.UnixMilli(paidAt).UTC(), payment, err)
+	}
+	if calls := r.pass(7 * 24 * time.Hour); !calledFor(calls, "pause ", "user_kim") {
+		t.Fatalf("past the grace of kim's first payment: the core's calls %q", calls)
+	}
+}
+
+// A membership whose only payment is refunded in full stops at once, and
+// gives nothing until a newer payment carries the share.
+func TestAMembershipWhoseOnlyPaymentIsRefundedStops(t *testing.T) {
+	r := newRenewalEnv(t)
+	r.f.mu.Lock()
+	b := r.f.installed["biz_other"]
+	b.refunds = append(b.refunds, map[string]any{"id": "ref_kim", "payment_id": "pay_mem_kim", "status": "succeeded",
+		"created_at": r.e.clock.now().UTC().Format(time.RFC3339)})
+	b.payments[slices.IndexFunc(b.payments, func(p map[string]any) bool { return p["id"] == "pay_mem_kim" })]["refunded_amount"] =
+		map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
+	r.f.mu.Unlock()
+	if calls := r.pass(20 * time.Minute); !calledFor(calls, "pause ", "user_kim") {
+		t.Fatalf("once kim's only payment was refunded: the core's calls %q", calls)
+	}
+	var paid int
+	if err := r.e.srv.db.QueryRow(`SELECT paid_mb FROM whop_membership_checks WHERE membership_id = 'mem_kim'`).Scan(&paid); err != nil || paid != 0 {
+		t.Fatalf("kim's membership once refused: paid for %d MB, %v", paid, err)
+	}
+	if problem := r.kimProblem(); !strings.Contains(problem, "(pay_mem_kim) was refunded") {
+		t.Fatalf("kim's line once paused: %q", problem)
+	}
 }
 
 // A renewal read while the share check finds Playkeeper's share wrong

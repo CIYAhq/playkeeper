@@ -619,8 +619,9 @@ type whopCustomer struct {
 // when it looks again. Answered is whether the check ever had Whop's
 // answer for it, paid or not, rather than Whop failing to give one; PaidAt
 // when the latest payment that carried Playkeeper's share was made, and
-// PaidPayment which it was; and Lapsed whether what it was paid for went,
-// that payment being too old (lapsed).
+// PaidPayment which it was; Lapsed whether what it was paid for went, that
+// payment being too old (lapsed); and Refused whether the check's answer
+// this pass is that it isn't paid.
 type whopHosting struct {
 	ID          string
 	Part, Paid  planPart
@@ -631,6 +632,7 @@ type whopHosting struct {
 	PaidAt      time.Time
 	PaidPayment string
 	Lapsed      bool
+	Refused     bool
 }
 
 // paidFor says whether a payment of the membership carried the share for
