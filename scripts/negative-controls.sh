@@ -13141,6 +13141,12 @@ control "a build a backup or a pack names survives an outage" internal/agent/sof
   'offline := err != nil && upstreamTrouble(err) || err == nil && l.from != fromUpstream' \
   'offline := err != nil && upstreamTrouble(err)' \
   ./internal/agent '^TestARestoreAndAPackKeepTheBuildTheyNameWhileTheUpstreamIsDown$'
+# After Bugbot's finding on 69980f58: make version-lists never writes the
+# lists without a type it couldn't keep.
+control "make version-lists never drops a type it couldn't keep" cmd/version-lists/main.go \
+  'case unreadable != nil:' \
+  'case false:' \
+  ./cmd/version-lists '^TestAFailedTypeIsNeverDroppedFromTheLists$'
 control "a built-in list with a download on a foreign host is refused" internal/minecraft/software/builtin.go \
   'if !servesFrom(a.Upstream, a.Hosts) {' \
   'if false && !servesFrom(a.Upstream, a.Hosts) {' \
