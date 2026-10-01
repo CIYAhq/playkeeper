@@ -2328,15 +2328,17 @@ export interface SellerMonth {
   kept: number
 }
 
-/** A seller's store as they price it: its hosting plans, whether Open the store is theirs to press, or Update the store once it's open, and what's wrong with Playkeeper's share once a price changed, if anything. */
+/** A seller's store as they price it: its hosting plans, whether Open the store is theirs to press, or Update the store once it's open, what's wrong with Playkeeper's share once a price changed, if anything, whether Fix my plans has something to put right, and what it can't, a plain line each for the seller to change in Whop. */
 export interface SellerPrices {
   plans: SellerPrice[]
   canOpen: boolean
   canUpdate: boolean
   problem?: string
+  fixable: boolean
+  blocked?: string[]
 }
 
-/** One hosting plan as its seller prices it: its monthly price in its currency's smallest unit, the floor and Playkeeper's share in US cents, whether its price can be set here, and what keeps it from selling. */
+/** One hosting plan as its seller prices it: its monthly price in its currency's smallest unit, the floor, Playkeeper's share and the price the page suggests in US cents, whether its price can be set here, and what keeps it from selling. */
 export interface SellerPrice {
   id: string
   title: string
@@ -2346,8 +2348,15 @@ export interface SellerPrice {
   currency: string
   floor: number
   share: number
+  suggested: number
   settable: boolean
   problem?: string
+}
+
+/** What Fix my plans did: what it changed, in a line, if anything, and the store's prices then. */
+export interface SellerFixed {
+  changed?: string
+  prices: SellerPrices
 }
 
 /** What pressing Open the store did: whether the store is open now, and if not, why it's still closed. */

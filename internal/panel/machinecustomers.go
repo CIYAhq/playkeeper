@@ -121,6 +121,7 @@ func (s *Server) takeCustomers(ctx context.Context, m machine, actor string, on 
 	}
 	s.audit(actor, "machine.customers", cmp.Or(m.Name, m.ID), result, detail)
 	s.kickSaleRoom()
+	s.kickWatch()
 	kind := "machine.customers_off"
 	if on {
 		kind = "machine.customers_on"

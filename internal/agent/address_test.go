@@ -860,6 +860,22 @@ func (e *addressEnv) settled() {
 	})
 }
 
+// checkOwn looks up the own domain's records holding the address, as the
+// address loop and the domain check do. Otherwise a look of the loop's,
+// begun before the test changed the records, could save its result after
+// this one.
+func (e *addressEnv) checkOwn() (*api.AddressCheck, error) {
+	e.t.Helper()
+	var release func()
+	e.waitFor("the address to be free for a look", func() bool {
+		r, err := e.a.holdAddress(e.t.Context(), 0)
+		release = r
+		return err == nil
+	})
+	defer release()
+	return e.a.checkOwn(e.t.Context())
+}
+
 // loopSawServers waits until the address loop has taken the change that
 // adding or removing servers made. Until it has, its next look updates or
 // checks the servers' records under whatever address the machine has then.

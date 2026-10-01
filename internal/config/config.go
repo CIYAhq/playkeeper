@@ -162,6 +162,17 @@ func (c Config) LinkDir() string           { return filepath.Join(c.DataDir, "li
 func (c Config) LinkKeyPath() string       { return filepath.Join(c.LinkDir(), "machine.key") }
 func (c Config) LinkDashboardPath() string { return filepath.Join(c.LinkDir(), "dashboard.json") }
 
+// LinkStatusPath is where the running link keeps its state, for playkeeper
+// status and the agent's watch on the dashboard: in the link's runtime
+// directory, which systemd removes when the link stops, or beside its key in
+// development.
+func (c Config) LinkStatusPath() string {
+	if c.Dev {
+		return filepath.Join(c.LinkDir(), "status.json")
+	}
+	return "/run/playkeeper-link/status.json"
+}
+
 // ResourcePacksDir holds the resource packs servers offer players. The agent
 // writes it; the panel serves the packs from it, so it is readable by all.
 func (c Config) ResourcePacksDir() string { return filepath.Join(c.DataDir, "resourcepacks") }

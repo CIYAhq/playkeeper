@@ -102,6 +102,9 @@ type Options struct {
 	// DiscordStatusGap is the least time between two edits of Discord's
 	// live status message (0: the notifier's two seconds).
 	DiscordStatusGap time.Duration
+	// DashboardWatchInterval is how often a joined machine with the
+	// dashboard's webhook looks at its link (default 30s).
+	DashboardWatchInterval time.Duration
 	// ReconcileInterval is how often desired and observed state are compared.
 	ReconcileInterval time.Duration
 	// CrashBackoff is the wait before each automatic restart after a crash.
@@ -309,6 +312,7 @@ type Agent struct {
 	upd     updateState
 	catalog catalogCache
 	disc    discordState
+	watch   dashboardWatch
 	browse  browseCache
 	// curatedPicks are the curated add-ons that fit a type and Minecraft
 	// version (wave 4).
@@ -641,6 +645,10 @@ func New(opts Options) (*Agent, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := a.initDashboardWatch(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	a.loadUpdateState()
 	a.collectUpdateResult()
 	a.loadAddress()
@@ -670,6 +678,8 @@ func (a *Agent) Start() {
 	a.loop(a.addressLoop)
 	a.loop(a.disc.n.Run)
 	a.loop(a.discordLoop)
+	a.loop(a.watch.n.Run)
+	a.loop(a.watchDashboard)
 	a.startDNS()
 }
 
@@ -1057,6 +1067,9 @@ func (a *Agent) routeTable() []Route {
 		{"DELETE", "/v1/discord", a.hDiscordDisconnect},
 		{"POST", "/v1/discord/test", a.hDiscordTest},
 		{"POST", "/v1/discord/notify", a.hDiscordNotify},
+		{"GET", discordWebhookPath, a.hDiscordWebhook},
+		{"PUT", "/v1/dashboard-watch", a.hDashboardWatchSet},
+		{"DELETE", "/v1/dashboard-watch", a.hDashboardWatchClear},
 		// Follow-ups after 0.3.0.
 		{"GET", "/v1/servers/{id}/world-copies", srv((*server).hWorldCopies)},
 		{"DELETE", "/v1/servers/{id}/world-copies/{name}", srv((*server).hWorldCopyDelete)},

@@ -880,6 +880,9 @@ func (s *Server) discordProxy(method, pattern string) func(http.ResponseWriter, 
 			s.agentFailure(w, err)
 			return
 		}
+		if method == "DELETE" || pattern == "/v1/discord/connect" {
+			s.kickWatch()
+		}
 		if status == http.StatusNoContent || len(raw) == 0 {
 			w.WriteHeader(status)
 			return

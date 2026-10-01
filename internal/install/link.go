@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
@@ -239,11 +238,5 @@ func ForgetDashboard(sys System, cfg config.Config) error {
 }
 
 // LinkStatusFile is where the running link keeps its state for playkeeper
-// status: in its runtime directory, which systemd removes when the link
-// stops, or beside its key in development.
-func LinkStatusFile(cfg config.Config) string {
-	if cfg.Dev {
-		return filepath.Join(cfg.LinkDir(), "status.json")
-	}
-	return "/run/playkeeper-link/status.json"
-}
+// status (config.Config.LinkStatusPath).
+func LinkStatusFile(cfg config.Config) string { return cfg.LinkStatusPath() }
