@@ -108,7 +108,7 @@ describe('a seller’s page inside Whop', () => {
     await click(button('Back'))
     expect(heading()).toBe('Check your prices')
     await click(button('Looks good'))
-    await click(button('Open my store'))
+    await click(button('Open the store'))
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell')
     expect(heading()).toBe('You’re live')
     const visit = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes('Visit your store'))
