@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -56,14 +57,30 @@ func newScriptedEnvLogging(t *testing.T, h http.HandlerFunc, logs io.Writer) (*e
 		t.Fatal(err)
 	}
 	sa := &scriptedAgent{}
+	// net/http only logs a handler's panic, and the panel carries on as if
+	// the agent hadn't answered, so a test whose agent panics fails instead.
+	var ended atomic.Bool
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if p := recover(); p != nil {
+				if p == http.ErrAbortHandler {
+					panic(p)
+				}
+				if !ended.Load() {
+					t.Errorf("the test's agent panicked answering %s %s: %v", r.Method, r.URL.Path, p)
+				}
+			}
+		}()
 		sa.mu.Lock()
 		sa.hits = append(sa.hits, r.Clone(r.Context()))
 		sa.mu.Unlock()
 		h(w, r)
 	})}
 	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() {
+		ended.Store(true)
+		srv.Close()
+	})
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = sock
