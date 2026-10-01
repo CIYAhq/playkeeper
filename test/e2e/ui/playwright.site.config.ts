@@ -3,10 +3,14 @@ import { defineConfig } from '@playwright/test'
 // playkeeper.io in a browser: site.spec.ts, the free tools in
 // site-tools*.spec.ts and the template directory in site-templates.spec.ts.
 // The site is built from the repository and served as
-// nginx would, with its Content-Security-Policy (go run ./cmd/site -serve). CI
-// runs it in the "Browser checks against a faked panel" job; locally, from
-// this directory: npx playwright test -c playwright.site.config.ts
+// nginx would, with its Content-Security-Policy (go run ./cmd/site -serve).
+// Locally, from this directory: npx playwright test -c
+// playwright.site.config.ts. CI runs each project on a runner of its own
+// ("playkeeper.io in a browser" in e2e.yml): the checks at phone size, which
+// say so in their names, and the rest. Together they're 13 minutes of tests,
+// and the site gains pages every week.
 const port = Number(process.env.PK_SITE_PORT ?? 4180)
+const phone = /at phone size/
 
 export default defineConfig({
   testDir: '.',
@@ -15,6 +19,10 @@ export default defineConfig({
   fullyParallel: true,
   workers: 4,
   reporter: [['list']],
+  projects: [
+    { name: 'desktop', grepInvert: phone },
+    { name: 'phone', grep: phone },
+  ],
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     locale: 'en-GB',
