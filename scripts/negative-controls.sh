@@ -6724,11 +6724,11 @@ control "port 80 redirects only while port 443 serves the page" internal/panel/p
   'if _ = https; host == "" || s.pageCerts == nil {' \
   ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
 control "turning the page off gives the ports back" internal/panel/pageports.go \
-  'if !st.On && !dashboard {
+  'if !on && !dashboard {
 		s.closePagePorts(api.PortOff)
 		return
 	}' \
-  'if !st.On && !dashboard {
+  'if !on && !dashboard {
 		return
 	}' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
