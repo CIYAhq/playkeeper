@@ -96,6 +96,22 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	return resp.StatusCode, nil
 }
 
+// Sized marks body as size bytes long, such as an upload passed on with the
+// Content-Length it arrived with, so the agent, or a machine link on the way,
+// can refuse one too large before reading any of it. A negative size is
+// unknown.
+func Sized(body io.ReadCloser, size int64) io.Reader {
+	if size < 0 {
+		return body
+	}
+	return &sized{ReadCloser: body, size: size}
+}
+
+type sized struct {
+	io.ReadCloser
+	size int64
+}
+
 // Raw performs a request and returns the live response (caller closes it).
 // stream selects a client without an overall timeout (uploads, downloads).
 func (c *Client) Raw(ctx context.Context, method, path string, q url.Values, body io.Reader, headers map[string]string, stream bool) (*http.Response, error) {
@@ -106,6 +122,12 @@ func (c *Client) Raw(ctx context.Context, method, path string, q url.Values, bod
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err
+	}
+	if s, ok := body.(*sized); ok {
+		req.ContentLength = s.size
+		if s.size == 0 {
+			req.Body = http.NoBody
+		}
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 )
 
@@ -97,6 +99,32 @@ func TestASlowCopyDeleteOnTheDashboardsMachineWaitsForItsStore(t *testing.T) {
 	last := e.agent.reqs[len(e.agent.reqs)-1]
 	if last.method+" "+last.path != key || last.query.Get("actor") != "admin" {
 		t.Fatalf("the agent got %s %s with %v", last.method, last.path, last.query)
+	}
+}
+
+// An upload the dashboard passes on to a joined machine says the size the
+// browser gave it, so one larger than the link takes is refused before any of
+// it reaches the machine's agent.
+func TestAnUploadTooLargeForTheLinkNeverReachesTheMachine(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	ra := newRemoteAgent()
+	e.joinedAs(t, cookie, csrf, ra, func(o *machinelink.LinkOptions) { o.MaxRequestBytes = 1 << 10 })
+	e.get(t, "/api/servers", cookie, nil)
+	const icon = "POST /v1/servers/rstuvwxyzq/icon"
+
+	r, body := e.fetch(t, "POST", "/api/servers/rstuvwxyzq/icon", "image/png", strings.Repeat("i", 4<<10), auth(cookie, csrf))
+	var refusal api.Error
+	json.Unmarshal([]byte(body), &refusal)
+	if r.StatusCode != http.StatusRequestEntityTooLarge || refusal.Code != machinelink.CodeTooLarge || refusal.Params["limit"] != "1 KiB" {
+		t.Fatalf("a 4 KiB icon: %d %s", r.StatusCode, body)
+	}
+	if _, ok := ra.saw(icon); ok {
+		t.Fatal("an icon larger than the link takes reached the machine's agent")
+	}
+
+	if r, body := e.fetch(t, "POST", "/api/servers/rstuvwxyzq/icon", "image/png", strings.Repeat("i", 1<<10), auth(cookie, csrf)); r.StatusCode != http.StatusOK || len(ra.body(icon)) != 1<<10 {
+		t.Fatalf("a 1 KiB icon: %d %s, the agent got %d bytes", r.StatusCode, body, len(ra.body(icon)))
 	}
 }
 

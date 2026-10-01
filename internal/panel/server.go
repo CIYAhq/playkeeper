@@ -1714,7 +1714,7 @@ func (s *Server) rawUpload(pattern, contentType string, keys ...string) func(htt
 }
 
 func (s *Server) relayUpload(w http.ResponseWriter, r *http.Request, m machine, path string, q url.Values, contentType string, sess *session) {
-	resp, err := m.agent.Raw(r.Context(), "POST", path, q, r.Body,
+	resp, err := m.agent.Raw(r.Context(), "POST", path, q, agentclient.Sized(r.Body, r.ContentLength),
 		map[string]string{"X-Playkeeper-Actor": sess.User.Username, "Content-Type": contentType}, true)
 	if err != nil {
 		s.agentFailure(w, err)

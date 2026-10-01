@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -118,6 +120,46 @@ func TestRawStreamsTheBodyBothWays(t *testing.T) {
 	got, err := io.ReadAll(resp.Body)
 	if err != nil || !bytes.Equal(got, upload) || resp.Header.Get("Content-Type") != "application/gzip" {
 		t.Fatalf("%d of %d bytes back, type %q: %v", len(got), len(upload), resp.Header.Get("Content-Type"), err)
+	}
+}
+
+type closeCounter struct {
+	io.Reader
+	closed atomic.Int32
+}
+
+func (c *closeCounter) Close() error {
+	c.closed.Add(1)
+	return nil
+}
+
+func TestRawSendsTheSizeASizedBodyHas(t *testing.T) {
+	c := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		fmt.Fprintf(w, "%d %q", r.ContentLength, b)
+	})
+	for _, tc := range []struct {
+		body string
+		size int64
+		want string
+	}{
+		{"upload", 6, `6 "upload"`},
+		{"upload", -1, `-1 "upload"`},
+		{"", 0, `0 ""`},
+	} {
+		body := &closeCounter{Reader: strings.NewReader(tc.body)}
+		resp, err := c.Raw(context.Background(), "POST", "/v1/servers/abc/icon", nil, Sized(body, tc.size), nil, true)
+		if err != nil {
+			t.Fatalf("%d bytes: %v", tc.size, err)
+		}
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if string(got) != tc.want {
+			t.Errorf("a body of %d bytes reached the agent as %s, want %s", tc.size, got, tc.want)
+		}
+		if tc.size != 0 && body.closed.Load() == 0 {
+			t.Errorf("a body of %d bytes was left open", tc.size)
+		}
 	}
 }
 
