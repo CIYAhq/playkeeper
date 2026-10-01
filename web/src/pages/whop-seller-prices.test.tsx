@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import type { SellerPrices } from '@/api/types'
-import { SellerPricesCard } from './whop-seller-prices'
+import { PricesStep } from './whop-seller-prices'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -13,20 +13,22 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }))
 
 let root: Root | undefined
-const changed = vi.fn()
+const onPrices = vi.fn()
+const onDone = vi.fn()
+const onBack = vi.fn()
 
-async function render(prices: SellerPrices): Promise<string> {
-  vi.mocked(client.get).mockResolvedValueOnce(prices)
+async function render(prices: SellerPrices, more: { notice?: string; edit?: boolean } = {}): Promise<string> {
+  if (root) await act(async () => root?.unmount())
   document.body.innerHTML = ''
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
-  await act(async () => r.render(<SellerPricesCard store="biz_other" onChange={changed} />))
-  await act(async () => {})
+  await act(async () => r.render(<PricesStep store="biz_other" prices={prices} onPrices={onPrices} onDone={onDone} onBack={more.edit ? onBack : undefined} {...more} />))
   return document.body.textContent ?? ''
 }
 
-const starter = { id: 'plan_other', title: 'Starter', servers: 1, memoryMB: 4096, price: 1200, currency: 'usd', floor: 1200, share: 850, settable: true }
-const pricesWith = (over: Partial<SellerPrices> = {}): SellerPrices => ({ plans: [starter], canOpen: true, canUpdate: false, ...over })
+const starter = { id: 'plan_starter', title: 'Starter', servers: 1, memoryMB: 4096, price: 1000, currency: 'usd', floor: 1200, share: 850, suggested: 1500, settable: true }
+const plus = { id: 'plan_plus', title: 'Plus', servers: 2, memoryMB: 8192, price: 2600, currency: 'usd', floor: 2400, share: 1700, suggested: 3000, settable: true }
+const pricesWith = (over: Partial<SellerPrices> = {}): SellerPrices => ({ plans: [starter, plus], canOpen: true, canUpdate: false, fixable: false, ...over })
 
 function field(label: string): HTMLInputElement {
   const l = [...document.querySelectorAll('label')].find((x) => x.textContent?.trim() === label)
@@ -57,7 +59,9 @@ async function click(el: HTMLElement) {
 beforeEach(() => {
   vi.mocked(client.get).mockReset()
   vi.mocked(client.post).mockReset()
-  changed.mockReset()
+  onPrices.mockReset()
+  onDone.mockReset()
+  onBack.mockReset()
 })
 
 afterEach(async () => {
@@ -65,111 +69,92 @@ afterEach(async () => {
   root = undefined
 })
 
-describe('a seller’s prices', () => {
-  it('lists each hosting plan at its price, with the floor and Playkeeper’s share, from a relative address', async () => {
-    const euro = { id: 'plan_euro', title: 'Euro', servers: 1, memoryMB: 4096, price: 1400, currency: 'eur', floor: 1200, share: 850, settable: false, problem: 'It’s priced in EUR, and hosted plans are priced in US dollars.' }
-    const text = await render(pricesWith({ plans: [starter, euro] }))
-    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/prices')
-    expect(text).toContain('Starter1 server with 4 GB · at least $12.00 · $8.50 to Playkeeper')
-    expect(field('Starter').value).toBe('12.00')
-    expect(text).toContain('€14.00')
-    expect(text).toContain('It’s priced in EUR, and hosted plans are priced in US dollars.')
-    expect(document.querySelectorAll('input')).toHaveLength(1)
-  })
-
-  it('saves a new price through a relative address, and tells the page', async () => {
-    await render(pricesWith())
-    expect(button('Save').disabled).toBe(true)
-    await type(field('Starter'), '15')
-    vi.mocked(client.post).mockResolvedValueOnce(pricesWith({ plans: [{ ...starter, price: 1500 }] }))
-    await click(button('Save'))
-    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/prices', { plan: 'plan_other', price: '15' })
+describe('checking a seller’s prices', () => {
+  it('offers each plan at its price, or at the price it suggests when that’s under the floor, with what it gives', async () => {
+    const text = await render(pricesWith())
+    expect(document.querySelector('h1')?.textContent).toBe('Check your prices')
+    expect(text).toContain('This is what customers pay each month.')
     expect(field('Starter').value).toBe('15.00')
-    expect(document.body.textContent).toContain('Saved')
-    expect(changed).toHaveBeenCalledTimes(1)
+    expect(field('Plus').value).toBe('26.00')
+    expect(text).toContain('1 server · 4 GB')
+    expect(text).toContain('2 servers · 8 GB')
+    expect(text).not.toContain('floor')
   })
 
-  it('says why a price was refused', async () => {
+  it('saves only the prices that changed, through relative addresses, and then goes on', async () => {
+    await render(pricesWith())
+    const saved = pricesWith({ plans: [{ ...starter, price: 1500 }, plus] })
+    vi.mocked(client.post).mockResolvedValueOnce(saved)
+    await click(button('Looks good'))
+    expect(vi.mocked(client.post)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/prices', { plan: 'plan_starter', price: '15.00' })
+    expect(onDone).toHaveBeenCalledWith(saved)
+  })
+
+  it('says in a line under its plan what’s wrong with a price, and saves nothing', async () => {
     await render(pricesWith())
     await type(field('Starter'), '11')
-    vi.mocked(client.post).mockRejectedValueOnce(
-      new client.ApiError(400, { code: 'invalid_request', error: 'Starter allows 4 GB, so it charges at least $12.00 a month.', field: 'price' }),
-    )
-    await click(button('Save'))
-    expect(document.body.textContent).toContain('Starter allows 4 GB, so it charges at least $12.00 a month.')
+    await type(field('Plus'), 'thirty')
+    await click(button('Looks good'))
+    const alerts = [...document.querySelectorAll('[role="alert"]')].map((a) => a.textContent)
+    expect(alerts).toEqual(['At least $12.00', 'Write a price, like 15'])
     expect(field('Starter').getAttribute('aria-invalid')).toBe('true')
-    expect(changed).not.toHaveBeenCalled()
+    expect(vi.mocked(client.post)).not.toHaveBeenCalled()
+    expect(onDone).not.toHaveBeenCalled()
   })
 
-  it('opens the store through a relative address, then tells the page', async () => {
-    expect(await render(pricesWith())).not.toContain('Update the store')
-    vi.mocked(client.post).mockResolvedValueOnce({ open: true })
-    await click(button('Open the store'))
-    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell')
-    const text = document.body.textContent ?? ''
-    expect(text).toContain('Your store is open.')
-    expect(text).not.toContain('Open the store')
-    expect(button('Update the store')).toBeTruthy()
-    expect(changed).toHaveBeenCalledTimes(1)
-  })
-
-  it('updates an open store through the same address, then tells the page', async () => {
-    const text = await render(pricesWith({ canOpen: false, canUpdate: true }))
-    expect(text).not.toContain('Open the store')
-    expect(text).toContain('Added a hosting plan on Whop, or changed one?')
-    vi.mocked(client.post).mockResolvedValueOnce({ open: true })
-    await click(button('Update the store'))
-    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell')
-    expect(document.body.textContent).toContain('Your store is up to date.')
-    expect(changed).toHaveBeenCalledTimes(1)
-  })
-
-  it('says why an open store wasn’t updated', async () => {
-    await render(pricesWith({ canOpen: false, canUpdate: true }))
-    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(409, { code: 'conflict', error: 'Cheap: It charges $9.00, under the $12.00 floor for 4 GB.' }))
-    await click(button('Update the store'))
-    expect(document.body.textContent).toContain('Cheap: It charges $9.00, under the $12.00 floor for 4 GB.')
-    expect(button('Update the store')).toBeTruthy()
-    expect(changed).not.toHaveBeenCalled()
-  })
-
-  it('says what keeps the store closed', async () => {
+  it('says why Whop refused a price under its plan, and stays', async () => {
     await render(pricesWith())
-    vi.mocked(client.post).mockRejectedValueOnce(
-      new client.ApiError(409, { code: 'conflict', error: 'Playkeeper Cloud doesn’t take its share yet: the owner hasn’t said who receives it in Settings › Sell on Whop.' }),
-    )
-    await click(button('Open the store'))
-    expect(document.body.textContent).toContain('Playkeeper Cloud doesn’t take its share yet')
-    expect(button('Open the store')).toBeTruthy()
-    expect(changed).not.toHaveBeenCalled()
-    vi.mocked(client.post).mockResolvedValueOnce({ open: false, why: 'Playkeeper’s share on Minecraft server was removed.' })
-    await click(button('Open the store'))
-    expect(document.body.textContent).toContain('Playkeeper’s share is set, but your store is still closed: Playkeeper’s share on Minecraft server was removed.')
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(502, { code: 'retry_later', error: 'Whop didn’t answer. Try again in a moment.' }))
+    await click(button('Looks good'))
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('Whop didn’t answer. Try again in a moment.')
+    expect(onDone).not.toHaveBeenCalled()
   })
 
-  it('says why the store can’t open a line per plan, then what to do, as a warning rather than an error', async () => {
-    await render(pricesWith())
-    vi.mocked(client.post).mockRejectedValueOnce(
-      new client.ApiError(409, {
-        code: 'conflict',
-        error: 'Starter: shares Minecraft server with Plus\nPlus: shares Minecraft server with Starter',
-        hint: 'To open your store, give each plan its own product.',
-      }),
-    )
-    await click(button('Open the store'))
-    const lines = [...document.querySelectorAll('p')].map((p) => p.textContent)
-    expect(lines).toContain('Starter: shares Minecraft server with Plus')
-    expect(lines).toContain('Plus: shares Minecraft server with Starter')
-    expect(lines).toContain('To open your store, give each plan its own product.')
-    const first = [...document.querySelectorAll('p')].find((p) => p.textContent === 'Starter: shares Minecraft server with Plus')
-    expect(first?.closest('.text-warning-foreground')).toBeTruthy()
-    expect(first?.closest('.text-destructive-foreground')).toBeNull()
-    expect(changed).not.toHaveBeenCalled()
+  it('offers Fix my plans alone while a plan needs one, and tells the page what it changed', async () => {
+    const text = await render(pricesWith({ fixable: true }))
+    expect(text).toContain('Some plans need a quick fix first.')
+    expect(document.querySelectorAll('input')).toHaveLength(0)
+    expect(document.querySelectorAll('button')).toHaveLength(1)
+    const fixed = pricesWith()
+    vi.mocked(client.post).mockResolvedValueOnce({ changed: 'Starter now renews every month.', prices: fixed })
+    await click(button('Fix my plans'))
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/fix')
+    expect(onPrices).toHaveBeenCalledWith(fixed, 'Starter now renews every month.')
   })
 
-  it('offers no Open the store once the store is open, and says when there’s no hosting plan', async () => {
-    const text = await render(pricesWith({ plans: [], canOpen: false }))
-    expect(text).not.toContain('Open the store')
-    expect(text).toContain('Your store has no hosting plan yet.')
+  it('says in a line what Fix my plans changed', async () => {
+    await render(pricesWith(), { notice: 'Starter now renews every month.' })
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('Done. Starter now renews every month.')
+  })
+
+  it('says plainly what to change in Whop when Fix my plans can’t, and checks again', async () => {
+    const line = 'Starter and Plus are on the same product. Give each its own product in Whop.'
+    const text = await render(pricesWith({ blocked: [line] }))
+    expect(text).toContain('Change this in Whop first:')
+    expect([...document.querySelectorAll('ul li')].map((li) => li.textContent)).toEqual([line])
+    expect(document.querySelectorAll('input')).toHaveLength(0)
+    const fresh = pricesWith()
+    vi.mocked(client.get).mockResolvedValueOnce(fresh)
+    await click(button('Check again'))
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/prices')
+    expect(onPrices).toHaveBeenCalledWith(fresh)
+  })
+
+  it('says when there’s no hosting plan yet', async () => {
+    expect(await render(pricesWith({ plans: [] }))).toContain('Your store has no hosting plans yet.')
+    expect(button('Check again')).toBeTruthy()
+  })
+
+  it('changes an open store’s prices with Save prices, and goes back', async () => {
+    await render(pricesWith({ plans: [{ ...starter, price: 1500 }, plus], canOpen: false, canUpdate: true }), { edit: true })
+    expect(document.querySelector('h1')?.textContent).toBe('Your prices')
+    expect(document.querySelector('[aria-current="step"]')).toBeNull()
+    await click(button('Back'))
+    expect(onBack).toHaveBeenCalledTimes(1)
+    await type(field('Plus'), '28')
+    vi.mocked(client.post).mockResolvedValueOnce(pricesWith())
+    await click(button('Save prices'))
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/prices', { plan: 'plan_plus', price: '28.00' })
   })
 })
