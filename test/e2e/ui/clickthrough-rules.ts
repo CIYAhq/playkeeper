@@ -143,7 +143,7 @@ export interface Place {
 
 /**
  * Places the click-through didn't reach before 0.3.1's audit, the Disk
- * space page's clean-up, and a select whose choices differ only in a number.
+ * space page's clean-up, and selects whose choices differ only in a number.
  * In each, one control must come out as `status`, and a negative control
  * breaks it and presses it again (a disabled one loses its reason instead):
  * the crawl must then report it.
@@ -165,6 +165,8 @@ export const places: Place[] = [
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', page: '/', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', page: '/welcome', key: /^button "Create my server"$/ },
   { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', page: '/welcome', key: /^option "# GB" in listbox "Memory"( #\d+)?$/ },
+  // A phone's sheet goes as soon as a choice is made, so only its combobox shows which one.
+  { what: 'a server type in Hetzner stock, a phone’s sheet whose choices differ only in a number', sizes: ['phone'], page: '/settings/machines', key: /^option "CX#" in listbox "Server type"( #\d+)?$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', page: '/settings', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
   { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', page: '/servers/*', key: /^button "Wake up now" in ".+ is asleep"$/ },
   { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', page: '/servers/*/world/backup-rules', phonePage: '/servers/*/world/backup-rules/copies', key: /^button "Download new key" in dialog "New recovery key made"$/ },

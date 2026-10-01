@@ -12012,6 +12012,18 @@ control "every cookie setHostCookie sets has a __Host- name" internal/panel/twof
   'pendingCookieName = "__Host-playkeeper-2fa"' \
   'pendingCookieName = "playkeeper-2fa"' \
   ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+webcontrol "a phone's select is a combobox, so its choice is read digits and all" web/src/components/app/controls.tsx \
+  '          role="combobox"' \
+  '          role={undefined}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
+webcontrol "a phone's select says when its sheet is open" web/src/components/app/controls.tsx \
+  'aria-expanded={open}' \
+  'aria-expanded={false}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
+webcontrol "a phone's select points at its list while it's open" web/src/components/app/controls.tsx \
+  'aria-controls={open ? listId : undefined}' \
+  'aria-controls={undefined}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
 
 if [ "$bad" != 0 ]; then
   echo
