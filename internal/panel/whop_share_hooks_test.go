@@ -239,6 +239,41 @@ func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
 	}
 }
 
+// A hosting plan that shares its product with another plan on sale makes
+// the store need a look, in both plans' words, on its seller's page too,
+// but it stays open, since the product's share is its neediest plan's.
+// Once the other plan is archived, so no longer on sale, the problem goes,
+// though someone still has it.
+func TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen(t *testing.T) {
+	f, e, _ := twoStores(t)
+	useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	b.plans = append(b.plans, map[string]any{"id": "plan_dear", "title": "Dear", "visibility": "visible", "plan_type": "renewal", "billing_period": 30,
+		"currency": "usd", "renewal_price": 15, "product": map[string]any{"id": "prod_other", "title": "Minecraft server"},
+		"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}, "unlimited_stock": true})
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if st := e.otherStore(t); st.ClosedWhy != "" || !strings.Contains(st.Problem, "Other: It shares its product, Minecraft server, with Dear") ||
+		!strings.Contains(st.Problem, "Dear: It shares its product, Minecraft server, with Other") {
+		t.Fatalf("Other and Dear on one product: closed %q, problem %q", st.ClosedWhy, st.Problem)
+	}
+	if v, err := e.srv.sellerStoreView(t.Context(), "biz_other"); err != nil || v.Store.State != "needsLook" || !strings.Contains(v.Store.Why, "with Dear") {
+		t.Fatalf("Other's seller page: %+v, %v", v.Store, err)
+	}
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_dear", "active")
+	f.mu.Lock()
+	b.plan("plan_dear")["visibility"] = "archived"
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if st := e.otherStore(t); st.Problem != "" || st.ClosedWhy != "" {
+		t.Fatalf("once Dear's archived, though kim has it: problem %q, closed %q", st.Problem, st.ClosedWhy)
+	}
+}
+
 // A store that isn't open yet has no share to check: its seller's Open the
 // store sets it.
 func TestAStoreNotOpenYetHasNoShareChecked(t *testing.T) {

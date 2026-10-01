@@ -8533,6 +8533,18 @@ control "share: a plan past the fleet's limits is a problem" internal/panel/whop
   'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {' \
   'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" && false {' \
   ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "share: a price not on Whop yet is judged as Whop will charge it" internal/panel/whop_share.go \
+  'plans[i].InitialPrice, plans[i].RenewalPrice = 0, price' \
+  '_, _ = i, price' \
+  ./internal/panel '^TestAShareIsSetForAPriceBeforeItsOnWhop$'
+control "share: a hosting plan that shares its product needs a look" internal/panel/whop_share_hooks.go \
+  'if note := whopSharedNote(plans); note != "" {' \
+  'if note := whopSharedNote(plans); note != "" && false {' \
+  ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
+control "share: only plans on sale share a product" internal/panel/whop_share_hooks.go \
+  'func(p whop.Plan) bool { return p.Visibility == "archived" })' \
+  'func(p whop.Plan) bool { return false })' \
+  ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
 control "hosting: a one-time purchase gives no servers in an app store" internal/panel/whop_customers.go \
   'if via == whopViaApp && status == "completed" {' \
   'if false && via == whopViaApp && status == "completed" {' \

@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -41,18 +42,25 @@ const (
 // read its plans (see syncWhopShares). A share gone or short closes the
 // store for whopShareClosed, in the problem's words, and after
 // whopShareGrace like that the store leaves. A share set right opens it
-// again for that reason alone. A store that isn't open yet has no share to
-// check, since Open the store sets it. It says whether the store left, and
-// keeps st's closed words current, so the rest of the pass sees them.
+// again for that reason alone. A hosting plan that shares its product with
+// another plan is the store's problem, so it needs a look, but it stays
+// open (whopSharedNote). A store that isn't open yet has no share to check,
+// since Open the store sets it. It says whether the store left, and keeps
+// st's closed words current, so the rest of the pass sees them.
 func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStore) bool {
 	notOpen, err := s.whopClosedFor(ctx, st.ID, whopNotOpenYet)
 	if err != nil || notOpen {
 		return false
 	}
-	problem, err := s.syncWhopShares(ctx, c, *st, false)
+	problem, plans, err := s.syncWhopSharesWith(ctx, c, *st, false, nil)
 	if err != nil {
 		s.log.Warn("could not check Playkeeper's share on a store", "store", st.ID, "err", err)
 		return false
+	}
+	if note := whopSharedNote(plans); note != "" {
+		if _, err := s.db.ExecContext(ctx, `UPDATE whop_stores SET problem = ? WHERE store_id = ?`, note, st.ID); err != nil {
+			s.log.Error("could not note a store's plans that share a product", "store", st.ID, "err", err)
+		}
 	}
 	if problem == "" {
 		if err := s.whopWatchClear(ctx, st.ID, "share_bad_since"); err != nil {
@@ -82,6 +90,26 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 		st.ClosedWhy = cmpOr(st.ClosedWhy, problem)
 	}
 	return false
+}
+
+// whopSharedNote is what's wrong with the store's hosting plans on sale
+// that share a product with another plan on sale (sharedProductProblems),
+// "" for nothing. It costs Playkeeper nothing, since the product's share is
+// its neediest plan's, but the seller's other plans on it pay that share
+// too, so it's theirs to put right, and Open the store refuses it.
+func whopSharedNote(plans []whop.Plan) string {
+	selling := slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool { return p.Visibility == "archived" })
+	shared := sharedProductProblems(selling)
+	var notes []string
+	for _, p := range selling {
+		if sp, ok := hostedPlan(p); ok && shared[p.ID] != "" {
+			notes = append(notes, sp.Title+": "+strings.TrimSuffix(shared[p.ID], "."))
+		}
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return strings.Join(notes, "; ") + "."
 }
 
 // whopReadPayments keeps each payment an open app store was paid since its

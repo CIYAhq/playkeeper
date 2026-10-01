@@ -311,26 +311,46 @@ func (s *Server) keepWhopShare(ctx context.Context, storeID, product string, r w
 // An error is Whop or the dashboard failing, which says nothing about the
 // shares.
 func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStore, force bool) (string, error) {
+	return s.syncWhopSharesAt(ctx, c, st, force, nil)
+}
+
+// syncWhopSharesAt is syncWhopShares judging the plans in renewals as
+// though each already charged its price there at every renewal, with no
+// initial price on top, as a price set on the seller's page does. Called
+// before a price is lowered, it sets the share the new price needs first,
+// so no payment at that price pays less than Playkeeper's share.
+func (s *Server) syncWhopSharesAt(ctx context.Context, c *whop.Client, st whopStore, force bool, renewals map[string]float64) (string, error) {
+	problem, _, err := s.syncWhopSharesWith(ctx, c, st, force, renewals)
+	return problem, err
+}
+
+// syncWhopSharesWith is syncWhopSharesAt, with the plans it judged.
+func (s *Server) syncWhopSharesWith(ctx context.Context, c *whop.Client, st whopStore, force bool, renewals map[string]float64) (string, []whop.Plan, error) {
 	app, err := s.readWhopApp(ctx)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if app.ShareUser == "" {
-		return "Playkeeper Cloud doesn't take its share yet: the owner hasn't said who receives it in Settings › Sell on Whop.", nil
+		return "Playkeeper Cloud doesn't take its share yet: the owner hasn't said who receives it in Settings › Sell on Whop.", nil, nil
 	}
 	partner, err := s.ensureWhopPartner(ctx, c, st, app.ShareUser)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	plans, gone, err := s.whopSharePlans(ctx, c, st)
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+	for i, p := range plans {
+		if price, ok := renewals[p.ID]; ok {
+			plans[i].InitialPrice, plans[i].RenewalPrice = 0, price
+		}
 	}
 	wants, problems := whopShareWants(plans)
 	problems = append(problems, gone...)
 	shares, err := c.RevShares(ctx, partner)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	onWhop := map[string]whop.RevShare{}
 	for _, r := range shares {
@@ -340,7 +360,7 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 	}
 	set, err := s.whopSharesSet(ctx, st.ID)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	for _, w := range wants {
 		name := cmpOr(w.Title, w.Product)
@@ -357,26 +377,26 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 		case !there:
 			added, err := c.AddRevShare(ctx, partner, w.Product, float64(w.BasisPoints)/100)
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
 			err = s.keepWhopShare(ctx, st.ID, w.Product, added, w.BasisPoints)
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
 		case full && bp == w.BasisPoints:
 			if !untouched {
 				if err := s.keepWhopShare(ctx, st.ID, w.Product, r, bp); err != nil {
-					return "", err
+					return "", nil, err
 				}
 			}
 		case full && untouched, force && (!full || bp < w.BasisPoints):
 			updated, err := c.UpdateRevShare(ctx, partner, r.ID, float64(w.BasisPoints)/100)
 			if err != nil {
-				return "", err
+				return "", nil, err
 			}
 			updated.ID = cmpOr(updated.ID, r.ID)
 			if err := s.keepWhopShare(ctx, st.ID, w.Product, updated, w.BasisPoints); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		case !full:
 			problems = append(problems, "Playkeeper's share on "+name+" isn't a percentage of the full price")
@@ -385,9 +405,9 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 		}
 	}
 	if len(problems) == 0 {
-		return "", nil
+		return "", plans, nil
 	}
-	return strings.Join(problems, "; ") + ".", nil
+	return strings.Join(problems, "; ") + ".", plans, nil
 }
 
 // whopSharePaid checks that a membership's latest paid payment carried
