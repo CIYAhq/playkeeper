@@ -6983,7 +6983,7 @@ control "a page's stream is only a Twitch or YouTube channel" internal/pagetext/
   ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
 control "the page's About keeps out control and direction-changing characters" internal/pagetext/pagetext.go \
   "return unicode.IsPrint(r) || r == '\\u200d'" \
-  'return r != 0' \
+  'return unicode.IsPrint(r) || r != 0' \
   ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
 control "a board with more numbers than the page shows is refused" internal/agent/publicblocks.go \
   'if len(req.Stats) > api.BoardStatsMax {' \
@@ -7035,7 +7035,7 @@ control "joined page: a deleted server's record of the page goes with it" intern
   '		`DELETE FROM public_pages WHERE ` + gone,
 ' \
   '' \
-  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+  ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
 control "joined page: deleting a customer forgets whether their servers were on the page" internal/panel/erasure.go \
   '`DELETE FROM public_pages WHERE server_id = ?`, ' \
   '' \
@@ -7078,7 +7078,7 @@ control "joined page: a server's name is no longer than the agent allows" intern
   ./internal/panel '^(TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows|TestAJoinedCardHoldsUpNoOtherPage)$'
 control "joined page: a server's name and description keep out control and formatting characters" internal/panel/joinedpage.go \
   "return unicode.IsPrint(r) && r != '§'" \
-  'return r != 0' \
+  'return unicode.IsPrint(r) || r != 0' \
   ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
 control "joined page: About has no more lines than the agent allows" internal/panel/joinedpage.go \
   'lines = lines[:min(len(lines), api.PublicAboutLines)]' \
