@@ -143,7 +143,7 @@ function asPhone() {
 }
 
 let current: Address | client.ApiError = none
-let names: Record<string, NameAvailability | client.ApiError> = {}
+let names: Record<string, NameAvailability | client.ApiError | Promise<NameAvailability>> = {}
 let dns: DNSAnswers | undefined
 let root: Root | undefined
 
@@ -153,6 +153,7 @@ function answerGets() {
     const name = decodeURIComponent(path.match(/\/address\/available\?name=(.*)$/)?.[1] ?? '')
     if (name) {
       const r = names[name] ?? { name, address: `${name}.playkeeper.me`, available: true }
+      if (r instanceof Promise) return r
       return r instanceof client.ApiError ? Promise.reject(r) : Promise.resolve(r)
     }
     if (path === '/api/machines/m1/address/plan?domain=play.example.com') return Promise.resolve(plan)
@@ -234,6 +235,21 @@ describe('choosing an address', () => {
     await settle()
     expect(field('Pick a name').value).toBe('admin')
     expect(text()).toContain('admin.playkeeper.me is reserved. Pick another name.')
+  })
+
+  // Not even for the moment the names service takes to answer.
+  it('shows no name while it finds a free one, rather than the reserved one it starts from', async () => {
+    let reply: (v: NameAvailability) => void = () => {}
+    names = { admin: new Promise<NameAvailability>((r) => (reply = r)) }
+    await show(none, { username: 'admin' })
+    expect(field('Pick a name').value).toBe('')
+    expect(text()).toContain('Finding a free name…')
+    expect(text()).not.toContain('admin.playkeeper.me')
+    expect(button('Claim').title).toBe('Finding a free name…')
+    await act(async () => reply({ name: 'admin', address: 'admin.playkeeper.me', available: false, code: 'name_reserved', message: 'Reserved.' }))
+    await settle()
+    expect(field('Pick a name').value).toMatch(/^[a-z]+-[a-z]+-\d{2}$/)
+    expect(text()).not.toContain('Finding a free name…')
   })
 
   it('names the domain free names live under as the agent says it', async () => {

@@ -144,11 +144,11 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
   // Until the name is typed, it's the user's own when that's free, else a free one.
   const [typed, setTyped] = useState(claim.state.status === 'failed' || !!current)
   const suggestion = useFreeSuggestion(id, raw, { off: typed })
-  const value = typed ? raw : (suggestion ?? raw)
+  const looking = !typed && suggestion === undefined
+  const value = typed ? raw : looking ? '' : (suggestion ?? raw)
   const name = normalizeName(value, a.base, a.previousBase)
   const problem = nameProblem(name)
   const mine = !!current && name === current
-  const looking = !typed && suggestion === undefined
   const { answer, forget } = useLookup(problem || mine || looking ? '' : name, (n) => get<NameAvailability>(machineApi(id, `/address/available?name=${encodeURIComponent(n)}`)), checkDelayMs)
   const address = `${name}.${a.base}`
 
@@ -157,7 +157,7 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
   if (claimFailed) failed = { failure: claimFailed.failure, retry: () => void claim.claim(claimFailed.name) }
   else if (isFailure(answer)) failed = { failure: answer, retry: forget }
   const unavailable = failed?.failure.error.code === 'names_unreachable' ? failed : undefined
-  const reason = unavailable ? t('address.unavailable') : claimReason(address, problem, mine, answer)
+  const reason = looking ? t('address.finding') : unavailable ? t('address.unavailable') : claimReason(address, problem, mine, answer)
   const available = !reason
 
   function change(v: string) {
@@ -201,7 +201,16 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
       </InputGroupAddon>
     </InputGroup>
   )
-  const status = unavailable ? <Unavailable onRetry={unavailable.retry} /> : nameStatus({ name, address, problem, mine, answer, onPick: pick })
+  const status = looking ? (
+    <p className="flex items-center gap-2 text-xs text-muted-foreground">
+      <Spinner className="size-3.5" />
+      {t('address.finding')}
+    </p>
+  ) : unavailable ? (
+    <Unavailable onRetry={unavailable.retry} />
+  ) : (
+    nameStatus({ name, address, problem, mine, answer, onPick: pick })
+  )
   const failedBlock = failed && !unavailable && <ClaimFailure failure={failed.failure} machine={machine} onRetry={failed.retry} onUseOwn={onUseOwn} touch={phone} />
   const preview = !name || unavailable
   const changeHint = current && <p className="text-xs text-muted-foreground">{t('address.changeHint', { address: `${current}.${a.base}` })}</p>

@@ -2907,6 +2907,28 @@ describe('Onboarding', () => {
       expect([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Looks good, continue'))?.disabled).toBe(false)
     })
 
+    it('says when the name couldn’t be finished, and where to finish it, rather than getting it for ever', async () => {
+      answer({ '/preflight': preflight, '/address/available?name=admin': reserved, '/address/available': { available: true }, '/address': none })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      const name = /^Get (.+)\.playkeeper\.me$/.exec(offer()?.textContent ?? '')?.[1] ?? ''
+      const at = new Date().toISOString()
+      const failedPublish: Address = {
+        ...none,
+        kind: 'playkeeper',
+        host: `${name}.playkeeper.me`,
+        free: { name, state: 'active', dns: 'pending', claimedAt: at, refreshedAt: at, checkedAt: at, holdDays: 30 },
+        operation: { id: 'op1', kind: 'address.publish', status: 'failed', phase: 'certificate', actor: 'admin', startedAt: at, finishedAt: at, error: 'Let’s Encrypt didn’t answer.' },
+      }
+      answerPosts({ '/address/claim': failedPublish })
+      answer({ '/preflight': preflight, '/address': failedPublish })
+      await act(async () => offer()?.click())
+      expect(document.body.textContent).toContain(`Couldn’t finish ${name}.playkeeper.me`)
+      expect(document.body.textContent).toContain('Let’s Encrypt didn’t answer.')
+      expect(document.body.textContent).not.toContain('Getting')
+      expect([...document.querySelectorAll('a')].find((l) => l.textContent === 'Finish it in Machine settings')?.getAttribute('href')).toBe('/machines/m2345abcde/settings')
+    })
+
     it('isn’t offered while the names service can’t be reached, or the machine has an address', async () => {
       answer({ '/preflight': preflight, '/address/available': new client.ApiError(503, { error: 'Playkeeper couldn’t reach the free address service.', code: 'names_unreachable' }), '/address': none })
       await render(<Onboarding />, admin)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { get } from '@/api/client'
 import type { NameAvailability } from '@/api/types'
 import { machineApi } from '@/api/workspace'
@@ -24,25 +24,38 @@ export function startingName(username: string, base: string): string {
   return nameProblem(n) ? '' : n
 }
 
+/** A source of numbers in [0, 1) that gives the same ones for the same seed. */
+export function seeded(seed: string): () => number {
+  let h = 2166136261
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619)
+  return () => {
+    h = (h + 0x6d2b79f5) | 0
+    let x = Math.imul(h ^ (h >>> 15), h | 1)
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61)
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 /**
  * A free name to offer: first, when the names service says it's free, else
- * the first of the free names it suggests for it, else friendly names, each
- * checked, so a reserved name like "admin" is never offered. Undefined while
- * it looks or when off, null when the service can't be asked. Each round
- * after the first skips first and every name it offered before.
+ * the first free name it suggests for it, else friendly names, each checked,
+ * so a reserved name like "admin" is never offered. Undefined while it
+ * looks or when off, null when the service can't be asked. The friendly
+ * names are the same for the same machine and round, so a page offers the
+ * same name each time it opens; a round after the first starts from them.
  */
 export function useFreeSuggestion(id: string, first: string, { round = 0, off = false }: { round?: number; off?: boolean } = {}): string | null | undefined {
   const [found, setFound] = useState<{ key: string; name: string | null }>()
-  const offered = useRef<string[]>([])
   const key = `${id}\n${first}\n${round}`
+  const known = found?.key === key
   useEffect(() => {
-    if (off) return
+    if (off || known) return
     let stopped = false
     const look = (n: string) => get<NameAvailability>(machineApi(id, `/address/available?name=${encodeURIComponent(n)}`))
     void (async () => {
-      const candidates = [...(round === 0 && first && !nameProblem(first) ? [first] : []), ...Array.from({ length: 4 }, () => friendlyName())]
+      const friendly = Array.from({ length: 4 }, (_, i) => friendlyName(seeded(`${id}\n${round}\n${i}`)))
+      const candidates = [...(round === 0 && first && !nameProblem(first) ? [first] : []), ...friendly]
       for (const n of candidates) {
-        if (offered.current.includes(n)) continue
         let av: NameAvailability
         try {
           av = await look(n)
@@ -51,9 +64,8 @@ export function useFreeSuggestion(id: string, first: string, { round = 0, off = 
           return
         }
         if (stopped) return
-        const pick = av.available ? n : av.suggestions?.find((s) => !offered.current.includes(s))
+        const pick = av.available ? n : av.suggestions?.[0]
         if (pick) {
-          offered.current = [...offered.current, pick]
           setFound({ key, name: pick })
           return
         }
@@ -63,6 +75,6 @@ export function useFreeSuggestion(id: string, first: string, { round = 0, off = 
     return () => {
       stopped = true
     }
-  }, [id, first, round, off, key])
-  return !off && found?.key === key ? found.name : undefined
+  }, [id, first, round, off, known, key])
+  return !off && known ? found.name : undefined
 }

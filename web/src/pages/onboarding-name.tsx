@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
 import { namedDashboard, runningOp } from '@/lib/address'
 import { startingName, useFreeSuggestion } from '@/lib/free-names'
+import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 
 // Fast while a claim runs; the agent does the slow work.
@@ -55,7 +56,21 @@ export function FreeNameOffer({ id }: { id: string }) {
   if (!a) return null
   if (claim.status === 'claiming' || (claim.status === 'claimed' && a.kind === 'playkeeper')) {
     const host = claim.status === 'claiming' ? `${claim.name}.${a.base}` : (a.host ?? '')
-    const url = claim.status === 'claimed' && !running ? namedDashboard(a, now) : undefined
+    const settled = claim.status === 'claimed' && !running
+    const url = settled ? namedDashboard(a, now) : undefined
+    // A publish that failed, or a certificate that didn't come, is Machine settings' to finish.
+    const op = a.operation
+    const problem = settled && !url ? (op?.kind === 'address.publish' && op.status === 'failed' ? (op.error ?? '') : a.certificate?.problem?.message) : undefined
+    if (problem !== undefined) {
+      return (
+        <Row icon={<CircleAlertIcon className="size-[18px] text-warning" aria-hidden="true" />} title={t('onboarding.name.unfinished', { address: host })} live>
+          {problem && <p>{problem}</p>}
+          <a {...linkProps({ name: 'machine-settings', id })} className="mt-1 inline-flex min-h-6 items-center font-medium text-primary hover:underline">
+            {t('onboarding.name.toSettings')}
+          </a>
+        </Row>
+      )
+    }
     if (url) {
       return (
         <Row icon={<CircleCheckIcon className="size-[18px] text-success-foreground" aria-hidden="true" />} title={t('address.yours', { address: host })} live>
