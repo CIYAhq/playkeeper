@@ -510,25 +510,29 @@ func (a *Agent) collectUpdateResult() {
 		msg = fmt.Sprintf("The update to Playkeeper %s failed, and putting the previous version back failed too: %s", res.To, res.Error)
 		hint = "See docs/RECOVERY.md (\"A Playkeeper update went wrong\")."
 	}
-	if res.OpID != "" {
-		if op, err := a.loadOperation(res.OpID); err == nil {
-			fin := res.FinishedAt
-			op.Status, op.Error, op.Hint, op.Phase, op.FinishedAt = status, msg, hint, res.Outcome, &fin
-			if op.Detail == nil {
-				op.Detail = map[string]any{}
-			}
-			op.Detail["from"], op.Detail["to"] = res.From, res.To
-			a.saveOperation(op)
-		}
-	}
-	a.audit(nonEmptyOr(res.Actor, "playkeeper"), "update."+res.Outcome, res.To, res.Outcome, strings.TrimSpace("from "+res.From+" "+res.Error))
 	r := api.UpdateResult{From: res.From, To: res.To, Outcome: res.Outcome, Error: msg, FinishedAt: res.FinishedAt}
 	rb, _ := json.Marshal(r)
-	_ = a.kvSet(kvUpdateResult, string(rb))
+	actor, action, detail := nonEmptyOr(res.Actor, "playkeeper"), "update."+res.Outcome, strings.TrimSpace("from "+res.From+" "+res.Error)
 	a.upd.mu.Lock()
+	defer a.upd.mu.Unlock()
+	var op *api.Operation
+	if res.OpID != "" {
+		op, _ = a.loadOperation(res.OpID)
+	}
+	if op != nil {
+		fin := res.FinishedAt
+		op.Status, op.Error, op.Hint, op.Phase, op.FinishedAt = status, msg, hint, res.Outcome, &fin
+		if op.Detail == nil {
+			op.Detail = map[string]any{}
+		}
+		op.Detail["from"], op.Detail["to"] = res.From, res.To
+		a.endUpdateOp(op, actor, action, res.To, res.Outcome, detail)
+	} else {
+		a.audit(actor, action, res.To, res.Outcome, detail)
+	}
+	_ = a.kvSet(kvUpdateResult, string(rb))
 	a.upd.lastResult = &r
 	a.upd.installing, a.upd.opID = "", ""
-	a.upd.mu.Unlock()
 	os.Remove(path)
 	a.log.Info("update finished", "outcome", res.Outcome, "from", res.From, "to", res.To)
 }
@@ -565,20 +569,46 @@ func (a *Agent) watchHandoff() {
 
 // abandonUpdate finishes an update operation the updater did not report on.
 func (a *Agent) abandonUpdate(opID, v, outcome, msg, hint string) {
+	r := api.UpdateResult{From: version.Version, To: v, Outcome: outcome, Error: msg, FinishedAt: a.now().UTC()}
+	rb, _ := json.Marshal(r)
+	a.upd.mu.Lock()
+	defer a.upd.mu.Unlock()
 	if op, err := a.loadOperation(opID); err == nil {
 		fin := a.now().UTC()
 		op.Status, op.Error, op.Hint, op.Phase, op.FinishedAt = api.OpFailed, msg, hint, outcome, &fin
-		a.saveOperation(op)
+		a.endUpdateOp(op, "playkeeper", "update."+outcome, v, outcome, msg)
+	} else {
+		a.audit("playkeeper", "update."+outcome, v, outcome, msg)
 	}
-	r := api.UpdateResult{From: version.Version, To: v, Outcome: outcome, Error: msg, FinishedAt: a.now().UTC()}
-	rb, _ := json.Marshal(r)
 	_ = a.kvSet(kvUpdateResult, string(rb))
 	_ = a.kvSet(kvUpdateAbandoned, opID)
-	a.upd.mu.Lock()
 	a.upd.lastResult = &r
 	a.upd.installing, a.upd.opID = "", ""
-	a.upd.mu.Unlock()
-	a.audit("playkeeper", "update."+outcome, v, outcome, msg)
+}
+
+// endUpdateOp stores the update operation op as ended together with its
+// audit entry, the entry first, as finishOperation does for the others. The
+// caller holds the update's lock until what the agent says about the update
+// has changed too, so whoever sees the operation ended, or the agent free,
+// finds the update's result.
+func (a *Agent) endUpdateOp(op *api.Operation, actor, action, target, result, detail string) {
+	tx, err := a.db.Begin()
+	if err == nil {
+		if err = a.insertAudit(tx, "", actor, action, target, result, detail); err == nil {
+			err = writeOperation(tx, op)
+		}
+		if err == nil {
+			err = tx.Commit()
+		} else {
+			_ = tx.Rollback()
+		}
+	}
+	if err != nil {
+		// The operation must not stay running for want of its audit entry.
+		a.log.Error("update operation write failed", "err", err)
+		a.saveOperation(op)
+		a.audit(actor, action, target, result, detail)
+	}
 }
 
 // updateLoop reports updater results, times out a handoff nobody picked up,
