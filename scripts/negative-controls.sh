@@ -9312,6 +9312,14 @@ control "seller prices: the price the seller set reaches Whop" internal/panel/se
   'c.SetPlanPrice(ctx, sp.ID, float64(price)/100)' \
   'c.SetPlanPrice(ctx, sp.ID, float64(sp.Price)/100)' \
   ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a buyer pays the price once at checkout" internal/whop/store.go \
+  'map[string]any{"initial_price": 0, "renewal_price": price}' \
+  'map[string]any{"initial_price": price, "renewal_price": price}' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: Whop is asked for no initial price" internal/whop/store.go \
+  'map[string]any{"initial_price": 0, "renewal_price": price}' \
+  'map[string]any{"initial_price": price, "renewal_price": price}' \
+  ./internal/whop '^TestSetPlanPriceChargesItOnceAtCheckoutAndOnEachRenewal$'
 control "seller prices: an open store's share follows a new price at once" internal/panel/sellerprices.go \
   'case len(set) > 0:' \
   'case len(set) < 0:' \

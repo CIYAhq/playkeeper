@@ -2,10 +2,12 @@ package panel
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +85,21 @@ func (f *fakeWhop) setOtherPlan(id string, changes map[string]any) {
 	}
 }
 
+// otherCheckoutCharge is what Whop charges at checkout for one of Other
+// Hosting's plans: its initial price, plus its first renewal price for a
+// plan that renews.
+func (f *fakeWhop) otherCheckoutCharge(id string) float64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.installed["biz_other"].plan(id)
+	charge, _ := p["initial_price"].(float64)
+	if p["plan_type"] == "renewal" {
+		renewal, _ := strconv.ParseFloat(fmt.Sprint(p["renewal_price"]), 64)
+		charge += renewal
+	}
+	return charge
+}
+
 // otherPlanVisibility is how one of Other Hosting's plans shows on Whop.
 func (f *fakeWhop) otherPlanVisibility(id string) any {
 	f.mu.Lock()
@@ -119,9 +136,9 @@ func priceOf(t *testing.T, v sellerPrices, plan string) sellerPrice {
 // A seller's page lists the store's hosting plans at their prices, with
 // the floor, $12 a month for each 4 GB, and Playkeeper's share of each
 // payment. The seller sets a price at or above the floor, which Whop then
-// charges first and on each renewal, and the dashboard shows at once. A
-// price under the floor, a plan of another store and a plan priced in
-// another currency are refused.
+// charges once at checkout and on each renewal, and the dashboard shows at
+// once. A price under the floor, a plan of another store and a plan priced
+// in another currency are refused.
 func TestASellerPricesTheirPlansAtOrAboveTheFloor(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	f.addOtherPlan(map[string]any{"id": "plan_plus", "title": "Plus", "renewal_price": 20, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "8"}})
@@ -154,6 +171,9 @@ func TestASellerPricesTheirPlansAtOrAboveTheFloor(t *testing.T) {
 	r = set("plan_other", "15")
 	if r.status != http.StatusOK || priceOf(t, pricesOf(t, r), "plan_other").Price != 1500 || !slices.Equal(f.priceSets, []string{"plan_other=15"}) {
 		t.Fatalf("setting Other to $15: %d %v, prices set %v", r.status, r.body, f.priceSets)
+	}
+	if charge := f.otherCheckoutCharge("plan_other"); charge != 15 {
+		t.Fatalf("Whop charges $%v at checkout for Other at $15 a month", charge)
 	}
 	var shown string
 	e.srv.db.QueryRow(`SELECT price FROM whop_plans WHERE store_id = 'biz_other' AND plan_id = 'plan_other'`).Scan(&shown)
