@@ -64,16 +64,16 @@ type fakeBusiness struct {
 	// titles names products by id, "Minecraft server" for one not here,
 	// visibility how each shows on the store's page on Whop, visible for one
 	// not here, hides the products hidden, in order, and hideDown makes Whop
-	// refuse hiding one; shows the products shown, in order, and
-	// showProductDown makes Whop refuse showing one. productReads counts the
-	// lists of its products the dashboard read.
-	titles          map[string]string
-	visibility      map[string]string
-	hides           []string
-	hideDown        bool
-	shows           []string
-	showProductDown bool
-	productReads    int
+	// refuse hiding one; shows the products shown, in order, and showRefused
+	// is one Whop refuses to show. productReads counts the lists of its
+	// products the dashboard read.
+	titles       map[string]string
+	visibility   map[string]string
+	hides        []string
+	hideDown     bool
+	shows        []string
+	showRefused  string
+	productReads int
 }
 
 // fakeChat is an installed business's support chat with one customer.

@@ -10416,7 +10416,7 @@ control "seller prices: Whop is asked to hide the website's product" internal/wh
   'map[string]any{"visibility": "visible"}' \
   ./internal/whop '^TestHideProductAsksForHidden$'
 control "seller prices: Open the store shows the hosting products on Whop" internal/panel/sellerprices.go \
-  'if err := s.showHostedProducts(ctx, c, st, plans); err != nil {' \
+  'if err := showHostedProducts(ctx, c, st, plans); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
 control "seller prices: only the hosting products are shown" internal/panel/sellerprices.go \
@@ -10428,16 +10428,35 @@ control "seller prices: an archived hosting product stays archived" internal/pan
   'p.Visibility == "visible" {' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
 control "seller prices: the store opens only once its products are shown" internal/panel/sellerprices.go \
-  'if err := s.showHostedProducts(ctx, c, st, plans); err != nil {' \
-  'if err := s.showHostedProducts(ctx, c, st, plans); false && err != nil {' \
+  'if err := showHostedProducts(ctx, c, st, plans); err != nil {' \
+  'if err := showHostedProducts(ctx, c, st, plans); false && err != nil {' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: the products are shown only once the shares are set" internal/panel/sellerprices.go \
   'problem, err := s.syncWhopShares(ctx, c, st, true)' \
-  '_ = s.showHostedProducts(ctx, c, st, plans); problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  '_ = showHostedProducts(ctx, c, st, plans); problem, err := s.syncWhopShares(ctx, c, st, true)' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: Open the store has the store's pass look at its products afresh" internal/panel/sellerprices.go \
   'DELETE FROM whop_unlisted_products WHERE store_id = ?' \
   'DELETE FROM whop_unlisted_products WHERE 0' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+# shellcheck disable=SC2016
+control "seller prices: the pass forgets what it hid before Open the store shows a product" internal/panel/sellerprices.go \
+  'if _, err := s.db.ExecContext(ctx, `DELETE FROM whop_unlisted_products WHERE store_id = ?`, st.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	if err := showHostedProducts(ctx, c, st, plans); err != nil {
+		s.sellerRefusal(w, err)
+		return
+	}' \
+  'if err := showHostedProducts(ctx, c, st, plans); err != nil {
+		s.sellerRefusal(w, err)
+		return
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM whop_unlisted_products WHERE store_id = ?`, st.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}' \
   ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
 control "seller prices: Whop is asked to show a product" internal/whop/store.go \
   'url.PathEscape(productID), nil, map[string]any{"visibility": "visible"}' \

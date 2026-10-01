@@ -84,6 +84,8 @@ func TestANewAppStoreSellsNothingUntilItsSellerOpensIt(t *testing.T) {
 // changes, not on every pass, and what it refuses is done on a later pass.
 // A store back after leaving stays hidden until its seller opens it again,
 // which shows every hosting product, and closing after that hides them all.
+// An Open the store that Whop refused partway leaves the store closed, and
+// its next pass hides what it showed.
 func TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
@@ -112,10 +114,10 @@ func TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain(t *testing.T) {
 		defer f.mu.Unlock()
 		return b.productReads
 	}
-	refuse := func(hiding, showing bool) {
+	refuse := func(hiding bool, showing string) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		b.hideDown, b.showProductDown = hiding, showing
+		b.hideDown, b.showRefused = hiding, showing
 	}
 	// pass runs the store's pass, and another, which reads none of its
 	// products from Whop, since nothing changed.
@@ -144,22 +146,22 @@ func TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain(t *testing.T) {
 	if _, err := e.srv.suspendWhopStore(ctx, "biz_other", "admin", "griefing"); err != nil {
 		t.Fatal(err)
 	}
-	refuse(true, false)
+	refuse(true, "")
 	e.reconcile()
 	if got := listed(); got != "Other visible, Plus hidden, Merch visible" {
 		t.Fatalf("suspended, with Whop refusing to hide a product: %s", got)
 	}
-	refuse(false, false)
+	refuse(false, "")
 	pass("suspended", "Other hidden, Plus hidden, Merch visible")
 	if _, err := e.srv.liftWhopStore(ctx, "biz_other", "admin"); err != nil {
 		t.Fatal(err)
 	}
-	refuse(false, true)
+	refuse(false, "prod_other")
 	e.reconcile()
 	if got := listed(); got != "Other hidden, Plus hidden, Merch visible" {
 		t.Fatalf("lifted, with Whop refusing to show a product: %s", got)
 	}
-	refuse(false, false)
+	refuse(false, "")
 	pass("lifted", "Other visible, Plus hidden, Merch visible")
 
 	if err := e.srv.whopStoreLeft(ctx, "biz_other", "the Playkeeper Cloud app was uninstalled"); err != nil {
@@ -170,6 +172,12 @@ func TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain(t *testing.T) {
 		t.Fatalf("Other back: %v, %v", back, err)
 	}
 	pass("back, not open yet", "Other hidden, Plus hidden, Merch visible")
+	refuse(false, "prod_plus")
+	if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusBadGateway || listed() != "Other visible, Plus hidden, Merch visible" {
+		t.Fatalf("Open the store once back, with Whop refusing to show Plus: %d %v, %s", r.status, r.body, listed())
+	}
+	refuse(false, "")
+	pass("back, after an Open the store Whop refused partway", "Other hidden, Plus hidden, Merch visible")
 	sell("Open the store once back")
 	if got := listed(); got != "Other visible, Plus visible, Merch visible" {
 		t.Fatalf("open once back: %s", got)

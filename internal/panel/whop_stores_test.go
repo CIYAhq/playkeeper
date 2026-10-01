@@ -160,7 +160,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		page(data)
 	case strings.HasPrefix(route, "GET /memberships/"):
 		json.NewEncoder(w).Encode(b.memberships[id])
-	case strings.HasPrefix(route, "PATCH /products/") && (f.marksDown || body["visibility"] == "hidden" && b.hideDown || body["visibility"] == "visible" && b.showProductDown):
+	case strings.HasPrefix(route, "PATCH /products/") && (f.marksDown || body["visibility"] == "hidden" && b.hideDown || body["visibility"] == "visible" && b.showRefused == id):
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the access_pass:update scope."}}`)
 	case strings.HasPrefix(route, "PATCH /products/") && body["visibility"] != nil:

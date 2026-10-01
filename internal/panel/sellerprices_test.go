@@ -384,11 +384,11 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	sell("Whop refusing to show the plans", http.StatusBadGateway, "plan:update")
 	f.showDown = false
 	f.mu.Lock()
-	f.installed["biz_other"].showProductDown = true
+	f.installed["biz_other"].showRefused = "prod_other"
 	f.mu.Unlock()
 	sell("Whop refusing to show the products", http.StatusBadGateway, "access_pass:update")
 	f.mu.Lock()
-	f.installed["biz_other"].showProductDown = false
+	f.installed["biz_other"].showRefused = ""
 	f.mu.Unlock()
 	writes := len(f.shareWrites)
 	if _, err := e.srv.suspendWhopStore(t.Context(), "biz_other", "admin", "griefing"); err != nil {
