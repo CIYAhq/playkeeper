@@ -147,6 +147,26 @@ describe('a seller’s prices', () => {
     expect(document.body.textContent).toContain('Playkeeper’s share is set, but your store is still closed: Playkeeper’s share on Minecraft server was removed.')
   })
 
+  it('says why the store can’t open a line per plan, then what to do, as a warning rather than an error', async () => {
+    await render(pricesWith())
+    vi.mocked(client.post).mockRejectedValueOnce(
+      new client.ApiError(409, {
+        code: 'conflict',
+        error: 'Starter: shares Minecraft server with Plus\nPlus: shares Minecraft server with Starter',
+        hint: 'To open your store, give each plan its own product.',
+      }),
+    )
+    await click(button('Open the store'))
+    const lines = [...document.querySelectorAll('p')].map((p) => p.textContent)
+    expect(lines).toContain('Starter: shares Minecraft server with Plus')
+    expect(lines).toContain('Plus: shares Minecraft server with Starter')
+    expect(lines).toContain('To open your store, give each plan its own product.')
+    const first = [...document.querySelectorAll('p')].find((p) => p.textContent === 'Starter: shares Minecraft server with Plus')
+    expect(first?.closest('.text-warning-foreground')).toBeTruthy()
+    expect(first?.closest('.text-destructive-foreground')).toBeNull()
+    expect(changed).not.toHaveBeenCalled()
+  })
+
   it('offers no Open the store once the store is open, and says when there’s no hosting plan', async () => {
     const text = await render(pricesWith({ plans: [], canOpen: false }))
     expect(text).not.toContain('Open the store')

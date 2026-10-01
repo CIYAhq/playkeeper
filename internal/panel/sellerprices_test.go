@@ -310,7 +310,7 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	sell("nobody receiving the share", http.StatusConflict, "doesn't take its share yet")
 	sharesGoToSiya(t, e)
 	f.setOtherPlan("plan_other", map[string]any{"renewal_price": 10})
-	sell("a plan under the floor", http.StatusConflict, "Other: It charges $10.00, under the $12.00 floor for 4 GB.")
+	sell("a plan under the floor", http.StatusConflict, "Other: charges $10.00, under the $12.00 floor for 4 GB")
 	f.setOtherPlan("plan_other", map[string]any{"renewal_price": 12, "billing_period": 365})
 	sell("a plan renewing yearly", http.StatusConflict, "doesn't renew every month")
 	f.setOtherPlan("plan_other", map[string]any{"billing_period": 30, "trial_period_days": 7})
@@ -381,16 +381,17 @@ func TestOpenTheStoreRefusesAPlanTheFleetDoesntRun(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
 	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
-	for _, c := range []struct{ servers, gb, says string }{
-		{"11", "4", "Other: It allows 11 servers, and hosted plans allow 1 to 10."},
-		{"1", "0.5", "Other: It allows 0.5 GB, and hosted plans allow 1 GB to 64 GB."},
-		{"1", "96", "Other: It allows 96 GB, and hosted plans allow 1 GB to 64 GB."},
+	for _, c := range []struct{ servers, gb, line, says string }{
+		{"11", "4", "Other: allows 11 servers", "It allows 11 servers, and hosted plans allow 1 to 10."},
+		{"1", "0.5", "Other: allows 0.5 GB", "It allows 0.5 GB, and hosted plans allow 1 GB to 64 GB."},
+		{"1", "96", "Other: allows 96 GB", "It allows 96 GB, and hosted plans allow 1 GB to 64 GB."},
 	} {
 		f.setOtherPlan("plan_other", map[string]any{"metadata": map[string]any{whop.MetaServers: c.servers, whop.MetaMemoryGB: c.gb}})
-		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != c.says {
+		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != c.line ||
+			r.body["hint"] != "To open your store, allow 1 to 10 servers and 1 to 64 GB." {
 			t.Fatalf("Open the store with %s servers and %s GB: %d %v", c.servers, c.gb, r.status, r.body)
 		}
-		if p := priceOf(t, pricesOf(t, e.asSeller(t, "GET", "biz_other/prices", "", token, nil)), "plan_other"); "Other: "+p.Problem != c.says {
+		if p := priceOf(t, pricesOf(t, e.asSeller(t, "GET", "biz_other/prices", "", token, nil)), "plan_other"); p.Problem != c.says {
 			t.Fatalf("the prices with %s servers and %s GB: %+v", c.servers, c.gb, p)
 		}
 	}
@@ -411,9 +412,11 @@ func TestOpenTheStoreRefusesAPlanTheFleetDoesntRun(t *testing.T) {
 // product: with a $12 and a $15 plan of 4 GB on one product, the $15 plan
 // would pay $10.63 instead of $8.50, and a plan that isn't for hosting
 // would pay a cut of its own. The seller's prices say so on each hosting
-// plan, after any other problem it has, and nothing reaches Whop. An
-// archived plan no longer sells, so it doesn't count, and once each plan
-// has a product of its own, the store opens.
+// plan, after any other problem it has, and nothing reaches Whop. The
+// refusal gives each plan a line of its own with its problems in a few
+// words, then says once how to meet the rules they break. An archived plan
+// no longer sells, so it doesn't count, and once each plan has a product of
+// its own, the store opens.
 func TestOpenTheStoreRefusesAProductThatSellsAnotherPlan(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
@@ -421,32 +424,31 @@ func TestOpenTheStoreRefusesAProductThatSellsAnotherPlan(t *testing.T) {
 	f.addOtherPlan(map[string]any{"id": "plan_dear", "title": "Dear", "renewal_price": 15, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
 	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "renewal_price": 5})
 	f.addOtherPlan(map[string]any{"id": "plan_old", "title": "Old", "visibility": "archived", "renewal_price": 20, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
-	refused := func(name string, says map[string]string) {
+	refused := func(name string, says map[string]string, lines []string, hint string) {
 		t.Helper()
 		v := pricesOf(t, e.asSeller(t, "GET", "biz_other/prices", "", token, nil))
-		var want []string
 		for _, p := range v.Plans {
 			if p.Problem != says[p.ID] {
 				t.Fatalf("%s: %s's problem is %q", name, p.Title, p.Problem)
 			}
-			if p.Problem != "" {
-				want = append(want, p.Title+": "+p.Problem)
-			}
 		}
-		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != strings.Join(want, " ") {
+		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != strings.Join(lines, "\n") || r.body["hint"] != hint {
 			t.Fatalf("Open the store with %s: %d %v", name, r.status, r.body)
 		}
 	}
 	refused("Dear and Merch on Other's product", map[string]string{
 		"plan_other": "It charges $10.00, under the $12.00 floor for 4 GB. It shares its product, Minecraft server, with Dear and Merch, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
 		"plan_dear":  "It shares its product, Minecraft server, with Other and Merch, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
-	})
+	}, []string{
+		"Other: charges $10.00, under the $12.00 floor for 4 GB; shares Minecraft server with Dear and Merch",
+		"Dear: shares Minecraft server with Other and Merch",
+	}, "To open your store, give each plan its own product and charge at least $12.00 a month for each 4 GB.")
 	f.setOtherProduct("prod_dear", whop.Metadata{})
 	f.setOtherPlan("plan_dear", map[string]any{"product": map[string]any{"id": "prod_dear", "title": "Dear server"}})
 	f.setOtherPlan("plan_other", map[string]any{"renewal_price": 12})
 	refused("Merch on Other's product", map[string]string{
 		"plan_other": "It shares its product, Minecraft server, with Merch, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
-	})
+	}, []string{"Other: shares Minecraft server with Merch"}, "To open your store, give each plan its own product.")
 	if vis := f.otherPlanVisibility("plan_other"); len(f.shareWrites) != 0 || vis != "hidden" {
 		t.Fatalf("a product that sells another plan reached Whop: shares %v, Other %v", f.shareWrites, vis)
 	}
@@ -593,7 +595,8 @@ func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
 		"product": map[string]any{"id": "prod_big", "title": "Big server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "8"}})
 	f.addOtherPlan(map[string]any{"id": "plan_cheap", "title": "Cheap", "visibility": "hidden", "renewal_price": 9,
 		"product": map[string]any{"id": "prod_cheap", "title": "Cheap server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
-	if r := sell(); r.status != http.StatusConflict || r.body["error"] != "Cheap: It charges $9.00, under the $12.00 floor for 4 GB." {
+	if r := sell(); r.status != http.StatusConflict || r.body["error"] != "Cheap: charges $9.00, under the $12.00 floor for 4 GB" ||
+		r.body["hint"] != "To update your store, charge at least $12.00 a month for each 4 GB." {
 		t.Fatalf("Update the store with a plan under the floor: %d %v", r.status, r.body)
 	}
 	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != "" {
