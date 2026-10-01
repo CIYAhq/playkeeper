@@ -459,6 +459,46 @@ test('a choice in a phone’s sheet that differs from the last only in its digit
   }
 })
 
+test('a dialog the crawl gets back to is waited for while its code loads, not taken for gone', async ({ browser }) => {
+  // The command palette's code loads anew with each page load, so on a busy
+  // runner its dialog shows well after the press that opens it has settled.
+  // Here it shows at once on the page's first two loads and a second late
+  // after that, and each of its options goes to another page, so the crawl
+  // gets back to the dialog for every option.
+  let loads = 0
+  const survival = (late: number) => `<!doctype html><title>Survival</title><div id="root"><h1>Survival</h1><button type="button" id="search">Search or jump to…</button></div>
+    <script>
+      document.getElementById('search').addEventListener('click', () => setTimeout(() => {
+        const dialog = document.createElement('div')
+        dialog.setAttribute('role', 'dialog')
+        dialog.setAttribute('aria-label', 'Search or jump to')
+        dialog.innerHTML = '<div role="listbox">' + ['Home', 'Console', 'Players', 'World', 'Settings'].map((p) => '<a role="option" href="/' + p.toLowerCase() + '">' + p + '</a>').join('') + '</div>'
+        document.body.append(dialog)
+      }, ${late}))
+    </script>`
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    if (req.url === '/servers/survival') res.end(survival(++loads > 2 ? 1000 : 0))
+    else res.end(`<!doctype html><title>Elsewhere</title><div id="root"><h1>${req.url}</h1></div>`)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const context = await browser.newContext({ baseURL: base })
+  try {
+    const crawler = new Crawler(await context.newPage(), 'phone', base)
+    await crawler.init()
+    await crawler.crawl('/servers/survival')
+    expect(crawler.results.filter((r) => r.via[0] === 'button "Search or jump to…"').map((r) => `${r.key}: ${r.status}`)).toEqual(
+      ['Home', 'Console', 'Players', 'World', 'Settings'].map((p) => `option "${p}" in listbox "": works`),
+    )
+    expect(crawler.notes.filter((n) => n.includes('went away'))).toEqual([])
+    expect(crawler.unreached).toEqual([])
+  } finally {
+    await context.close()
+    server.close()
+  }
+})
+
 test('a download that starts late still counts, and a download link that does nothing is dead', async ({ browser }) => {
   // The browser fetches a download link itself, past page.route, so a real
   // server answers: a download link and a plain link to an attachment 9 s

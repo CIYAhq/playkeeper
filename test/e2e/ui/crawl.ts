@@ -286,12 +286,27 @@ export class Crawler {
       await h.focus().catch(() => {})
       const before = await this.snap()
       if (await this.press(h, info)) return null
+      // A step that opened a menu or dialog when it was first pressed has to
+      // open it again: the command palette's code loads anew with each page,
+      // and on a slow runner its dialog shows well after the press settles.
+      if (this.tested.get(step)?.opened && !(await this.opensLayer(before))) return null
       await this.settle()
       const after = await this.snap()
       if (before && after && after.layers.length > before.layers.length) under = before
     }
     const base = await this.snap()
     return base ? { base, under } : null
+  }
+
+  /** Waits, as long as a press is watched, for a menu or dialog that `before` didn't have. */
+  private async opensLayer(before: Snapshot | null): Promise<boolean> {
+    const end = Date.now() + MAX_WAIT_MS
+    for (;;) {
+      const now = await this.snap()
+      if (before && now && now.url === before.url && now.layers.some((l) => !before.layers.includes(l))) return true
+      if (Date.now() > end) return false
+      await this.page.waitForTimeout(100)
+    }
   }
 
   /** Replays the steps to a state, once more if the page was still busy the first time. */
