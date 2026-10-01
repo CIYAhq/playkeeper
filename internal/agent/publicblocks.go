@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
-	"github.com/CIYAhq/playkeeper/internal/pagestream"
+	"github.com/CIYAhq/playkeeper/internal/pagetext"
 )
 
 // What the owner adds to the public page: their words for it (About), a
@@ -29,12 +29,6 @@ func plainSpaces(s string) string {
 	}, s)
 }
 
-// printable is whether r shows as text. The zero-width joiner that builds
-// emoji counts; control and direction-changing characters don't.
-func printable(r rune) bool {
-	return unicode.IsPrint(r) || r == '\u200d'
-}
-
 // validAbout is the owner's words for the page, tidied: plain text, line
 // breaks kept, at most two in a row.
 func validAbout(s string) (string, error) {
@@ -49,7 +43,7 @@ func validAbout(s string) (string, error) {
 		return "", errInvalid("The page's About text can have at most %d lines.", api.PublicAboutLines)
 	}
 	for _, r := range s {
-		if r != '\n' && !printable(r) {
+		if r != '\n' && !pagetext.Printable(r) {
 			return "", errInvalid("The page's About text may not contain control characters.")
 		}
 	}
@@ -68,7 +62,7 @@ func parseStream(raw string) (api.PublicStream, error) {
 	if strings.TrimSpace(raw) == "" {
 		return api.PublicStream{}, nil
 	}
-	st, ok := pagestream.Parse(raw)
+	st, ok := pagetext.Stream(raw)
 	if !ok {
 		return api.PublicStream{}, errStreamLink()
 	}
@@ -89,7 +83,7 @@ func boardLine(what, s string, max int, optional bool) (string, error) {
 		return "", errInvalid("A board's %s can be at most %d characters.", what, max)
 	}
 	for _, r := range s {
-		if !printable(r) {
+		if !pagetext.Printable(r) {
 			return "", errInvalid("A board's %s must be one line of text.", what)
 		}
 	}

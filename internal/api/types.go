@@ -39,6 +39,12 @@ const (
 	TypePaper         = "paper"
 )
 
+// Bounds on a server's name and its description (MOTD), in characters.
+const (
+	ServerNameMax = 32
+	ServerMOTDMax = 59
+)
+
 // ServerStatus is one server's identity, desired and observed state.
 type ServerStatus struct {
 	ID              string          `json:"id"`
