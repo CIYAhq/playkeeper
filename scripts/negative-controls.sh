@@ -12160,7 +12160,11 @@ control "dashboard watch: a join is the id its dashboard gave the machine" inter
   'return d.Fingerprint()' \
   ./internal/agent '^TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook$'
 control "dashboard watch: its messages open the dashboard at the address it joined, with its port" internal/agent/dashboardwatch.go \
-  'return "https://" + addr.HostPort()' \
+  'addr, err := machinelink.ParseAddress(d.Address)
+	if err != nil {
+		return ""
+	}
+	return "https://" + addr.HostPort()' \
   'return "https://" + d.Address' \
   ./internal/agent '^(TestTheWatchOpensTheDashboardAtTheAddressItJoinedWithItsPort|TestAJoinedMachinePostsOnlyThatItsDashboardCantBeReachedAndIsBack)$'
 # shellcheck disable=SC2016
