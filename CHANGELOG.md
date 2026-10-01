@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.16
 
 - Fixed: turning the public page off right after it took ports 443 and 80 could leave a port taken for a moment after the dashboard said it was given back. It's now given back at once.
+- Fixed: the installer stopped when a package mirror was part-way through an update, as AlmaLinux's were on 1 Oct, with dnf's "Failed to download metadata for repo …" or apt's "Mirror sync in progress?", and had to be run again. It now tries again with fresh package lists, up to four times, and says so in one line. Any other failure still stops it at once.
 
 ## 0.4.15
 
