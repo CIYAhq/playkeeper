@@ -910,20 +910,64 @@ control "Debian 13 gets the docker command, which it packages on its own" intern
 # After the OS matrix's Debian 13 run on 6a8b8a11: apt is asked for the docker
 # command only once its lists are fresh, as a new server's are empty.
 control "apt is asked about the docker command after apt-get update" internal/install/packages.go \
-  '	if _, err := aptGet(sys, out, "update"); err != nil {
-		return err
-	}
-	for _, p := range optional {' \
-  '	for _, p := range optional {
-		if aptCandidate(sys, p) {
-			pkgs = append(slices.Clone(pkgs), p)
+  '		if o, err := aptGet(sys, out, "update"); err != nil {
+			return o, err
 		}
-	}
-	if _, err := aptGet(sys, out, "update"); err != nil {
-		return err
-	}
-	for _, p := range optional[:0] {' \
+		want := slices.Clone(pkgs)
+		for _, p := range optional {' \
+  '		want := slices.Clone(pkgs)
+		for _, p := range optional {
+			if aptCandidate(sys, p) {
+				want = append(want, p)
+			}
+		}
+		if o, err := aptGet(sys, out, "update"); err != nil {
+			return o, err
+		}
+		for _, p := range optional[:0] {' \
   ./internal/install '^TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand$'
+# After AlmaLinux 9's extras repository failed the OS matrix on 1 Oct 2026
+# (#354): the installer tries dnf and apt again when no mirror had what they
+# needed, with the package lists read afresh, a few times, and only then.
+control "a package mirror's failure is tried again" internal/install/packages.go \
+  'if err == nil || n == mirrorTries || !mirrorFailed(o+"\n"+err.Error()) {' \
+  'if err == nil || n == mirrorTries || !mirrorFailed(o+"\n"+err.Error()) || true {' \
+  ./internal/install '^(TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded|TestAPTTriesAgainWithFreshListsOnlyWhenTheMirrorDidntHaveWhatItNeeded|TestAnInstallSaysOnceThatAPackageMirrorWasntReady)$'
+control "a package mirror's failure is tried four times at most" internal/install/packages.go \
+  'if err == nil || n == mirrorTries || ' \
+  'if err == nil || ' \
+  ./internal/install '^(TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded|TestAPTTriesAgainWithFreshListsOnlyWhenTheMirrorDidntHaveWhatItNeeded)$'
+control "the installer says once that a package mirror wasn't ready" internal/install/packages.go \
+  '		if n == 1 {' \
+  '		if n >= 1 {' \
+  ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
+control "dnf's next try reads the metadata afresh" internal/install/packages.go \
+  'if again {' \
+  'if false && again {' \
+  ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
+control "only a mirror's failure is tried again with dnf" internal/install/packages.go \
+  'return strings.Contains(out, "Failed to download metadata") || strings.Contains(out, "Error downloading packages")' \
+  'return out != ""' \
+  ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
+control "a mirror dnf moved on from isn't taken for one it gave up on" internal/install/packages.go \
+  '|| strings.Contains(out, "Error downloading packages")' \
+  '|| strings.Contains(out, "Error downloading packages") || strings.Contains(out, "Curl error")' \
+  ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
+control "apt's next try updates the lists first" internal/install/packages.go \
+  'func(bool) (string, error) {
+		if o, err := aptGet(sys, out, "update"); err != nil {' \
+  'func(again bool) (string, error) {
+		if again {
+		} else if o, err := aptGet(sys, out, "update"); err != nil {' \
+  ./internal/install '^TestAPTTriesAgainWithFreshListsOnlyWhenTheMirrorDidntHaveWhatItNeeded$'
+control "only a mirror's failure is tried again with apt" internal/install/packages.go \
+  'return strings.Contains(out, "E: Some index files failed to download") || strings.Contains(out, "E: Unable to fetch some archives")' \
+  'return out != ""' \
+  ./internal/install '^TestAPTTriesAgainWithFreshListsOnlyWhenTheMirrorDidntHaveWhatItNeeded$'
+control "a mirror apt-get update couldn't reach isn't taken for one that failed it" internal/install/packages.go \
+  '"E: Some index files failed to download"' \
+  '"Some index files failed to download"' \
+  ./internal/install '^TestAPTTriesAgainWithFreshListsOnlyWhenTheMirrorDidntHaveWhatItNeeded$'
 control "a package that is only a name docker.io provides isn't installed" internal/install/oscheck.go \
   'return v != "" && v != "(none)"' \
   'return v != ""' \
