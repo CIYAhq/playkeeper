@@ -89,7 +89,7 @@ def record(c):
 def listed_type(c):
     """The first server type, Paper first, whose versions the installed
     release can load, with its catalog and recommended version. Releases
-    before 0.4.14 ask their upstreams with nothing to fall back on, so while
+    before 0.4.15 ask their upstreams with nothing to fall back on, so while
     PaperMC is down, as on 1 Oct 2026, the release gets a server of a type
     whose upstream answers, and the job tests the upgrade all the same."""
     tried = []
