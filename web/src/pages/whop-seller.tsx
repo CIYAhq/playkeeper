@@ -10,7 +10,7 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { cn } from '@/lib/utils'
 import { PricesStep } from './whop-seller-prices'
-import { errorText, refusalOf, RefusalText, SellerLinks, sellerTermsURL, StepHeader, type Refusal } from './whop-seller-step'
+import { errorText, refusalOf, RefusalText, SellerLinks, sellersHelpURL, sellerTermsURL, StepHeader, type Refusal } from './whop-seller-step'
 import { LiveView } from './whop-seller-view'
 
 type State =
@@ -47,7 +47,7 @@ export function WhopSellerPage({ store }: { store: string }) {
   }, [store])
 
   return (
-    <Frame>
+    <Frame help={sellersHelpURL}>
       <FrameCard>
         {state.kind === 'opening' && <Waiting />}
         {state.kind === 'open' && <SellerFlow store={store} open={state.open} />}

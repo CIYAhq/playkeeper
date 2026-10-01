@@ -41,6 +41,9 @@ export function StepHeader({ title, lead, step }: { title: string; lead?: string
 export const sellerTermsURL = 'https://playkeeper.io/cloud/seller-terms'
 export const privacyURL = 'https://playkeeper.io/privacy'
 
+/** Where sellers ask Playkeeper for help: the Playkeeper Discord's #sellers channel, through its permanent invite. */
+export const sellersHelpURL = 'https://discord.gg/XexFT2pu8t'
+
 /** The seller terms and the privacy policy, linked small at the foot of every screen and opened beside Whop. */
 export function SellerLinks() {
   const link = (href: string, label: string) => (
