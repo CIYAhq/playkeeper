@@ -161,3 +161,44 @@ func TestARunStartedAsTheFollowerAttachesIsReadAsItsOwn(t *testing.T) {
 	e.fd.mu.Unlock()
 	e.waitFor("the new run online", e.onlineIdle)
 }
+
+// A running container restarted between the follower's look at it and its
+// read of the log has the read follow the new run, as Docker's does. The
+// new run's lines are its own, not the run the follower saw: otherwise that
+// run's "Stopping server" would stay the current run's, and a crash of the
+// new run would pass for a clean stop.
+func TestARestartAsTheFollowerAttachesIsReadAsANewRun(t *testing.T) {
+	e := newAgentEnv(t)
+	e.stop()
+	e.crashBackoff = []time.Duration{time.Hour}
+	e.start()
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	e.stop()
+	e.fd.mu.Lock()
+	e.fd.beforeLogs = func(c *fakeContainer) {
+		e.fd.log(c, "[12:01:00 INFO]: Stopping server")
+		c.runs++
+		c.running, c.exitCode, c.started, c.finished = true, 0, time.Now().UTC(), time.Time{}
+		e.fd.log(c, "[12:01:01 INFO]: Starting minecraft server version 26.1.2-74")
+		e.fd.log(c, `[12:01:02 INFO]: Done (1.000s)! For help, type "help"`)
+	}
+	e.fd.mu.Unlock()
+	e.start()
+	e.waitFor("online", e.onlineIdle)
+	e.fd.mu.Lock()
+	restarted := e.fd.server().started
+	e.fd.mu.Unlock()
+	s := e.srv()
+	s.mu.Lock()
+	run := s.runStartedAt
+	s.mu.Unlock()
+	if !run.Equal(restarted) {
+		t.Fatalf("the follower reads the run that started at %s, not the restart's at %s", run.Format(time.RFC3339Nano), restarted.Format(time.RFC3339Nano))
+	}
+	e.fd.crash(1)
+	e.waitFor("the exit judged", func() bool { return e.crashEvents()+e.countEvents("server_stopped_externally") > 0 })
+	if n := e.crashEvents(); n != 1 {
+		t.Fatalf("the new run's crash was taken for a clean stop: %d crashes, %d clean stops", n, e.countEvents("server_stopped_externally"))
+	}
+}
