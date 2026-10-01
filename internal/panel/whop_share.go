@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/whop"
@@ -432,36 +433,40 @@ type whopNotPaid struct{ why string }
 func (e *whopNotPaid) Error() string { return e.why }
 
 // whopSharePaid checks that a membership's latest paid payment carried
-// Playkeeper's share for a plan that allows memoryMB, before its buyer,
-// whopUserID, starts. Every fee line it reads is kept, and the payment for
-// the seller's view (keepCheckedPayment). The error says why not: a
+// Playkeeper's share for a plan that allows memoryMB, and was made after
+// since, before its buyer, whopUserID, starts or keeps its servers, and
+// returns it. Every fee line it reads is kept, and the payment for the
+// seller's view (keepCheckedPayment). The error says why not: a
 // *whopNotPaid when Whop's answer is that there's no paid payment yet, or
-// one with no line of Playkeeper's share (whopSharePaidIn), or anything
-// else when Whop or the dashboard failed.
-func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore, whopUserID, membershipID string, memoryMB int) error {
+// none since, or one refunded or with no line of Playkeeper's share
+// (whopSharePaidIn), or anything else when Whop or the dashboard failed.
+func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore, whopUserID, membershipID string, memoryMB int, since time.Time) (whop.Payment, error) {
 	pays, err := c.PaidPayments(ctx, st.ID, membershipID)
 	if err != nil {
-		return err
+		return whop.Payment{}, err
 	}
 	if len(pays) == 0 {
-		return &whopNotPaid{"Whop has no paid payment for this membership yet, so its server waits"}
+		return whop.Payment{}, &whopNotPaid{"Whop has no paid payment for this membership yet, so its server waits"}
 	}
 	pay := pays[0]
+	if at := pay.PaidTime(); !at.IsZero() && at.Before(since) {
+		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its latest payment on Whop (%s) was on %s, longer ago than it pays for, so its server waits", pay.ID, at.UTC().Format("2 January"))}
+	}
 	if whopRefundedInFull(pay) {
-		return &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) was refunded, so its server waits", pay.ID)}
+		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) was refunded, so its server waits", pay.ID)}
 	}
 	lines, err := c.PaymentFees(ctx, pay.ID)
 	if err != nil {
-		return err
+		return whop.Payment{}, err
 	}
 	if err := s.keepWhopFeeLines(ctx, st.ID, pay.ID, lines); err != nil {
-		return err
+		return whop.Payment{}, err
 	}
 	s.keepCheckedPayment(ctx, st, pay, lines, whopUserID)
 	if want := whopShareFor(memoryMB); !whopSharePaidIn(lines, want) {
-		return &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) didn't carry Playkeeper's share of %s, so its server waits", pay.ID, dollarsOf(want))}
+		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) didn't carry Playkeeper's share of %s, so its server waits", pay.ID, dollarsOf(want))}
 	}
-	return nil
+	return pay, nil
 }
 
 // whopRefundedInFull says whether all of a payment went back to its buyer.

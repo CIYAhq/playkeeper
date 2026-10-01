@@ -8802,6 +8802,58 @@ control "share unchecked: an answer from Whop starts the hour afresh" internal/p
   'if err := s.whopWatchClear(ctx, st.ID, "share_unchecked_since"); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "later payments: what a membership was paid for lapses with its payment" internal/panel/whop_customers.go \
+  'if h.Paid.memoryMB > 0 && h.PaidAt.Before(since) {' \
+  'if false && h.Paid.memoryMB > 0 && h.PaidAt.Before(since) {' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: the pass counts a payment only so long" internal/panel/whop_share_hooks.go \
+  'if h = h.lapsed(since); h.Lapsed && !h.PaidAt.IsZero() {' \
+  'if h.Lapsed && !h.PaidAt.IsZero() {' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: the payment check takes no payment older than it pays for" internal/panel/whop_share.go \
+  'if at := pay.PaidTime(); !at.IsZero() && at.Before(since) {' \
+  'if at := pay.PaidTime(); false && !at.IsZero() && at.Before(since) {' \
+  ./internal/panel '^(TestAMembershipNoRenewalPaidStopsPastItsGrace|TestARestartNeedsAPaymentFromItsBillingPeriod)$'
+control "later payments: a customer running keeps a membership through the grace" internal/panel/whop_share_hooks.go \
+  'return whopBillingPeriod + grace' \
+  'return whopBillingPeriod + grace*0' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: a restart needs a payment from its billing period" internal/panel/whop_share_hooks.go \
+  'if wc.Applied != "" && !wc.Paused {' \
+  'if wc.Applied != "" {' \
+  ./internal/panel '^TestARestartNeedsAPaymentFromItsBillingPeriod$'
+control "later payments: the pause says why" internal/panel/whop_customers.go \
+  'cmpOr(wc.Why, "their Whop membership is "+cmpOr(wc.Latest, "gone"))' \
+  '"their Whop membership is "+cmpOr(wc.Latest, "gone")' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: renewals are read with the store's payments" internal/panel/whop_share_hooks.go \
+  's.noteWhopRenewal(ctx, st, pay, lines)' \
+  '_ = lines' \
+  ./internal/panel '^TestARenewalThatCarriedTheShareKeepsItsMembership$'
+control "later payments: only while the share is right" internal/panel/whop_share_hooks.go \
+  's.whopReadPayments(ctx, c, *st, problem == "")' \
+  's.whopReadPayments(ctx, c, *st, true)' \
+  ./internal/panel '^TestARenewalReadWhileTheShareIsWrongDoesntCount$'
+control "later payments: a renewal without the share doesn't count" internal/panel/whop_share_hooks.go \
+  'if isNoRows(err) || err == nil && !whopSharePaidIn(lines, whopShareFor(part.memoryMB)) {' \
+  'if isNoRows(err) {' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund of the payment a membership was paid with has it checked again" internal/panel/whop_share_hooks.go \
+  'UPDATE whop_membership_checks SET paid_at = 0, next_check_at = 0' \
+  'UPDATE whop_membership_checks SET paid_at = paid_at, next_check_at = next_check_at' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: the owner sets the grace" internal/panel/whop_share_hooks.go \
+  'days = app.RenewalGraceDays' \
+  '_ = app' \
+  ./internal/panel '^TestTheRenewalGraceIsTheOwnersToSet$'
+control "later payments: the grace is 0 to 30 days" internal/panel/whop_app.go \
+  'if days < 0 || days > whopRenewalGraceMax {' \
+  'if days < 0 {' \
+  ./internal/panel '^TestTheRenewalGraceIsTheOwnersToSet$'
+control "later payments: the upgrade counts memberships found paid as paid that day" internal/panel/auth.go \
+  "UPDATE whop_membership_checks SET paid_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000 WHERE paid_mb > 0;" \
+  'SELECT 1;' \
+  ./internal/panel '^TestTheUpgradeCountsMembershipsFoundPaidAsPaidThatDay$'
 control "leaving: a store that comes back sheds the share check's closure" internal/panel/leaving.go \
   'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?' \
   'DELETE FROM whop_store_closures WHERE 0 AND store_id = ? AND closed_by = ?' \

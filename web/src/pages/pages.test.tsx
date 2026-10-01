@@ -2106,6 +2106,21 @@ describe('Sell on Whop', () => {
     expect(document.body.textContent).toContain('Playkeeper’s share of their sales goes to @siyabuilt.')
   })
 
+  it('sets how many days a renewal may be late before its customer’s servers stop', async () => {
+    const signIn = { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback' }
+    const app = { keyEnding: 'cdef', stores: 1, webhook: true, shareUser: 'siyabuilt' }
+    answer({ '/api/whop': { ...open, signIn, app: { ...app, renewalGraceDays: 7 } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('A payment pays for 30 days of servers. When no renewal that carried Playkeeper’s share comes by then, the customer’s servers stop this many days later')
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="A renewal may be late by"]')?.click())
+    const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+    expect(options.map((o) => o.textContent)).toEqual(['0 days', '1 day', '2 days', '3 days', '5 days', '7 days', '10 days', '14 days', '21 days', '30 days'])
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { ...app, renewalGraceDays: 2 } })
+    await act(async () => options.find((o) => o.textContent === '2 days')?.click())
+    // internal/panel's TestTheRenewalGraceIsTheOwnersToSet puts this body.
+    expect(client.put).toHaveBeenLastCalledWith('/api/whop/app', { renewalGraceDays: 2 })
+  })
+
   it('shows the businesses that install the app only once Sign in with Whop is on', async () => {
     answer({ '/api/whop': { ...open, signIn: { redirectUri: 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback' }, app: { stores: 0, webhook: false } } })
     expect(await render(<SellOnWhopSection />, owner)).not.toContain('Businesses that install your app')

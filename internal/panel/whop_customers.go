@@ -599,7 +599,10 @@ type whopCustomer struct {
 	// Plan is what their confirmed memberships with access allow together;
 	// Unconfirmed counts memberships a webhook told of that Whop's API
 	// hasn't confirmed yet, and Latest is the status of their newest one.
+	// Why is what of theirs waits on the payment check (whopPaidPlan), the
+	// reason they're paused when nothing else gives them servers.
 	Plan        CustomerPlan
+	Why         string
 	Unconfirmed int
 	Latest      string
 	UpdatedAt   int64
@@ -614,7 +617,10 @@ type whopCustomer struct {
 // when a payment of it last carried Playkeeper's share (zero for never),
 // and while it isn't paid for Part, the Problem it found, its Attempts and
 // when it looks again. Answered is whether the check ever had Whop's
-// answer for it, paid or not, rather than Whop failing to give one.
+// answer for it, paid or not, rather than Whop failing to give one; PaidAt
+// when the latest payment that carried Playkeeper's share was made, and
+// PaidPayment which it was; and Lapsed whether what it was paid for went,
+// that payment being too old (lapsed).
 type whopHosting struct {
 	ID          string
 	Part, Paid  planPart
@@ -622,12 +628,25 @@ type whopHosting struct {
 	Attempts    int
 	NextCheckAt int64
 	Answered    bool
+	PaidAt      time.Time
+	PaidPayment string
+	Lapsed      bool
 }
 
 // paidFor says whether a payment of the membership carried the share for
 // what its plan gives now: the share is by memory alone.
 func (h whopHosting) paidFor() bool {
 	return h.Paid.memoryMB > 0 && h.Paid.memoryMB >= h.Part.memoryMB
+}
+
+// lapsed is h with what it was paid for gone when the latest payment that
+// carried Playkeeper's share was made before since (see whopPaidFor), so
+// the payment check looks for a newer one.
+func (h whopHosting) lapsed(since time.Time) whopHosting {
+	if h.Paid.memoryMB > 0 && h.PaidAt.Before(since) {
+		h.Paid, h.Lapsed = planPart{}, true
+	}
+	return h
 }
 
 // checkDue says whether the payment check looks at the membership at now,
@@ -728,7 +747,7 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 	rows, err = s.db.QueryContext(ctx, `SELECT m.whop_user_id, m.membership_id, m.plan_id, m.status, m.stale, m.updated_at,
 		COALESCE(p.title, ''), COALESCE(p.allowance_servers, 0), COALESCE(p.allowance_memory_mb, 0), COALESCE(p.disk_gb, 0), COALESCE(p.allowance_from, ''),
 		COALESCE(k.paid_plan_id, ''), COALESCE(k.paid_title, ''), COALESCE(k.paid_servers, 0), COALESCE(k.paid_mb, 0), COALESCE(k.paid_disk_gb, 0),
-		COALESCE(k.problem, ''), COALESCE(k.attempts, 0), COALESCE(k.next_check_at, 0), COALESCE(k.answered, 0)
+		COALESCE(k.problem, ''), COALESCE(k.attempts, 0), COALESCE(k.next_check_at, 0), COALESCE(k.answered, 0), COALESCE(k.paid_at, 0), COALESCE(k.paid_payment, '')
 		FROM whop_memberships m LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id
 		LEFT JOIN whop_membership_checks k ON k.store_id = m.store_id AND k.membership_id = m.membership_id
 		WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id`, storeID)
@@ -742,12 +761,13 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 		var h whopHosting
 		var status string
 		var stale bool
-		var updated int64
+		var updated, paidAt int64
 		if err := rows.Scan(&id, &h.ID, &pt.id, &status, &stale, &updated, &pt.name, &pt.servers, &pt.memoryMB, &pt.diskGB, &from,
-			&h.Paid.id, &h.Paid.name, &h.Paid.servers, &h.Paid.memoryMB, &h.Paid.diskGB, &h.Problem, &h.Attempts, &h.NextCheckAt, &h.Answered); err != nil {
+			&h.Paid.id, &h.Paid.name, &h.Paid.servers, &h.Paid.memoryMB, &h.Paid.diskGB, &h.Problem, &h.Attempts, &h.NextCheckAt, &h.Answered, &paidAt, &h.PaidPayment); err != nil {
 			rows.Close()
 			return nil, err
 		}
+		h.PaidAt = msTimeOrZero(paidAt)
 		wc := get(id)
 		wc.Latest, wc.UpdatedAt = status, max(wc.UpdatedAt, updated)
 		switch {
@@ -792,6 +812,7 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopS
 		return
 	}
 	now := s.now().UnixMilli()
+	grace := s.whopRenewalGrace(ctx)
 	for _, wc := range custs {
 		if wc.Unconfirmed > 0 || wc.NextTryAt > now {
 			continue
@@ -799,8 +820,9 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopS
 		waits, keep := "", false
 		if st.Via == whopViaApp {
 			var unsure bool
-			wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)
+			wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc, grace)
 			keep = unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)
+			wc.Why = waits
 		}
 		if !keep {
 			if err := s.stepWhopCustomer(ctx, c, st, wc); err != nil {
@@ -846,7 +868,7 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopSt
 		}
 		return s.recordWhopCustomer(cust, planKey(wc.Plan), false, at)
 	case !has && wc.Applied != "" && !wc.Paused:
-		if err := s.hosting.PauseCustomer(ctx, cust, "their Whop membership is "+cmpOr(wc.Latest, "gone")); err != nil {
+		if err := s.hosting.PauseCustomer(ctx, cust, cmpOr(wc.Why, "their Whop membership is "+cmpOr(wc.Latest, "gone"))); err != nil {
 			return err
 		}
 		return s.recordWhopCustomer(cust, wc.Applied, true, at)

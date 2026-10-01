@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/whop"
@@ -33,7 +34,7 @@ func TestThePaymentCheckTakesOnlyTheMembershipsOwnPayment(t *testing.T) {
 	defer srv.Close()
 	c := &whop.Client{APIURL: srv.URL, Key: "k", HTTP: srv.Client()}
 	st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other")
-	if err := e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_alex_free", 4096); err == nil || !strings.Contains(err.Error(), "no paid payment") {
+	if _, err := e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_alex_free", 4096, time.Time{}); err == nil || !strings.Contains(err.Error(), "no paid payment") {
 		t.Fatalf("alex's unpaid membership on bob's payment: %v", err)
 	}
 }
@@ -351,7 +352,8 @@ func TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare(t *testing.T
 		t.Fatal(err)
 	}
 	paid := func(memoryMB int) error {
-		return e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_1", memoryMB)
+		_, err := e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_1", memoryMB, time.Time{})
+		return err
 	}
 	money := func(amount, currency string) map[string]any {
 		return map[string]any{"amount": amount, "currency": currency, "decimals": 2}
