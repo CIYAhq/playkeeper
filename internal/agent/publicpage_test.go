@@ -313,6 +313,69 @@ func TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt(t *testing.T) {
 	}
 }
 
+// The fresh-install walkthrough of 1 Oct 2026: a machine without an address
+// refused a browser given its bare IP address, which goes to port 80. The
+// agent hands over port 80 alone for the panel to send it to the dashboard,
+// only while the machine has no address, and names what claims the port so
+// the panel can give it back; it never hands over a claimed one.
+func TestPort80PointsAtTheDashboardOnlyWhileTheMachineHasNoAddress(t *testing.T) {
+	var logs logBuffer
+	e, _, plain := pageEnv(t, time.Hour, func(e *agentEnv) {
+		e.cfg.Dev = false
+		ports := e.tweak
+		e.tweak = func(o *Options) {
+			ports(o)
+			o.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+		}
+	})
+	ctx := context.Background()
+	pointer := api.PagePortsRequest{HTTPS: true, HTTP: true, Pointer: true}
+	if code, _ := e.call("POST", e.sp("/public-page"), map[string]any{"enabled": false, "actor": "admin"}); code != 200 {
+		t.Fatal("turning the page off")
+	}
+	ports, files := e.a.takePagePorts(ctx, pointer)
+	closeAll(files)
+	if len(files) != 0 || ports.HTTP.State != api.PortOff {
+		t.Fatalf("with an address the agent handed over %+v for the pointer", ports)
+	}
+
+	if err := e.a.updateAddress(func(st *addressState) { st.Kind, st.Host = api.AddressNone, "" }); err != nil {
+		t.Fatal(err)
+	}
+	ports, files = e.a.takePagePorts(ctx, api.PagePortsRequest{HTTPS: true, HTTP: true})
+	closeAll(files)
+	if len(files) != 0 {
+		t.Fatalf("without an address and not asked for the pointer, the agent handed over %+v", ports)
+	}
+	ports, files = e.a.takePagePorts(ctx, pointer)
+	closeAll(files)
+	if len(files) != 1 || ports.HTTP.State != api.PortOpen || ports.HTTP.Port != plain || ports.HTTPS.State != api.PortOff {
+		t.Fatalf("for the pointer the agent handed over %d: %+v", len(files), ports)
+	}
+	if !strings.Contains(logs.String(), "port 80 goes to the panel to send browsers at the IP address to the dashboard") {
+		t.Fatalf("the hand-over for the pointer wasn't logged:\n%s", logs.String())
+	}
+
+	if code, out := e.call("GET", "/v1/public-page/state", nil); code != 200 || out["httpClaimed"] != nil {
+		t.Fatalf("with nothing wanting port 80 the state said %d %v", code, out)
+	}
+	wants := filepath.Join(e.a.opts.SystemdDir, "multi-user.target.wants")
+	os.MkdirAll(wants, 0o755)
+	os.Symlink("/lib/systemd/system/nginx.service", filepath.Join(wants, "nginx.service"))
+	if code, out := e.call("GET", "/v1/public-page/state", nil); code != 200 || out["httpClaimed"] != "nginx" {
+		t.Fatalf("with nginx set to start with the machine the state said %d %v", code, out)
+	}
+	ports, files = e.a.takePagePorts(ctx, pointer)
+	closeAll(files)
+	if len(files) != 0 || ports.HTTP.State != api.PortClaimed || ports.HTTP.Holder != "nginx" {
+		t.Fatalf("with nginx set to start with the machine the agent handed over %d: %+v", len(files), ports)
+	}
+	e.withPageAddress()
+	if code, out := e.call("GET", "/v1/public-page/state", nil); code != 200 || out["httpClaimed"] != nil {
+		t.Fatalf("with an address the state named what claims port 80: %d %v", code, out)
+	}
+}
+
 func TestThePageLeavesPortsToWhatStartsWithTheMachine(t *testing.T) {
 	e, _, _ := pageEnv(t, 90*time.Second, nil)
 	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})

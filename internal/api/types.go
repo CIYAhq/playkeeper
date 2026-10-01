@@ -3037,6 +3037,12 @@ type PublicPageState struct {
 	// outside the machine opened it there (see Dashboard443).
 	Dashboard bool `json:"dashboard,omitempty"`
 	Reached   bool `json:"reached,omitempty"`
+	// HTTPClaimed (from 0.4.16), while the machine has no address, names
+	// what wants port 80: a Docker container that publishes it or names it
+	// in its settings, or a web server set to start with the machine. The
+	// panel then gives back the port it holds to send browsers at the IP
+	// address to the dashboard (see PagePortsRequest.Pointer).
+	HTTPClaimed string `json:"httpClaimed,omitempty"`
 }
 
 // Dashboard443 is the switch Serve the dashboard on the standard HTTPS port
@@ -3103,6 +3109,12 @@ type PagePortsRequest struct {
 	// as for a server of its own on the page, while the machine has an
 	// address.
 	Joined bool `json:"joined,omitempty"`
+	// Pointer (from 0.4.16): while the machine has no address, the panel
+	// wants port 80 to send a browser that typed the machine's IP address,
+	// which goes to port 80, to the dashboard on its own port. The agent
+	// opens port 80 alone for it, never 443, which would have only the
+	// self-signed certificate to show.
+	Pointer bool `json:"pointer,omitempty"`
 }
 
 // PublicPagePorts says whether the page answers on ports 443 and 80.

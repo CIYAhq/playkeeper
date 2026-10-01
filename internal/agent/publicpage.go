@@ -154,7 +154,13 @@ func pageHidden(r *http.Request) map[string]bool {
 }
 
 func (a *Agent) hPublicPageState(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.publicPageState(pageHidden(r)))
+	st := a.publicPageState(pageHidden(r))
+	// Without an address the panel may hold port 80 to point browsers at
+	// the dashboard, and gives it back to whatever comes to want it.
+	if port := addrPort(a.opts.PageHTTPAddr); st.Host == "" && port != 0 {
+		st.HTTPClaimed = a.portClaims(r.Context(), port)[port]
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 // writePageGone is the answer for a page that is off and an address that
