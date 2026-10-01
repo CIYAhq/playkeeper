@@ -9261,7 +9261,8 @@ webcontrol "seller view: the seller's page shows the view once the store is open
 # and opens its store, and not while it's suspended or gone. A price is at
 # least $12 a month for each 4 GB, set on a plan renewing monthly in US
 # dollars, and an open store's share follows it. Open the store needs every
-# hosting plan to sell as it is, sets Playkeeper's share first, putting
+# hosting plan to sell as it is, within what the fleet runs, before any
+# other problem, sets Playkeeper's share first, putting
 # right one that pays too little, marks the hosting products for the store
 # site, and only then opens the store, for its seller's reason alone.
 control "seller prices: a call comes from the seller's page itself" internal/panel/sellerprices.go \
@@ -9328,6 +9329,18 @@ control "seller prices: a plan under the floor doesn't sell" internal/panel/sell
   'case least < sp.Floor:' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a plan the fleet doesn't run doesn't sell" internal/panel/sellerprices.go \
+  'case (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:' \
+  'case true || (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a plan's bounds come before its floor" internal/panel/sellerprices.go \
+  'if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {' \
+  'if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" && sp.Problem == "" {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a plan with too many servers says so" internal/panel/sellerprices.go \
+  'case servers < 1 || servers > invites.MaxAllowanceServers:' \
+  'case servers < 1:' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
 control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
   'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
   'CanOpen: st.ClosedWhy != ""' \
