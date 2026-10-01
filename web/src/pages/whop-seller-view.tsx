@@ -1,171 +1,145 @@
-import { useEffect, useState } from 'react'
-import { get } from '@/api/client'
-import type { SellerCustomer, SellerMonth, SellerPlan, SellerStore, SellerView } from '@/api/types'
-import { Spinner } from '@/components/ui/spinner'
+import { useState } from 'react'
+import { ExternalLinkIcon } from 'lucide-react'
+import { post } from '@/api/client'
+import type { SellerCustomer, SellerOpened, SellerView } from '@/api/types'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { formatLocale, t } from '@/i18n'
-import { formatLongDate, formatMB } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import { money, refusalOf, RefusalText, StepHeader, type Refusal } from './whop-seller-step'
+
+/** How many customers the page names before saying how many more there are. */
+const customersShown = 5
+
+/** How many months of earnings the page shows, newest first. */
+const monthsShown = 3
 
 /**
- * A seller's view of their store on Playkeeper Cloud, inside their page in
- * their Whop dashboard: how the store stands, its plans, its customers and
- * what it earned. Its one call goes to a relative address, which carries
- * Whop's token.
+ * A seller's store once it's open, inside their page in Whop: a link to the
+ * store, what it earned and its customers, kept short. Change prices and
+ * Update the store, for a plan added since, sit below. step is the steps'
+ * count right after the seller opened the store, so they see they're done.
+ * onChange tells the page the store changed, so it reads it again.
  */
-export function SellerStoreView({ store }: { store: string }) {
-  const [view, setView] = useState<SellerView>()
-  const [error, setError] = useState<string>()
+export function LiveView({
+  store,
+  route,
+  view,
+  step,
+  onChangePrices,
+  onChange,
+}: {
+  store: string
+  route?: string
+  view: SellerView
+  step?: number
+  onChangePrices: () => void
+  onChange: () => void
+}) {
+  const [updating, setUpdating] = useState(false)
+  const [updated, setUpdated] = useState(false)
+  const [refusal, setRefusal] = useState<Refusal>()
+  const months = [...view.earnings].sort((a, b) => b.month.localeCompare(a.month)).slice(0, monthsShown)
 
-  useEffect(() => {
-    let cancelled = false
-    get<SellerView>(`/api/public/whop/seller/${store}`)
-      .then((v) => !cancelled && setView(v))
-      .catch((err: unknown) => !cancelled && setError(err instanceof Error ? err.message : t('error.network')))
-    return () => {
-      cancelled = true
+  async function update() {
+    setUpdating(true)
+    setUpdated(false)
+    setRefusal(undefined)
+    try {
+      await post<SellerOpened>(`/api/public/whop/seller/${store}/sell`)
+      setUpdated(true)
+      onChange()
+    } catch (err) {
+      setRefusal(refusalOf(err))
+    } finally {
+      setUpdating(false)
     }
-  }, [store])
-
-  if (error) return <p className="mt-4 text-sm text-destructive-foreground">{error}</p>
-  if (!view) {
-    return (
-      <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-        <Spinner className="size-4" />
-        {t('sellerView.loading')}
-      </p>
-    )
   }
+
   return (
-    <div className="mt-4 flex flex-col gap-5">
-      <StoreState store={view.store} />
-      <section>
-        <h2 className="text-[15px] font-semibold">{t('sellerView.plans')}</h2>
-        {view.plans.length === 0 ? (
-          <p className="mt-1 text-sm text-muted-foreground">{t('sellerView.noPlans')}</p>
+    <>
+      <StepHeader step={step} title={t('sellerFlow.live.title')} lead={t('sellerFlow.live.lead')} />
+      {view.store.state === 'needsLook' && view.store.why && <p className="mt-3 text-sm text-warning-foreground">{view.store.why}</p>}
+      {route && (
+        <a
+          href={`https://whop.com/${route}`}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={t('common.external', { label: t('sellerFlow.live.visit') })}
+          className={cn(buttonVariants({ size: 'lg' }), 'mt-6 max-sm:w-full')}
+        >
+          {t('sellerFlow.live.visit')}
+          <ExternalLinkIcon className="size-4" aria-hidden="true" />
+        </a>
+      )}
+      <section className="mt-8" aria-labelledby="seller-earnings">
+        <h2 id="seller-earnings" className="text-[15px] font-semibold">
+          {t('sellerFlow.live.earnings')}
+        </h2>
+        {months.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">{t('sellerFlow.live.noEarnings')}</p>
         ) : (
           <ul className="mt-1 divide-y divide-border">
-            {view.plans.map((p) => (
-              <PlanRow key={p.id} plan={p} />
+            {months.map((m) => (
+              <li key={`${m.month}-${m.currency}`} className="flex items-baseline justify-between gap-4 py-2 text-sm">
+                <span>{new Date(`${m.month}-01T00:00:00Z`).toLocaleDateString(formatLocale(), { month: 'long', year: 'numeric', timeZone: 'UTC' })}</span>
+                <span className="font-semibold tabular-nums">{money(m.kept, m.currency)}</span>
+              </li>
             ))}
           </ul>
         )}
       </section>
-      <section>
-        <h2 className="text-[15px] font-semibold">{t('sellerView.customers')}</h2>
+      <section className="mt-6" aria-labelledby="seller-customers">
+        <h2 id="seller-customers" className="text-[15px] font-semibold">
+          {view.customers.length > 0 ? t('sellerFlow.live.customers', { count: view.customers.length }) : t('sellerFlow.live.customersTitle')}
+        </h2>
         {view.customers.length === 0 ? (
-          <p className="mt-1 text-sm text-muted-foreground">{t('sellerView.noCustomers')}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t('sellerFlow.live.noCustomers')}</p>
         ) : (
           <ul className="mt-1 divide-y divide-border">
-            {view.customers.map((c) => (
-              <CustomerRow key={c.handle} customer={c} />
+            {view.customers.slice(0, customersShown).map((c) => (
+              <li key={c.handle} className="flex items-baseline justify-between gap-4 py-2 text-sm">
+                <span className="truncate font-medium">{c.handle}</span>
+                <span className="shrink-0 text-muted-foreground">{status(c)}</span>
+              </li>
             ))}
           </ul>
         )}
+        {view.customers.length > customersShown && <p className="mt-1 text-sm text-muted-foreground">{t('sellerFlow.live.more', { count: view.customers.length - customersShown })}</p>}
       </section>
-      <section>
-        <h2 className="text-[15px] font-semibold">{t('sellerView.earnings')}</h2>
-        {view.earnings.length === 0 ? (
-          <p className="mt-1 text-sm text-muted-foreground">{t('sellerView.noEarnings')}</p>
-        ) : (
-          <ul className="mt-1 divide-y divide-border">
-            {view.earnings.map((m) => (
-              <MonthRow key={`${m.month}-${m.currency}`} month={m} />
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
+      <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button variant="outline" className="max-sm:w-full" onClick={onChangePrices}>
+          {t('sellerFlow.live.changePrices')}
+        </Button>
+        <Button variant="outline" className="max-sm:w-full" loading={updating} onClick={() => void update()}>
+          {t('sellerFlow.live.update')}
+        </Button>
+      </div>
+      {updated && (
+        <p role="status" className="mt-3 text-sm font-medium text-success-strong">
+          {t('sellerFlow.live.updated')}
+        </p>
+      )}
+      {refusal && <RefusalText refusal={refusal} />}
+    </>
   )
 }
 
-/** How the store stands, and the words for it when there are some. */
-function StoreState({ store }: { store: SellerStore }) {
-  let text: string
-  switch (store.state) {
-    case 'selling':
-      text = t('sellerView.selling')
-      break
-    case 'closed':
-      text = t('sellerView.closed')
-      break
-    case 'needsLook':
-      text = t('sellerView.needsLook')
-      break
-    case 'suspended':
-      text = t('sellerView.suspended')
-      break
-    case 'left':
-      text = t('sellerView.left')
-      break
-    default: {
-      const unknown: never = store.state
-      text = unknown
-    }
-  }
-  return (
-    <div className="text-sm">
-      <p className={store.state === 'selling' ? '' : 'font-medium text-warning-foreground'}>{text}</p>
-      {store.why && <p className="mt-0.5 text-muted-foreground">{store.why}</p>}
-    </div>
-  )
-}
-
-function PlanRow({ plan: p }: { plan: SellerPlan }) {
-  const parts = [
-    p.price,
-    t('sellerView.plan', { servers: t('unit.servers', { count: p.servers }), memory: formatMB(p.memoryMB) }),
-    p.unlimitedStock ? t('sellerView.unlimited') : t('sellerView.stock', { count: p.stock }),
-    t('sellerView.planCustomers', { count: p.customers }),
-  ].filter(Boolean)
-  return (
-    <li className="py-2 text-sm">
-      <span className="block font-medium">{p.title}</span>
-      <span className="block text-xs text-muted-foreground">{parts.join(t('common.dot'))}</span>
-    </li>
-  )
-}
-
-/** A customer's status, as their seller reads it. */
-function customerStatus(c: SellerCustomer): string {
+/** A customer's status, in a word or two. */
+function status(c: SellerCustomer): string {
   switch (c.status) {
     case 'active':
-      return t('sellerView.status.active')
+      return t('sellerFlow.status.active')
     case 'starting':
-      return t('sellerView.status.starting')
+      return t('sellerFlow.status.starting')
     case 'paused':
-      return t('sellerView.status.paused')
+      return t('sellerFlow.status.paused')
     case 'suspended':
-      return t('sellerView.status.suspended')
+      return t('sellerFlow.status.suspended')
     case 'ended':
-      return t('sellerView.status.ended')
+      return t('sellerFlow.status.ended')
     default: {
       const unknown: never = c.status
       return unknown
     }
   }
-}
-
-function CustomerRow({ customer: c }: { customer: SellerCustomer }) {
-  const parts = [c.plan ?? '', customerStatus(c), c.since ? t('sellerView.since', { when: formatLongDate(c.since) }) : ''].filter(Boolean)
-  return (
-    <li className="py-2 text-sm">
-      <span className="block font-medium">{c.handle}</span>
-      <span className="block text-xs text-muted-foreground">{parts.join(t('common.dot'))}</span>
-    </li>
-  )
-}
-
-/** An amount in its currency's smallest unit, such as cents, as money. */
-export function money(amount: number, currency: string): string {
-  const f = new Intl.NumberFormat(formatLocale(), { style: 'currency', currency: currency.toUpperCase() })
-  return f.format(amount / 10 ** (f.resolvedOptions().maximumFractionDigits ?? 2))
-}
-
-function MonthRow({ month: m }: { month: SellerMonth }) {
-  const name = new Date(`${m.month}-01T00:00:00Z`).toLocaleDateString(formatLocale(), { month: 'long', year: 'numeric', timeZone: 'UTC' })
-  return (
-    <li className="py-2 text-sm">
-      <span className="block font-medium">{name}</span>
-      <span className="block text-xs text-muted-foreground">{t('sellerView.month', { sales: money(m.sales, m.currency), share: money(m.share, m.currency), kept: money(m.kept, m.currency) })}</span>
-    </li>
-  )
 }

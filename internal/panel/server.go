@@ -176,6 +176,12 @@ type Server struct {
 	// fleet is what watching the fleet's room and health keeps between looks
 	// (see fleetwatch.go).
 	fleet fleetWatch
+	// watchKick has the joined machines given the Discord webhook they
+	// should have now, and watchSent is the one each was last given over its
+	// current link, "" for none (see dashboardwatch.go).
+	watchKick chan struct{}
+	watchMu   sync.Mutex
+	watchSent map[string]string
 	// zoneAddrs are the addresses without a port of joined machines'
 	// servers, and joinedZone lists those servers for the dashboard's zone
 	// (see fleetdns.go); tests stand in for it.
@@ -275,6 +281,8 @@ func New(opts Options) (*Server, error) {
 		roomKick:     make(chan struct{}, 1),
 		saleRoomKick: make(chan struct{}, 1),
 		eraseKick:    make(chan struct{}, 1),
+		watchKick:    make(chan struct{}, 1),
+		watchSent:    map[string]string{},
 	}
 	s.movesCtx, s.movesCancel = context.WithCancel(context.Background())
 	jwks, _ := whop.JWKSURL(opts.Config.WhopAPIURL)
@@ -1830,6 +1838,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runRoom(ctx)
 	go s.runSaleRoom(ctx)
 	go s.runFleetWatch(ctx)
+	go s.runWatchSync(ctx)
 	go s.runLapsedCustomers(ctx)
 	go s.runMoves(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)

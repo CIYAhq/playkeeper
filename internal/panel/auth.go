@@ -915,6 +915,18 @@ ALTER TABLE whop_membership_checks ADD COLUMN paid_at      INTEGER NOT NULL DEFA
 ALTER TABLE whop_membership_checks ADD COLUMN paid_payment TEXT    NOT NULL DEFAULT '';
 UPDATE whop_membership_checks SET paid_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000 WHERE paid_mb > 0;
 `,
+	// Who accepted Playkeeper Cloud's seller terms for each app store, which
+	// version and when (see acceptSellerTerms): Open the store asks for the
+	// box to be ticked. A person's first acceptance of a version is kept.
+	`
+CREATE TABLE whop_terms_accepted (
+  store_id    TEXT    NOT NULL,
+  version     TEXT    NOT NULL,
+  whop_user   TEXT    NOT NULL,
+  accepted_at INTEGER NOT NULL,
+  PRIMARY KEY (store_id, version, whop_user)
+);
+`,
 }
 
 const (

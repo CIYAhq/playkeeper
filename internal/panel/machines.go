@@ -146,6 +146,7 @@ func (s *Server) onMachineEvent(e machinelink.Event) {
 	case machinelink.EventConnected:
 		go s.carryUsageOff(e.MachineID)
 		s.movesReconnected(e.MachineID)
+		s.watchReconnected(e.MachineID)
 	case machinelink.EventJoined:
 		s.audit(orUnknown(e.Actor), string(e.Kind), e.Name, "succeeded", "from "+e.Address)
 	case machinelink.EventJoinRefused:

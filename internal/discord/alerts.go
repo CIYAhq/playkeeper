@@ -49,6 +49,12 @@ const (
 	// KindOverbooked is a machine whose customers' plans set aside more
 	// memory than it has, as when a plan grew past what it can hold.
 	KindOverbooked Kind = "overbooked"
+	// KindDashboardDown and KindDashboardBack are a joined machine's watch on
+	// its dashboard: it can't reach the dashboard, and reaches it again. A
+	// machine posts them with the dashboard's webhook, which only a machine
+	// the dashboard confirmed gets, so they are always posted.
+	KindDashboardDown Kind = "dashboard_down"
+	KindDashboardBack Kind = "dashboard_back"
 )
 
 // kindInfo is what Playkeeper knows about each kind, in the order the
@@ -99,7 +105,8 @@ func (k Kind) DefaultOn() bool {
 // say.
 func (k Kind) always() bool {
 	switch k {
-	case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked:
+	case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked,
+		KindDashboardDown, KindDashboardBack:
 		return true
 	}
 	return false
@@ -280,6 +287,17 @@ func SlowTicks(server, machine string, mspt, players, minutes int) Event {
 // memory than it has.
 func Overbooked(machine string, memoryMB int) Event {
 	return Event{Kind: KindOverbooked, Machine: machine, MemoryMB: memoryMB}
+}
+
+// DashboardDown is machine, joined to the dashboard, unable to reach it for
+// minutes.
+func DashboardDown(machine string, minutes int) Event {
+	return Event{Kind: KindDashboardDown, Machine: machine, Minutes: minutes}
+}
+
+// DashboardBack is machine reaching the dashboard again after minutes.
+func DashboardBack(machine string, minutes int) Event {
+	return Event{Kind: KindDashboardBack, Machine: machine, Minutes: minutes}
 }
 
 // JoinRequested is a player asking to join through an invite link that needs
@@ -514,6 +532,10 @@ func (e Event) embed(info ServerInfo) embed {
 		title, text = "Server lagging", server+" on "+machineName(e.Machine)+fmt.Sprintf(" took %d ms a tick on average for %s, with %d playing. At 50 ms it keeps full speed, so its machine may be too busy.", e.MSPT, count(e.Minutes, "minute"), e.Players)
 	case KindOverbooked:
 		title, text = "Machine overbooked", "The customers on "+machineName(e.Machine)+" have plans that set aside "+memorySize(e.MemoryMB)+" more memory than it has. A plan grew past what it can hold: move a customer to another machine on its page in Settings › Machines."
+	case KindDashboardDown:
+		title, text = "Dashboard can't be reached", machineName(e.Machine)+" hasn't reached the dashboard for "+count(e.Minutes, "minute")+". Its servers keep running, out of the dashboard's reach until the two connect again."
+	case KindDashboardBack:
+		title, text = "Dashboard reachable again", machineName(e.Machine)+" reaches the dashboard again, after "+count(e.Minutes, "minute")+"."
 	default:
 		title, text = "Server alert", name+"."
 	}
