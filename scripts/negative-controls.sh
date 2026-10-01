@@ -8690,16 +8690,16 @@ control "grant watch: a grant Whop couldn't check counts neither way" internal/p
   'default:' \
   ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
 control "payment check: an app store's customer is hosted by their paid plan" internal/panel/whop_customers.go \
-  'wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
-  '_, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
+  'wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc, grace)' \
+  '_, waits, unsure = s.whopPaidPlan(ctx, c, st, wc, grace)' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 control "payment check: a membership counts only as far as a payment of it carried the share" internal/panel/whop_share_hooks.go \
   'if h.paidFor() {' \
   'if true {' \
   ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
 control "payment check: a membership not paid for its plan is checked while the store is open" internal/panel/whop_share_hooks.go \
-  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
-  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) && false {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) && false {' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 control "payment check: a membership moved to more memory gives what it was paid for" internal/panel/whop_share_hooks.go \
   'if h.Paid.memoryMB > 0 {' \
@@ -8751,7 +8751,7 @@ control "payments: the one a customer starts on is kept for the seller's view" i
   '_ = whopUserID' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "payments: renewals are read on the share check's schedule" internal/panel/whop_share_hooks.go \
-  's.whopReadPayments(ctx, c, *st)' \
+  's.whopReadPayments(ctx, c, *st, problem == "")' \
   '' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payments: a refund keeps its payment again" internal/panel/whop_share_hooks.go \
@@ -8775,8 +8775,8 @@ control "share fresh: a pass that didn't read the store checks the share when a 
   '(plansRead || false)' \
   ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
 control "share fresh: a payment counts only after the share was found right" internal/panel/whop_share_hooks.go \
-  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
-  'if h.checkDue(now) && st.ClosedWhy == "" {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" {' \
   ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
 control "share fresh: only a share found right recently counts" internal/panel/whop_share_hooks.go \
   'return err == nil && at > 0 && s.now().Sub(time.UnixMilli(at)) < whopShareFresh' \
@@ -8787,8 +8787,8 @@ control "share fresh: the share check notes when it found the share right" inter
   's.noteWhopShareRight(ctx, st.ID, false)' \
   ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
 control "share fresh: the share is checked out of turn only for a payment check that's due" internal/panel/whop_share_hooks.go \
-  'if h.checkDue(now) {' \
-  'if h.checkDue(now) || true {' \
+  'if h.lapsed(since).checkDue(now.UnixMilli()) {' \
+  'if h.lapsed(since).checkDue(now.UnixMilli()) || true {' \
   ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
 control "share unchecked: a share check that keeps failing closes the store" internal/panel/whop_share_hooks.go \
   's.noteWhopShareUnchecked(ctx, st, err)' \
