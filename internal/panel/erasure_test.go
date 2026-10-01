@@ -159,7 +159,8 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 // Deleting a customer of one store leaves the same Whop user's account at
 // another store as it was, and the store's next read doesn't bring back
 // the membership of theirs that ended. If they buy again, they're a new
-// customer.
+// customer, whose new membership takes its end, without the memberships
+// they had before.
 func TestDeletingACustomerLeavesTheirOtherStoreAlone(t *testing.T) {
 	f, e, own := storesWithCustomers(t)
 	ctx := context.Background()
@@ -222,6 +223,9 @@ func TestDeletingACustomerLeavesTheirOtherStoreAlone(t *testing.T) {
 	e.reconcile()
 	if again := storeAccount(t, e, "biz_other", "user_alex"); again.State != CustomerPaused {
 		t.Fatalf("alex at Other once the plan they bought again ended: %+v", again)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM whop_memberships WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`); n != 1 {
+		t.Fatalf("alex's memberships at Other once they bought again: %d, want the one they bought since", n)
 	}
 }
 
@@ -440,10 +444,11 @@ func TestACustomersDeletionWaitsForTheirMoves(t *testing.T) {
 	if !kept() {
 		t.Fatal("alex was deleted while their server was being moved")
 	}
-	for _, q := range []string{`DELETE FROM server_moves WHERE user_id = ?`, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days) VALUES('cafebabe23', 'm_old', ?, 7)`} {
-		if _, err := e.srv.db.Exec(q, p.alex.id); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := e.srv.db.Exec(`DELETE FROM server_moves WHERE user_id = ?`, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.db.Exec(`INSERT INTO left_copies(server_id, machine_id, user_id, keep_days) VALUES('cafebabe23', ?, ?, 7)`, machineID(t, e.env), p.alex.id); err != nil {
+		t.Fatal(err)
 	}
 	e.srv.eraseDueCustomers(ctx)
 	if !kept() {
@@ -455,6 +460,29 @@ func TestACustomersDeletionWaitsForTheirMoves(t *testing.T) {
 	e.srv.eraseDueCustomers(ctx)
 	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); ok || p.deletions() != 1 {
 		t.Fatalf("alex once their move was done: deleted %d times", p.deletions())
+	}
+}
+
+// A copy a move left on a machine that was removed since doesn't hold a
+// customer's deletion: nothing can delete it there, as nothing can delete
+// a server on a removed machine.
+func TestACopyLeftOnARemovedMachineDoesntHoldADeletion(t *testing.T) {
+	p := newPausable(t)
+	e, ctx := p.e, context.Background()
+	p.lapse("succeeded")
+	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	if _, err := e.srv.db.Exec(`INSERT INTO left_copies(server_id, machine_id, user_id, keep_days) VALUES(?, 'm_removed', ?, 7)`, p.serverID, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "DELETE", customerDeletePath(p.alex.id), `{"confirm":"alex"}`, p.own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("asking for alex's deletion: %d %v", r.status, r.body)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); ok || p.deletions() != 1 {
+		t.Fatalf("alex, whose move left a copy on a removed machine: deleted %d times", p.deletions())
 	}
 }
 
@@ -600,5 +628,105 @@ func TestADeletedCustomersEndedMembershipIsntKeptAgain(t *testing.T) {
 	rows.Close()
 	if !slices.Equal(kept, []string{"mem_kim2", "mem_kim3"}) {
 		t.Fatalf("kim's memberships kept: %v", kept)
+	}
+}
+
+// A deleted customer who buys again starts, even after a purchase whose
+// payment failed before the store's pass confirmed it. That membership is
+// stored as one that gives access is, and what Whop says of it since, its
+// end included, still reaches it: left saying active and unconfirmed, it
+// would keep them out of the pass for good.
+func TestADeletedCustomerWhoBuysAgainAfterAFailedPaymentStarts(t *testing.T) {
+	f, e, own := twoStores(t)
+	hookApp(t, e, own)
+	if _, err := e.srv.db.Exec(`INSERT INTO erased_customers(store_id, subject_hash, erased_at) VALUES('biz_other', ?, 1)`, erasedSubject("biz_other", "user_kim")); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.users["user_kim"] = "kim"
+	f.mu.Unlock()
+	failed := f.buyAt("biz_other", "mem_kim4", "user_kim", "plan_other", "active")
+	if r := e.deliverApp(t, whopTestAppHookSecret, "biz_other", "msg_kim4", whop.EventMembershipActivated, failed); r.status != http.StatusOK {
+		t.Fatalf("kim's first purchase: %d %v", r.status, r.body)
+	}
+	f.mu.Lock()
+	failed["status"] = "expired"
+	f.mu.Unlock()
+	e.reconcile()
+	again := f.buyAt("biz_other", "mem_kim5", "user_kim", "plan_other", "active")
+	if r := e.deliverApp(t, whopTestAppHookSecret, "biz_other", "msg_kim5", whop.EventMembershipActivated, again); r.status != http.StatusOK {
+		t.Fatalf("kim's second purchase: %d %v", r.status, r.body)
+	}
+	e.reconcile()
+	if kim, ok, err := (customerCore{s: e.srv}).CustomerAccount(context.Background(), whopProvider, "biz_other", "user_kim"); err != nil || !ok || kim.State != CustomerActive {
+		t.Fatalf("kim, who bought again: %+v, an account %v, %v", kim, ok, err)
+	}
+}
+
+// leftStoresCustomer has kim buy at Other Hosting, which then leaves, as a
+// store whose grant has been gone for a week does, and its pass pauses kim.
+// Kim's membership there is still stored as active: nothing reads a store
+// that left.
+func leftStoresCustomer(t *testing.T, f *fakeWhop, e *env) CustomerAccountInfo {
+	t.Helper()
+	ctx := context.Background()
+	f.mu.Lock()
+	f.users["user_kim"] = "kim"
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	e.reconcile()
+	f.mu.Lock()
+	f.installed["biz_other"].revoked = true
+	f.mu.Unlock()
+	if err := e.srv.whopStoreLeft(ctx, "biz_other", "The Playkeeper Cloud app's grant has lacked member:basic:read for 7 days"); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	kim := storeAccount(t, e, "biz_other", "user_kim")
+	if kim.State != CustomerPaused {
+		t.Fatalf("kim of a store that left is %s", kim.State)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM whop_memberships WHERE membership_id = 'mem_kim' AND status = 'active'`); n != 1 {
+		t.Fatalf("kim's membership at the store that left: %d active", n)
+	}
+	return kim
+}
+
+// The owner deletes a customer of a store that left on request. Its stored
+// memberships aren't a plan: nothing reads them any more, and nothing
+// starts its customers again until it's back and open.
+func TestACustomerOfAStoreThatLeftIsDeletedOnRequest(t *testing.T) {
+	f, e, own := twoStores(t)
+	ctx := context.Background()
+	kim := leftStoresCustomer(t, f, e)
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	if r := e.do(t, "DELETE", customerDeletePath(kim.UserID), `{"confirm":"`+kim.Username+`"}`, own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("deleting kim, paused since their store left: %d %v", r.status, r.body)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := (customerCore{s: e.srv}).CustomerAccount(ctx, whopProvider, "biz_other", "user_kim"); ok {
+		t.Fatal("kim, whose store left, still has an account")
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM whop_memberships WHERE whop_user_id = 'user_kim'`); n != 0 {
+		t.Fatalf("kim's memberships at the store that left: %d", n)
+	}
+}
+
+// A customer of a store that left is deleted the owner's days after their
+// servers were, as any customer whose plan ended is.
+func TestACustomerOfAStoreThatLeftIsDeletedDaysAfterTheirServers(t *testing.T) {
+	f, e, _ := twoStores(t)
+	ctx := context.Background()
+	kim := leftStoresCustomer(t, f, e)
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	e.clock.add(graceDays*24*time.Hour + time.Minute)
+	e.srv.deleteLapsedCustomers(ctx)
+	e.clock.add(defaultCustomerRetention*24*time.Hour + time.Minute)
+	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := (customerCore{s: e.srv}).CustomerAccount(ctx, whopProvider, "biz_other", "user_kim"); ok {
+		t.Fatal("kim, whose store left, wasn't deleted 30 days after their servers")
+	}
+	if rows := e.auditRows(t, "customer.erase"); len(rows) != 1 || !strings.HasPrefix(rows[0], "playkeeper "+kim.Username+" succeeded") {
+		t.Fatalf("the audit log: %v", rows)
 	}
 }

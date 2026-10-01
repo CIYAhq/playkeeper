@@ -302,7 +302,7 @@ func (s *Server) whopCustomerPaid(ctx context.Context, c *whop.Client, st whopSt
 			rows.Close()
 			return err
 		}
-		if (whop.Membership{Status: status}).HasAccess() {
+		if whopHosts(st.Via, status) {
 			all = append(all, o)
 		}
 	}

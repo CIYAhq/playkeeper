@@ -398,7 +398,8 @@ CREATE INDEX whop_deliveries_received ON whop_deliveries(received_at);
 `,
 	// Sign in with Whop: the Whop app customers sign in through, with its
 	// secret when it has one, and each sign-in on its way through Whop, by
-	// the hash of its state, with its PKCE verifier.
+	// the hash of its state with its browser's secret (signInKey), with its
+	// PKCE verifier.
 	`
 ALTER TABLE whop_account ADD COLUMN oauth_client_id     TEXT NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN oauth_client_secret TEXT NOT NULL DEFAULT '';
@@ -812,6 +813,12 @@ CREATE TABLE erased_customers (
   erased_at    INTEGER NOT NULL,
   PRIMARY KEY (store_id, subject_hash)
 );
+`,
+	// When a read of one app store's membership didn't find it, 0 while
+	// it's found: the store's next full read settles it (see
+	// refreshWhopMemberships).
+	`
+ALTER TABLE whop_memberships ADD COLUMN not_found_at INTEGER NOT NULL DEFAULT 0;
 `,
 	// Whether each server is on the public page as the dashboard last set
 	// it, which a server on a joined machine needs beside its machine's word

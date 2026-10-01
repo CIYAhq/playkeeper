@@ -2,6 +2,7 @@ package panel
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -133,8 +134,8 @@ func TestPlaykeepersShareIsSetOnEachHostingProductFromItsPrice(t *testing.T) {
 	if s := f.share("biz_other", "prod_other"); s["commission_value"] != 56.67 {
 		t.Fatalf("after the price went to $15: %v", s)
 	}
-	if s := f.share("biz_other", "prod_big"); s == nil || s["commission_value"] != 85.0 {
-		t.Fatalf("the product the seller added, whose first payment is $20 for 8 GB: %v", s)
+	if s := f.share("biz_other", "prod_big"); s == nil || s["commission_value"] != 70.84 {
+		t.Fatalf("the product the seller added, which renews at $24 for 8 GB after a first payment of $20 more: %v", s)
 	}
 	var bp int64
 	e.srv.db.QueryRow(`SELECT basis_points FROM whop_shares WHERE store_id = 'biz_other' AND product_id = 'prod_other'`).Scan(&bp)
@@ -144,8 +145,10 @@ func TestPlaykeepersShareIsSetOnEachHostingProductFromItsPrice(t *testing.T) {
 }
 
 // A product's share covers the neediest of its plans, from each plan's
-// memory and the least it charges; archived plans, plans that allow
-// nothing and plans of no product don't count.
+// memory and the least one payment charges. Every plan it's given counts,
+// archived or not; plans that allow nothing and plans of no product don't.
+// A plan Open the store wouldn't sell is a problem naming it, and doesn't
+// set its product's share.
 func TestAProductsShareCoversEachOfItsPlans(t *testing.T) {
 	plan := func(id, product string, first, renewal float64, gb string) whop.Plan {
 		p := whop.Plan{ID: id, Title: id, Visibility: "visible", PlanType: "renewal", BillingPeriod: 30, Currency: "usd", InitialPrice: first, RenewalPrice: renewal,
@@ -155,30 +158,81 @@ func TestAProductsShareCoversEachOfItsPlans(t *testing.T) {
 		}
 		return p
 	}
-	archived := plan("old", "prod_a", 0, 9, "4")
+	archived := plan("old", "prod_d", 0, 12, "4")
 	archived.Visibility = "archived"
 	wants, problems := whopShareWants([]whop.Plan{
-		plan("roomy", "prod_a", 0, 15, "6"),
-		plan("small", "prod_a", 0, 12, "4"),
+		plan("roomy", "prod_a", 0, 18, "6"),
+		plan("small", "prod_a", 0, 15, "4"),
 		archived,
 		plan("bare", "prod_a", 0, 9, ""),
 		plan("orphan", "", 0, 9, "4"),
 		plan("big", "prod_b", 20, 24, "8"),
 		plan("dear", "prod_c", 0, 2000, "4"),
 	})
-	if len(problems) != 0 || len(wants) != 3 || wants[0] != (whopShareWant{Product: "prod_a", Title: "prod_a", BasisPoints: 8500}) ||
-		wants[1] != (whopShareWant{Product: "prod_b", Title: "prod_b", BasisPoints: 8500}) || wants[2] != (whopShareWant{Product: "prod_c", Title: "prod_c", BasisPoints: 100}) {
+	if len(problems) != 0 || !slices.Equal(wants, []whopShareWant{
+		{Product: "prod_a", Title: "prod_a", BasisPoints: 7084},
+		{Product: "prod_b", Title: "prod_b", BasisPoints: 7084},
+		{Product: "prod_c", Title: "prod_c", BasisPoints: 100},
+		{Product: "prod_d", Title: "prod_d", BasisPoints: 7084},
+	}) {
 		t.Fatalf("wants %+v, problems %v", wants, problems)
 	}
-	if _, problems := whopShareWants([]whop.Plan{plan("free", "prod_c", 0, 0, "4")}); len(problems) != 1 || !strings.Contains(problems[0], "free charges") {
-		t.Fatalf("a free plan: %v", problems)
+	once, yearly, euros, trial, cheap, free := plan("once", "prod_e", 12, 0, "4"), plan("yearly", "prod_e", 0, 12, "4"), plan("euros", "prod_e", 0, 12, "4"),
+		plan("trial", "prod_e", 0, 12, "4"), plan("cheap", "prod_e", 0, 9, "4"), plan("free", "prod_e", 0, 0, "4")
+	once.PlanType, once.BillingPeriod = "one_time", 0
+	yearly.BillingPeriod = 365
+	euros.Currency = "eur"
+	trial.TrialDays = 3
+	crowded, roomy := plan("crowded", "prod_e", 0, 12, "4"), plan("roomy", "prod_e", 0, 400, "128")
+	crowded.Metadata[whop.MetaServers] = "20"
+	for _, c := range []struct {
+		p    whop.Plan
+		says string
+	}{
+		{crowded, "crowded: It allows 20 servers, and hosted plans allow 1 to 10"},
+		{roomy, "roomy: It allows 128 GB, and hosted plans allow 1 GB to 64 GB"},
+		{once, "once: It doesn't renew every month"},
+		{yearly, "yearly: It doesn't renew every month"},
+		{euros, "euros: It's priced in EUR"},
+		{trial, "trial: It has a free trial"},
+		{cheap, "cheap: It charges $9.00, under the $12.00 floor for 4 GB"},
+		{free, "free: It charges $0.00, under the $12.00 floor for 4 GB"},
+	} {
+		wants, problems := whopShareWants([]whop.Plan{c.p, plan("fine", "prod_e", 0, 12, "4")})
+		if len(problems) != 1 || !strings.HasPrefix(problems[0], c.says) || len(wants) != 1 || wants[0].BasisPoints != 7084 {
+			t.Errorf("%s: wants %+v, problems %v", c.p.ID, wants, problems)
+		}
+	}
+}
+
+// The least one payment of a plan charges is what Whop charges at once: a
+// renewing plan's renewal price, with its initial price charged on top of
+// the first one, or the initial price alone during a free trial, and a
+// one-time plan's initial price.
+func TestAPlansLeastChargeIsWhatOnePaymentCharges(t *testing.T) {
+	for _, c := range []struct {
+		p    whop.Plan
+		want float64
+	}{
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 0, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 5, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 12, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 1, RenewalPrice: 12, TrialDays: 3}, 1},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 0, RenewalPrice: 12, TrialDays: 3}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 20, RenewalPrice: 0}, 0},
+		{whop.Plan{PlanType: "one_time", InitialPrice: 12}, 12},
+		{whop.Plan{PlanType: "one_time"}, 0},
+	} {
+		if got := whopLeastCharge(c.p); got != c.want {
+			t.Errorf("%+v: %v, not %v", c.p, got, c.want)
+		}
 	}
 }
 
 // A share the seller removes, lowers below what the price needs, or
 // changes from a percentage of the full price is a problem, and stays as
 // they left it until Open the store sets it right. One they raise stays,
-// even then. A plan that can't carry the share is a problem too.
+// even then. A plan under the floor is a problem too.
 func TestAShareTheSellerRemovesOrLowersIsAProblem(t *testing.T) {
 	f, e, _, st := shareEnv(t)
 	e.syncShares(t, st, true)
@@ -217,8 +271,8 @@ func TestAShareTheSellerRemovesOrLowersIsAProblem(t *testing.T) {
 		t.Fatalf("Open the store after the share was changed: %q, %v", problem, f.share("biz_other", "prod_other"))
 	}
 	edit(func(b *fakeBusiness) { b.shares[0]["revenue_basis"], b.plans[0]["renewal_price"] = "pre_fees", 8 })
-	if problem := e.syncShares(t, st, false); !strings.Contains(problem, "Other charges") || !strings.Contains(problem, "can't carry Playkeeper's share of $8.50") {
-		t.Fatalf("a plan cheaper than the share: %q", problem)
+	if problem := e.syncShares(t, st, false); !strings.Contains(problem, "Other: It charges $8.00, under the $12.00 floor for 4 GB") {
+		t.Fatalf("a plan under the floor: %q", problem)
 	}
 	if _, err := e.srv.db.Exec(`UPDATE whop_app SET share_user = '', share_username = ''`); err != nil {
 		t.Fatal(err)

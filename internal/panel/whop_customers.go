@@ -56,6 +56,34 @@ var reWhopID = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
 // whop.Membership.HasAccess).
 const whopAccess = `('trialing', 'active', 'canceling', 'past_due', 'completed')`
 
+// whopAppHosting are the statuses in which a membership gives servers in an
+// app store (whopHosts).
+const whopAppHosting = `('trialing', 'active', 'canceling', 'past_due')`
+
+// whopHosts says whether a membership in status gives its customer servers
+// in a store reached via: one with access, but in an app store not a
+// one-time purchase ("completed"), which would keep its servers for good
+// on one payment, while hosted plans renew monthly.
+func whopHosts(via, status string) bool {
+	if via == whopViaApp && status == "completed" {
+		return false
+	}
+	return whop.Membership{Status: status}.HasAccess()
+}
+
+// whopHostingIn is the statuses whose memberships give servers in a store
+// reached via, for a query (whopHosts).
+func whopHostingIn(via string) string {
+	if via == whopViaApp {
+		return whopAppHosting
+	}
+	return whopAccess
+}
+
+// whopHostingSQL is the condition, on a membership m of any store, that its
+// status gives servers in its store (whopHosts).
+const whopHostingSQL = `(m.status IN ` + whopAppHosting + ` OR m.status = 'completed' AND NOT EXISTS (SELECT 1 FROM whop_stores hv WHERE hv.store_id = m.store_id AND hv.via = 'app'))`
+
 // whopWebhook receives Whop's deliveries for the key store: it checks the
 // signature with the store's webhook secret, counts each delivery once,
 // keeps what a membership event of the store's says for the reconciler to
@@ -134,14 +162,17 @@ func (s *Server) keepMembership(storeID string, m whop.Membership, stale bool) e
 		end = m.PeriodEnd.UnixMilli()
 	}
 	// A customer the dashboard deleted stays deleted: a membership of theirs
-	// that no longer gives access isn't brought back (see erasure.go). The
-	// look is part of the write, so a deletion can't land between the two,
-	// as it could for a webhook, which doesn't wait for whopMu.
+	// that no longer gives access isn't brought back (see erasure.go). One
+	// stored since, as one that gives access is, still takes what Whop says
+	// of it, its end included. The look is part of the write, so a deletion
+	// can't land between the two, as it could for a webhook, which doesn't
+	// wait for whopMu.
 	args := append([]any{storeID, m.ID, m.UserID, m.PlanID, m.Status, m.CancelAtPeriodEnd, end, stale, s.now().UnixMilli(), m.HasAccess()}, forgottenArgs(storeID, m.UserID)...)
+	args = append(args, m.ID)
 	_, err := s.db.Exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, cancel_at_period_end, period_end, stale, updated_at)
-		SELECT ?,?,?,?,?,?,?,?,? WHERE ? OR NOT (`+forgottenSQL+`)
+		SELECT ?,?,?,?,?,?,?,?,? WHERE ? OR NOT (`+forgottenSQL+`) OR EXISTS(SELECT 1 FROM whop_memberships WHERE membership_id = ?)
 		ON CONFLICT(membership_id) DO UPDATE SET whop_user_id = excluded.whop_user_id, plan_id = excluded.plan_id, status = excluded.status,
-		cancel_at_period_end = excluded.cancel_at_period_end, period_end = excluded.period_end, stale = excluded.stale, updated_at = excluded.updated_at,
+		cancel_at_period_end = excluded.cancel_at_period_end, period_end = excluded.period_end, stale = excluded.stale, updated_at = excluded.updated_at, not_found_at = 0,
 		told_cancel = CASE WHEN excluded.stale = 0 AND excluded.cancel_at_period_end = 0 THEN 0 ELSE whop_memberships.told_cancel END
 		WHERE whop_memberships.store_id = excluded.store_id`, args...)
 	return err
@@ -427,7 +458,10 @@ func whopHooked(st whopStore, dash string) bool {
 }
 
 // refreshWhopMemberships reads every membership of the store from Whop once
-// every every, and in between only those a webhook told of.
+// every every, and in between only those a webhook told of. One that read
+// doesn't find is gone from the key store at once; an app store keeps it
+// unconfirmed and reads every membership at its next pass, and it's gone
+// only if that read doesn't list it either.
 func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st whopStore, every time.Duration) error {
 	now := s.now()
 	if now.Sub(st.PolledAt) >= every {
@@ -439,6 +473,9 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 			if err := s.keepMembership(st.ID, m, false); err != nil {
 				return err
 			}
+		}
+		if _, err := s.db.Exec(`DELETE FROM whop_memberships WHERE store_id = ? AND stale = 1 AND not_found_at > 0`, st.ID); err != nil {
+			return err
 		}
 		_, err = s.db.Exec(`UPDATE whop_stores SET polled_at = ? WHERE store_id = ?`, now.UnixMilli(), st.ID)
 		return err
@@ -459,6 +496,17 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 	rows.Close()
 	for _, id := range stale {
 		m, err := c.Membership(ctx, id)
+		// Whop answers an app 404 for a business that stopped approving it,
+		// as well as for a membership that's gone.
+		if whop.NotFound(err) && st.Via == whopViaApp {
+			if _, err := s.db.Exec(`UPDATE whop_memberships SET not_found_at = ? WHERE store_id = ? AND membership_id = ?`, now.UnixMilli(), st.ID, id); err != nil {
+				return err
+			}
+			if _, err := s.db.Exec(`UPDATE whop_stores SET polled_at = 0 WHERE store_id = ?`, st.ID); err != nil {
+				return err
+			}
+			continue
+		}
 		if whop.NotFound(err) {
 			if _, err := s.db.Exec(`DELETE FROM whop_memberships WHERE store_id = ? AND membership_id = ?`, st.ID, id); err != nil {
 				return err
@@ -584,6 +632,10 @@ func capAllowance(al invites.Allowance) invites.Allowance {
 // whopCustomers reads every customer the dashboard knows of the store, from
 // their memberships of its plans and what was done for them, newest first.
 func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCustomer, error) {
+	var via string
+	if err := s.db.QueryRowContext(ctx, `SELECT via FROM whop_stores WHERE store_id = ?`, storeID).Scan(&via); err != nil && !isNoRows(err) {
+		return nil, err
+	}
 	byID := map[string]*whopCustomer{}
 	get := func(id string) *whopCustomer {
 		if wc, ok := byID[id]; ok {
@@ -631,7 +683,7 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 		switch {
 		case stale:
 			wc.Unconfirmed++
-		case from != "" && (whop.Membership{Status: status}).HasAccess():
+		case from != "" && whopHosts(via, status):
 			parts[id] = append(parts[id], pt)
 		}
 	}
@@ -804,9 +856,9 @@ func (s *Server) remindCancelled(ctx context.Context, st whopStore) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.membership_id, m.whop_user_id, m.period_end, m.told_cancel FROM whop_memberships m
 		JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id AND p.allowance_from != ''
 		JOIN whop_customers c ON c.store_id = m.store_id AND c.whop_user_id = m.whop_user_id AND c.applied != '' AND c.paused = 0
-		WHERE m.store_id = ? AND m.stale = 0 AND m.status IN `+whopAccess+` AND NOT EXISTS (
+		WHERE m.store_id = ? AND m.stale = 0 AND m.status IN `+whopHostingIn(st.Via)+` AND NOT EXISTS (
 			SELECT 1 FROM whop_memberships o JOIN whop_plans q ON q.store_id = o.store_id AND q.plan_id = o.plan_id AND q.allowance_from != ''
-			WHERE o.store_id = m.store_id AND o.whop_user_id = m.whop_user_id AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0)`, st.ID)
+			WHERE o.store_id = m.store_id AND o.whop_user_id = m.whop_user_id AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)`, st.ID)
 	if err != nil {
 		s.log.Error("could not list cancelled Whop memberships", "err", err)
 		return

@@ -222,18 +222,26 @@ func (c *Client) Plans(ctx context.Context, accountID string) ([]Plan, error) {
 	return list[Plan](ctx, c, "/variants", url.Values{"account_id": {accountID}})
 }
 
+// Plan reads one plan by its id, archived or not.
+func (c *Client) Plan(ctx context.Context, id string) (Plan, error) {
+	var p Plan
+	err := c.do(ctx, http.MethodGet, "/variants/"+url.PathEscape(id), nil, nil, &p)
+	return p, err
+}
+
 // SetPlanStock limits how many more of a plan can sell to n, which Whop
 // enforces at checkout.
 func (c *Client) SetPlanStock(ctx context.Context, planID string, n int) error {
 	return c.do(ctx, http.MethodPatch, "/variants/"+url.PathEscape(planID), nil, map[string]any{"stock": n, "unlimited_stock": false}, nil)
 }
 
-// SetPlanPrice has a plan charge price, in its currency's units such as 15
-// for $15, for its first payment and each renewal alike, and returns the
-// plan as Whop has it then.
+// SetPlanPrice has a plan that renews charge price, in its currency's units
+// such as 15 for $15, at checkout and on each renewal alike, and returns
+// the plan as Whop has it then. Whop charges a plan's initial price plus
+// its first renewal price at checkout, so its initial price is 0.
 func (c *Client) SetPlanPrice(ctx context.Context, planID string, price float64) (Plan, error) {
 	var p Plan
-	err := c.do(ctx, http.MethodPatch, "/variants/"+url.PathEscape(planID), nil, map[string]any{"initial_price": price, "renewal_price": price}, &p)
+	err := c.do(ctx, http.MethodPatch, "/variants/"+url.PathEscape(planID), nil, map[string]any{"initial_price": 0, "renewal_price": price}, &p)
 	return p, err
 }
 

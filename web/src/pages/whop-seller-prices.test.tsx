@@ -26,7 +26,7 @@ async function render(prices: SellerPrices): Promise<string> {
 }
 
 const starter = { id: 'plan_other', title: 'Starter', servers: 1, memoryMB: 4096, price: 1200, currency: 'usd', floor: 1200, share: 850, settable: true }
-const pricesWith = (over: Partial<SellerPrices> = {}): SellerPrices => ({ plans: [starter], canOpen: true, ...over })
+const pricesWith = (over: Partial<SellerPrices> = {}): SellerPrices => ({ plans: [starter], canOpen: true, canUpdate: false, ...over })
 
 function field(label: string): HTMLInputElement {
   const l = [...document.querySelectorAll('label')].find((x) => x.textContent?.trim() === label)
@@ -102,14 +102,35 @@ describe('a seller’s prices', () => {
   })
 
   it('opens the store through a relative address, then tells the page', async () => {
-    await render(pricesWith())
+    expect(await render(pricesWith())).not.toContain('Update the store')
     vi.mocked(client.post).mockResolvedValueOnce({ open: true })
     await click(button('Open the store'))
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell')
     const text = document.body.textContent ?? ''
     expect(text).toContain('Your store is open.')
     expect(text).not.toContain('Open the store')
+    expect(button('Update the store')).toBeTruthy()
     expect(changed).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates an open store through the same address, then tells the page', async () => {
+    const text = await render(pricesWith({ canOpen: false, canUpdate: true }))
+    expect(text).not.toContain('Open the store')
+    expect(text).toContain('Added a hosting plan on Whop, or changed one?')
+    vi.mocked(client.post).mockResolvedValueOnce({ open: true })
+    await click(button('Update the store'))
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell')
+    expect(document.body.textContent).toContain('Your store is up to date.')
+    expect(changed).toHaveBeenCalledTimes(1)
+  })
+
+  it('says why an open store wasn’t updated', async () => {
+    await render(pricesWith({ canOpen: false, canUpdate: true }))
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(409, { code: 'conflict', error: 'Cheap: It charges $9.00, under the $12.00 floor for 4 GB.' }))
+    await click(button('Update the store'))
+    expect(document.body.textContent).toContain('Cheap: It charges $9.00, under the $12.00 floor for 4 GB.')
+    expect(button('Update the store')).toBeTruthy()
+    expect(changed).not.toHaveBeenCalled()
   })
 
   it('says what keeps the store closed', async () => {

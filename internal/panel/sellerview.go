@@ -188,7 +188,7 @@ func (s *Server) hWhopSellerView(w http.ResponseWriter, r *http.Request, store s
 // orders them, each with how many customers have it now.
 func (s *Server) sellerPlans(ctx context.Context, storeID string) ([]sellerPlan, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT p.plan_id, p.title, p.price, p.allowance_servers, p.allowance_memory_mb, p.stock, p.unlimited_stock,
-		(SELECT COUNT(DISTINCT m.whop_user_id) FROM whop_memberships m WHERE m.store_id = p.store_id AND m.plan_id = p.plan_id AND m.stale = 0 AND m.status IN `+whopAccess+`)
+		(SELECT COUNT(DISTINCT m.whop_user_id) FROM whop_memberships m WHERE m.store_id = p.store_id AND m.plan_id = p.plan_id AND m.stale = 0 AND `+whopHostingSQL+`)
 		FROM whop_plans p WHERE p.store_id = ? AND p.allowance_from != '' AND p.visibility != 'archived' ORDER BY p.position, p.plan_id`, storeID)
 	if err != nil {
 		return nil, err
