@@ -1076,13 +1076,21 @@ control "a rule that rejects everything is named even unsaved" internal/install/
   'if _, last := catchAll(out); last || slices.Contains(strings.Split(out, "\n"), "-P INPUT DROP") {' \
   'if slices.Contains(strings.Split(out, "\n"), "-P INPUT DROP") {' \
   ./internal/install '^TestARejectAllRuleNobodySavedIsNamed$'
+control "Oracle Cloud's iptables: an upgrade lets in all the ports an earlier install didn't" internal/install/firewall.go \
+  '		return fw, due' \
+  '		return fw, []string{httpsRule}' \
+  ./internal/install '^TestAnUpgradeLetsThePortsInWhereAnEarlierInstallDidnt$'
+control "Oracle Cloud's iptables: an upgrade records where its ports went, for uninstall" internal/install/firewall.go \
+  '		fw.record(sys, &m)' \
+  '		_ = m' \
+  ./internal/install '^TestAnUpgradeLetsThePortsInWhereAnEarlierInstallDidnt$'
 control "the setup link asks for the public address only behind NAT" internal/install/install.go \
-  'if !privateAddr(host) || in.sys.PublicIPv4 == nil || in.o.Usage.Test || testInstall(in.sys) {' \
-  'if in.sys.PublicIPv4 == nil || in.o.Usage.Test || testInstall(in.sys) {' \
+  'if !privateAddr(host) || sys.PublicIPv4 == nil || o.Usage.Test || testInstall(sys) {' \
+  'if sys.PublicIPv4 == nil || o.Usage.Test || testInstall(sys) {' \
   ./internal/install '^TestTheSetupLinkUsesThePublicAddressBehindNAT$'
 control "test installs don't ask the names service for the public address" internal/install/install.go \
-  'if !privateAddr(host) || in.sys.PublicIPv4 == nil || in.o.Usage.Test || testInstall(in.sys) {' \
-  'if !privateAddr(host) || in.sys.PublicIPv4 == nil {' \
+  'if !privateAddr(host) || sys.PublicIPv4 == nil || o.Usage.Test || testInstall(sys) {' \
+  'if !privateAddr(host) || sys.PublicIPv4 == nil {' \
   ./internal/install '^TestTheSetupLinkUsesThePublicAddressBehindNAT$'
 control "a failed Docker install removes the repository it added" internal/install/install.go \
   '				return removeFiles(sys, in.m.DockerRepoFiles)' \
@@ -7213,21 +7221,25 @@ control "the installer allows port 443 in ufw" internal/install/install.go \
   '		_ = httpsRule' \
   ./internal/install '^TestActiveUFWAllowsPort80AndUninstallLeavesTheAdminsRules$'
 control "an update from the dashboard allows port 443 where the install opens ports" internal/install/selfupdate.go \
-  '		allowHTTPSPort(sys, cfg, out)' \
+  '		allowRulesDue(sys, cfg, out)' \
   '		_ = out' \
   ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
 control "the installer's upgrade allows port 443 too" internal/install/inplace.go \
-  '	allowHTTPSPort(sys, cfg, out)' \
+  '	allowRulesDue(sys, cfg, out)' \
   '	_ = out' \
   ./internal/install '^TestUpgradeAllowsPort80InAnActiveUFWOnce$'
 control "an update leaves a port 443 rule that was already there to the admin" internal/install/firewall.go \
-  '	if !added {' \
-  '	if false && !added {' \
+  '		if added {' \
+  '		if added || true {' \
   ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
-control "an update allows no port 443 on a joined machine" internal/install/firewall.go \
-  '	if cfg.NoPanel || contains(m.FirewallRules, httpsRule) {' \
-  '	if contains(m.FirewallRules, httpsRule) {' \
+control "an update allows no port 443 on a joined machine" internal/install/install.go \
+  '		return portRules([]int{cfg.GamePort}, false)' \
+  '		return portRules([]int{cfg.PanelPort, cfg.GamePort}, true)' \
   ./internal/install '^TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts$'
+control "an upgrade asks the firewall nothing once the install has all its rules" internal/install/firewall.go \
+  '	if len(due) == 0 {' \
+  '	if len(due) == 0 && false {' \
+  ./internal/install '^TestUpgradeAllowsPort80InAnActiveUFWOnce$'
 webcontrol "the browser's check of port 443 sends no cookies" web/src/pages/machine-settings/dashboard-port.tsx \
   "credentials: 'omit'" \
   "credentials: 'include'" \

@@ -458,18 +458,17 @@ func Plan(f Facts, o Options) []string {
 	return p
 }
 
-// publicHost is the address for the setup link: the machine's own, or, when
-// that's a private one behind the provider's NAT, as on AWS, Google Cloud,
-// Azure and Oracle Cloud, the public one the names service sees, so the link
-// opens from home. A test install asks nothing.
-func (in *installer) publicHost(ctx context.Context) string {
-	host := in.f.PanelURLHost
-	if !privateAddr(host) || in.sys.PublicIPv4 == nil || in.o.Usage.Test || testInstall(in.sys) {
+// publicHost is the address for the dashboard's link: host, the machine's
+// own, or, when that's a private one behind the provider's NAT, as on AWS,
+// Google Cloud, Azure and Oracle Cloud, the public one the names service
+// sees, so the link opens from home. A test install asks nothing.
+func publicHost(ctx context.Context, sys System, o Options, host string) string {
+	if !privateAddr(host) || sys.PublicIPv4 == nil || o.Usage.Test || testInstall(sys) {
 		return host
 	}
 	lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	ip, err := in.sys.PublicIPv4(lctx)
+	ip, err := sys.PublicIPv4(lctx)
 	if a, perr := netip.ParseAddr(ip); err != nil || perr != nil || !a.Is4() || privateAddr(ip) {
 		return host
 	}
@@ -912,7 +911,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 
 	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on"}
 	if !cfg.NoPanel {
-		host := in.publicHost(ctx)
+		host := publicHost(ctx, sys, in.o, in.f.PanelURLHost)
 		res.URL, res.ExistingAdm, res.PrivateHost = fmt.Sprintf("https://%s:%d", host, cfg.PanelPort), in.f.ExistingAdmin, privateAddr(host)
 		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", code: "certificate", do: func() error {
 			tlsDir := sys.P(cfg.TLSDir())
@@ -1152,22 +1151,36 @@ const acmeRule = "80/tcp"
 
 const port80Why = "Port 80 is only for Let's Encrypt's checks of your own domain; nothing answers on it otherwise."
 
-// firewallRules are the rules the installer adds to ufw or firewalld: the
-// panel, the first server, the dashboard without a port with the public
+// firewallRules are the rules the installer adds to the machine's firewall:
+// the panel, the first server, the dashboard without a port with the public
 // server page, and Let's Encrypt's checks. A machine that joins another
 // dashboard runs no dashboard of its own, so it gets only the first
 // server's.
 func firewallRules(o Options) []string {
+	return portRules(o.ports(), o.Join == "")
+}
+
+// installRules are the rules firewallRules gave the install that wrote cfg.
+func installRules(cfg config.Config) []string {
+	if cfg.NoPanel {
+		return portRules([]int{cfg.GamePort}, false)
+	}
+	return portRules([]int{cfg.PanelPort, cfg.GamePort}, true)
+}
+
+// portRules are the rules for ports, and on a machine with a dashboard,
+// port 443's and port 80's.
+func portRules(ports []int, dashboard bool) []string {
 	var out []string
 	add := func(r string) {
 		if !contains(out, r) {
 			out = append(out, r)
 		}
 	}
-	for _, p := range o.ports() {
+	for _, p := range ports {
 		add(strconv.Itoa(p) + "/tcp")
 	}
-	if o.Join == "" {
+	if dashboard {
 		add(httpsRule)
 		add(acmeRule)
 	}

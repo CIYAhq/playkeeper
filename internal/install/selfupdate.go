@@ -172,7 +172,7 @@ func applyStaged(ctx context.Context, sys System, cfg config.Config, current str
 	var rolledBack *RolledBackError
 	switch {
 	case err == nil:
-		allowHTTPSPort(sys, cfg, out)
+		allowRulesDue(sys, cfg, out)
 		return update.OutcomeUpdated, ""
 	case errors.As(err, &unchanged):
 		return update.OutcomeRefused, err.Error()

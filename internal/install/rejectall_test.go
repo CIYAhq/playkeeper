@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/config"
 )
 
 // Oracle Cloud's Ubuntu images: SSH gets in, and the last rule rejects
@@ -175,6 +177,97 @@ func TestTheAdminsOwnSavedRuleStays(t *testing.T) {
 	if !slices.Contains(inputRules(h), spec) {
 		t.Error("the uninstall took the admin's running rule out")
 	}
+}
+
+// An install from a version that didn't know Oracle Cloud's iptables has no
+// rules there, so its dashboard stayed out of reach. Running the installer
+// again, or an update from the dashboard, lets every one of the install's
+// ports in once the new version runs, as a new install does, and once only;
+// uninstall takes them out.
+func TestAnUpgradeLetsThePortsInWhereAnEarlierInstallDidnt(t *testing.T) {
+	theRulesAreIn := func(t *testing.T, h *fakeHost, before []string) {
+		t.Helper()
+		want := slices.Concat(before[:len(before)-1], strings.Split(ourRules, "\n"), before[len(before)-1:])
+		if got := inputRules(h); !slices.Equal(got, want) {
+			t.Errorf("INPUT:\n%s", strings.Join(got, "\n"))
+		}
+		if saved := read(t, h, "/etc/iptables/rules.v4"); !strings.Contains(saved, "-A INPUT -p tcp -m tcp --dport 80 -m comment --comment playkeeper -j ACCEPT\n-A INPUT -j REJECT") {
+			t.Errorf("the saved rules:\n%s", saved)
+		}
+		if m := manifestOf(t, h); m.Firewall != "iptables" || !slices.Equal(m.FirewallFamilies, []string{"iptables"}) || !slices.Equal(m.FirewallRules, []string{"8443/tcp", "25565/tcp", "443/tcp", "80/tcp"}) {
+			t.Errorf("manifest: firewall %q, families %v, rules %v", m.Firewall, m.FirewallFamilies, m.FirewallRules)
+		}
+	}
+
+	t.Run("running the installer again", func(t *testing.T) {
+		h := newOracleHost(t)
+		before := slices.Clone(inputRules(h))
+		installedAt(t, h, "0.4.15", true)
+		sys := h.system(t)
+		upgrade := func(version string) string {
+			t.Helper()
+			bin := newBinary(t, version)
+			sys.Executable = func() (string, error) { return bin, nil }
+			o := opts("")
+			o.Yes = true
+			if _, err := Run(context.Background(), sys, o, version); err != nil {
+				t.Fatalf("upgrade to %s: %v\n%s", version, err, o.Out)
+			}
+			return o.Out.(*bytes.Buffer).String()
+		}
+		out := upgrade("0.4.16")
+		if !strings.Contains(out, "Firewall:  allow 8443/tcp, 25565/tcp, 443/tcp and 80/tcp in iptables before its last rule, which rejects everything else, once 0.4.16 is running.") {
+			t.Errorf("the plan must say the ports are allowed:\n%s", out)
+		}
+		started := slices.Index(h.cmds, "systemctl start playkeeper-agent.service playkeeper-panel.service")
+		if allowed := slices.IndexFunc(h.cmds, func(c string) bool { return strings.HasPrefix(c, "iptables -I INPUT") }); allowed < 0 || allowed < started {
+			t.Errorf("the ports must be allowed once the new version started: %v", h.cmds)
+		}
+		theRulesAreIn(t, h, before)
+
+		h.cmds = nil
+		if out := upgrade("0.4.17"); strings.Contains(out, "Firewall:") || strings.Contains(out, "• allow") {
+			t.Errorf("the next upgrade allows ports again:\n%s", out)
+		}
+		for _, cmd := range h.cmds {
+			if strings.HasPrefix(cmd, "iptables -I") {
+				t.Errorf("the next upgrade ran %q", cmd)
+			}
+		}
+
+		if err := Uninstall(context.Background(), sys, UninstallOptions{Yes: true, In: strings.NewReader(""), Out: &bytes.Buffer{}}); err != nil {
+			t.Fatal(err)
+		}
+		if got := inputRules(h); !slices.Equal(got, before) {
+			t.Errorf("INPUT after the uninstall:\n%s", strings.Join(got, "\n"))
+		}
+		if saved := read(t, h, "/etc/iptables/rules.v4"); saved != oracleSavedV4 {
+			t.Errorf("the saved rules after the uninstall:\n%s", saved)
+		}
+	})
+	update := func(t *testing.T, h *fakeHost, cfg config.Config) {
+		t.Helper()
+		s := stage(t, h, cfg, "0.4.16", "0.4.17")
+		var out bytes.Buffer
+		if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.4.16", s.keys, &out); err != nil {
+			t.Fatalf("update failed: %v\n%s", err, out.String())
+		}
+	}
+	t.Run("an update from the dashboard", func(t *testing.T) {
+		h := newOracleHost(t)
+		before := slices.Clone(inputRules(h))
+		update(t, h, installedAt(t, h, "0.4.16", true))
+		theRulesAreIn(t, h, before)
+	})
+	t.Run("a joined machine", func(t *testing.T) {
+		h := newOracleHost(t)
+		cfg := installedAt(t, h, "0.4.16", true)
+		cfg.NoPanel = true
+		update(t, h, cfg)
+		if m := manifestOf(t, h); m.Firewall != "iptables" || !slices.Equal(m.FirewallRules, []string{"25565/tcp"}) {
+			t.Errorf("a joined machine: firewall %q, rules %v", m.Firewall, m.FirewallRules)
+		}
+	})
 }
 
 // Rules that reject everything but aren't saved for iptables-persistent

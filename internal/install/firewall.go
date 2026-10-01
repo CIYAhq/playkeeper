@@ -40,50 +40,70 @@ type hostFirewall interface {
 	tidy(sys System, m Manifest) error
 }
 
-// httpsRuleDue is the firewall an upgrade allows port 443 in, as a new
-// install does: the one that filters this machine's traffic, while the
-// install doesn't have the rule and runs a dashboard, and only the one its
-// other rules are in. nil when there's nothing to do.
-func httpsRuleDue(sys System, cfg config.Config, m Manifest) hostFirewall {
-	if cfg.NoPanel || contains(m.FirewallRules, httpsRule) {
-		return nil
+// rulesDue is the firewall an upgrade allows rules in, as a new install
+// does, and the install's rules it allows there: in the firewall that
+// filters this machine's traffic, and only in the one the install's other
+// rules are in. ufw and firewalld get port 443, which earlier versions
+// didn't use. iptables rules that reject everything else get every rule
+// the install doesn't have, since no earlier version allowed any there and
+// the dashboard is out of reach until they're in. nil when there's nothing
+// to do.
+func rulesDue(sys System, cfg config.Config, m Manifest) (hostFirewall, []string) {
+	var due []string
+	for _, rule := range installRules(cfg) {
+		if !contains(m.FirewallRules, rule) {
+			due = append(due, rule)
+		}
+	}
+	if len(due) == 0 {
+		return nil, nil
 	}
 	fw := activeFirewall(sys)
 	if fw == nil || len(m.FirewallRules) > 0 && fw.kind() != firewallOf(m).kind() {
-		return nil
+		return nil, nil
 	}
-	return fw
+	if _, ok := fw.(rejectAll); ok {
+		return fw, due
+	}
+	if contains(due, httpsRule) {
+		return fw, []string{httpsRule}
+	}
+	return nil, nil
 }
 
-// allowHTTPSPort allows port 443 after an upgrade from a version that did
-// not use it, in the firewall httpsRuleDue names, and records the rule for
-// uninstall if that added it. The upgrade has succeeded either way, so a
-// failure is reported, not returned.
-func allowHTTPSPort(sys System, cfg config.Config, out io.Writer) {
+// allowRulesDue allows the rules rulesDue names once an upgrade is done,
+// and records for uninstall the ones that weren't there already. The
+// upgrade has succeeded either way, so a failure is reported, not returned.
+func allowRulesDue(sys System, cfg config.Config, out io.Writer) {
 	path := sys.P(cfg.ManifestPath())
 	var m Manifest
 	if err := readJSONFile(path, &m); err != nil {
 		return
 	}
-	fw := httpsRuleDue(sys, cfg, m)
+	fw, due := rulesDue(sys, cfg, m)
 	if fw == nil {
 		return
 	}
-	fmt.Fprintf(out, "  • allow port 443 in %s%s, for the dashboard without a port and the public server page\n", fw.short(), fw.where())
+	fmt.Fprintf(out, "  • allow %s in %s%s\n", joinAnd(due), fw.short(), fw.where())
 	if len(m.FirewallRules) == 0 {
 		fw.record(sys, &m)
 	}
-	added, err := fw.allow(sys, httpsRule)
-	if err != nil {
-		fmt.Fprintf(out, "  ! could not allow port 443 in %s (%v). To serve the dashboard without a port, allow %s there\n", fw.short(), err, httpsRule)
+	had := len(m.FirewallRules)
+	for i, rule := range due {
+		added, err := fw.allow(sys, rule)
+		if added {
+			m.FirewallRules = append(m.FirewallRules, rule)
+		}
+		if err != nil {
+			fmt.Fprintf(out, "  ! could not allow %s in %s (%v). Allow %s there yourself\n", rule, fw.short(), err, joinAnd(due[i:]))
+			break
+		}
+	}
+	if len(m.FirewallRules) == had {
 		return
 	}
-	if !added {
-		return
-	}
-	m.FirewallRules = append(m.FirewallRules, httpsRule)
 	if err := writeJSONFile(path, m); err != nil {
-		fmt.Fprintf(out, "  ! port 443 is allowed in %s, but the install manifest could not record it (%v), so uninstall will leave the rule\n", fw.short(), err)
+		fmt.Fprintf(out, "  ! the install manifest could not record what was allowed in %s (%v), so uninstall will leave %s\n", fw.short(), err, joinAnd(m.FirewallRules[had:]))
 	}
 }
 
