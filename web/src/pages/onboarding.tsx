@@ -721,11 +721,13 @@ function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: strin
   const [added, setAdded] = useState<string[]>([])
   // Whether the owner's own name made it onto the allowlist, and is an operator; one Minecraft doesn't know is offered to add again.
   const [owned, setOwned] = useState<{ listed: boolean; operator: boolean }>()
+  // The agent is still to add it, as after a first start that timed out but came up after all.
+  const adding = !!s.config?.pendingOperators
   const address = serverJoinAddress(s)
   const dashboard = () => navigate({ name: 'server', slug: s.slug, tab: 'overview' }, true)
 
   useEffect(() => {
-    if (!owner) return
+    if (!owner || adding) return
     let stopped = false
     const theirs = (e: { name: string }) => e.name.toLowerCase() === owner.toLowerCase()
     Promise.all([get<WhitelistEntry[]>(serverApi(s.id, '/whitelist')), get<OperatorEntry[]>(serverApi(s.id, '/operators')).catch((): OperatorEntry[] => [])]).then(
@@ -740,7 +742,7 @@ function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: strin
     return () => {
       stopped = true
     }
-  }, [owner, s.id])
+  }, [owner, adding, s.id])
 
   async function invite(e: FormEvent) {
     e.preventDefault()

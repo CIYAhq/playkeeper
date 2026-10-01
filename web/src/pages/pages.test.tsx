@@ -3011,9 +3011,9 @@ describe('Onboarding', () => {
       await act(async () => [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith('I accept the Minecraft'))?.click())
     }
     /** The server runs: the online stage reads the lists the agent added the name to, as they answer here. */
-    const online = async (ws: Workspace, lists: Record<string, unknown>) => {
+    const online = async (ws: Workspace, lists: Record<string, unknown>, over: Partial<ServerStatus> = {}) => {
       answer({ ...lists, '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
-      await act(async () => root?.render(<WorkspaceContext.Provider value={{ ...ws, servers: [server()] }}>{<Onboarding />}</WorkspaceContext.Provider>))
+      await act(async () => root?.render(<WorkspaceContext.Provider value={{ ...ws, servers: [server(over)] }}>{<Onboarding />}</WorkspaceContext.Provider>))
       await act(async () => {})
     }
 
@@ -3037,6 +3037,24 @@ describe('Onboarding', () => {
 
       await online(ws, { '/whitelist': [steve], '/operators': [{ ...steve, level: 4 }] })
       expect(page()).toContain('Survival is online!')
+      expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
+    })
+
+    // A first start that timed out but came up after all: the agent adds the
+    // name once it sees the server online.
+    it('waits for the agent to add it before saying how it went', async () => {
+      const ws = workspace({ servers: [] })
+      await toStyle(ws)
+      await typeName('Steve_Builds')
+      await press('Create my server')
+      const lists = { '/whitelist': [steve], '/operators': [{ ...steve, level: 4 }] }
+      await online(ws, lists, { config: { ...config, pendingOperators: 'Steve_Builds' } })
+      expect(page()).toContain('Survival is online!')
+      expect(page()).not.toContain('Steve_Builds is on the allowlist')
+      expect(page()).not.toContain('Couldn’t add')
+      expect(vi.mocked(client.get).mock.calls.some(([path]) => path.includes('/whitelist'))).toBe(false)
+
+      await online(ws, lists)
       expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
     })
 

@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
@@ -125,6 +127,44 @@ func TestACreateWithoutOperatorsLeavesSpawnProtectionAlone(t *testing.T) {
 	}
 	if p, ok := readProperties(e.dataDir())["spawn-protection"]; ok {
 		t.Fatalf("spawn protection was set to %q", p)
+	}
+}
+
+// A first start that times out leaves the server starting, and Start then
+// finds it running and starts nothing, so the players are added once it's
+// online, by the agent's own look at its servers.
+func TestACreatesOperatorsAreAddedWhenASlowFirstStartComesUpAfterAll(t *testing.T) {
+	e := newAgentEnvWith(t, func(e *agentEnv) { e.tweak = func(o *Options) { o.ReadyTimeout = 300 * time.Millisecond } })
+	e.fd.mu.Lock()
+	e.fd.bootDelay = 2 * time.Second
+	e.fd.mu.Unlock()
+	code, out := e.startCreate(map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin", "operators": []string{"Steve_Builds"}})
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	e.sid = out["serverId"].(string)
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, "did not finish starting") {
+		t.Fatalf("the first start: %+v", op)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for e.rcon.count("op Steve_Builds") == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the players weren't added once the server was online: %v", e.rcon.commandsSent())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := e.rcon.count("whitelist add Steve_Builds"); n != 1 {
+		t.Fatalf("whitelist add Steve_Builds ran %d times", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'operator.add' AND target = 'Steve_Builds' AND result = 'succeeded' AND actor = 'playkeeper'`); n != 1 {
+		t.Fatalf("%d audit entries for the operator", n)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if n := e.rcon.count("op Steve_Builds"); n != 1 {
+		t.Fatalf("op Steve_Builds ran %d times", n)
+	}
+	if sc := e.status().Config; sc == nil || sc.PendingOperators != "" {
+		t.Fatalf("the players were kept after they were added: %+v", sc)
 	}
 }
 

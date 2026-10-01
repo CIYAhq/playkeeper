@@ -944,6 +944,21 @@ func (s *server) admitPendingOperators(actor string) {
 	}
 }
 
+// admitWhenOnline adds the operators a create asked for to a server that is
+// online without a start that added them: one whose first start timed out
+// while it went on starting, which Start then finds already running.
+func (s *server) admitWhenOnline(ctx context.Context, sc api.ServerConfig) {
+	if sc.PendingOperators == "" || !s.online(ctx) {
+		return
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		return
+	}
+	defer release()
+	s.admitPendingOperators("playkeeper")
+}
+
 // pendingCommand runs a command about one of those players, audits it as
 // action, and says whether it worked.
 func (s *server) pendingCommand(actor, action, name, cmd string) bool {
@@ -1186,6 +1201,7 @@ func (s *server) reconcile(ctx context.Context) {
 	s.resumeSaving(ctx, c, c.State.Running)
 	if c.State.Running {
 		s.checkSettingsOnce(*sc)
+		s.admitWhenOnline(ctx, *sc)
 		return
 	}
 	// A container that never started has the zero finish time.
