@@ -224,7 +224,7 @@ function OpenStep({ store, onOpened, onBack }: { store: string; onOpened: () => 
         <span>
           {rich('sellerFlow.open.terms', {
             link: (chunk) => (
-              <a href={sellerTermsURL} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2" onClick={(e) => e.stopPropagation()}>
+              <a href={sellerTermsURL} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2" onClick={(e) => e.stopPropagation()}>
                 {chunk}
               </a>
             ),
