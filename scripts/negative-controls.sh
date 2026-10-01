@@ -8790,6 +8790,26 @@ control "share fresh: the share is checked out of turn only for a payment check 
   'if h.checkDue(now) {' \
   'if h.checkDue(now) || true {' \
   ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
+control "share unchecked: a share check that keeps failing closes the store" internal/panel/whop_share_hooks.go \
+  's.noteWhopShareUnchecked(ctx, st, err)' \
+  '_ = err' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "share unchecked: only after an hour" internal/panel/whop_share_hooks.go \
+  'if s.now().Sub(since) < whopShareUncheckedFor {' \
+  'if false && s.now().Sub(since) < whopShareUncheckedFor {' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "share unchecked: an answer from Whop starts the hour afresh" internal/panel/whop_share_hooks.go \
+  'if err := s.whopWatchClear(ctx, st.ID, "share_unchecked_since"); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "leaving: a store that comes back sheds the share check's closure" internal/panel/leaving.go \
+  'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?' \
+  'DELETE FROM whop_store_closures WHERE 0 AND store_id = ? AND closed_by = ?' \
+  ./internal/panel '^TestAStoreThatComesBackStartsItsShareWatchAfresh$'
+control "leaving: a store that comes back counts a bad share from its next finding" internal/panel/leaving.go \
+  'UPDATE whop_share_watch SET share_bad_since = 0, grant_gone_since = 0' \
+  'UPDATE whop_share_watch SET grant_gone_since = 0' \
+  ./internal/panel '^TestAStoreThatComesBackStartsItsShareWatchAfresh$'
 control "app store cadence: an app store's products have no address to compare" internal/panel/whop_customers.go \
   '	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {' \
   '	if st.Problem == "" || since >= time.Minute {' \

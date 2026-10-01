@@ -30,6 +30,9 @@ const (
 	// uninstalled. The owner's to change.
 	whopShareGrace = 72 * time.Hour
 	whopGrantGrace = 7 * 24 * time.Hour
+	// whopShareUncheckedFor is how long the share check may keep failing
+	// before the store closes for it (noteWhopShareUnchecked).
+	whopShareUncheckedFor = time.Hour
 	// whopShareFresh is how recently the share check must have found the
 	// store's share right for a payment check to count. A payment's fee
 	// lines don't say who received its share, so between the store's reads
@@ -48,10 +51,12 @@ const (
 // read its plans or a payment check waits on it (whopShareDue), and notes
 // when it found it right (see syncWhopShares). A share gone or short
 // closes the store for whopShareClosed, in the problem's words, and after
-// whopShareGrace like that the store leaves. A share set right opens it
-// again for that reason alone. A store that isn't open yet has no share to
-// check, since Open the store sets it. It says whether the store left, and
-// keeps st's closed words current, so the rest of the pass sees them.
+// whopShareGrace like that the store leaves. A check that keeps failing
+// closes it too, but never has it leave (noteWhopShareUnchecked). A share
+// set right opens it again for that reason alone. A store that isn't open
+// yet has no share to check, since Open the store sets it. It says whether
+// the store left, and keeps st's closed words current, so the rest of the
+// pass sees them.
 func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStore) bool {
 	notOpen, err := s.whopClosedFor(ctx, st.ID, whopNotOpenYet)
 	if err != nil || notOpen {
@@ -60,7 +65,11 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 	problem, err := s.syncWhopShares(ctx, c, *st, false)
 	if err != nil {
 		s.log.Warn("could not check Playkeeper's share on a store", "store", st.ID, "err", err)
+		s.noteWhopShareUnchecked(ctx, st, err)
 		return false
+	}
+	if err := s.whopWatchClear(ctx, st.ID, "share_unchecked_since"); err != nil {
+		s.log.Error("could not note a store's share was checked", "store", st.ID, "err", err)
 	}
 	s.noteWhopShareRight(ctx, st.ID, problem == "")
 	if problem == "" {
@@ -91,6 +100,35 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 		st.ClosedWhy = cmpOr(st.ClosedWhy, problem)
 	}
 	return false
+}
+
+// noteWhopShareUnchecked notes since when the share check has failed for
+// the store, err being the latest failure, and once that's
+// whopShareUncheckedFor, closes the store for whopShareClosed in its words:
+// nobody would be started on what it sells meanwhile (whopShareFresh). The
+// next check that gets an answer opens it again, or closes it for what it
+// found. A failing check never has the store leave, since a Whop outage
+// would have every store leave: a store whose grant was taken back leaves
+// by the grant watch (whopGrantWatch).
+func (s *Server) noteWhopShareUnchecked(ctx context.Context, st *whopStore, err error) {
+	since, werr := s.whopWatchSince(ctx, st.ID, "share_unchecked_since")
+	if werr != nil {
+		s.log.Error("could not note since when a store's share couldn't be checked", "store", st.ID, "err", werr)
+		return
+	}
+	if s.now().Sub(since) < whopShareUncheckedFor {
+		return
+	}
+	why := "Playkeeper's share couldn't be checked on Whop for an hour, so the store doesn't sell until it can be."
+	var we *whop.Error
+	if errors.As(err, &we) {
+		why = "Playkeeper's share couldn't be checked on Whop for an hour (Whop said: " + cmpOr(we.Message, fmt.Sprintf("error %d", we.Status)) +
+			"), so the store doesn't sell until it can be."
+	}
+	if err := s.closeWhopStore(ctx, st.ID, whopShareClosed, why); err != nil {
+		s.log.Error("could not close a store whose share couldn't be checked", "store", st.ID, "err", err)
+	}
+	st.ClosedWhy = cmpOr(st.ClosedWhy, why)
 }
 
 // noteWhopShareRight notes when the share check last found the store's
@@ -326,10 +364,14 @@ func (s *Server) whopGrantWatch(ctx context.Context, st whopStore, lost []string
 	return false
 }
 
+// whopWatches are the columns of whop_share_watch that say since when a
+// store has been some way, 0 while it isn't.
+var whopWatches = map[string]bool{"share_bad_since": true, "grant_gone_since": true, "share_unchecked_since": true}
+
 // whopWatchSince is since when the store has been as column says (see
 // whop_share_watch), from now if it wasn't.
 func (s *Server) whopWatchSince(ctx context.Context, storeID, column string) (time.Time, error) {
-	if column != "share_bad_since" && column != "grant_gone_since" {
+	if !whopWatches[column] {
 		return time.Time{}, fmt.Errorf("no such watch %q", column)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO whop_share_watch(store_id, `+column+`) VALUES(?, ?)
@@ -343,7 +385,7 @@ func (s *Server) whopWatchSince(ctx context.Context, storeID, column string) (ti
 
 // whopWatchClear notes the store is no longer as column says.
 func (s *Server) whopWatchClear(ctx context.Context, storeID, column string) error {
-	if column != "share_bad_since" && column != "grant_gone_since" {
+	if !whopWatches[column] {
 		return fmt.Errorf("no such watch %q", column)
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE whop_share_watch SET `+column+` = 0 WHERE store_id = ?`, storeID)

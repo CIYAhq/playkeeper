@@ -862,3 +862,89 @@ func TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded(t *testing.T) {
 		t.Fatalf("once it was refunded: its fee lines read %d times, %d refunded", n, back)
 	}
 }
+
+// A share check Whop keeps failing closes the store after an hour, in
+// words that say so, but never has it leave, however long it goes on,
+// since a Whop outage would have every store leave. The next check Whop
+// answers opens it again, and the hour counts afresh from the next
+// failure.
+func TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave(t *testing.T) {
+	f, e, _ := twoStores(t)
+	useFakeCore(e)
+	e.reconcile()
+	f.mu.Lock()
+	b := f.installed["biz_other"]
+	b.sharesDown = true
+	f.mu.Unlock()
+	pass := func(d time.Duration) {
+		e.clock.add(d)
+		e.reconcile()
+	}
+	pass(whopPollEvery)
+	if st := e.otherStore(t); st.ClosedWhy != "" {
+		t.Fatalf("one failed share check closed the store: %q", st.ClosedWhy)
+	}
+	pass(whopShareUncheckedFor)
+	if st := e.otherStore(t); st.ClosedWhy != "Playkeeper's share couldn't be checked on Whop for an hour (Whop said: Something went wrong), so the store doesn't sell until it can be." {
+		t.Fatalf("an hour of failed share checks: closed %q", st.ClosedWhy)
+	}
+	for range 10 {
+		pass(10 * time.Hour)
+	}
+	if st := e.otherStore(t); !st.LeftAt.IsZero() || st.ClosedWhy == "" {
+		t.Fatalf("100 hours of failed share checks: left %v (%q), closed %q", st.LeftAt, st.LeftWhy, st.ClosedWhy)
+	}
+	f.mu.Lock()
+	b.sharesDown = false
+	f.mu.Unlock()
+	pass(whopPollEvery)
+	if st := e.otherStore(t); st.ClosedWhy != "" {
+		t.Fatalf("once Whop answered the share check: closed %q", st.ClosedWhy)
+	}
+	f.mu.Lock()
+	b.sharesDown = true
+	f.mu.Unlock()
+	pass(whopPollEvery)
+	if st := e.otherStore(t); st.ClosedWhy != "" {
+		t.Fatalf("one failed share check after Whop answered again: closed %q", st.ClosedWhy)
+	}
+}
+
+// A store that left with its share closure comes back without it, so Open
+// the store opens it, and a share it then finds removed has the full 72
+// hours before the store leaves again.
+func TestAStoreThatComesBackStartsItsShareWatchAfresh(t *testing.T) {
+	f, e, _ := twoStores(t)
+	useFakeCore(e)
+	ctx := t.Context()
+	e.reconcile()
+	f.mu.Lock()
+	b := f.installed["biz_other"]
+	kept := b.shares
+	b.shares = nil
+	f.mu.Unlock()
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	e.clock.add(whopShareGrace)
+	e.reconcile()
+	if st := e.otherStore(t); st.LeftAt.IsZero() {
+		t.Fatalf("three days without its share, the store hasn't left: closed %q", st.ClosedWhy)
+	}
+	f.mu.Lock()
+	b.shares = kept
+	f.mu.Unlock()
+	if back, err := e.srv.addWhopStore(ctx, whop.Account{ID: "biz_other", Title: "Other Hosting", Route: "other-hosting"}); err != nil || !back {
+		t.Fatalf("Other Hosting installing the app again: %v, %v", back, err)
+	}
+	if open, err := e.srv.openWhopStore(ctx, "biz_other", whopNotOpenYet); err != nil || !open {
+		t.Fatalf("Open the store, once Other is back: %v, %v, closed %q", open, err, e.otherStore(t).ClosedWhy)
+	}
+	f.mu.Lock()
+	b.shares = nil
+	f.mu.Unlock()
+	e.clock.add(whopPollEvery)
+	e.reconcile()
+	if st := e.otherStore(t); !st.LeftAt.IsZero() || st.ClosedWhy != "Playkeeper's share on Minecraft server was removed." {
+		t.Fatalf("its share removed again once it's back: left %v (%q), closed %q", st.LeftAt, st.LeftWhy, st.ClosedWhy)
+	}
+}
