@@ -6789,8 +6789,8 @@ control "turning the dashboard's port off forgets the visit" internal/agent/dash
   '		_ = ""' \
   ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
 control "the hand-over opens port 443 for the dashboard with the page off" internal/agent/pageports.go \
-  'if st := a.publicPageState(); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {' \
-  'if st := a.publicPageState(); !st.On || !want.HTTPS && !want.HTTP {' \
+  'if st := a.publicPageState(nil); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {' \
+  'if st := a.publicPageState(nil); !st.On || !want.HTTPS && !want.HTTP {' \
   ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
 control "the dashboard wants port 443 only once the machine's name works" internal/agent/dashboardport.go \
   '	return a.namedHost()' \
@@ -7612,8 +7612,8 @@ control "own addresses get a few certificates a day" internal/agent/ownaddress.g
   'if false && a.ownCertsToday(st) >= ownCertsPerDay {' \
   ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
 control "an own address's page shows only its server" internal/agent/publicpage.go \
-  'if only != nil && j.ServerID != only.id {' \
-  'if false && only != nil && j.ServerID != only.id {' \
+  'if only != nil && j.ServerID != only.id || hidden[j.ServerID] {' \
+  'if false && only != nil && j.ServerID != only.id || hidden[j.ServerID] {' \
   ./internal/agent '^TestAnOwnAddressOpensOnlyItsServersPage$'
 control "an own address's page answers only while its server is on the page" internal/agent/ownaddress.go \
   'if s := a.serverByID(js.id); s != nil && s.publicPageSettings().Enabled {
