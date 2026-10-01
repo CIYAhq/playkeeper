@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.13
 
+- **Security fix, Sign in with Whop:** a joined machine that someone took over could set a cookie for the dashboard's name from its own name under the same domain, and with it sign a visitor in to a customer account of its choosing. That sign-in's cookie is now a `__Host-` one, which only the dashboard's own name can set, like every other cookie the dashboard sets, and a sign-in finishes only in the browser that left for Whop. Someone on Whop's page as the update runs signs in again.
 - **An overbooked machine, in Discord:** with a store or joined machines, the dashboard also posts in its Discord when a machine's customers' plans set aside more memory than it has, as when a plan grows past what it can hold, and again only once the machine has had room for them. Like the room and health alerts, it goes out whatever the alert switches say, and moving a customer stays yours.
 
 ## 0.4.12
