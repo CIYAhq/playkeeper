@@ -70,6 +70,7 @@ func TestOpenTheStoreNeedsTheSellerTermsAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.clock.add(time.Hour)
+	token = f.sellerToken(e, whopTestApp, "user_otherowner")
 	if r := sell(`{}`); r.status != http.StatusBadRequest {
 		t.Fatalf("Open the store again without the terms: %d %v", r.status, r.body)
 	}
