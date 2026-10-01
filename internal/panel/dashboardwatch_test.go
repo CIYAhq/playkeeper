@@ -16,9 +16,14 @@ import (
 const watchHook = "https://discord.com/api/webhooks/1289345123456789012/pkTestToken_pkTestToken_pkTestToken_pkTestToken_pkTestToken_pkTestToken_"
 
 // watchSyncing runs the joined machines' watch sync for the test, on its
-// kicks alone.
+// kicks alone, once the dashboard has handled the joined machine's
+// connection. The hub shows a machine connected a moment before the
+// dashboard handles that, which has the machine told again: a sync begun in
+// between would tell it twice. The connection's kick waits for the sync
+// meanwhile, as nothing else kicks it before the test does.
 func watchSyncing(t *testing.T, e *env) {
 	t.Helper()
+	eventually(t, "the dashboard handles the machine's connection", func() bool { return len(e.srv.watchKick) > 0 })
 	was := watchSyncEvery
 	watchSyncEvery = time.Hour
 	ctx, cancel := context.WithCancel(context.Background())
@@ -157,6 +162,7 @@ func TestAMachineThatWasAwayCatchesUpOnTheDashboardsWebhook(t *testing.T) {
 	var l watchLog
 	l.listen(j.ra)
 	watchSyncing(t, e)
+	l.waitFor(t, clearedHook)
 	if r := e.do(t, "PUT", "/api/machines/"+j.d.MachineID+"/customers", `{"on":true}`, own.auth()); r.status != http.StatusOK {
 		t.Fatalf("the owner confirms the machine: %d %v", r.status, r.body)
 	}
