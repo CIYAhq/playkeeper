@@ -9019,6 +9019,14 @@ control "deleting customers: a move that stopped on an error doesn't hold a dele
   'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
   'if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
   ./internal/panel '^TestAMoveThatStoppedOnAnErrorDoesntHoldADeletion$'
+control "deleting customers: a copy left on a removed machine doesn't hold a deletion" internal/panel/erasure.go \
+  'AND left_at = 0 AND machine_id IN (SELECT id FROM machines WHERE revoked_at = 0)' \
+  'AND left_at = 0 AND (machine_id IN (SELECT id FROM machines WHERE revoked_at = 0) OR 1)' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineDoesntHoldADeletion$'
+control "deleting customers: a membership of theirs stored since takes its end" internal/panel/whop_customers.go \
+  'OR EXISTS(SELECT 1 FROM whop_memberships WHERE membership_id = ?)' \
+  'OR 0 AND EXISTS(SELECT 1 FROM whop_memberships WHERE membership_id = ?)' \
+  ./internal/panel '^TestADeletedCustomerWhoBuysAgainAfterAFailedPaymentStarts$'
 control "deleting customers: a customer is deleted the owner's days after their servers" internal/panel/erasure.go \
   'cutoff := s.now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()' \
   'cutoff := s.now().Add(-time.Duration(days) * 0).UnixMilli()' \
