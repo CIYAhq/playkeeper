@@ -173,6 +173,7 @@ os_prep() {
       g 'set -e
 echo "iptables-persistent iptables-persistent/autosave_v4 boolean false" | sudo debconf-set-selections
 echo "iptables-persistent iptables-persistent/autosave_v6 boolean false" | sudo debconf-set-selections
+for try in 1 2 3; do sudo apt-get update -qq && break; sleep $((try * 15)); done
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables-persistent >/dev/null
 printf "%s\n" "*filter" ":INPUT ACCEPT [0:0]" ":FORWARD ACCEPT [0:0]" ":OUTPUT ACCEPT [0:0]" \
   "-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT" "-A INPUT -p icmp -j ACCEPT" "-A INPUT -i lo -j ACCEPT" \
