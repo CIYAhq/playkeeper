@@ -419,14 +419,14 @@ func validMaxPlayers(n int) (int, error) {
 	return n, nil
 }
 
-// maxCreatePlayers bounds the players a create may put on the allowlist.
-const maxCreatePlayers = 5
+// maxCreateOperators bounds the players a create may make operators.
+const maxCreateOperators = 5
 
-// validPlayers checks the Minecraft names a create puts on the allowlist,
-// each once.
-func validPlayers(names []string) ([]string, error) {
-	if len(names) > maxCreatePlayers {
-		return nil, errInvalid("A new server can put at most %d players on its allowlist.", maxCreatePlayers)
+// validOperators checks the Minecraft names a create puts on the allowlist
+// and makes operators, each once.
+func validOperators(names []string) ([]string, error) {
+	if len(names) > maxCreateOperators {
+		return nil, errInvalid("A new server can make at most %d players operators.", maxCreateOperators)
 	}
 	var out []string
 	for _, n := range names {
@@ -572,7 +572,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	players, err := validPlayers(req.Players)
+	operators, err := validOperators(req.Operators)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -581,7 +581,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	base := api.ServerConfig{
 		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapFor(req.MemoryMB, typ, 0),
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
-		PlayStyle: req.PlayStyle, Gameplay: gp, PendingPlayers: strings.Join(players, " "),
+		PlayStyle: req.PlayStyle, Gameplay: gp, PendingOperators: strings.Join(operators, " "),
 	}
 	// The activity line names the software as the catalog does ("Fabric 26.2"); the loader lives on the server's pages.
 	sc, label := withBuild(base, entry), entry.Label

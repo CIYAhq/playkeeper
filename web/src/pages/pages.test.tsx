@@ -2979,7 +2979,7 @@ describe('Onboarding', () => {
 
   // The walkthrough of 1 Oct 2026: the allowlist is on, and nobody asked for
   // the owner's own Minecraft name, so their first join was refused.
-  it('asks for your own Minecraft name, puts it on the server, and says so once it runs', async () => {
+  describe('your own Minecraft name', () => {
     const catalog: Catalog = {
       type: 'paper',
       types: [{ id: 'paper', name: 'Paper', available: true }],
@@ -2993,37 +2993,64 @@ describe('Onboarding', () => {
       servers: [],
       image: '',
     }
-    const setPrefs = vi.fn(async () => {})
-    const ws = workspace({ servers: [], setPrefs })
-    answer({ '/preflight': preflight, '/catalog': catalog })
-    answerPosts({ '/servers': { id: 'op1', kind: 'create', status: 'running', serverId: 'abcdefghjk', phase: '', actor: 'siya', startedAt: new Date().toISOString() } })
-    await render(<Onboarding />, ws)
-    await press('Looks good, continue')
-    await press('Create a server')
-    const label = [...document.querySelectorAll('label')].find((l) => l.textContent === 'Your Minecraft name')
-    const input = document.getElementById(label?.htmlFor ?? '') as HTMLInputElement | null
-    expect(input?.placeholder).toBe('Optional')
+    const steve = { name: 'Steve_Builds', uuid: '00000000-0000-0000-0000-0000000000a1' }
+    const field = () => document.getElementById([...document.querySelectorAll('label')].find((l) => l.textContent === 'Your Minecraft name')?.htmlFor ?? '') as HTMLInputElement | null
     const typeName = async (v: string) =>
       act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, v)
-        input?.dispatchEvent(new Event('input', { bubbles: true }))
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field(), v)
+        field()?.dispatchEvent(new Event('input', { bubbles: true }))
       })
-    await act(async () => [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith('I accept the Minecraft'))?.click())
     const create = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Create my server'))
-    await typeName('bad name')
-    expect(create()?.title).toBe('Minecraft usernames are 3–16 letters, numbers or underscores.')
-    await typeName('Steve_Builds')
-    expect(create()?.title).toBe('')
-    await press('Create my server')
-    expect(vi.mocked(client.post).mock.calls.at(-1)).toEqual(['/api/machines/m2345abcde/servers', expect.objectContaining({ acceptEula: true, players: ['Steve_Builds'] })])
-    expect(setPrefs).toHaveBeenCalledWith({ 'minecraft.name': 'Steve_Builds' })
+    /** Goes to "How will you play?" and accepts the EULA. */
+    const toStyle = async (ws: Workspace) => {
+      answer({ '/preflight': preflight, '/catalog': catalog })
+      answerPosts({ '/servers': { id: 'op1', kind: 'create', status: 'running', serverId: 'abcdefghjk', phase: '', actor: 'siya', startedAt: new Date().toISOString() } })
+      await render(<Onboarding />, ws)
+      await press('Looks good, continue')
+      await press('Create a server')
+      await act(async () => [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith('I accept the Minecraft'))?.click())
+    }
+    /** The server runs: the online stage reads the lists the agent added the name to, as they answer here. */
+    const online = async (ws: Workspace, lists: Record<string, unknown>) => {
+      answer({ ...lists, '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
+      await act(async () => root?.render(<WorkspaceContext.Provider value={{ ...ws, servers: [server()] }}>{<Onboarding />}</WorkspaceContext.Provider>))
+      await act(async () => {})
+    }
 
-    // It runs: the online stage reads the allowlist the agent added the name to.
-    answer({ '/whitelist': [{ name: 'Steve_Builds', uuid: '00000000-0000-0000-0000-0000000000a1' }], '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
-    await act(async () => root?.render(<WorkspaceContext.Provider value={{ ...ws, servers: [server()] }}>{<Onboarding />}</WorkspaceContext.Provider>))
-    await act(async () => {})
-    expect(document.body.textContent).toContain('Survival is online!')
-    expect(document.body.textContent).toContain('Steve_Builds is on the allowlist.')
+    it('is asked for, made an operator on the new server, and said to be one once it runs', async () => {
+      const setPrefs = vi.fn(async () => {})
+      const ws = workspace({ servers: [], setPrefs })
+      await toStyle(ws)
+      expect(field()?.placeholder).toBe('Optional')
+      await typeName('bad name')
+      expect(create()?.title).toBe('Minecraft usernames are 3–16 letters, numbers or underscores.')
+      await typeName('Steve_Builds')
+      expect(create()?.title).toBe('')
+      await press('Create my server')
+      expect(vi.mocked(client.post).mock.calls.at(-1)).toEqual(['/api/machines/m2345abcde/servers', expect.objectContaining({ acceptEula: true, operators: ['Steve_Builds'] })])
+      expect(setPrefs).toHaveBeenCalledWith({ 'minecraft.name': 'Steve_Builds' })
+
+      await online(ws, { '/whitelist': [steve], '/operators': [{ ...steve, level: 4 }] })
+      expect(page()).toContain('Survival is online!')
+      expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
+    })
+
+    it('says only what the server’s lists show, and offers to add a name that didn’t get on', async () => {
+      const outcomes = [
+        { lists: { '/whitelist': [steve], '/operators': [] }, says: 'Steve_Builds is on the allowlist.', offered: '' },
+        { lists: { '/whitelist': [], '/operators': [] }, says: 'Couldn’t add Steve_Builds. Check the spelling, then add it below.', offered: 'Steve_Builds' },
+      ]
+      for (const { lists, says, offered } of outcomes) {
+        const ws = workspace({ servers: [] })
+        await toStyle(ws)
+        await typeName('Steve_Builds')
+        await press('Create my server')
+        await online(ws, lists)
+        expect(page()).toContain(says)
+        expect(page()).not.toContain('an operator.')
+        expect((document.getElementById('invite') as HTMLInputElement | null)?.value).toBe(offered)
+      }
+    })
   })
 
   it('says the checks ran again, but not when they could not be run', async () => {

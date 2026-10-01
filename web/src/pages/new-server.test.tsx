@@ -416,8 +416,9 @@ describe('New server on a joined machine', () => {
   })
 
   // The walkthrough of 1 Oct 2026: the owner's own name goes on every new
-  // server's allowlist, but an agent before 0.4.16 refuses the field.
-  it('puts your own Minecraft name on the new server, where its agent takes it', async () => {
+  // server's allowlist as an operator, but an agent before 0.4.16 refuses
+  // the field.
+  it('makes your own Minecraft name an operator on the new server, where its agent takes it', async () => {
     const created = async (agentVersion: string) => {
       vi.mocked(client.post).mockClear()
       const ws = on('connected')
@@ -425,15 +426,15 @@ describe('New server on a joined machine', () => {
       await next(4)
       await acceptEula()
       await next()
-      return vi.mocked(client.post).mock.calls.find(([path]) => path === '/api/machines/r2345abcde/servers')?.[1] as { players?: string[] } | undefined
+      return vi.mocked(client.post).mock.calls.find(([path]) => path === '/api/machines/r2345abcde/servers')?.[1] as { operators?: string[] } | undefined
     }
-    expect((await created('0.4.16'))?.players).toEqual(['Steve_Builds'])
+    expect((await created('0.4.16'))?.operators).toEqual(['Steve_Builds'])
     act(() => root?.unmount())
     root = undefined
     document.body.innerHTML = ''
     const old = await created('0.4.15')
     expect(old).toBeDefined()
-    expect(old?.players).toBeUndefined()
+    expect(old?.operators).toBeUndefined()
   })
 
   for (const tc of [

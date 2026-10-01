@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, InfoIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
-import type { LogsResponse, Me, Operation, Preflight, PreflightCheck, ServerStatus, WhitelistEntry } from '@/api/types'
+import type { LogsResponse, Me, Operation, OperatorEntry, Preflight, PreflightCheck, ServerStatus, WhitelistEntry } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { serverAction } from '@/components/app/server-action'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, OwnNameField, ownNameKey, ownNameProblem, ownPlayers, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
+import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, OwnNameField, ownNameKey, ownNameProblem, ownOperators, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
 import { PasswordField } from '@/components/app/password-field'
 import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
@@ -429,11 +429,11 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
     setCreateError(undefined)
     try {
       const own = ownName.trim()
-      const players = ownPlayers(own, ws.machine, ws.me.version)
-      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), { ...createRequest(c), ...players })
+      const asked = ownOperators(own, ws.machine, ws.me.version)
+      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), { ...createRequest(c), ...asked })
       if (own !== (ws.prefs[ownNameKey] ?? '')) await ws.setPrefs({ [ownNameKey]: own }).catch(() => undefined)
       await ws.refresh()
-      onCreated(op, players.players ? own : undefined)
+      onCreated(op, asked.operators ? own : undefined)
     } catch (e) {
       setCreateError(errorText(e))
     } finally {
@@ -716,20 +716,21 @@ function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: strin
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [added, setAdded] = useState<string[]>([])
-  // Whether the owner's own name made it onto the allowlist; one Minecraft doesn't know is offered to add again.
-  const [listed, setListed] = useState<boolean>()
+  // Whether the owner's own name made it onto the allowlist, and is an operator; one Minecraft doesn't know is offered to add again.
+  const [owned, setOwned] = useState<{ listed: boolean; operator: boolean }>()
   const address = serverJoinAddress(s)
   const dashboard = () => navigate({ name: 'server', slug: s.slug, tab: 'overview' }, true)
 
   useEffect(() => {
     if (!owner) return
     let stopped = false
-    get<WhitelistEntry[]>(serverApi(s.id, '/whitelist')).then(
-      (list) => {
+    const theirs = (e: { name: string }) => e.name.toLowerCase() === owner.toLowerCase()
+    Promise.all([get<WhitelistEntry[]>(serverApi(s.id, '/whitelist')), get<OperatorEntry[]>(serverApi(s.id, '/operators')).catch((): OperatorEntry[] => [])]).then(
+      ([list, operators]) => {
         if (stopped) return
-        const found = list.some((e) => e.name.toLowerCase() === owner.toLowerCase())
-        setListed(found)
-        if (!found) setName(owner)
+        const listed = list.some(theirs)
+        setOwned({ listed, operator: listed && operators.some(theirs) })
+        if (!listed) setName(owner)
       },
       () => undefined,
     )
@@ -774,10 +775,10 @@ function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: strin
         </div>
         <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint')}</p>
       </div>
-      {owner && listed !== undefined && (
-        <p className={cn('mt-4 flex items-start justify-center gap-1.5 text-[13px]', !listed && 'text-destructive-foreground')} role="status">
-          {listed ? <CircleCheckIcon className="mt-px size-4 shrink-0 text-success-foreground" aria-hidden="true" /> : <CircleAlertIcon className="mt-px size-4 shrink-0" aria-hidden="true" />}
-          {t(listed ? 'onboarding.ownerListed' : 'onboarding.ownerMissing', { name: owner })}
+      {owner && owned && (
+        <p className={cn('mt-4 flex items-start justify-center gap-1.5 text-[13px]', !owned.listed && 'text-destructive-foreground')} role="status">
+          {owned.listed ? <CircleCheckIcon className="mt-px size-4 shrink-0 text-success-foreground" aria-hidden="true" /> : <CircleAlertIcon className="mt-px size-4 shrink-0" aria-hidden="true" />}
+          {t(owned.operator ? 'onboarding.ownerOperator' : owned.listed ? 'onboarding.ownerListed' : 'onboarding.ownerMissing', { name: owner })}
         </p>
       )}
       <form onSubmit={invite} className="mt-5 text-left">

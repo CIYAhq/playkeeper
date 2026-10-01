@@ -68,7 +68,7 @@ export function budgetAdvice(catalog: Catalog | undefined, memoryMB: number): Me
   return catalog?.sizing?.budgets.find((b) => b.memoryMB === memoryMB)
 }
 
-/** The preference that keeps someone's own Minecraft name, which their new servers put on the allowlist. */
+/** The preference that keeps someone's own Minecraft name, which their new servers put on the allowlist and make an operator. */
 export const ownNameKey = 'minecraft.name'
 
 /** Whether Minecraft allows a username: 3–16 letters, numbers or underscores. */
@@ -76,16 +76,16 @@ export function validPlayerName(name: string): boolean {
   return /^[A-Za-z0-9_]{3,16}$/.test(name)
 }
 
-/** The players a create asks the machine to put on the allowlist once the server runs: someone's own Minecraft name, on an agent from 0.4.16, which takes them. */
-export function ownPlayers(name: string | undefined, machine: MachineView | undefined, panelVersion: string): { players?: string[] } {
+/** The players a create asks the machine to put on the allowlist and make operators once the server runs: someone's own Minecraft name, on an agent from 0.4.16, which takes them. */
+export function ownOperators(name: string | undefined, machine: MachineView | undefined, panelVersion: string): { operators?: string[] } {
   const n = name?.trim() ?? ''
   const v = machine?.live?.agentVersion
   const takes = !!v && (v === panelVersion || compareMinecraft(v.split(/[-+]/)[0] ?? '', '0.4.16') >= 0)
-  return validPlayerName(n) && takes ? { players: [n] } : {}
+  return validPlayerName(n) && takes ? { operators: [n] } : {}
 }
 
-/** Someone's own Minecraft name, which nobody has to give: it goes on the new server's allowlist, so they can join. */
-export function OwnNameField({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
+/** Someone's own Minecraft name, which nobody has to give: it goes on the new server's allowlist as an operator, so they can join and run its commands. */
+export function OwnNameField({ value, onChange, inputRef, className }: { value: string; onChange: (v: string) => void; inputRef?: Ref<HTMLInputElement>; className?: string }) {
   const id = useId()
   const problem = ownNameProblem(value)
   return (
@@ -97,7 +97,7 @@ export function OwnNameField({ value, onChange, className }: { value: string; on
         <InputGroupAddon>
           <UserRoundIcon aria-hidden="true" />
         </InputGroupAddon>
-        <InputGroupInput id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={t('style.ownNamePlaceholder')} autoComplete="off" spellCheck={false} maxLength={16} aria-invalid={problem ? true : undefined} aria-describedby={`${id}-hint`} />
+        <InputGroupInput ref={inputRef} id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={t('style.ownNamePlaceholder')} autoComplete="off" spellCheck={false} maxLength={16} aria-invalid={problem ? true : undefined} aria-describedby={`${id}-hint`} />
       </InputGroup>
       <p id={`${id}-hint`} className={cn('text-xs max-sm:text-[13px]', problem ? 'text-destructive-foreground' : 'text-muted-foreground')}>
         {problem ?? t('style.ownNameHint')}

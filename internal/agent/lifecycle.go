@@ -883,50 +883,63 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if h != nil && h.op != nil {
 		actor = h.op.Actor
 	}
-	s.admitPendingPlayers(actor)
+	s.admitPendingOperators(actor)
 	return nil
 }
 
-// pendingAddTries and pendingAddWait are how often a player its create
-// asked for is tried over RCON, which may not answer the moment the server
-// is up.
+// pendingAddTries and pendingAddWait are how often a command for a player
+// its create asked for is tried over RCON, which may not answer the moment
+// the server is up.
 const (
 	pendingAddTries = 3
 	pendingAddWait  = time.Second
 )
 
-// admitPendingPlayers puts the players the server's create asked for on
-// its allowlist, now that it runs, and forgets them: a name Minecraft
-// doesn't know goes in the audit log and isn't tried again.
-func (s *server) admitPendingPlayers(actor string) {
+// admitPendingOperators puts the players the server's create asked for on
+// its allowlist and makes them operators, now that it runs, and forgets
+// them: a name Minecraft doesn't know goes in the audit log and isn't tried
+// again.
+func (s *server) admitPendingOperators(actor string) {
 	sc, err := s.serverConfig()
-	if err != nil || sc == nil || sc.PendingPlayers == "" {
+	if err != nil || sc == nil || sc.PendingOperators == "" {
 		return
 	}
-	for _, name := range strings.Fields(sc.PendingPlayers) {
-		var out string
-		for try := range pendingAddTries {
-			if out, err = s.rconCommand("whitelist add " + name); err == nil {
-				break
-			}
-			if try < pendingAddTries-1 {
-				time.Sleep(pendingAddWait)
-			}
-		}
-		out = minecraft.StripANSI(out)
-		switch {
-		case err != nil:
-			s.audit(actor, "whitelist.add", name, "failed", "The server did not respond: "+err.Error())
-		case unknownPlayer(out):
-			s.audit(actor, "whitelist.add", name, "failed", out)
-		default:
-			s.audit(actor, "whitelist.add", name, "succeeded", out)
+	for _, name := range strings.Fields(sc.PendingOperators) {
+		// A name that couldn't go on the allowlist can't be an operator either.
+		if s.pendingCommand(actor, "whitelist.add", name, "whitelist add "+name) {
+			s.pendingCommand(actor, "operator.add", name, "op "+name)
 		}
 	}
-	sc.PendingPlayers = ""
+	sc.PendingOperators = ""
 	if err := s.saveServerConfig(*sc); err != nil {
-		s.log.Warn("could not forget the players a create put on the allowlist", "server", s.id, "err", err)
+		s.log.Warn("could not forget the players a create made operators", "server", s.id, "err", err)
 	}
+}
+
+// pendingCommand runs a command about one of those players, audits it as
+// action, and says whether it worked.
+func (s *server) pendingCommand(actor, action, name, cmd string) bool {
+	var out string
+	var err error
+	for try := range pendingAddTries {
+		if out, err = s.rconCommand(cmd); err == nil {
+			break
+		}
+		if try < pendingAddTries-1 {
+			time.Sleep(pendingAddWait)
+		}
+	}
+	out = minecraft.StripANSI(out)
+	switch {
+	case err != nil:
+		s.audit(actor, action, name, "failed", "The server did not respond: "+err.Error())
+		return false
+	case unknownPlayer(out):
+		s.audit(actor, action, name, "failed", out)
+		return false
+	}
+	s.audit(actor, action, name, "succeeded", out)
+	return true
 }
 
 func classifyStartError(err error, port int) error {
