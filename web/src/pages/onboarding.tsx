@@ -28,6 +28,7 @@ import { navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { preset } from '@/lib/styles'
 import { cn } from '@/lib/utils'
+import { FreeNameOffer } from './onboarding-name'
 import { ConsoleTail } from './server/overview'
 
 function codeFromHash(): string {
@@ -310,6 +311,7 @@ function CheckStage({ onNext }: { onNext: () => void }) {
         </div>
       )}
       {pre && !pre.ok && <p className="mt-3 text-[13px] text-destructive-foreground">{t('onboarding.checkBlocked')}</p>}
+      {pre && id && <FreeNameOffer id={id} />}
       {phone ? (
         <PhoneActions>
           <Button size="touch" onClick={onNext} disabledReason={checkBlocked}>

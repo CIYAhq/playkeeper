@@ -5,6 +5,7 @@ import type { Address, AddressCheck, AddressPlan, DNSAnswers, DNSRecord, JoinAdd
 import { machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel, useNow } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { TermsLine } from '@/components/app/terms-line'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -33,7 +34,6 @@ import {
   PhoneCopyRow,
   ResultBlock,
   RetryButton,
-  TermsLine,
   useLookup,
   type AddressProps,
   type AddressRowData,

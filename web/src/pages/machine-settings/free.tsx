@@ -5,6 +5,7 @@ import type { Address, NameAvailability } from '@/api/types'
 import { machineApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel, Spinner, useNow } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
+import { TermsLine } from '@/components/app/terms-line'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group'
 import { Radio } from '@/components/ui/radio-group'
@@ -12,6 +13,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { certState, claimStep, dashboardPort, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, runningOp, type FreeStage, type NameProblem } from '@/lib/address'
 import { formatCountdown, formatDate } from '@/lib/format'
+import { startingName, useFreeSuggestion } from '@/lib/free-names'
 import { cn } from '@/lib/utils'
 import { Group } from '../more'
 import { refusal } from '../two-factor'
@@ -34,7 +36,6 @@ import {
   ResultBlock,
   RetryButton,
   ServersWaitNotice,
-  TermsLine,
   UnreachableNotice,
   useLookup,
   type AddressProps,
@@ -69,12 +70,6 @@ export function useClaim(id: string, refresh: () => Promise<void>): Claim {
     }
   }
   return { state, claim, reset: () => setState((s) => (s.status === 'idle' ? s : idle)) }
-}
-
-/** The name the page starts with: the user's own, when it can be one. */
-function startingName(username: string, base: string): string {
-  const n = normalizeName(username, base)
-  return nameProblem(n) ? '' : n
 }
 
 type Choice = 'free' | 'own'
@@ -146,10 +141,15 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
   const statusId = useId()
   // The picker is swapped out while claiming, so after a failed claim it starts from that name.
   const [raw, setRaw] = useState(() => (claim.state.status === 'failed' ? claim.state.name : current ? '' : startingName(ws.me.user.username, a.base)))
-  const name = normalizeName(raw, a.base, a.previousBase)
+  // Until the name is typed, it's the user's own when that's free, else a free one.
+  const [typed, setTyped] = useState(claim.state.status === 'failed' || !!current)
+  const suggestion = useFreeSuggestion(id, raw, { off: typed })
+  const looking = !typed && suggestion === undefined
+  const value = typed ? raw : looking ? '' : (suggestion ?? raw)
+  const name = normalizeName(value, a.base, a.previousBase)
   const problem = nameProblem(name)
   const mine = !!current && name === current
-  const { answer, forget } = useLookup(problem || mine ? '' : name, (n) => get<NameAvailability>(machineApi(id, `/address/available?name=${encodeURIComponent(n)}`)), checkDelayMs)
+  const { answer, forget } = useLookup(problem || mine || looking ? '' : name, (n) => get<NameAvailability>(machineApi(id, `/address/available?name=${encodeURIComponent(n)}`)), checkDelayMs)
   const address = `${name}.${a.base}`
 
   const claimFailed = claim.state.status === 'failed' ? claim.state : undefined
@@ -157,11 +157,12 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
   if (claimFailed) failed = { failure: claimFailed.failure, retry: () => void claim.claim(claimFailed.name) }
   else if (isFailure(answer)) failed = { failure: answer, retry: forget }
   const unavailable = failed?.failure.error.code === 'names_unreachable' ? failed : undefined
-  const reason = unavailable ? t('address.unavailable') : claimReason(address, problem, mine, answer)
+  const reason = looking ? t('address.finding') : unavailable ? t('address.unavailable') : claimReason(address, problem, mine, answer)
   const available = !reason
 
   function change(v: string) {
     setRaw(v)
+    setTyped(true)
     claim.reset()
   }
   function pick(n: string) {
@@ -182,9 +183,9 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
     <InputGroup className="max-sm:h-11">
       <InputGroupInput
         id={inputId}
-        value={raw}
+        value={value}
         onChange={(e) => change(e.target.value)}
-        onBlur={() => name !== raw && setRaw(name)}
+        onBlur={() => typed && name !== raw && setRaw(name)}
         onKeyDown={(e) => e.key === 'Enter' && submit()}
         placeholder={t('address.namePlaceholder')}
         autoComplete="off"
@@ -200,7 +201,16 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
       </InputGroupAddon>
     </InputGroup>
   )
-  const status = unavailable ? <Unavailable onRetry={unavailable.retry} /> : nameStatus({ name, address, problem, mine, answer, onPick: pick })
+  const status = looking ? (
+    <p className="flex items-center gap-2 text-xs text-muted-foreground">
+      <Spinner className="size-3.5" />
+      {t('address.finding')}
+    </p>
+  ) : unavailable ? (
+    <Unavailable onRetry={unavailable.retry} />
+  ) : (
+    nameStatus({ name, address, problem, mine, answer, onPick: pick })
+  )
   const failedBlock = failed && !unavailable && <ClaimFailure failure={failed.failure} machine={machine} onRetry={failed.retry} onUseOwn={onUseOwn} touch={phone} />
   const preview = !name || unavailable
   const changeHint = current && <p className="text-xs text-muted-foreground">{t('address.changeHint', { address: `${current}.${a.base}` })}</p>
