@@ -203,7 +203,7 @@
 {{template "install" (dict "ID" true)}}
 {{template "steps" (dict "Items" (list
   (dict "Title" "It checks the VPS first" "Text" "Then it lists every change it will make, and how to undo it, before it asks to go ahead.")
-  (dict "Title" "Open the link it prints" "Text" "https://your-ip:8443/setup with a one-time code, good for 24 hours. The browser warns about the certificate: continue only if the fingerprint it shows matches the one the installer printed.")
+  (dict "Title" "Open the link it prints" "Text" "https://your-ip:8443/setup with a one-time code, good for 24 hours. The browser says the connection isn't private: that's expected, click Advanced, then Proceed.")
   (dict "Title" "Create your admin account" "Text" "Then your first server: the newest Paper, with memory picked for how you'll play. Change picks others.")
 ))}}
 {{end}}

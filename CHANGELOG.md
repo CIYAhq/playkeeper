@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.16
 
+- **The browser's warning, in plain words:** when the browser says the connection to a new dashboard isn't private, the installer's last screen now says what to do: click Advanced, then Proceed, as the warning is expected. It no longer asks people to compare the certificate's fingerprint first; the fingerprint is still on its last line, for anyone who wants to check it.
 - Fixed: turning the public page off right after it took ports 443 and 80 could leave a port taken for a moment after the dashboard said it was given back. It's now given back at once.
 - Fixed, selling through the Playkeeper Cloud app (early beta): a blueprint copy's hosting products arrive hidden on Whop, and **Open the store** left them so, so the store's page on Whop listed nothing. Opening or updating the store now shows them there. While the store sells nothing, closed, suspended or gone, they're hidden again, as its plans' stock is 0, and once it sells again those are shown, while a product its seller hid stays hidden. **Visit your store** now goes to that page even before anyone has bought there.
 - Fixed: the installer stopped when a package mirror was part-way through an update, as AlmaLinux's were on 1 Oct, with dnf's "Failed to download metadata for repo …" or apt's "Mirror sync in progress?", and had to be run again. It now tries again with fresh package lists, up to four tries in all, and says so in one line. Any other failure still stops it at once.

@@ -76,6 +76,31 @@ func TestInstallSummaryForFirstInstallAndReinstall(t *testing.T) {
 	}
 }
 
+// The browser's warning is what most people see first, so the summary says
+// what to click; the fingerprint is an extra check on its own last line,
+// which scripts/e2e/vm-e2e.sh reads.
+func TestInstallSummarySaysWhatToClickAtTheBrowsersWarning(t *testing.T) {
+	for _, res := range []*install.Result{
+		{URL: "https://192.0.2.10:8443", SetupCode: "abc123", Fingerprint: "4E:FA:00", Duration: time.Second},
+		{URL: "https://192.0.2.10:8443", Fingerprint: "4E:FA:00", Duration: time.Second, ExistingAdm: true},
+	} {
+		var b bytes.Buffer
+		writeInstallSummary(&b, res)
+		out := b.String()
+		for _, want := range []string{"Click Advanced, then Proceed", "this warning is expected", "Safari: Show Details, then visit this website", "\nTo check the certificate in your browser, its SHA-256 fingerprint is 4E:FA:00\n"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("the summary lacks %q:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "Continue only if") {
+			t.Errorf("the summary still makes the fingerprint a condition:\n%s", out)
+		}
+		if steps, check := strings.Index(out, "  3. "), strings.Index(out, "SHA-256 fingerprint"); steps < 0 || check < steps {
+			t.Errorf("the fingerprint comes before the steps end:\n%s", out)
+		}
+	}
+}
+
 func TestDevStaysOffTheRealNamesServiceAndLetsEncrypt(t *testing.T) {
 	cfg := config.Default()
 	devDefaults(&cfg)
