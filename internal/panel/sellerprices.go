@@ -38,6 +38,16 @@ func whopFloorFor(memoryMB int) int64 {
 	return (int64(memoryMB)*whopFloorPer4GB + 4095) / 4096
 }
 
+// whopSuggestedPer4GB is the monthly price the seller's page suggests for
+// each 4 GB a plan allows, in cents.
+const whopSuggestedPer4GB = 1500
+
+// whopSuggestedFor is the monthly price the seller's page suggests for a
+// plan that allows memoryMB, in cents, rounded up.
+func whopSuggestedFor(memoryMB int) int64 {
+	return (int64(memoryMB)*whopSuggestedPer4GB + 4095) / 4096
+}
+
 // centsOf is an amount Whop writes in dollars, in cents.
 func centsOf(dollars float64) int64 { return int64(math.Round(dollars * 100)) }
 
@@ -61,12 +71,16 @@ func parseSellerPrice(s string) (int64, error) {
 // whether Open the store is theirs to press, as it is while the store is
 // closed and neither suspended nor gone, or Update the store, the same
 // call once it's open. Problem is what's wrong with Playkeeper's share once
-// a price changed, if anything.
+// a price changed, if anything. Fixable says Fix my plans has a plan's
+// renewal, currency or free trial to put right, and Blocked is what it
+// can't, in a plain line each, for the seller to change in Whop.
 type sellerPrices struct {
 	Plans     []sellerPrice `json:"plans"`
 	CanOpen   bool          `json:"canOpen"`
 	CanUpdate bool          `json:"canUpdate"`
 	Problem   string        `json:"problem,omitempty"`
+	Fixable   bool          `json:"fixable"`
+	Blocked   []string      `json:"blocked,omitempty"`
 }
 
 // sellerPrice is one hosting plan as its seller prices it: what it allows,
@@ -85,6 +99,9 @@ type sellerPrice struct {
 	Share    int64  `json:"share"`
 	Settable bool   `json:"settable"`
 	Problem  string `json:"problem,omitempty"`
+	// Suggested is the monthly price the seller's page offers for it, in US
+	// cents (whopSuggestedFor).
+	Suggested int64 `json:"suggested"`
 	// issues are what Problem says, each in a few words, for the plan's
 	// line when Open the store refuses it (refusedPlans).
 	issues []planIssue
@@ -97,6 +114,7 @@ type planRule int
 const (
 	ruleOwnProduct planRule = iota
 	ruleAllowance
+	ruleOneTime
 	ruleDollars
 	ruleMonthly
 	ruleNoTrial
@@ -107,17 +125,26 @@ const (
 var planRuleFixes = [...]string{
 	ruleOwnProduct: "give each plan its own product",
 	ruleAllowance:  fmt.Sprintf("allow 1 to %d servers and %d to %d GB", invites.MaxAllowanceServers, invites.MinAllowanceMemoryMB>>10, invites.MaxAllowanceMemoryMB>>10),
+	ruleOneTime:    "replace one-time plans with monthly ones",
 	ruleDollars:    "price in US dollars",
 	ruleMonthly:    "renew every month",
 	ruleNoTrial:    "take off free trials",
 	ruleFloor:      "charge at least " + dollarsOf(whopFloorPer4GB) + " a month for each 4 GB",
 }
 
+// fixable says Fix my plans puts the rule right (MakePlanMonthly). A price
+// under the floor is the seller's to set, at the price the page suggests.
+func (r planRule) fixable() bool {
+	return r == ruleDollars || r == ruleMonthly || r == ruleNoTrial
+}
+
 // planIssue is a rule a hosting plan breaks, with what the plan's line
-// says of it in a few words.
+// says of it in a few words, and, when Fix my plans can't put it right,
+// what the seller changes in Whop, in a plain line.
 type planIssue struct {
-	rule planRule
-	says string
+	rule    planRule
+	says    string
+	blocked string
 }
 
 // sellerPriceOf is a hosting plan as its seller prices it, and false for a
@@ -140,24 +167,27 @@ func hostedPlan(p whop.Plan) (sellerPrice, bool) {
 		return sellerPrice{}, false
 	}
 	sp := sellerPrice{ID: p.ID, Title: cmpOr(p.Title, p.ID), Servers: servers, MemoryMB: memoryMB, Price: centsOf(p.RenewalPrice),
-		Currency: strings.ToLower(cmpOr(p.Currency, "usd")), Floor: whopFloorFor(memoryMB), Share: whopShareFor(memoryMB)}
+		Currency: strings.ToLower(cmpOr(p.Currency, "usd")), Floor: whopFloorFor(memoryMB), Share: whopShareFor(memoryMB), Suggested: whopSuggestedFor(memoryMB)}
 	monthly := p.PlanType == "renewal" && p.BillingPeriod == 30
 	usd := strings.EqualFold(p.Currency, "usd")
 	sp.Settable = monthly && usd
 	switch least := centsOf(whopLeastCharge(p)); {
+	case p.PlanType != "renewal":
+		sp.Problem = "It doesn't renew every month, as hosted plans do."
+		sp.issues = []planIssue{{rule: ruleOneTime, says: "is charged only once", blocked: sp.Title + " is charged only once. Replace it with a monthly plan in Whop."}}
 	case !usd:
 		sp.Problem = fmt.Sprintf("It's priced in %s, and hosted plans are priced in US dollars.", strings.ToUpper(p.Currency))
-		sp.issues = []planIssue{{ruleDollars, "priced in " + strings.ToUpper(p.Currency)}}
+		sp.issues = []planIssue{{rule: ruleDollars, says: "priced in " + strings.ToUpper(p.Currency)}}
 	case !monthly:
 		sp.Problem = "It doesn't renew every month, as hosted plans do."
-		sp.issues = []planIssue{{ruleMonthly, "doesn't renew every month"}}
+		sp.issues = []planIssue{{rule: ruleMonthly, says: "doesn't renew every month"}}
 	case p.TrialDays > 0:
 		sp.Problem = "It has a free trial, and hosted plans charge from the first day."
-		sp.issues = []planIssue{{ruleNoTrial, "has a free trial"}}
+		sp.issues = []planIssue{{rule: ruleNoTrial, says: "has a free trial"}}
 	case least < sp.Floor:
 		under := fmt.Sprintf("charges %s, under the %s floor for %s", dollarsOf(least), dollarsOf(sp.Floor), gigabytes(memoryMB))
 		sp.Problem = "It " + under + "."
-		sp.issues = []planIssue{{ruleFloor, under}}
+		sp.issues = []planIssue{{rule: ruleFloor, says: under}}
 	}
 	return sp, true
 }
@@ -239,13 +269,23 @@ func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 	shared := sharedProducts(slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool {
 		return p.Visibility == "archived"
 	}))
+	seen := map[string]bool{}
 	for _, p := range plans {
 		if sp, ok := sellerPriceOf(p); ok {
-			if problem, issue := allowanceIssue(sp.Servers, sp.MemoryMB); problem != "" {
+			if problem, issue := allowanceIssue(sp.Title, sp.Servers, sp.MemoryMB); problem != "" {
 				sp.Problem, sp.issues = problem, []planIssue{issue}
 			} else if sh, ok := shared[p.ID]; ok {
 				sp.Problem = strings.TrimSpace(sp.Problem + " " + sh.problem())
 				sp.issues = append(sp.issues, sh.issue())
+			}
+			for _, is := range sp.issues {
+				switch {
+				case is.rule.fixable():
+					v.Fixable = true
+				case is.blocked != "" && !seen[is.blocked]:
+					seen[is.blocked] = true
+					v.Blocked = append(v.Blocked, is.blocked)
+				}
 			}
 			v.Plans = append(v.Plans, sp)
 		}
@@ -269,11 +309,12 @@ func sharedProductProblems(plans []whop.Plan) map[string]string {
 	return out
 }
 
-// sharedProduct is the product a plan shares with other plans, and their
-// titles.
+// sharedProduct is the product a plan shares with other plans, their
+// titles, and every plan's on it, the plan's own included, in Whop's order.
 type sharedProduct struct {
 	product string
 	others  []string
+	all     []string
 }
 
 // sharedProducts is, by plan id, the product of each of plans whose product
@@ -296,6 +337,7 @@ func sharedProducts(plans []whop.Plan) map[string]sharedProduct {
 				if o.ID != p.ID {
 					sh.others = append(sh.others, cmpOr(o.Title, o.ID))
 				}
+				sh.all = append(sh.all, cmpOr(o.Title, o.ID))
 			}
 			out[p.ID] = sh
 		}
@@ -308,8 +350,11 @@ func (sh sharedProduct) problem() string {
 		sh.product, andList(sh.others))
 }
 
+// issue is the shared product as one of a plan's issues, whose blocked line
+// is the same for every plan on the product, so the seller reads it once.
 func (sh sharedProduct) issue() planIssue {
-	return planIssue{ruleOwnProduct, "shares " + sh.product + " with " + andList(sh.others)}
+	return planIssue{rule: ruleOwnProduct, says: "shares " + sh.product + " with " + andList(sh.others),
+		blocked: andList(sh.all) + " are on the same product. Give each its own product in Whop."}
 }
 
 // andList writes names as a person lists them, such as "Plus, Max and
@@ -325,21 +370,27 @@ func andList(names []string) string {
 // memoryMB between them from selling, when that's outside the bounds the
 // store's pass runs (invites.Allowance.Check), or "".
 func allowanceProblem(servers, memoryMB int) string {
-	problem, _ := allowanceIssue(servers, memoryMB)
+	problem, _ := allowanceIssue("", servers, memoryMB)
 	return problem
 }
 
-// allowanceIssue is allowanceProblem, with the issue it is.
-func allowanceIssue(servers, memoryMB int) (string, planIssue) {
+// allowanceIssue is allowanceProblem, with the issue it is for the plan
+// titled title.
+func allowanceIssue(title string, servers, memoryMB int) (string, planIssue) {
 	switch {
 	case (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:
 		return "", planIssue{}
 	case servers < 1 || servers > invites.MaxAllowanceServers:
 		return fmt.Sprintf("It allows %d servers, and hosted plans allow 1 to %d.", servers, invites.MaxAllowanceServers),
-			planIssue{ruleAllowance, fmt.Sprintf("allows %d servers", servers)}
+			planIssue{rule: ruleAllowance, says: fmt.Sprintf("allows %d servers", servers),
+				blocked: fmt.Sprintf("%s allows %d servers. Make it %d or fewer in Whop.", title, servers, invites.MaxAllowanceServers)}
+	}
+	fix := "Make it " + gigabytes(invites.MaxAllowanceMemoryMB) + " or less in Whop."
+	if memoryMB < invites.MinAllowanceMemoryMB {
+		fix = "Make it " + gigabytes(invites.MinAllowanceMemoryMB) + " or more in Whop."
 	}
 	return fmt.Sprintf("It allows %s, and hosted plans allow %s to %s.", gigabytes(memoryMB), gigabytes(invites.MinAllowanceMemoryMB), gigabytes(invites.MaxAllowanceMemoryMB)),
-		planIssue{ruleAllowance, "allows " + gigabytes(memoryMB)}
+		planIssue{rule: ruleAllowance, says: "allows " + gigabytes(memoryMB), blocked: fmt.Sprintf("%s allows %s. %s", title, gigabytes(memoryMB), fix)}
 }
 
 // markHostedProducts marks each of the store's hosting products, the ones
@@ -523,6 +574,78 @@ func (s *Server) hWhopSellerSetPrice(w http.ResponseWriter, r *http.Request, sto
 		v.Problem = problem
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+// sellerFixed is what Fix my plans did: what it changed, in a line, "" for
+// nothing, and the store's prices then.
+type sellerFixed struct {
+	Changed string       `json:"changed,omitempty"`
+	Prices  sellerPrices `json:"prices"`
+}
+
+// hWhopSellerFix is a seller pressing Fix my plans, before their store is
+// open: each hosting plan that renews then does so every month, in US
+// dollars, with no free trial, keeping its price (MakePlanMonthly), with the
+// app's permission to update plans. It says in a line what it changed. A
+// plan charged only once, one allowing more than the fleet runs and plans
+// sharing a product stay the seller's to change in Whop, as the prices'
+// Blocked lines say, and so does a price under the floor, which the page
+// suggests one for. An open store's plans stay as they are.
+func (s *Server) hWhopSellerFix(w http.ResponseWriter, r *http.Request, store string) {
+	st, user, c, ok := s.sellerStore(w, r, store)
+	if !ok {
+		return
+	}
+	s.whopMu.Lock()
+	defer s.whopMu.Unlock()
+	if st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); !ok {
+		return
+	}
+	if st.ClosedWhy == "" {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "Your store is open, so its plans stay as they are.", "")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), whopCallsFor)
+	defer cancel()
+	plans, err := c.Plans(ctx, st.ID)
+	if err != nil {
+		s.sellerRefusal(w, err)
+		return
+	}
+	var changed []string
+	for i, p := range plans {
+		if _, hosting := sellerPriceOf(p); !hosting || p.PlanType != "renewal" {
+			continue
+		}
+		var now []string
+		if p.BillingPeriod != 30 {
+			now = append(now, "renews every month")
+		}
+		if !strings.EqualFold(p.Currency, "usd") {
+			now = append(now, "is in US dollars")
+		}
+		if p.TrialDays > 0 {
+			now = append(now, "has no free trial")
+		}
+		if len(now) == 0 {
+			continue
+		}
+		updated, err := c.MakePlanMonthly(ctx, p.ID)
+		if err != nil {
+			s.sellerRefusal(w, err)
+			return
+		}
+		if updated.ID == p.ID {
+			plans[i] = updated
+		}
+		changed = append(changed, cmpOr(p.Title, p.ID)+" now "+andList(now)+".")
+	}
+	line := strings.Join(changed, " ")
+	if line != "" {
+		s.audit("whop:"+user, "whop.plan_fix", st.ID, "succeeded", line)
+		s.readWhopStoreSoon(ctx, st.ID)
+	}
+	writeJSON(w, http.StatusOK, sellerFixed{Changed: line, Prices: sellerPricesFrom(st, plans)})
 }
 
 // refusedPlans is what Open the store says when it refuses plans: a line
