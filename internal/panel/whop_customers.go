@@ -508,21 +508,26 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 
 // refreshWhopPlans reads the store again every whopPollEvery, so a plan's
 // allowance changed on Whop reaches its customers, and sooner when the
-// store may be out of date (see whopStoreDue). It says whether it just read
-// the store.
+// store may be out of date (see whopStoreDue). An app store's read notes
+// its hosting plans that share a product as its problem (whopSharedNote).
+// It says whether it just read the store.
 func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopStore) bool {
 	if !s.whopStoreDue(ctx, st) {
 		return false
 	}
 	problem := ""
-	if err := s.readWhopStore(ctx, c, st.ID, false); err != nil {
+	plans, err := s.readWhopStorePlans(ctx, c, st.ID, false)
+	switch {
+	case err != nil:
 		problem = whopProblem(err)
 		s.log.Warn("could not read the store on Whop", "store", st.ID, "err", err)
+	case st.Via == whopViaApp:
+		problem = whopSharedNote(plans)
 	}
 	if _, err := s.db.Exec(`UPDATE whop_stores SET synced_at = ?, problem = ? WHERE store_id = ?`, s.now().UnixMilli(), problem, st.ID); err != nil {
 		s.log.Error("could not record reading the store on Whop", "err", err)
 	}
-	return problem == ""
+	return err == nil
 }
 
 // whopStoreDue says whether the reconciler reads the store this pass: every

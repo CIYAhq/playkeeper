@@ -8537,9 +8537,9 @@ control "share: a price not on Whop yet is judged as Whop will charge it" intern
   'plans[i].InitialPrice, plans[i].RenewalPrice = 0, price' \
   '_, _ = i, price' \
   ./internal/panel '^TestAShareIsSetForAPriceBeforeItsOnWhop$'
-control "share: a hosting plan that shares its product needs a look" internal/panel/whop_share_hooks.go \
-  'if note := whopSharedNote(plans); note != "" {' \
-  'if note := whopSharedNote(plans); note != "" && false {' \
+control "share: a hosting plan that shares its product needs a look" internal/panel/whop_customers.go \
+  'problem = whopSharedNote(plans)' \
+  '_ = plans' \
   ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
 control "share: only plans on sale share a product" internal/panel/whop_share_hooks.go \
   'func(p whop.Plan) bool { return p.Visibility == "archived" })' \
