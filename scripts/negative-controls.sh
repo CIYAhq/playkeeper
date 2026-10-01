@@ -7012,13 +7012,41 @@ control "joined page: a server's name answers only while its machine says it's o
 		return true' \
   ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
 control "joined page: a server's name answers only while the dashboard's record says it's on the page" internal/panel/joinedpage.go \
-  'if !ok || !s.joinedPublic(ctx, m, j.id) {' \
-  'if !ok {' \
+  '		case !public:
+			return pageAnswer{answered: true}, false' \
+  '		case !public && false:
+			return pageAnswer{answered: true}, false' \
   ./internal/panel '^TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo$'
-control "joined page: the record keeps what the dashboard set, not what the machine answered" internal/panel/serverpage.go \
-  '		s.setPageRecord(id, *req.Enabled)' \
-  '		s.setPageRecord(id, v.Enabled)' \
-  ./internal/panel '^TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo$'
+control "joined page: the owner's off is recorded before the machine is asked" internal/panel/serverpage.go \
+  '	if req.Enabled != nil && !*req.Enabled {
+		s.setPageRecord(id, false)' \
+  '	if req.Enabled != nil && !*req.Enabled && false {
+		s.setPageRecord(id, false)' \
+  ./internal/panel '^TestAMachineThatRefusesTheOwnersOffLosesItsPage$'
+control "joined page: the owner's on waits for the machine to take it" internal/panel/serverpage.go \
+  '	if req.Enabled != nil && !*req.Enabled {
+		s.setPageRecord(id, false)' \
+  '	if req.Enabled != nil {
+		s.setPageRecord(id, *req.Enabled)' \
+  ./internal/panel '^TestAMachineThatRefusesTheOwnersOffLosesItsPage$'
+control "joined page: a machine that doesn't answer leaves the ports as they are" internal/panel/joinedpage.go \
+  '		case !ok:
+			return pageAnswer{}, false' \
+  '		case !ok:
+			return pageAnswer{answered: true}, false' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesThePortsHeld$'
+control "joined page: a machine that says its server is off the page is believed" internal/panel/joinedpage.go \
+  '		case status == http.StatusNotFound:
+			return pageAnswer{answered: true}, false' \
+  '		case status == http.StatusNotFound:
+			return pageAnswer{}, false' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: the record's off gives the ports back" internal/panel/joinedpage.go \
+  '		case !public:
+			return pageAnswer{answered: true}, false' \
+  '		case !public:
+			return pageAnswer{}, false' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesThePortsHeld$'
 control "joined page: the machine's word is taken only where the dashboard has no record" internal/panel/joinedpage.go \
   'VALUES(?,?,?) ON CONFLICT(server_id) DO NOTHING`, id, machineSays' \
   'VALUES(?,?,?) ON CONFLICT(server_id) DO UPDATE SET enabled = excluded.enabled`, id, machineSays' \
@@ -7133,8 +7161,10 @@ control "joined page: the keeper holds the ports while a joined server is on the
   '		_, known = s.anyJoinedPageOn(jctx)' \
   ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
 control "joined page: the keeper gives the ports back once the joined server is off" internal/panel/joinedpage.go \
-  '				if _, ok := s.joinedPage(ctx, j); ok {' \
-  '				if _, ok := s.joinedPage(ctx, j); ok || true {' \
+  '				case on:
+					answers <- someOn' \
+  '				case on || true:
+					answers <- someOn' \
   ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
 control "joined page: the keeper's asks end with its look's deadline" internal/panel/joinedpage.go \
   '		case <-ctx.Done():
