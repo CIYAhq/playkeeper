@@ -1,12 +1,15 @@
 package panel
 
 import (
+	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
@@ -236,6 +239,107 @@ func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
 	e.reconcile()
 	if msgs := f.sentIn("biz_other", "user_kim"); !slices.ContainsFunc(msgs, func(m string) bool { return strings.Contains(m, "You cancelled your Other Hosting plan") }) {
 		t.Fatalf("kim's chat at Other Hosting: %q", msgs)
+	}
+}
+
+// A customer of an app store who cancels the membership that keeps their
+// servers running is reminded to download their world, though another
+// membership of theirs goes on, since its payment never carried
+// Playkeeper's share and it gives them nothing.
+func TestACancellationIsRemindedThoughAnUnpaidMembershipGoesOn(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	f.buyAt("biz_other", "mem_free", "user_kim", "plan_other", "active")
+	f.mu.Lock()
+	b.fees["pay_mem_free"] = nil
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if !calledFor(core.got(), "start plan_other ", "user_kim") {
+		t.Fatalf("kim didn't start on their paid membership alone: %q", core.got())
+	}
+	f.mu.Lock()
+	b.memberships["mem_kim"]["status"], b.memberships["mem_kim"]["cancel_at_period_end"] = "canceling", true
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	e.reconcile()
+	if msgs := f.sentIn("biz_other", "user_kim"); !slices.ContainsFunc(msgs, func(m string) bool { return strings.Contains(m, "You cancelled your Other Hosting plan") }) {
+		t.Fatalf("kim's chat at Other Hosting: %q", msgs)
+	}
+}
+
+// The migration keeps, for each customer already started on an app store,
+// what the core was given for them as paid, and no more. A membership the
+// payment check had refused, an extra one or one moved to more memory, is
+// checked as any other, and one moved keeps what it was given meanwhile.
+func TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid(t *testing.T) {
+	at := slices.IndexFunc(panelMigrations, func(m string) bool { return strings.Contains(m, "CREATE TABLE whop_membership_checks") })
+	if at < 0 {
+		t.Fatal("no migration keeps what the payment check found")
+	}
+	path := filepath.Join(t.TempDir(), "panel.db")
+	db, err := store.Open(path, panelMigrations[:at])
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO whop_stores(store_id, via, connected_at) VALUES('biz_app', 'app', 1), ('biz_key', 'key', 1)`)
+	exec(`INSERT INTO whop_plans(store_id, plan_id, product_id, title, allowance_servers, allowance_memory_mb, allowance_from) VALUES
+		('biz_app', 'plan_other', 'prod_other', 'Other', 1, 4096, 'store'), ('biz_app', 'plan_big', 'prod_big', 'Big', 2, 8192, 'store'),
+		('biz_key', 'plan_starter', 'prod_mc', 'Starter', 1, 4096, 'store')`)
+	given := map[string]string{
+		"user_kim": "plan_other|1|4096|0", "user_dee": "plan_big+plan_other|3|12288|0", "user_alex": "plan_other|1|4096|0", "user_sam": "plan_small|1|4096|0",
+		"user_ray": "plan_other|1|4096|0", "user_lee": "plan_big+plan_other|3|12288|0", "user_pat": "plan_other|1|4096|0",
+	}
+	for user, applied := range given {
+		exec(`INSERT INTO whop_customers(store_id, whop_user_id, applied, paused, updated_at) VALUES('biz_app', ?, ?, ?, 1)`, user, applied, user == "user_pat")
+	}
+	exec(`INSERT INTO whop_customers(store_id, whop_user_id, applied, updated_at) VALUES('biz_key', 'user_kit', 'plan_starter|1|4096|0', 1)`)
+	for _, m := range [][3]string{
+		{"mem_kim", "user_kim", "plan_other"}, {"mem_dee1", "user_dee", "plan_big"}, {"mem_dee2", "user_dee", "plan_other"},
+		{"mem_alex", "user_alex", "plan_other"}, {"mem_alex2", "user_alex", "plan_big"}, {"mem_sam", "user_sam", "plan_big"},
+		{"mem_ray1", "user_ray", "plan_other"}, {"mem_ray2", "user_ray", "plan_other"},
+		{"mem_lee1", "user_lee", "plan_big"}, {"mem_lee2", "user_lee", "plan_other"}, {"mem_lee3", "user_lee", "plan_other"}, {"mem_pat", "user_pat", "plan_other"},
+	} {
+		exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at) VALUES('biz_app', ?, ?, ?, 'active', 1)`, m[0], m[1], m[2])
+	}
+	exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at) VALUES('biz_key', 'mem_kit', 'user_kit', 'plan_starter', 'active', 1)`)
+	db.Close()
+	if db, err = store.Open(path, panelMigrations); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb FROM whop_membership_checks`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var id, plan, title string
+		var servers, mb, disk int
+		if err := rows.Scan(&id, &plan, &title, &servers, &mb, &disk); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = fmt.Sprintf("%s %s %d/%d/%d", plan, title, servers, mb, disk)
+	}
+	want := map[string]string{
+		"mem_kim": "plan_other Other 1/4096/0", "mem_dee1": "plan_big Big 2/8192/0", "mem_dee2": "plan_other Other 1/4096/0",
+		"mem_alex": "plan_other Other 1/4096/0", "mem_sam": "plan_small plan_small 1/4096/0",
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("kept as paid: %v, want %v", got, want)
 	}
 }
 
