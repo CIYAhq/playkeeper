@@ -4,6 +4,7 @@ import type { Allowance, Offer, Shelf, Storefront } from './store.ts'
 /** The store's name until the business has one on Whop. */
 const fallbackName = 'Minecraft server hosting'
 const source = 'https://github.com/CIYAhq/playkeeper/tree/main/services/whop-store'
+const guide = 'https://playkeeper.io/guides/start-a-minecraft-hosting-company'
 
 const nameOf = (s?: Storefront) => s?.name || fallbackName
 
@@ -11,6 +12,8 @@ interface Frame {
   title: string
   description: string
   store?: Storefront
+  /** A page for the store's owner only, kept out of search engines. */
+  noindex?: boolean
 }
 
 function layout(frame: Frame, body: Html) {
@@ -25,6 +28,7 @@ function layout(frame: Frame, body: Html) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${frame.title}</title>
 <meta name="description" content="${frame.description}">
+${frame.noindex ? html`<meta name="robots" content="noindex">` : ''}
 <link rel="icon" href="${s?.logo || '/favicon.svg'}">
 <link rel="stylesheet" href="/store.css">
 </head>
@@ -116,17 +120,37 @@ function open(s: Storefront) {
 <p class="fine">You pay on Whop and can cancel there any time. Your servers keep running until the time you’ve paid for ends.</p>`
 }
 
+/** What a store that isn't taking orders shows at the top: when it opens, and the way in for its owner. */
 function closed(s: Storefront) {
-  return html`<div class="closed">
-<h3>Not taking orders yet</h3>
-<p>${nameOf(s)} opens here soon. Come back in a little while.</p>
-${s.dashboard ? html`<p>Already a customer? <a href="${s.dashboard}">Sign in to your dashboard</a>.</p>` : ''}
-${
-  s.cloudApp
-    ? html`<p class="fine">Setting up this store? Playkeeper Cloud runs your customers’ servers, with nothing to install. <a class="btn btn-outline btn-sm" href="https://whop.com/apps/${s.cloudApp}/install">Connect Playkeeper Cloud</a> and approve it for this business, picking it in Whop’s business picker.</p>`
-    : html`<p class="fine">Setting up this store? Install <a href="https://playkeeper.io">Playkeeper</a> on your server and connect this store in its Settings › Sell on Whop. Turn on Sign in with Whop there, with a Whop app that has <code>oauth:token_exchange</code> on its own Permissions tab, not on an API key. Then make your plans visible on Whop. <a href="https://playkeeper.io/guides/start-a-minecraft-hosting-company">Every step</a></p>`
-}
+  return html`<div id="plans" class="closed">
+<h2>Not taking orders yet</h2>
+<p>${nameOf(s)} opens here soon.</p>
+<p class="yours"><span>Is this your store?</span> <a class="btn btn-primary" href="/setup">Set up my store</a></p>
 </div>`
+}
+
+interface Step {
+  title: string
+  text: string
+  button: Html
+}
+
+const dashboardOf = (s: Storefront) => (s.business ? `https://whop.com/dashboard/${s.business}` : 'https://whop.com/dashboard')
+
+function setupSteps(s: Storefront): Step[] {
+  const go = (label: string, href: string) => html`<a class="btn btn-primary" href="${href}">${label}</a>`
+  if (s.cloudApp) {
+    return [
+      { title: 'Connect Playkeeper Cloud', text: `Pick ${s.name || 'this business'} and approve it.`, button: go('Connect Playkeeper Cloud', `https://whop.com/apps/${s.cloudApp}/install`) },
+      { title: 'Open Playkeeper Cloud', text: 'Find it under Apps in your Whop dashboard.', button: go('Open my dashboard', dashboardOf(s)) },
+      { title: 'Open your store', text: 'In Playkeeper Cloud, press Open the store.', button: go('See my store', '/') },
+    ]
+  }
+  return [
+    { title: 'Install Playkeeper', text: 'Put it on your own server.', button: go('Get Playkeeper', 'https://playkeeper.io') },
+    { title: 'Connect this store', text: 'Paste a Whop API key in Playkeeper’s Settings › Sell on Whop.', button: go('Get an API key', 'https://whop.com/dashboard/developer') },
+    { title: 'Show your plans', text: 'Make your plans visible on Whop.', button: go('Open my dashboard', dashboardOf(s)) },
+  ]
 }
 
 function questions(name: string): [string, string][] {
@@ -145,6 +169,7 @@ function questions(name: string): [string, string][] {
 export function homePage(s: Storefront) {
   const name = nameOf(s)
   const lead = s.description || 'Choose a plan, sign in with Whop, and run your server from your own dashboard, with plugins, mods, modpacks and backups.'
+  const selling = s.shelves.length > 0
   return layout(
     { title: `${name}: Minecraft server hosting`, description: lead, store: s },
     html`<section class="hero">
@@ -152,15 +177,19 @@ export function homePage(s: Storefront) {
 <p class="eyebrow">Minecraft: Java Edition server hosting</p>
 <h1>Your own Minecraft server, and the dashboard to run it</h1>
 <p class="lead">${lead}</p>
-${s.shelves.length > 0 ? html`<p><a class="btn btn-primary btn-lg" href="#plans">See the plans</a></p>` : ''}
+${selling ? html`<p><a class="btn btn-primary btn-lg" href="#plans">See the plans</a></p>` : closed(s)}
 </div>
 </section>
-<section id="plans" class="band" aria-labelledby="plans-title">
+${
+  selling
+    ? html`<section id="plans" class="band" aria-labelledby="plans-title">
 <div class="wrap">
 <h2 id="plans-title">Plans</h2>
-${s.shelves.length > 0 ? open(s) : closed(s)}
+${open(s)}
 </div>
-</section>
+</section>`
+    : ''
+}
 <section class="band band-white" aria-labelledby="how-title">
 <div class="wrap">
 <h2 id="how-title">How it works</h2>
@@ -204,6 +233,27 @@ export function termsPage(s: Storefront) {
 <p>${name} may change these terms and says so on Whop when it does. Keeping your plan after a change means you accept it.</p>
 <h2>Contact</h2>
 <p>Message ${name} on Whop.</p>
+</div>
+</section>`,
+  )
+}
+
+/** The owner's steps to open a store that isn't taking orders, one sentence and one button each. */
+export function setupPage(s: Storefront) {
+  return layout(
+    { title: `Set up your store: ${nameOf(s)}`, description: 'Three steps to open your store.', store: s, noindex: true },
+    html`<section class="band">
+<div class="wrap narrow">
+<h1 class="page-title">Set up your store</h1>
+<p class="lead">Three steps, about two minutes.</p>
+<ol class="setup">
+${setupSteps(s).map((st) => html`<li>
+<h2>${st.title}</h2>
+<p>${st.text}</p>
+${st.button}
+</li>`)}
+</ol>
+<p class="fine">Stuck? <a href="${guide}">Read the guide</a>.</p>
 </div>
 </section>`,
   )

@@ -36,10 +36,25 @@ test('a store taking orders shows its plans with Whop’s checkout, and the dash
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Terms of service')
 })
 
-test('a fresh copy of the blueprint takes no orders until its Playkeeper is connected', async ({ page }) => {
+test('a fresh copy of the blueprint takes no orders until its Playkeeper is connected, and walks its owner through connecting it', async ({ page }) => {
   await page.goto(`${fresh}/`)
-  await expect(page.getByRole('heading', { name: 'Not taking orders yet' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Not taking orders yet' })).toBeInViewport()
   await expect(page.locator('a[href^="https://whop.com/checkout/"]')).toHaveCount(0)
+  await page.getByRole('link', { name: 'Set up my store' }).click()
+  await expect(page).toHaveURL(`${fresh}/setup`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Set up your store')
+  const steps = page.getByRole('listitem').filter({ has: page.getByRole('heading', { level: 2 }) })
+  await expect(steps.getByRole('heading', { level: 2 })).toHaveText(['Connect Playkeeper Cloud', 'Open Playkeeper Cloud', 'Open your store'])
+  await expect(steps.nth(0).getByRole('link')).toHaveAttribute('href', /^https:\/\/whop\.com\/apps\/app_[A-Za-z0-9]+\/install$/)
+  await expect(steps.nth(1).getByRole('link')).toHaveAttribute('href', 'https://whop.com/dashboard/biz_copy')
+  await steps.nth(2).getByRole('link', { name: 'See my store' }).click()
+  await expect(page).toHaveURL(`${fresh}/`)
+})
+
+test('a store taking orders sends its owner from the setup steps to its plans', async ({ page }) => {
+  await page.goto(`${open}/setup`)
+  await expect(page).toHaveURL(`${open}/`)
+  await expect(page.getByRole('link', { name: 'Choose Starter' })).toBeVisible()
 })
 
 test('a store whose Whop can’t be reached says so', async ({ page }) => {
@@ -52,7 +67,7 @@ for (const size of sizes) {
   test(`every page at ${size.name} size: nothing wider than the screen, no serious accessibility violations`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile })
     const page = await ctx.newPage()
-    for (const url of [`${open}/`, `${open}/terms`, `${open}/no-such-page`, `${fresh}/`, `${down}/`]) {
+    for (const url of [`${open}/`, `${open}/terms`, `${open}/no-such-page`, `${fresh}/`, `${fresh}/setup`, `${down}/`]) {
       await page.goto(url)
       await check(page, `${url} at ${size.name}`)
     }

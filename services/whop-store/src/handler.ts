@@ -1,5 +1,5 @@
 import type { Html } from './html.ts'
-import { homePage, notFoundPage, termsPage, unavailablePage } from './pages.ts'
+import { homePage, notFoundPage, setupPage, termsPage, unavailablePage } from './pages.ts'
 import { storefront, type Storefront } from './store.ts'
 import { readStore, type Env } from './whop.ts'
 
@@ -54,8 +54,13 @@ export function createHandler(deps: Deps = { fetch: (input, init) => fetch(input
     }
     const path = new URL(request.url).pathname.replace(/\/+$/, '') || '/'
     const s = await store(env)
-    if (path !== '/' && path !== '/terms') return page(notFoundPage(s), 404, 'public, max-age=60')
+    if (path !== '/' && path !== '/terms' && path !== '/setup') return page(notFoundPage(s), 404, 'public, max-age=60')
     if (!s) return page(unavailablePage(), 503, 'no-store')
+    if (path === '/setup') {
+      // A store taking orders is set up already, so its owner lands on its plans.
+      if (s.shelves.length > 0) return new Response(null, { status: 302, headers: { location: '/', 'cache-control': 'public, max-age=60' } })
+      return page(setupPage(s), 200, 'public, max-age=60')
+    }
     return page(path === '/' ? homePage(s) : termsPage(s), 200, 'public, max-age=60')
   }
 }
