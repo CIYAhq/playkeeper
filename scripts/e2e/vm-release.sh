@@ -55,7 +55,8 @@ cert="$OUT/cert.pem"
 export PK_PASSWORD=${PK_PASSWORD:-"lab-$(head -c 9 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"}
 export PK_ADMIN_PASSWORD="$PK_PASSWORD"
 OFFLINE_DROPIN='[Service]
-Environment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1'
+Environment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1
+Environment=PLAYKEEPER_E2E_BUILTIN_LISTS=1'
 BLOCKED="names.playkeeper.io stats.playkeeper.io discord.com discordapp.com canary.discord.com ptb.discord.com"
 results=()
 since=""

@@ -13175,6 +13175,16 @@ control "a built-in list with a download on a foreign host is refused" internal/
   'if !servesFrom(a.Upstream, a.Hosts) {' \
   'if false && !servesFrom(a.Upstream, a.Hosts) {' \
   ./internal/minecraft/software '^TestABuiltInListAMachineCouldNotInstallFromIsRefused$'
+# CI uses the lists built into the build, and one scheduled job asks the
+# live upstreams.
+control "the test harness asks no upstream for a list" internal/agent/software.go \
+  'if !a.opts.BuiltInListsTest {' \
+  'if true {' \
+  ./internal/agent '^TestTheTestHarnessUsesTheBuiltInListsAndAsksNoUpstreamForThem$'
+control "the live check fails on an upstream that's down" cmd/version-lists/check.go \
+  'c.failed = append(c.failed, name)' \
+  '_ = name' \
+  ./cmd/version-lists '^TestTheLiveCheckFailsOnAnUpstreamThatIsDown$'
 webcontrol "the dashboard says when the versions aren't the upstream's own list" web/src/components/app/create.tsx \
   "const text = catalog.versionsFrom === 'kept'" \
   "if (catalog) return null

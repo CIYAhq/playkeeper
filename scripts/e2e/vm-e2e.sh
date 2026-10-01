@@ -42,7 +42,8 @@ export PK_PASSWORD=${PK_PASSWORD:-"lab-$(head -c 9 /dev/urandom | base64 | tr -d
 export PK_ADMIN_PASSWORD="$PK_PASSWORD"
 UI="$root/test/e2e/ui"
 OFFLINE_DROPIN='[Service]
-Environment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1'
+Environment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1
+Environment=PLAYKEEPER_E2E_BUILTIN_LISTS=1'
 pids=()
 
 phase() { printf '\n==== %s  [%s]\n' "$*" "$(date -u +%H:%M:%S)"; }

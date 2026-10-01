@@ -1,0 +1,42 @@
+name: Live upstreams
+
+# The one check that asks the live upstreams Playkeeper reads, and the only
+# one that fails when one of them is down: every version list loads as a
+# machine loads it, the files of each type's recommended version download
+# and match their hashes, Modrinth, Hangar and CurseForge answer, and the
+# lists built into Playkeeper are compared with what the upstreams list now
+# (go run ./cmd/version-lists -check). No pull request, push or release runs
+# it, so it never blocks one: it runs every morning and by hand, and says
+# when an upstream has changed or the next release would ship old lists
+# (make version-lists catches them up). Every other check uses the lists
+# built into the build under test (PLAYKEEPER_E2E_BUILTIN_LISTS), so an
+# upstream's outage, like PaperMC's on 1 Oct 2026, fails none of them.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  live:
+    name: Live upstreams (not required) — every version list, each type's download, and the add-on libraries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      # CurseForge is asked with the key the Release check builds into the
+      # release, from the default branch only (no pull request runs this).
+      - name: Ask every upstream
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+        run: .tools/go/bin/go run ./cmd/version-lists -check

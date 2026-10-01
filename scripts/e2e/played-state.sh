@@ -49,7 +49,7 @@ case $cmd in
     certificate /tmp/evidence/cert.pem
     grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' >/tmp/evidence/code
     sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
-    printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf >/dev/null
+    printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\nEnvironment=PLAYKEEPER_E2E_BUILTIN_LISTS=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf >/dev/null
     sudo systemctl daemon-reload
     sudo systemctl restart playkeeper-agent
     ;;

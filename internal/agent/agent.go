@@ -50,6 +50,12 @@ const (
 	// harness only. The installer never sets it and the UI shows a permanent
 	// warning while it is active.
 	OfflineModeEnv = "PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE"
+	// BuiltInListsEnv makes the agent use the version lists and install
+	// plans built into this build, never its upstreams', as it does while
+	// they can't be reached: the end-to-end tests set it, so they never fail
+	// because an upstream's list is down. Downloads still come from the
+	// upstreams' download hosts.
+	BuiltInListsEnv = "PLAYKEEPER_E2E_BUILTIN_LISTS"
 )
 
 // Options configures an Agent. Zero values select production behaviour; the
@@ -67,7 +73,9 @@ type Options struct {
 	// PingAddr overrides the address used for Server List Ping (tests).
 	PingAddr        string
 	OfflineModeTest bool
-	HostMemoryMB    func() int
+	// BuiltInListsTest is BuiltInListsEnv.
+	BuiltInListsTest bool
+	HostMemoryMB     func() int
 	// ProcStat reads /proc/stat, for the machine's CPU use and steal.
 	ProcStat    func() ([]byte, error)
 	DiskUsage   func(path string) (free, total int64, err error)
@@ -655,6 +663,9 @@ func New(opts Options) (*Agent, error) {
 // checks and address.
 // A restore a previous agent process was in the middle of is finished first.
 func (a *Agent) Start() {
+	if a.opts.BuiltInListsTest {
+		a.log.Warn("version lists and install plans come from the lists built into this build, never from their upstreams", "env", BuiltInListsEnv)
+	}
 	for _, s := range a.serverList() {
 		s.recoverAtStart()
 		s.startLoops()

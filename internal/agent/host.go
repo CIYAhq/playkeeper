@@ -98,7 +98,7 @@ func checkEgress(ctx context.Context) error {
 	for i, h := range egressHosts {
 		switch {
 		case errs[i] != nil:
-			t.down = append(t.down, fmt.Sprintf("%s (%s) didn't answer: %v", h.name, h.host, unwrapURLError(errs[i])))
+			t.down = append(t.down, fmt.Sprintf("%s (%s) didn't answer", h.name, h.host))
 			t.hosts = append(t.hosts, h.host)
 		case statuses[i] >= 500:
 			t.down = append(t.down, fmt.Sprintf("%s answered HTTP %d", h.name, statuses[i]))

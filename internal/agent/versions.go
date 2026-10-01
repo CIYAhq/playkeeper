@@ -60,7 +60,7 @@ const (
 )
 
 func (a *Agent) fill() minecraft.Fill {
-	return minecraft.Fill{BaseURL: a.opts.FillURL, Client: a.opts.HTTPClient}
+	return minecraft.Fill{BaseURL: a.opts.FillURL, Client: a.metadataClient(a.opts.HTTPClient)}
 }
 
 // Tests replace the lists built into Playkeeper, and where Paper's jars

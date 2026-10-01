@@ -105,6 +105,41 @@ func TestWithoutABuiltInListMojangsOutageLeavesNoVanillaServer(t *testing.T) {
 	}
 }
 
+// The end-to-end tests set BuiltInListsEnv, so an upstream's outage never
+// fails them: the agent asks no upstream for a list or an install plan and
+// uses the lists built into the build, as during an outage, while the jars
+// still come from the download hosts.
+func TestTheTestHarnessUsesTheBuiltInListsAndAsksNoUpstreamForThem(t *testing.T) {
+	made := time.Date(2026, 10, 1, 11, 12, 27, 0, time.UTC)
+	e := newAgentEnvWith(t, func(e *agentEnv) { e.tweak = func(o *Options) { o.BuiltInListsTest = true } })
+	e.useBuiltInPaper(made, e.builtInVersion("26.2", "SUPPORTED", 129), e.builtInVersion("26.1.2", "UNSUPPORTED", 74))
+	e.useBuiltInTypes(made, software.Vanilla)
+	paperAsked, mojangAsked := e.fill.asked(), e.up.hitCount(mojangManifest)
+
+	for _, typ := range []string{"paper", "vanilla"} {
+		var cat api.Catalog
+		e.decode("GET", "/v1/catalog?type="+typ, &cat)
+		if len(cat.Versions) != 2 || cat.VersionsFrom != "builtin" || !cat.VersionsCheckedAt.Equal(made) {
+			t.Fatalf("%s's versions come from the built-in list: %+v", typ, cat)
+		}
+	}
+	e.createWith(map[string]any{"versionId": "paper-26.1.2"})
+	e.createWith(vanilla262)
+	if e.fill.asked() != paperAsked || e.up.hitCount(mojangManifest) != mojangAsked {
+		t.Fatalf("no upstream is asked for a list: PaperMC %d more times, Mojang %d", e.fill.asked()-paperAsked, e.up.hitCount(mojangManifest)-mojangAsked)
+	}
+	if e.up.hitCount(e.up.serverJarURL("26.2")) == 0 {
+		t.Fatal("the jar still comes from Mojang's download host")
+	}
+
+	// The negative control: without the switch, the same reads ask them.
+	off := newAgentEnv(t)
+	off.decode("GET", "/v1/catalog?type=vanilla", &api.Catalog{})
+	if off.a.catalogInfo(t.Context(), ""); off.fill.asked() == 0 || off.up.hitCount(mojangManifest) == 0 {
+		t.Fatal("without the switch the upstreams are asked")
+	}
+}
+
 const (
 	fabricGames   = "https://meta.fabricmc.net/v2/versions/game"
 	fabricLoaders = "https://meta.fabricmc.net/v2/versions/loader"
