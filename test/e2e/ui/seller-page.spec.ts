@@ -227,7 +227,7 @@ for (const [size, device] of Object.entries(sizes)) {
     await ctx.close()
   })
 
-  test(`an open store shows what it earned and its customers, at ${size} size`, async ({ browser, baseURL }) => {
+  test(`an open store shows what it earned and its customers, and changes its prices, at ${size} size`, async ({ browser, baseURL }) => {
     const ctx = await browser.newContext({ baseURL, ...device })
     const page = await ctx.newPage()
     await serve(page, scenes.earning())
@@ -235,6 +235,10 @@ for (const [size, device] of Object.entries(sizes)) {
     await check(page, 'You’re live', `earning at ${size}`, `6-earnings-and-customers-${size}`)
     await expect(page.getByText('September 2026')).toBeVisible()
     await expect(page.getByText('4 customers')).toBeVisible()
+    await page.getByRole('button', { name: 'Change prices' }).click()
+    await check(page, 'Your prices', `change prices at ${size}`, `8-change-prices-${size}`)
+    await page.getByRole('button', { name: 'Back' }).click()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('You’re live')
     await ctx.close()
   })
 
