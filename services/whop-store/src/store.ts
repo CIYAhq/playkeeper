@@ -48,6 +48,8 @@ export interface Storefront {
   shelves: Shelf[]
   /** The Playkeeper Cloud app a hosted copy connects on Whop, "" for a store that connects its own Playkeeper. */
   cloudApp?: string
+  /** The business the store belongs to, biz_…, or "" if Whop named none that looks like one. */
+  business?: string
 }
 
 /**
@@ -155,5 +157,6 @@ export function storefront(data: StoreData): Storefront {
     terms: terms ? terms.href : '',
     shelves: shelves.map((s) => s.shelf),
     cloudApp: /^app_[A-Za-z0-9]{1,60}$/.test(data.cloudApp ?? '') ? data.cloudApp : '',
+    business: /^biz_[A-Za-z0-9]{1,60}$/.test(data.business) ? data.business : '',
   }
 }
