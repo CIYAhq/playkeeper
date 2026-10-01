@@ -3,7 +3,6 @@ package panel
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -83,28 +82,6 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 		st.ClosedWhy = cmpOr(st.ClosedWhy, problem)
 	}
 	return false
-}
-
-// whopSharedNote is what's wrong with an app store's hosting plans on sale
-// that share a product with another plan on sale (sharedProductProblems),
-// among the plans its read listed, "" for nothing. It's the store's
-// problem, so it needs a look, but the store stays open: it costs
-// Playkeeper nothing, since the product's share is its neediest plan's
-// (see whopShareWants), but the seller's other plans on it pay that share
-// too, so it's theirs to put right, and Open the store refuses it.
-func whopSharedNote(plans []whop.Plan) string {
-	selling := slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool { return p.Visibility == "archived" })
-	shared := sharedProductProblems(selling)
-	var notes []string
-	for _, p := range selling {
-		if sp, ok := hostedPlan(p); ok && shared[p.ID] != "" {
-			notes = append(notes, sp.Title+": "+strings.TrimSuffix(shared[p.ID], "."))
-		}
-	}
-	if len(notes) == 0 {
-		return ""
-	}
-	return strings.Join(notes, "; ") + "."
 }
 
 // whopReadPayments keeps each payment an open app store was paid since its

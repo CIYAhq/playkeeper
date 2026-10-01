@@ -206,6 +206,28 @@ func whopShareWants(plans []whop.Plan) ([]whopShareWant, []string) {
 	return out, problems
 }
 
+// whopSharedNote is what's wrong with an app store's hosting plans on sale
+// that share a product with another plan on sale (sharedProductProblems),
+// among the plans its read listed, "" for nothing. It's the store's
+// problem, so it needs a look, but the store stays open: it costs
+// Playkeeper nothing, since the product's share is its neediest plan's
+// (see whopShareWants), but the seller's other plans on it pay that share
+// too, so it's theirs to put right, and Open the store refuses it.
+func whopSharedNote(plans []whop.Plan) string {
+	selling := slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool { return p.Visibility == "archived" })
+	shared := sharedProductProblems(selling)
+	var notes []string
+	for _, p := range selling {
+		if sp, ok := hostedPlan(p); ok && shared[p.ID] != "" {
+			notes = append(notes, sp.Title+": "+strings.TrimSuffix(shared[p.ID], "."))
+		}
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return strings.Join(notes, "; ") + "."
+}
+
 // whopSharePlans is the store's plans Playkeeper's share must cover: each
 // one Whop lists that isn't archived, and each archived one someone still
 // has a membership of that gives servers, since its members go on renewing.

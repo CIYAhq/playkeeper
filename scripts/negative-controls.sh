@@ -8541,7 +8541,7 @@ control "share: a hosting plan that shares its product needs a look" internal/pa
   'problem = whopSharedNote(plans)' \
   '_ = plans' \
   ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
-control "share: only plans on sale share a product" internal/panel/whop_share_hooks.go \
+control "share: only plans on sale share a product" internal/panel/whop_share.go \
   'func(p whop.Plan) bool { return p.Visibility == "archived" })' \
   'func(p whop.Plan) bool { return false })' \
   ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
