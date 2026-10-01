@@ -4948,6 +4948,18 @@ control "a new place counts its copies from none" internal/agent/offsite.go \
   'copies_made = 0 WHERE' \
   'copies_made = copies_made WHERE' \
   ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+# shellcheck disable=SC2016
+control "a finished copy is stored with its count and its leaving the queue" internal/agent/offsite.go \
+  '	if err := s.recordCopy(b, cp); err != nil {' \
+  '	raw, _ := json.Marshal(cp)
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, s.id, b.ID, b.Kind, b.CreatedAt.UnixMilli(), b.FileName, b.SizeBytes, b.MinecraftVersion, b.LevelName, string(raw), s.now().UnixMilli())
+	if err == nil {
+		_, _ = s.db.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id)
+		s.dropUpload(b.ID)
+	}
+	if err != nil {' \
+  ./internal/agent '^TestARecordedCopyIsAlreadyCountedAndOutOfTheQueue$'
 control "a scheduled backup refused for want of a pause is recorded" internal/agent/schedules.go \
   's.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)' \
   '_ = why' \

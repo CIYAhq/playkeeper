@@ -513,6 +513,39 @@ func TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst(t *testing.T) {
 	}
 }
 
+// Whoever sees a copy recorded finds it counted and out of the queue: it is
+// stored with both, and last. The trigger notes, as each copy is recorded,
+// how many copies were made to the place and whether it was still queued.
+func TestARecordedCopyIsAlreadyCountedAndOutOfTheQueue(t *testing.T) {
+	dest := &fakeDest{stored: map[string]offsite.Copy{}}
+	prev := openOffsite
+	openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	for _, q := range []string{
+		`CREATE TABLE recorded(backup_id TEXT, made INTEGER, queued INTEGER)`,
+		`CREATE TRIGGER copy_recorded AFTER INSERT ON offsite_copies BEGIN
+			INSERT INTO recorded VALUES (NEW.backup_id,
+				(SELECT copies_made FROM offsite WHERE server_id = NEW.server_id),
+				(SELECT COUNT(*) FROM offsite_uploads WHERE server_id = NEW.server_id AND backup_id = NEW.backup_id));
+			END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.create()
+	id := e.backup()
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	e.waitFor("the copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM recorded`) == 1 })
+	var made, queued int
+	if err := e.a.db.QueryRow(`SELECT made, queued FROM recorded WHERE backup_id = ?`, id).Scan(&made, &queued); err != nil || made != 1 || queued != 0 {
+		t.Fatalf("the copy was recorded with %d copies made and %d uploads queued (%v), want 1 and 0", made, queued, err)
+	}
+}
+
 func (e *agentEnv) staged() []string {
 	entries, _ := os.ReadDir(e.a.cfg.StagingDir())
 	var names []string
