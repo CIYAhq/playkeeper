@@ -6611,6 +6611,10 @@ control "memory kills are counted from the last resume" internal/agent/pregen.go
   '(SELECT MAX(ts) FROM audit WHERE server_id = ?' \
   '(SELECT MAX(ts) FROM audit WHERE 0 AND server_id = ?' \
   ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "a crash in the millisecond a task started or was resumed counts for it" internal/agent/pregen.go \
+  'AND ts >= MAX(?, COALESCE(' \
+  'AND ts > MAX(?, COALESCE(' \
+  ./internal/agent '^TestACrashInTheMillisecondATaskStartedCountsForIt$'
 control "only a task a restart dropped is sent again" internal/agent/pregen.go \
   '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
   '	if run.IsZero() || tried {' \
