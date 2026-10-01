@@ -160,10 +160,12 @@ class Client:
             time.sleep(3)
         raise SystemExit(f"server not online+reachable after {timeout}s: {st.get('phase')} {st.get('lastError', '')}")
 
-    def create(self, version, memory=0, motd="Playkeeper test server", name="", max_players=0):
+    def create(self, version, memory=0, motd="Playkeeper test server", name="", max_players=0, typ=""):
         """Creates a server, remembers it as the current one and waits for the create to finish."""
         cat = self.ok("GET", self.mp("/catalog"))
         body = {"acceptEula": True, "versionId": version, "memoryMB": memory or cat["recommendedMemoryMB"], "motd": motd}
+        if typ:
+            body["type"] = typ
         if name:
             body["name"] = name
         if max_players:

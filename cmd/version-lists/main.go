@@ -28,9 +28,26 @@ func main() {
 	paper := flag.String("paper", "internal/minecraft/builtin/paper.json", "where to write Paper's list")
 	others := flag.String("software", "internal/minecraft/software/builtin/lists.json", "where to write the other types' lists")
 	fill := flag.String("fill", minecraft.DefaultFillURL, "PaperMC's Fill API")
+	checkOnly := flag.Bool("check", false, "write nothing: check that every upstream answers and serves what its list says, and how the built-in lists compare")
 	flag.Parse()
-	hc := &http.Client{Timeout: time.Minute}
 	now := time.Now()
+	if *checkOnly {
+		dir, err := os.MkdirTemp("", "version-lists-check-")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "version-lists:", err)
+			os.Exit(1)
+		}
+		defer os.RemoveAll(dir)
+		hc := &http.Client{Timeout: 10 * time.Minute}
+		failed := newChecker(os.Stdout, minecraft.Fill{BaseURL: *fill, Client: hc}, software.Sources{Client: hc}, hc, dir, now).run()
+		if len(failed) > 0 {
+			fmt.Fprintln(os.Stderr, "version-lists: these upstreams failed:", strings.Join(failed, ", "))
+			os.RemoveAll(dir)
+			os.Exit(1)
+		}
+		return
+	}
+	hc := &http.Client{Timeout: time.Minute}
 	var failed []string
 	if err := writePaper(*paper, minecraft.Fill{BaseURL: *fill, Client: hc}, now); err != nil {
 		failed = append(failed, err.Error())

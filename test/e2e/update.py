@@ -32,6 +32,9 @@ MOTD = "Playkeeper update test"
 MAX_PLAYERS = 7
 CONFIG_KEYS = ["versionId", "minecraftVersion", "paperBuild", "memoryMB", "heapMB", "levelName", "motd", "maxPlayers",
                "whitelist", "eulaAcceptedAt", "eulaAcceptedBy", "createdAt", "image"]
+# The types the current release's server may be, in the order tried: each
+# reads its versions from upstreams of its own, Mojang's aside.
+UPGRADE_TYPES = ["paper", "vanilla", "fabric", "purpur"]
 results = {"checks": []}
 
 
@@ -83,6 +86,24 @@ def record(c):
     }
 
 
+def listed_type(c):
+    """The first server type, Paper first, whose versions the installed
+    release can load, with its catalog and recommended version. Releases
+    before 0.4.14 ask their upstreams with nothing to fall back on, so while
+    PaperMC is down, as on 1 Oct 2026, the release gets a server of a type
+    whose upstream answers, and the job tests the upgrade all the same."""
+    tried = []
+    for typ in UPGRADE_TYPES:
+        cat = c.ok("GET", "/api/catalog" if c.legacy else c.mp(f"/catalog?type={typ}"))
+        version = next((v for v in cat.get("versions", []) if v.get("recommended")), None)
+        if version:
+            return typ, cat, version
+        tried.append(f"{typ}: {cat.get('versionsError') or 'no recommended version'}")
+        if c.legacy:
+            break
+    raise SystemExit("update test failed: the release lists no versions of any server type (" + "; ".join(tried) + ")")
+
+
 def prepare(a):
     os.makedirs(a.out, exist_ok=True)
     c = client(a, legacy=True)
@@ -90,15 +111,14 @@ def prepare(a):
     c.setup(a.code, "admin", PASSWORD)
     status, _ = c.request("GET", "/api/machines")
     c.legacy = status == 404
-    cat = c.ok("GET", "/api/catalog" if c.legacy else c.mp("/catalog"))
-    version = next(v for v in cat["versions"] if v.get("recommended"))
+    typ, cat, version = listed_type(c)
     step(f"Create a server ({version['label']}) with settings to keep: name {MOTD!r}, at most {MAX_PLAYERS} players")
     if c.legacy:
         op = c.ok("POST", "/api/server", {"acceptEula": True, "versionId": version["id"], "memoryMB": cat["recommendedMemoryMB"],
                                           "motd": MOTD, "maxPlayers": MAX_PLAYERS})
         op = c.wait_op(op["id"], timeout=1200)
     else:
-        op = c.create(version["id"], cat["recommendedMemoryMB"], MOTD, max_players=MAX_PLAYERS)
+        op = c.create(version["id"], cat["recommendedMemoryMB"], MOTD, max_players=MAX_PLAYERS, typ=typ)
         # The current release's agent may pull the runtime image only once,
         # and Docker Hub now and then refuses a pull it answers a moment
         # later: Start is pressed again, as the error's hint says.

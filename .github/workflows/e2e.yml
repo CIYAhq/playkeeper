@@ -14,6 +14,9 @@ name: End to end
 # change, and pushes to main only the first runner, when the played state
 # pull requests' crawls start from is due (ci.yml, scripts/ci-parts.sh).
 # Started by hand, it runs the parts asked for on the branch it's started on.
+# The agents of this build use the version lists built into it, never the
+# upstreams' (PLAYKEEPER_E2E_BUILTIN_LISTS), so an upstream's outage fails no
+# part; the Live upstreams workflow is the one that asks them.
 
 on:
   workflow_call:
@@ -109,7 +112,7 @@ jobs:
       - name: Enable the offline test harness (protocol bots have no Mojang accounts)
         run: |
           sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
-          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
+          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\nEnvironment=PLAYKEEPER_E2E_BUILTIN_LISTS=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
           sudo systemctl daemon-reload
           sudo systemctl restart playkeeper-agent
       - name: Keyboard-only onboarding in the browser
@@ -251,7 +254,7 @@ jobs:
           sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
           grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' > /tmp/evidence/code
           sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
-          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
+          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\nEnvironment=PLAYKEEPER_E2E_BUILTIN_LISTS=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
           sudo systemctl daemon-reload && sudo systemctl restart playkeeper-agent
       - name: The first runner's backup, as soon as it has one
         env:
@@ -380,6 +383,10 @@ jobs:
           tar -xzf "$ASSETS/playkeeper-linux-amd64.tar.gz" -C /tmp/install
           cd /tmp/install/playkeeper-*-linux-amd64
           sudo PLAYKEEPER_STATS_URL=http://127.0.0.1:8766 ./install.sh --yes | tee /tmp/evidence/install.txt
+          sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
+          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_BUILTIN_LISTS=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-lists.conf
+          sudo systemctl daemon-reload
+          sudo systemctl restart playkeeper-agent
           sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
           code=$(grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}')
           python3 "$GITHUB_WORKSPACE/test/e2e/pkclient.py" --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --state /tmp/evidence/state.json setup "$code" admin "$PK_PASSWORD" >/dev/null

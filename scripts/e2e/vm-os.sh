@@ -274,7 +274,7 @@ if grep -iE 'playkeeper.*(unknown|ignoring)' "$OUT/units-verify.txt"; then
   fail "this systemd ignores settings in Playkeeper's units"
 fi
 g 'sudo cat /var/lib/playkeeper/panel/tls/cert.pem' >"$OUT/cert.pem"
-g "sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d && printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf >/dev/null && sudo systemctl daemon-reload && sudo systemctl restart playkeeper-agent"
+g "sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d && printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\nEnvironment=PLAYKEEPER_E2E_BUILTIN_LISTS=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf >/dev/null && sudo systemctl daemon-reload && sudo systemctl restart playkeeper-agent"
 ok "Playkeeper $va in $took s, with Docker $docker ($(python3 -c 'import json, sys; print(" ".join(p for p in json.load(open(sys.argv[1]))["packagesInstalled"] if p.startswith("docker")))' "$OUT/install-manifest.json")); systemd knows every setting in its units"
 
 step "keyboard-only onboarding in the browser"
