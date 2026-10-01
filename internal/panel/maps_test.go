@@ -41,6 +41,20 @@ func (a *scriptedAgent) forget() {
 	a.mu.Unlock()
 }
 
+// answeringSetup answers what setup tells its machine (see
+// TestTheFirstAccountTellsItsMachine) for an agent that stands in for
+// other answers, so the agent's handler and what it records see only the
+// test's own requests.
+func answeringSetup(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/usage-stats/first-account" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h(w, r)
+	}
+}
+
 func newScriptedEnv(t *testing.T, h http.HandlerFunc) (*env, *scriptedAgent) {
 	t.Helper()
 	return newScriptedEnvLogging(t, h, io.Discard)
@@ -60,7 +74,7 @@ func newScriptedEnvLogging(t *testing.T, h http.HandlerFunc, logs io.Writer) (*e
 	// net/http only logs a handler's panic, and the panel carries on as if
 	// the agent hadn't answered, so a test whose agent panics fails instead.
 	var ended atomic.Bool
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := &http.Server{Handler: answeringSetup(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if p := recover(); p != nil {
 				if p == http.ErrAbortHandler {

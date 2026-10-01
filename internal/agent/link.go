@@ -31,14 +31,15 @@ var streamed = map[string]bool{
 // socketOnly are the routes only the agent's own socket can answer: the
 // public page's ports travel as listening sockets passed over it, which a
 // machine link can't carry, and a joined machine runs no panel to serve
-// them, nor a dashboard to put on port 443. The Discord webhook's URL goes
-// only from the dashboard's machine's agent to its own panel, so no link
-// reads a machine's webhook.
+// them, nor a dashboard to put on port 443, nor accounts of its own. The
+// Discord webhook's URL goes only from the dashboard's machine's agent to
+// its own panel, so no link reads a machine's webhook.
 var socketOnly = map[string]bool{
 	"POST " + pagePortsPath:           true,
 	"PUT " + dashboard443Path:         true,
 	"POST " + dashboard443ReachedPath: true,
 	"GET " + discordWebhookPath:       true,
+	"POST " + usageFirstAccountPath:   true,
 }
 
 // LinkRoutes is the route table as data, for machine links: a dashboard may
