@@ -1322,7 +1322,7 @@ export const en = {
   'onboarding.check.firewallLink': 'How to open a port',
   'onboarding.check.portNote': 'Friends join on port {port}',
   'onboarding.check.portNoteHint': 'If your provider has a firewall, open this port there.',
-  'onboarding.check.firewallUrl': 'https://playkeeper.io/docs/troubleshooting#friends-cant-join',
+  'onboarding.check.firewallUrl': 'https://playkeeper.io/ports',
   'onboarding.name.title': 'A free name for this VPS',
   'onboarding.name.lead': 'Your browser stops warning you.',
   'onboarding.name.get': 'Get {address}',

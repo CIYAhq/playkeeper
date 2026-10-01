@@ -30,7 +30,7 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await expect(page.getByRole('heading', { name: 'Checking this VPS' })).toBeVisible()
   await expect(page.getByText('Docker is running')).toBeVisible()
   await expect(page.getByText(/^Friends join on port \d+$/)).toBeVisible()
-  await expect(page.getByRole('link', { name: 'How to open a port' })).toHaveAttribute('href', 'https://playkeeper.io/docs/troubleshooting#friends-cant-join')
+  await expect(page.getByRole('link', { name: 'How to open a port' })).toHaveAttribute('href', 'https://playkeeper.io/ports')
   const cont = page.getByRole('button', { name: 'Looks good, continue' })
   await expect(cont).toBeEnabled({ timeout: 60_000 })
   await shot(page, 'onboarding-2-check-desktop')
