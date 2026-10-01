@@ -140,7 +140,7 @@ From 0.4.4, Playkeeper counts how many machines run it, anonymously, so the proj
 | `address` | from a running machine: `free` (a playkeeper.me name), `own` (your own domain) or `ip` (none) |
 | `servers`, `running` | from a running machine: how many Minecraft servers it has, and how many run |
 
-The installer sends its reports while it installs, and nothing if you decline its plan. A running machine sends a heartbeat a minute after Playkeeper starts and every 12 hours after. They go to `stats.playkeeper.io`, the project's own service, whose code is in this repository ([services/stats](services/stats/README.md)). It keeps each machine's random ID with what its reports say and the days it ran, never an IP address, and never learns a host name, server name or anything about players.
+The installer sends its reports while it installs, and nothing if you decline its plan. A running machine sends a heartbeat a minute after Playkeeper starts, then every 12 hours. From 0.4.16 it also sends one right after the dashboard's first account is made and right after the machine's first server comes online, each only the first time, so the counts show how far a new install got even if its machine is gone within hours. They go to `stats.playkeeper.io`, the project's own service, whose code is in this repository ([services/stats](services/stats/README.md)). It keeps each machine's random ID with what its reports say and the days it ran, never an IP address, and never learns a host name, server name or anything about players.
 
 To turn usage stats off:
 

@@ -1823,7 +1823,7 @@ export const en = {
   'usage.machineOffThere': 'Off, set on that machine',
   'usage.machineAway': 'Can’t be reached',
   'usage.whatsSent': 'What’s sent',
-  'usage.whatsSentHint': 'While they’re on, this machine sends {service} exactly this when Playkeeper starts and twice a day:',
+  'usage.whatsSentHint': 'While they’re on, this machine sends {service} exactly this when Playkeeper starts, when its first account is made, when its first server comes online, and twice a day:',
   'usage.learnMore': 'How usage stats work',
   'usage.learnMoreUrl': 'https://github.com/CIYAhq/playkeeper#usage-stats',
   'usage.turnedOn': 'Usage stats turned on',
