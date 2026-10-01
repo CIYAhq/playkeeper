@@ -48,7 +48,7 @@ func (s *Server) publicRoutes() []publicRoute {
 		{prefix: whopSignInPrefix, limits: whopSignInLimits, handler: s.whopSignIn()},
 		// A seller's page inside their Whop dashboard, which says who's
 		// looking with Whop's token rather than a session.
-		{prefix: whopSellerPrefix, limits: whopSellerLimits, ownRefusals: true, handler: s.whopSeller()},
+		{prefix: whopSellerPrefix, limits: whopSellerProxyLimits, ownRefusals: true, handler: s.whopSeller()},
 		// The dashboard on the standard HTTPS port: a browser's check that it
 		// reaches port 443 (dashboard443.go).
 		{prefix: reachPath, limits: reachLimits, handler: http.HandlerFunc(s.hReach)},
