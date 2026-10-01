@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"os"
 	"path"
 	"regexp"
@@ -461,6 +462,42 @@ func TestTheSellerTerms(t *testing.T) {
 	}
 	if _, policy := built["/privacy"]; !policy && strings.Contains(terms, `href="/privacy"`) {
 		t.Error("the seller terms link a privacy policy that isn't there")
+	}
+}
+
+// reSiteLink is a link to playkeeper.io in the dashboard's source, up to
+// where a template literal or the string ends.
+var reSiteLink = regexp.MustCompile("https://playkeeper\\.io(/[A-Za-z0-9/_.#?=&-]*)?")
+
+// Every playkeeper.io address the dashboard links, such as the seller
+// page's seller terms and privacy policy, is a page the site builds or a
+// route it answers, so a link never lands before its page.
+func TestTheDashboardLinksOnlyPagesTheSiteHas(t *testing.T) {
+	o := build(t, Default)
+	built := pages(o)
+	err := fs.WalkDir(os.DirFS("../../web/src"), ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || strings.Contains(name, ".test.") || !strings.HasSuffix(name, ".ts") && !strings.HasSuffix(name, ".tsx") {
+			return err
+		}
+		src, err := os.ReadFile("../../web/src/" + name)
+		if err != nil {
+			return err
+		}
+		for _, m := range reSiteLink.FindAllStringSubmatch(string(src), -1) {
+			addr, _, _ := strings.Cut(m[1], "#")
+			addr, _, _ = strings.Cut(addr, "?")
+			if addr == "" {
+				addr = "/"
+			}
+			_, isFile := o.Files[strings.TrimPrefix(addr, "/")]
+			if _, isPage := built[addr]; !isPage && !isFile && !slices.Contains(routes, addr) {
+				t.Errorf("web/src/%s links %s, which the site doesn't build", name, m[0])
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
