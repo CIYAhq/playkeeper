@@ -85,48 +85,52 @@ func (s *Server) anyJoinedPageOn(ctx context.Context) (on, known bool) {
 		someOn
 		unanswered
 	)
-	type reply struct {
-		machine string
-		answer  int
-	}
-	answers := make(chan reply, len(byMachine))
-	for id, names := range byMachine {
+	answers := make(chan int, len(byMachine))
+	for _, names := range byMachine {
 		go func() {
 			answer := allOff
-			for _, j := range names {
+			// When the look ends, the servers not answered about yet leave
+			// it unknown only while the record has one on.
+			ended := func(left []joinedName) int {
+				if slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {
+					return unanswered
+				}
+				return answer
+			}
+			for i, j := range names {
 				if ctx.Err() != nil {
-					// The look's end speaks for the servers left.
+					answers <- ended(names[i:])
 					return
 				}
-				switch on, known := s.joinedPageState(ctx, j); {
-				case on:
-					answers <- reply{id, someOn}
+				state := make(chan [2]bool, 1)
+				go func() {
+					on, known := s.joinedPageState(ctx, j)
+					state <- [2]bool{on, known}
+				}()
+				select {
+				case st := <-state:
+					switch on, known := st[0], st[1]; {
+					case on:
+						answers <- someOn
+						return
+					case !known:
+						answer = unanswered
+					}
+				case <-ctx.Done():
+					answers <- ended(names[i:])
 					return
-				case !known:
-					answer = unanswered
 				}
 			}
-			answers <- reply{id, answer}
+			answers <- answer
 		}()
 	}
 	known = true
-	for len(byMachine) > 0 {
-		select {
-		case r := <-answers:
-			delete(byMachine, r.machine)
-			switch r.answer {
-			case someOn:
-				return true, true
-			case unanswered:
-				known = false
-			}
-		case <-ctx.Done():
-			for _, names := range byMachine {
-				if slices.ContainsFunc(names, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {
-					return false, false
-				}
-			}
-			return false, known
+	for range byMachine {
+		switch <-answers {
+		case someOn:
+			return true, true
+		case unanswered:
+			known = false
 		}
 	}
 	return false, known
