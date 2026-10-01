@@ -96,13 +96,14 @@ func fromSellerPage(r *http.Request) bool {
 // whopSeller answers the calls a seller's page makes, by what follows the
 // store's address and their method: reading the seller's view of it, GET
 // {store} (see sellerview.go); opening it, POST {store}/open; reading and
-// setting its prices, GET and POST {store}/prices; and Open the store,
-// POST {store}/sell (see sellerprices.go).
+// setting its prices, GET and POST {store}/prices; Fix my plans, POST
+// {store}/fix; and Open the store, POST {store}/sell (see sellerprices.go).
 func (s *Server) whopSeller() http.Handler {
 	calls := map[string]map[string]func(http.ResponseWriter, *http.Request, string){
 		"":       {http.MethodGet: s.hWhopSellerView},
 		"open":   {http.MethodPost: s.hWhopSellerOpen},
 		"prices": {http.MethodGet: s.hWhopSellerPrices, http.MethodPost: s.hWhopSellerSetPrice},
+		"fix":    {http.MethodPost: s.hWhopSellerFix},
 		"sell":   {http.MethodPost: s.hWhopSellerSell},
 	}
 	perMinute := newLimiter(whopSellerLimits.perMinute, time.Minute, s.now)
