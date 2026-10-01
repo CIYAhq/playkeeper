@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -201,7 +203,7 @@ func TestAnOwnAddressOpensOnlyItsServersPage(t *testing.T) {
 	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
 		t.Fatalf("setting it: %d %v", code, out)
 	}
-	if st := e.a.publicPageState(); st.Host != "play.example.com" || !slices.Equal(st.Hosts, []string{"alex.example.com"}) {
+	if st := e.a.publicPageState(nil); st.Host != "play.example.com" || !slices.Equal(st.Hosts, []string{"alex.example.com"}) {
 		t.Fatalf("the page's state: %+v", st)
 	}
 	code, page, _ := e.page("alex.example.com")
@@ -216,7 +218,7 @@ func TestAnOwnAddressOpensOnlyItsServersPage(t *testing.T) {
 			t.Errorf("%s: %d", host, code)
 		}
 	}
-	if e.a.pageServer("alex.example.com", "creative") == nil || e.a.pageServer("alex.example.com", "survival") != nil {
+	if e.a.pageServer("alex.example.com", "creative", nil) == nil || e.a.pageServer("alex.example.com", "survival", nil) != nil {
 		t.Fatal("the own address's page serves the wrong icons")
 	}
 	if v := e.a.serverByID(creative).publicPageView(); v.Host != "alex.example.com" {
@@ -229,11 +231,47 @@ func TestAnOwnAddressOpensOnlyItsServersPage(t *testing.T) {
 	if code, _, _ := e.page("alex.example.com"); code != 404 {
 		t.Fatalf("the own address of a server off the page: %d", code)
 	}
-	if e.a.pageServer("alex.example.com", "creative") != nil {
+	if e.a.pageServer("alex.example.com", "creative", nil) != nil {
 		t.Fatal("the own address of a server off the page serves its icon")
 	}
-	if st := e.a.publicPageState(); len(st.Hosts) != 0 {
+	if st := e.a.publicPageState(nil); len(st.Hosts) != 0 {
 		t.Fatalf("the page still answers %v", st.Hosts)
+	}
+}
+
+// The dashboard names the servers its machine's page leaves out, which the
+// agent can't tell apart: a copy a move is making or left here, and a
+// server the dashboard's own record has off the page. A hidden server's own
+// address answers like one nobody has, the machine's page leaves it out,
+// and with every server hidden nothing is on the page.
+func TestThePageLeavesOutTheServersTheDashboardHides(t *testing.T) {
+	e, survival, creative, test := ownDomainEnv(t)
+	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
+		t.Fatalf("setting it: %d %v", code, out)
+	}
+	hiding := func(ids ...string) string { return url.Values{"hidden": ids}.Encode() }
+	var st api.PublicPageState
+	if code := e.callInto("GET", "/v1/public-page/state?"+hiding(creative), nil, &st); code != 200 || !st.On || len(st.Hosts) != 0 {
+		t.Fatalf("the page's state with Creative hidden: %d %+v", code, st)
+	}
+	if code, _, _ := e.page("alex.example.com&" + hiding(creative)); code != 404 {
+		t.Fatalf("Creative's own address with Creative hidden: %d", code)
+	}
+	if code, page, raw := e.page("play.example.com&" + hiding(creative)); code != 200 || len(page.Servers) != 2 || strings.Contains(raw, "Creative") {
+		t.Fatalf("the machine's page with Creative hidden: %d %s", code, raw)
+	}
+	gone := map[string]bool{creative: true}
+	if e.a.pageServer("alex.example.com", "creative", gone) != nil || e.a.pageServer("play.example.com", "creative", gone) != nil {
+		t.Fatal("a hidden server's icon is served")
+	}
+	if code := e.callInto("GET", "/v1/public-page/state?"+hiding(survival, creative, test), nil, &st); code != 200 || st.On {
+		t.Fatalf("the page's state with every server hidden: %d %+v", code, st)
+	}
+	if code, _, _ := e.page("play.example.com&" + hiding(survival, creative, test)); code != 404 {
+		t.Fatalf("the machine's page with every server hidden: %d", code)
+	}
+	if code, page, _ := e.page("alex.example.com"); code != 200 || len(page.Servers) != 1 {
+		t.Fatalf("Creative's own address with nothing hidden: %d %+v", code, page)
 	}
 }
 

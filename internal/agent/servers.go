@@ -277,8 +277,8 @@ func validName(s string) (string, error) {
 	if s == "" {
 		return "", errInvalid("Give the server a name.")
 	}
-	if utf8.RuneCountInString(s) > 32 {
-		return "", errInvalid("Server names can be at most 32 characters.")
+	if utf8.RuneCountInString(s) > api.ServerNameMax {
+		return "", errInvalid("Server names can be at most %d characters.", api.ServerNameMax)
 	}
 	for _, r := range s {
 		if !unicode.IsPrint(r) || r == '§' {

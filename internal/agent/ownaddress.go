@@ -412,10 +412,13 @@ func (a *Agent) ownPageServer(host string) *server {
 }
 
 // ownPageHosts are the own addresses the public page answers for: those of
-// the servers on it.
-func (a *Agent) ownPageHosts() []string {
+// the servers on it that aren't hidden.
+func (a *Agent) ownPageHosts(hidden map[string]bool) []string {
 	var out []string
 	for _, js := range a.ownAddresses(a.address()) {
+		if hidden[js.id] {
+			continue
+		}
 		if s := a.serverByID(js.id); s != nil && s.publicPageSettings().Enabled {
 			out = append(out, js.own)
 		}

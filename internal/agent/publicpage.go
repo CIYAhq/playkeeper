@@ -18,6 +18,9 @@ import (
 // shows. A server is on the page until its owner turns that off, and the
 // page names who's playing only while the owner shows them. It never
 // holds an IP address, a crash, a backup or anything about the machine.
+// A joined machine serves no page: the dashboard serves each of its
+// servers' pages at the server's name, and asks it what the page shows of
+// the server (hPublicPageShown).
 
 // maxPublicNames bounds the players' names the page lists.
 const maxPublicNames = 100
@@ -109,7 +112,8 @@ func (s *server) hPublicPageSet(w http.ResponseWriter, r *http.Request) {
 
 // publicPageState is the address the page answers for and whether any
 // server is on it: the panel holds ports 443 and 80 only while one is.
-func (a *Agent) publicPageState() api.PublicPageState {
+// The hidden servers count as off it (see pageHidden).
+func (a *Agent) publicPageState(hidden map[string]bool) api.PublicPageState {
 	host := a.pageHost()
 	if host == "" {
 		return api.PublicPageState{}
@@ -118,16 +122,39 @@ func (a *Agent) publicPageState() api.PublicPageState {
 	if named := a.dashboard443Wanted(); named != "" && sameHost(named, host) {
 		st.Dashboard, st.Reached = true, a.dashboard443For(named).Reached
 	}
-	var n int
-	if err := a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE public_page = 1`).Scan(&n); err != nil {
+	rows, err := a.db.Query(`SELECT id FROM servers WHERE public_page = 1`)
+	if err != nil {
 		return st
 	}
-	st.On, st.Hosts = n > 0, a.ownPageHosts()
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil && !hidden[id] {
+			st.On = true
+		}
+	}
+	if rows.Err() != nil {
+		st.On = false
+		return st
+	}
+	st.Hosts = a.ownPageHosts(hidden)
 	return st
 }
 
+// pageHidden are the servers the dashboard leaves off its machine's page,
+// in ?hidden=, which this machine can't tell apart: the copies a move is
+// making or left here, whose names answer for the servers where they are,
+// and the servers its own record has off the page.
+func pageHidden(r *http.Request) map[string]bool {
+	out := map[string]bool{}
+	for _, id := range r.URL.Query()["hidden"] {
+		out[id] = true
+	}
+	return out
+}
+
 func (a *Agent) hPublicPageState(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.publicPageState())
+	writeJSON(w, http.StatusOK, a.publicPageState(pageHidden(r)))
 }
 
 // writePageGone is the answer for a page that is off and an address that
@@ -140,7 +167,7 @@ func writePageGone(w http.ResponseWriter) {
 // address in ?host=: 404 unless that is the machine's address and a server
 // is on the page.
 func (a *Agent) hPublicPageData(w http.ResponseWriter, r *http.Request) {
-	page, ok := a.publicPage(r.Context(), r.URL.Query().Get("host"))
+	page, ok := a.publicPage(r.Context(), r.URL.Query().Get("host"), pageHidden(r))
 	if !ok {
 		writePageGone(w)
 		return
@@ -150,7 +177,7 @@ func (a *Agent) hPublicPageData(w http.ResponseWriter, r *http.Request) {
 
 // hPublicPageIcon is the icon of a server on the page, by its slug.
 func (a *Agent) hPublicPageIcon(w http.ResponseWriter, r *http.Request) {
-	s := a.pageServer(r.URL.Query().Get("host"), r.PathValue("slug"))
+	s := a.pageServer(r.URL.Query().Get("host"), r.PathValue("slug"), pageHidden(r))
 	if s == nil {
 		writePageGone(w)
 		return
@@ -166,14 +193,14 @@ func (a *Agent) hPublicPageIcon(w http.ResponseWriter, r *http.Request) {
 }
 
 // pageServer is the server on the page at host with slug, or nil. A
-// server's own address shows only that server.
-func (a *Agent) pageServer(host, slug string) *server {
-	st := a.publicPageState()
+// server's own address shows only that server, and a hidden one none.
+func (a *Agent) pageServer(host, slug string, hidden map[string]bool) *server {
+	st := a.publicPageState(hidden)
 	if !st.On {
 		return nil
 	}
 	if !sameHost(host, st.Host) {
-		if s := a.ownPageServer(host); s != nil {
+		if s := a.ownPageServer(host); s != nil && !hidden[s.id] {
 			if row, err := s.row(); err == nil && row.Slug == slug {
 				return s
 			}
@@ -181,6 +208,9 @@ func (a *Agent) pageServer(host, slug string) *server {
 		return nil
 	}
 	for _, s := range a.serverList() {
+		if hidden[s.id] {
+			continue
+		}
 		if row, err := s.row(); err == nil && row.Slug == slug && s.publicPageSettings().Enabled {
 			return s
 		}
@@ -189,9 +219,10 @@ func (a *Agent) pageServer(host, slug string) *server {
 }
 
 // publicPage is what the page shows at host: every server on it at the
-// machine's name, or only the server whose own address host is.
-func (a *Agent) publicPage(ctx context.Context, host string) (api.PublicPage, bool) {
-	st := a.publicPageState()
+// machine's name, or only the server whose own address host is, but none
+// of the hidden ones.
+func (a *Agent) publicPage(ctx context.Context, host string, hidden map[string]bool) (api.PublicPage, bool) {
+	st := a.publicPageState(hidden)
 	if !st.On {
 		return api.PublicPage{}, false
 	}
@@ -207,7 +238,7 @@ func (a *Agent) publicPage(ctx context.Context, host string) (api.PublicPage, bo
 	joins := a.joinAddresses(addr, a.joinServers())
 	page := api.PublicPage{Address: address, Servers: []api.PublicServer{}}
 	for _, j := range joins {
-		if only != nil && j.ServerID != only.id {
+		if only != nil && j.ServerID != only.id || hidden[j.ServerID] {
 			continue
 		}
 		s := a.serverByID(j.ServerID)
@@ -224,31 +255,80 @@ func (a *Agent) publicPage(ctx context.Context, host string) (api.PublicPage, bo
 	return page, true
 }
 
-// publicServer is what the page shows of the server, and false while it
-// is off the page or not created yet.
+// publicServer is what the page at host shows of the server, whose
+// addresses are j, and false while it is off the page or not created yet.
 func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddress) (api.PublicServer, bool) {
-	set := s.publicPageSettings()
-	if !set.Enabled {
+	sh, ok := s.pageShows(ctx)
+	if !ok {
 		return api.PublicServer{}, false
 	}
-	st := s.Status(ctx)
-	sc := st.Config
-	if sc == nil {
-		return api.PublicServer{}, false
-	}
-	ps := api.PublicServer{Slug: st.Slug, Name: st.Name, MOTD: sc.MOTD, MinecraftVersion: sc.MinecraftVersion, Type: s.serverType(sc), InviteOnly: sc.Whitelist,
-		Address: publicJoinAddress(host, j, s.gamePort), State: publicState(st)}
-	if _, err := s.readIcon(); err == nil {
-		ps.HasIcon = true
-	}
-	if crossplayOn(sc) {
+	ps := sh.server
+	ps.Address = publicJoinAddress(host, j, s.gamePort)
+	if sh.crossplay {
 		// Bedrock follows A records only, which a working own address has.
 		bedrock := host
 		if j.OwnAddress != "" && j.Published {
 			bedrock = j.OwnAddress
 		}
-		ps.Bedrock = &api.BedrockJoin{Host: bedrock, Port: sc.CrossplayPort}
+		ps.Bedrock = &api.BedrockJoin{Host: bedrock, Port: sh.crossplayPort}
 	}
+	if sh.sharedMap != nil {
+		ps.Map = s.mapLink(sh.sharedMap)
+	}
+	if sh.packToken != "" {
+		ps.Pack = s.panelLink("/packs/" + sh.packToken)
+	}
+	return ps, true
+}
+
+// hPublicPageShown is what the page shows of the server, for the page the
+// dashboard serves at the server's name while it runs on a joined machine:
+// 404 while it's off the page. Where players join and the links' addresses
+// are left to the dashboard, so nothing of this machine's own address, if
+// it has one, reaches that page.
+func (s *server) hPublicPageShown(w http.ResponseWriter, r *http.Request) {
+	sh, ok := s.pageShows(r.Context())
+	if !ok {
+		writePageGone(w)
+		return
+	}
+	out := api.PublicServerShown{PublicServer: sh.server, PackToken: sh.packToken}
+	if sh.sharedMap.sharePath() != "" {
+		out.MapToken = sh.sharedMap.shareToken
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// pageShown is what the page shows of a server wherever it answers: the
+// server without where players join, whether Bedrock players join it and on
+// which port, its shared map while it's shared, and its friends' pack
+// page's link token while that's public.
+type pageShown struct {
+	server        api.PublicServer
+	crossplay     bool
+	crossplayPort int
+	sharedMap     *mapRecord
+	packToken     string
+}
+
+// pageShows is what the page shows of the server, and false while it is off
+// the page or not created yet.
+func (s *server) pageShows(ctx context.Context) (pageShown, bool) {
+	set := s.publicPageSettings()
+	if !set.Enabled {
+		return pageShown{}, false
+	}
+	st := s.Status(ctx)
+	sc := st.Config
+	if sc == nil {
+		return pageShown{}, false
+	}
+	ps := api.PublicServer{Slug: st.Slug, Name: st.Name, MOTD: sc.MOTD, MinecraftVersion: sc.MinecraftVersion, Type: s.serverType(sc), InviteOnly: sc.Whitelist,
+		State: publicState(st)}
+	if _, err := s.readIcon(); err == nil {
+		ps.HasIcon = true
+	}
+	sh := pageShown{crossplay: crossplayOn(sc), crossplayPort: sc.CrossplayPort}
 	if ps.State == api.PublicOnline && st.Players != nil {
 		p := &api.PublicPlayers{Online: st.Players.Online, Max: st.Players.Max}
 		if p.Max <= 0 {
@@ -265,13 +345,14 @@ func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddres
 		ps.Modpack = &api.PublicModpack{Name: rec.Pack.Name, Version: rec.Pack.VersionNumber}
 	}
 	if rec, err := s.activeMap(); err == nil && rec != nil && rec.public {
-		ps.Map = s.mapLink(rec)
+		sh.sharedMap = rec
 	}
 	if on, token := s.packsPublic(); on {
-		ps.Pack = s.panelLink("/packs/" + token)
+		sh.packToken = token
 	}
 	ps.About, ps.Stream, ps.Board = set.About, s.pageStream(set.Stream), s.publicBoard()
-	return ps, true
+	sh.server = ps
+	return sh, true
 }
 
 // publicJoinAddress is what players type for the server: its own address

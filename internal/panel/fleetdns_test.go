@@ -80,8 +80,8 @@ func TestTheZoneNamesServersOnJoinedMachinesWithAPublicAddress(t *testing.T) {
 		server("nomachine1", "z2345abcde", "gone", 25565),
 	}, machines, links)
 	want := []zoneServer{
-		{id: "steve00001", label: "steve", port: 25565, machine: "j2345abcde.m", ip: fsnIP},
-		{id: "nova000001", label: "nova", port: 25565, machine: "h2345abcde.m", ip: helIP},
+		{id: "steve00001", label: "steve", port: 25565, machineID: "j2345abcde", machine: "j2345abcde.m", ip: fsnIP},
+		{id: "nova000001", label: "nova", port: 25565, machineID: "h2345abcde", machine: "h2345abcde.m", ip: helIP},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("zoneServers =\n%+v\nwant\n%+v", got, want)
@@ -104,9 +104,10 @@ func wireName(name string) []byte {
 }
 
 // Each joined machine gets a name at its address once, and each of its
-// servers a name there and an SRV record to the machine's name, which the
-// machine's answers give. A server whose name another has, or no DNS name
-// can be, is left out.
+// servers an SRV record to the machine's name, which the machine's answers
+// give, and a name at the dashboard's machine, whose page shows the server
+// there. A server whose name another has, or no DNS name can be, is left
+// out.
 func TestJoinedServersJoinTheZoneAtTheirMachine(t *testing.T) {
 	own := betaAddress()
 	own.Records = append(own.Records, api.DNSRecord{Type: "A", Name: "panel.beta.example.com", Value: "203.0.113.5", TTL: 300})
@@ -128,12 +129,12 @@ func TestJoinedServersJoinTheZoneAtTheirMachine(t *testing.T) {
 		t.Fatalf("named %v", ids)
 	}
 	joined := []dnszone.Record{
-		{Name: "steve", Type: dnszone.TypeA, Value: "65.108.10.20"},
+		{Name: "steve", Type: dnszone.TypeA, Value: "203.0.113.5"},
 		{Name: "_minecraft._tcp.steve", Type: dnszone.TypeSRV, Value: "j2345abcde.m.beta.example.com", Port: 25565},
 		{Name: "j2345abcde.m", Type: dnszone.TypeA, Value: "65.108.10.20"},
-		{Name: "kara", Type: dnszone.TypeA, Value: "65.108.10.20"},
+		{Name: "kara", Type: dnszone.TypeA, Value: "203.0.113.5"},
 		{Name: "_minecraft._tcp.kara", Type: dnszone.TypeSRV, Value: "j2345abcde.m.beta.example.com", Port: 25566},
-		{Name: "nova", Type: dnszone.TypeAAAA, Value: "2a01:4f9:c010:1234::1"},
+		{Name: "nova", Type: dnszone.TypeA, Value: "203.0.113.5"},
 		{Name: "_minecraft._tcp.nova", Type: dnszone.TypeSRV, Value: "h2345abcde.m.beta.example.com", Port: 25565},
 		{Name: "h2345abcde.m", Type: dnszone.TypeAAAA, Value: "2a01:4f9:c010:1234::1"},
 	}
@@ -167,6 +168,9 @@ func TestJoinedServersJoinTheZoneAtTheirMachine(t *testing.T) {
 			t.Errorf("%s, on the dashboard's machine, took a joined machine's address: %x", name, ans)
 		}
 	}
+	if ans := ask("steve.beta.example.com", 1); !bytes.Contains(ans, netip.MustParseAddr("203.0.113.5").AsSlice()) || bytes.Contains(ans, fsnIP.AsSlice()) {
+		t.Errorf("steve's name, which browsers open, isn't the dashboard's machine, whose page shows him: %x", ans)
+	}
 	if ans := ask("h2345abcde.m.beta.example.com", 28); !bytes.Contains(ans, helIP.AsSlice()) || bytes.Contains(ans, fsnIP.AsSlice()) {
 		t.Errorf("a server took a machine's name: %x", ans)
 	}
@@ -191,7 +195,7 @@ func TestJoinedServersJoinWithoutAPortOnceDNSFindsTheZone(t *testing.T) {
 		t.Fatalf("turning the answers on: %d %v", r.status, r.body)
 	}
 	want := betaZone(serverRecords("alex", 25565), serverRecords("survival", 25567), []dnszone.Record{
-		{Name: "steve", Type: dnszone.TypeA, Value: "65.108.10.20"},
+		{Name: "steve", Type: dnszone.TypeA, Value: "203.0.113.5"},
 		{Name: "_minecraft._tcp.steve", Type: dnszone.TypeSRV, Value: "j2345abcde.m.beta.example.com", Port: 25565},
 		{Name: "j2345abcde.m", Type: dnszone.TypeA, Value: "65.108.10.20"},
 	})

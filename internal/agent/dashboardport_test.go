@@ -158,7 +158,7 @@ func TestTheDashboardHasPort443WithThePageOff(t *testing.T) {
 		t.Fatal("turning the page off")
 	}
 	// The own domain isn't checked yet, so the name doesn't work.
-	if st := e.a.publicPageState(); st.On || st.Dashboard {
+	if st := e.a.publicPageState(nil); st.On || st.Dashboard {
 		t.Fatalf("without a working name: %+v", st)
 	}
 	if v := e.dashboardView(); v.State != api.DashboardNoAddress {
@@ -170,7 +170,7 @@ func TestTheDashboardHasPort443WithThePageOff(t *testing.T) {
 		t.Fatalf("without a working name the agent handed over %+v", ports)
 	}
 	e.nameWorks(pageTestHost)
-	if st := e.a.publicPageState(); st.On || !st.Dashboard || st.Reached || st.Host != pageTestHost {
+	if st := e.a.publicPageState(nil); st.On || !st.Dashboard || st.Reached || st.Host != pageTestHost {
 		t.Fatalf("with the name working: %+v", st)
 	}
 	ports, files = e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
@@ -183,7 +183,7 @@ func TestTheDashboardHasPort443WithThePageOff(t *testing.T) {
 	}
 	ports, files = e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
 	closeAll(files)
-	if len(files) != 0 || e.a.publicPageState().Dashboard {
+	if len(files) != 0 || e.a.publicPageState(nil).Dashboard {
 		t.Fatalf("with the page and the switch off the agent handed over %+v", ports)
 	}
 }
@@ -238,7 +238,7 @@ func TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt(t *testing.T) {
 	if got := e.a.discordBase(); got != bare {
 		t.Fatalf("Discord's link: %q", got)
 	}
-	if st := e.a.publicPageState(); !st.Dashboard || !st.Reached {
+	if st := e.a.publicPageState(nil); !st.Dashboard || !st.Reached {
 		t.Fatalf("the page's state: %+v", st)
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'dashboard_443.reached'`); n != 1 {

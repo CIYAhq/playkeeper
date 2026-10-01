@@ -170,16 +170,16 @@ func wrap(s string, w, scale, maxLines int) ([]string, bool) {
 	return append(lines, line), true
 }
 
-// truncate cuts s to fit w at scale, ending in "..." when it had to.
+// truncate cuts s to fit w at scale, ending in "..." when it had to. Every
+// glyph advances as far, so it keeps as many characters as fit at once,
+// however long s is.
 func truncate(s string, w, scale int) string {
 	if width(s, scale) <= w {
 		return s
 	}
+	keep := max(0, (w/scale+1)/advance-len("..."))
 	r := []rune(s)
-	for len(r) > 0 && width(string(r)+"...", scale) > w {
-		r = r[:len(r)-1]
-	}
-	return strings.TrimRight(string(r), " ") + "..."
+	return strings.TrimRight(string(r[:min(keep, len(r))]), " ") + "..."
 }
 
 // write draws s with its top left at x, y, each font pixel scale pixels

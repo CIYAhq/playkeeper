@@ -61,7 +61,10 @@ func (s *Server) whopStoreLeft(ctx context.Context, storeID, why string) error {
 // bringBackWhopStore has an app store that left be a store again, closed as
 // not open yet, and says whether it had left. Its next pass reads the store
 // and every membership again, and once it's open, its customers with a plan
-// start again.
+// start again. What the share check and the grant watch found before it
+// left goes: the share check's own closure, so Open the store opens it, and
+// since when its share was wrong or its grant lacking, so each counts from
+// its next finding.
 func (s *Server) bringBackWhopStore(ctx context.Context, a whop.Account) (bool, error) {
 	back := false
 	err := s.immediate(ctx, func(conn *sql.Conn) error {
@@ -75,6 +78,13 @@ func (s *Server) bringBackWhopStore(ctx context.Context, a whop.Account) (bool, 
 			return nil
 		}
 		back = true
+		if _, err := conn.ExecContext(ctx, `DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?`, a.ID, whopShareClosed); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `UPDATE whop_share_watch SET share_bad_since = 0, grant_gone_since = 0, share_unchecked_since = 0, share_right_at = 0
+			WHERE store_id = ?`, a.ID); err != nil {
+			return err
+		}
 		_, err = conn.ExecContext(ctx, `INSERT INTO whop_store_closures(store_id, closed_by, why, closed_at) VALUES(?,?,?,?) ON CONFLICT(store_id, closed_by) DO NOTHING`,
 			a.ID, whopNotOpenYet, whopNotOpenYetWhy, s.now().UnixMilli())
 		return err

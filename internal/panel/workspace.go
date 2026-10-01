@@ -990,6 +990,7 @@ func (s *Server) forgetDeletedServers(ids []string) {
 		`DELETE FROM join_requests WHERE ` + gone,
 		`DELETE FROM invites WHERE kind = 'player' AND ` + gone,
 		`DELETE FROM player_origins WHERE ` + gone,
+		`DELETE FROM public_pages WHERE ` + gone,
 	} {
 		if _, err := s.db.Exec(q, string(list)); err != nil {
 			s.log.Warn("could not forget a deleted server's invites", "err", err)

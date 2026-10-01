@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"sync"
@@ -37,6 +38,10 @@ const (
 	// maxPageConns bounds the open connections on each of the page's ports.
 	maxPageConns = 1024
 )
+
+// pageJoinedWait is how long a look waits for joined machines to say
+// whether any of their servers is on the page: two of their answers' time.
+var pageJoinedWait = 10 * time.Second
 
 // pageListener is one of the page's ports being served.
 type pageListener struct {
@@ -69,7 +74,8 @@ func (s *Server) runPage(ctx context.Context) {
 
 // lookAtPage opens or closes the page's ports to match what the agent
 // says: held while a server is on the page and the machine has an address,
-// or while the dashboard answers the machine's name on port 443.
+// or a server on a joined machine is on the page at its name, or while the
+// dashboard answers the machine's name on port 443.
 func (s *Server) lookAtPage(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -77,14 +83,33 @@ func (s *Server) lookAtPage(ctx context.Context) {
 	p.mu.Lock()
 	gen := p.gen
 	p.mu.Unlock()
+	hidden, err := s.pageHidden(ctx)
+	if err != nil {
+		return
+	}
 	var st api.PublicPageState
-	if _, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page/state", nil, nil, &st); err != nil {
+	if _, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page/state", url.Values{"hidden": hidden}, nil, &st); err != nil {
 		// Without the agent the page can't show anything new, but what it
 		// holds stays: the agent is back in a moment after an update.
 		return
 	}
+	// The dashboard's machine's names are kept before joined machines are
+	// asked, for pageJoinedWait at most. A look they don't all answer in time
+	// keeps what the page holds, as one the agent doesn't answer does.
 	p.mu.Lock()
-	p.host, p.hosts, p.on = st.Host, st.Hosts, st.On
+	p.host, p.hosts = st.Host, st.Hosts
+	p.mu.Unlock()
+	on, known := st.On, true
+	if !on {
+		jctx, cancel := context.WithTimeout(ctx, pageJoinedWait)
+		on, known = s.anyJoinedPageOn(jctx)
+		cancel()
+	}
+	p.mu.Lock()
+	if known {
+		p.on = on
+	}
+	on = p.on
 	current := p.gen == gen
 	if current {
 		p.dashboard, p.reached = st.Dashboard, st.Dashboard && st.Reached
@@ -96,7 +121,7 @@ func (s *Server) lookAtPage(ctx context.Context) {
 		// being asked: another look reads what the agent says since.
 		s.kickPage()
 	}
-	if !st.On && !dashboard {
+	if !on && !dashboard {
 		s.closePagePorts(api.PortOff)
 		return
 	}
@@ -104,6 +129,9 @@ func (s *Server) lookAtPage(ctx context.Context) {
 	if !want.HTTPS && !want.HTTP {
 		return
 	}
+	// The agent sees only its own servers' pages, so a joined server's is
+	// the panel's to say.
+	want.Joined = on && !st.On
 	ports, files, err := s.agent.PublicPagePorts(ctx, want)
 	if err != nil {
 		s.log.Warn("could not get ports 443 and 80 for the public page", "err", err)
