@@ -16,9 +16,6 @@
 .start-get { max-width: 720px; }
 .start-get li { font-size: 17px; margin-bottom: 12px; }
 
-.start-note h2 { font-size: 20px; letter-spacing: -0.02em; margin-bottom: 12px; }
-.start-note p { margin: 0 0 12px; font-size: 14px; line-height: 1.6; color: var(--sage); }
-
 /* Side by side only where the command fits on one line beside the film. */
 @media (max-width: 1279.98px) {
   .start-row { grid-template-columns: minmax(0, 1fr); gap: 36px; }

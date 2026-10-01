@@ -14,7 +14,7 @@ import (
 func (e *addressEnv) setServerAddresses(on bool) (int, api.Address) {
 	e.t.Helper()
 	var v api.Address
-	code := e.callInto("POST", "/v1/address/server-addresses", map[string]any{"on": on, "actor": "admin"}, &v)
+	code := e.callIntoWhenFree("POST", "/v1/address/server-addresses", map[string]any{"on": on, "actor": "admin"}, &v)
 	return code, v
 }
 
@@ -125,7 +125,7 @@ func TestEveryServerGetsAnAddressUnderTheWildcard(t *testing.T) {
 func TestAnAddressForEachServerTakesTheDashboardsHost(t *testing.T) {
 	e, _, _, _ := ownDomainEnvWith(t, nil)
 	var v api.Address
-	if code := e.callInto("POST", "/v1/address/server-addresses", map[string]any{"on": true, "panelHost": "198.51.100.7:8443", "actor": "admin"}, &v); code != 200 || !v.ServerAddresses {
+	if code := e.callIntoWhenFree("POST", "/v1/address/server-addresses", map[string]any{"on": true, "panelHost": "198.51.100.7:8443", "actor": "admin"}, &v); code != 200 || !v.ServerAddresses {
 		t.Fatalf("turning it on from the dashboard: %d %+v", code, v)
 	}
 	if !slices.ContainsFunc(v.Records, func(r api.DNSRecord) bool { return r.Name == "*.play.example.com" && r.Value == "198.51.100.7" }) {
@@ -140,7 +140,7 @@ func TestTheWildcardIsCheckedBeforeTheFirstServer(t *testing.T) {
 	e.dns.set("play.example.com", testIP.String())
 	var v api.Address
 	check := map[string]any{"domain": "play.example.com", "acceptTerms": true, "panelHost": "203.0.113.10:8443", "actor": "admin"}
-	if code := e.callInto("POST", "/v1/address/check", check, &v); code != 200 || !v.Check.Ready || v.Operation == nil {
+	if code := e.callIntoWhenFree("POST", "/v1/address/check", check, &v); code != 200 || !v.Check.Ready || v.Operation == nil {
 		t.Fatalf("the machine's domain: %d %+v", code, v)
 	}
 	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
@@ -248,7 +248,7 @@ func TestUnderPlaykeeperMeOfficialNamesGetNoAddress(t *testing.T) {
 	e.dns.set("beta.playkeeper.me", testIP.String())
 	var v api.Address
 	check := map[string]any{"domain": "beta.playkeeper.me", "acceptTerms": true, "panelHost": "203.0.113.10:8443", "actor": "admin"}
-	if code := e.callInto("POST", "/v1/address/check", check, &v); code != 200 || v.Operation == nil {
+	if code := e.callIntoWhenFree("POST", "/v1/address/check", check, &v); code != 200 || v.Operation == nil {
 		t.Fatalf("the machine's domain: %d %+v", code, v)
 	}
 	e.waitOp(v.Operation.ID)
@@ -305,7 +305,7 @@ func TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes(t *testing.T) 
 
 	e.dns.set("mc.example.com", testIP.String())
 	var v api.Address
-	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 || v.ServerAddresses {
+	if code := e.callIntoWhenFree("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 || v.ServerAddresses {
 		t.Fatalf("moving to mc.example.com: %d %+v", code, v)
 	}
 	if e.a.loadCertificate("creative.play.example.com") != nil {
@@ -346,7 +346,7 @@ func TestTheDaysCertificatesCountWhateverBecameOfTheirNames(t *testing.T) {
 	if e.a.loadCertificate("alex.example.com") != nil {
 		t.Fatal("alex.example.com was asked for a certificate over the day's limit")
 	}
-	if code, out := e.call("DELETE", "/v1/address?actor=admin", nil); code != 200 {
+	if code, out := e.whenFree(func() (int, map[string]any) { return e.call("DELETE", "/v1/address?actor=admin", nil) }); code != 200 {
 		t.Fatalf("giving the domain up: %d %v", code, out)
 	}
 	if n := e.a.ownCertsToday(e.a.address()); n != ownCertsPerDay {
@@ -395,7 +395,7 @@ func TestALeftoverCertificateFromTheWildcardGoesWithTheDomain(t *testing.T) {
 	if err := e.a.saveCertificate(row); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := e.call("DELETE", "/v1/address?actor=admin", nil); code != 200 {
+	if code, out := e.whenFree(func() (int, map[string]any) { return e.call("DELETE", "/v1/address?actor=admin", nil) }); code != 200 {
 		t.Fatalf("giving the domain up: %d %v", code, out)
 	}
 	if e.a.loadCertificate("creative.play.example.com") != nil {
@@ -416,7 +416,7 @@ func TestAGivenSlugAddressKeepsItsCertificateWhenTheDomainMoves(t *testing.T) {
 	e.certified("creative.play.example.com")
 	e.dns.set("mc.example.com", testIP.String())
 	var v api.Address
-	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 {
+	if code := e.callIntoWhenFree("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 {
 		t.Fatalf("moving to mc.example.com: %d %+v", code, v)
 	}
 	if e.a.loadCertificate("creative.play.example.com") == nil {
@@ -434,7 +434,7 @@ func TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff(t *testing.T)
 	if code, _ := e.setServerAddresses(false); code != 200 {
 		t.Fatal("turning it off")
 	}
-	if code, out := e.call("DELETE", "/v1/address?actor=admin", nil); code != 200 {
+	if code, out := e.whenFree(func() (int, map[string]any) { return e.call("DELETE", "/v1/address?actor=admin", nil) }); code != 200 {
 		t.Fatalf("stopping the domain: %d %v", code, out)
 	}
 	for _, host := range []string{"survival.play.example.com", "creative.play.example.com", "test.play.example.com"} {
@@ -620,7 +620,7 @@ func TestTheServersShareOneWildcardCertificate(t *testing.T) {
 	}
 	e.dns.set("mc.example.com", testIP.String())
 	var v api.Address
-	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 {
+	if code := e.callIntoWhenFree("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 {
 		t.Fatalf("moving to mc.example.com: %d %+v", code, v)
 	}
 	if v.Operation != nil {

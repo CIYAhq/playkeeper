@@ -777,6 +777,10 @@ control "a stopped run's log is read without following" internal/agent/collector
   'docker.LogsOptions{Follow: c.State.Running, Since: since}' \
   'docker.LogsOptions{Follow: true, Since: since}' \
   ./internal/agent '^TestARunStartedAsTheFollowerAttachesIsReadAsItsOwn$'
+control "a running container's log is read only while it has the run the follower saw" internal/agent/collector.go \
+  'if started, _ := again.State.Started(); err != nil || !started.Equal(runStart) {' \
+  'if started, _ := again.State.Started(); err != nil || false && !started.Equal(runStart) {' \
+  ./internal/agent '^TestARestartAsTheFollowerAttachesIsReadAsANewRun$'
 control "the crash helper reads the run's log from Docker" internal/agent/crash.go \
   'in.Console = s.runLog(ctx, id, runStart)' \
   'in.Console = s.runLog(ctx, id, runStart)[:0]' \
@@ -1521,6 +1525,10 @@ control "friends' pack links favour no letter" internal/modpacks/share/token.go 
   'if b < 248 && len(out) < TokenLen {' \
   'if len(out) < TokenLen {' \
   ./internal/modpacks/share '^TestNewToken(IsUniform|SkipsBiasedBytes)$'
+control "the uniformity bound still catches letters favoured by an unskipped byte" internal/modpacks/share/token.go \
+  'if b < 248 && len(out) < TokenLen {' \
+  'if len(out) < TokenLen {' \
+  ./internal/modpacks/share '^TestNewTokenIsUniform$'
 control "stopping sharing forgets the friends' pack link" internal/agent/packshare.go \
   "UPDATE servers SET packs_public = 0, packs_token = '' WHERE id = ?" \
   'UPDATE servers SET packs_public = 0 WHERE id = ?' \
@@ -2386,6 +2394,10 @@ control "the Default Server Properties mod's marker says its file was used" inte
 control "a server a pack's mod started without the console and allowlist is restarted after an update" internal/agent/modpacks.go \
   'if off {' \
   'if false && off {' \
+  ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
+control "the settings check restarts a server once for each agent process" internal/agent/modpacks.go \
+  '	done := s.settingsChecked' \
+  '	done := false' \
   ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
 control "the settings check waits a minute after the pack's mod writes its marker" internal/agent/modpacks.go \
   'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {' \
@@ -6598,12 +6610,12 @@ control "a replaced area carries on as it was when the new one doesn't start" in
   '			_ = paused' \
   ./internal/agent '^TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts$'
 control "a replacement that can't be recorded ends the old area" internal/agent/pregen.go \
-  '			if eerr := s.endPregen(old, pregenCancelled, nil, nil); eerr != nil {' \
+  '			if eerr := s.endPregen(old, pregenCancelled, nil, nil, pregenEntry{actor, "pregen.cancelled", "failed", "replaced by " + preset + ", which could not be recorded"}); eerr != nil {' \
   '			if eerr := error(nil); eerr != nil {' \
   ./internal/agent '^TestAReplacementThatCantBeRecordedEndsTheOldArea$'
 control "a finished area stays done after a bigger one is stopped" internal/agent/pregen.go \
-  '	if err == nil && how == pregenFinished {' \
-  '	if false && err == nil && how == pregenFinished {' \
+  '	if how == pregenFinished {' \
+  '	if false && how == pregenFinished {' \
   ./internal/agent '^TestTheLargestFinishedAreaStaysDone$'
 control "the largest finished area is done, not the latest" internal/agent/pregen.go \
   'done_radius = MAX(done_radius, radius),' \
@@ -7834,13 +7846,24 @@ control "giving a server its own address needs the right to manage the machine" 
 # once a page view and none with Global Privacy Control or Do Not Track, are
 # held by site.spec.ts, which this script doesn't run.
 control "pages reach the stats service only as the policy allows" internal/site/nginx.go \
-  'origin(s.Stats), ' \
-  '' \
+  ', origin(s.Stats))' \
+  ')' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
 control "the share page doesn't name the stats service" site/layouts/base.html \
   '{{if and (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<meta name="playkeeper-stats"' \
   '{{if true}}<meta name="playkeeper-stats"' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
+
+# playkeeper.io loads no ad pixel: one that comes back, in a policy or a
+# page, fails the build's test.
+control "no policy lets an ad pixel in" internal/site/nginx.go \
+  '"script-src " + sources("'"'"'self'"'"'", origin(s.Analytics.Script)),' \
+  '"script-src " + sources("'"'"'self'"'"'", origin(s.Analytics.Script), "https://t.whop.tw"),' \
+  ./internal/site '^TestNoPageLoadsAnAdPixel$'
+control "no page loads an ad pixel" site/pages/start.html \
+  '<section class="band-chalk start-hero" aria-labelledby="page-title">' \
+  '<section class="band-chalk start-hero" aria-labelledby="page-title" data-whop-pixel="biz_bbmk63HMB3yZ4c">' \
+  ./internal/site '^TestNoPageLoadsAnAdPixel$'
 
 # An own domain under playkeeper.me: only a name nobody can claim, and only
 # under the current base.

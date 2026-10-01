@@ -8,10 +8,6 @@ import (
 	"strings"
 )
 
-// whopPixel is where Whop's ad pixel (Settings.WhopPixel) loads its scripts
-// from and sends its events to.
-const whopPixel = "https://t.whop.tw"
-
 // nginxInclude is the part of nginx.conf that follows the settings and the
 // pages: the Content-Security-Policy, /community, which the live demo links
 // to, /start, the pages that play a film, the pages' short addresses and the
@@ -32,10 +28,9 @@ location = /community {
     return 302 %s;
 }
 
-# Where the Meta ads land. Its policy alone lets Whop's ad pixel in
-# (Settings.WhopPixel), with the worker it starts from a blob, and the film.
-# Kept out of search engines, and answered with no redirect, so the pixel
-# still finds the ad's IDs in the query string.
+# Where the Meta ads land, with the film's policy. Kept out of search
+# engines, and answered with no redirect, so the ad's UTM tags reach the
+# visit counter.
 location = /start {
     set $csp "%s";
     set $robots noindex;
@@ -51,34 +46,27 @@ location = /start {
 %s
 # Channel links (Settings.Channels): the landing page with the channel's UTM
 # tags, where it shows the channel's install command.
-%s`, contentSecurityPolicy(s, false, false), s.Community.URL, contentSecurityPolicy(s, true, true), filmLocations(s, pages), shortLinks(pages), channelLinks(s.Channels)))
+%s`, contentSecurityPolicy(s, false), s.Community.URL, contentSecurityPolicy(s, true), filmLocations(s, pages), shortLinks(pages), channelLinks(s.Channels)))
 }
 
-// contentSecurityPolicy is the site's policy; with film, a page's that plays
-// a film of the site's own, and with pixel too, /start's.
-func contentSecurityPolicy(s Settings, film, pixel bool) string {
-	ad := ""
-	if pixel && s.WhopPixel != "" {
-		ad = whopPixel
-	}
+// contentSecurityPolicy is the site's policy, or with film, that of a page
+// that plays a film of the site's own.
+func contentSecurityPolicy(s Settings, film bool) string {
 	d := []string{
 		"default-src 'none'",
-		"script-src " + sources("'self'", origin(s.Analytics.Script), ad),
+		"script-src " + sources("'self'", origin(s.Analytics.Script)),
 		"style-src 'self'",
 		"img-src 'self'",
 	}
 	if film {
 		d = append(d, "media-src 'self'")
 	}
-	if ad != "" {
-		d = append(d, "worker-src blob:")
-	}
 	return strings.Join(append(d,
 		// The header's star count, once there are enough stars to show, and
 		// this site, where audits like Lighthouse read robots.txt from the
 		// page. img-src already lets a page ask this site for things. The
 		// stats service takes copies of the install command.
-		"connect-src "+sources("'self'", "https://api.github.com", origin(s.Analytics.Collector), origin(s.Stats), ad),
+		"connect-src "+sources("'self'", "https://api.github.com", origin(s.Analytics.Collector), origin(s.Stats)),
 		"base-uri 'none'",
 		"form-action 'none'",
 		"frame-ancestors 'none'",
@@ -102,7 +90,7 @@ func films(pages []*Page) []*Page {
 func filmLocations(s Settings, pages []*Page) string {
 	var b strings.Builder
 	for _, p := range films(pages) {
-		fmt.Fprintf(&b, "location = %s {\n    set $csp \"%s\";\n    expires -1;\n    try_files /%s =404;\n}\n", p.Path, contentSecurityPolicy(s, true, false), p.outFile())
+		fmt.Fprintf(&b, "location = %s {\n    set $csp \"%s\";\n    expires -1;\n    try_files /%s =404;\n}\n", p.Path, contentSecurityPolicy(s, true), p.outFile())
 	}
 	return b.String()
 }
