@@ -99,10 +99,16 @@ describe('a seller’s open store', () => {
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell')
     expect(document.querySelector('[role="status"]')?.textContent).toBe('Your store is up to date.')
     expect(onChange).toHaveBeenCalledTimes(1)
-    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(409, { code: 'conflict', error: 'Big: doesn’t renew every month', hint: 'To update your store, renew every month.' }))
+    vi.mocked(client.post).mockRejectedValueOnce(
+      new client.ApiError(409, { code: 'conflict', error: 'Big: doesn’t renew every month\nHuge: allows 96 GB', hint: 'To update your store, allow 1 to 10 servers and 1 to 64 GB and renew every month.' }),
+    )
     await click(button('Update the store'))
     const alert = document.querySelector('[role="alert"]')
-    expect([...(alert?.querySelectorAll('p') ?? [])].map((p) => p.textContent)).toEqual(['Big: doesn’t renew every month', 'To update your store, renew every month.'])
+    expect([...(alert?.querySelectorAll('p') ?? [])].map((p) => p.textContent)).toEqual([
+      'Big: doesn’t renew every month',
+      'Huge: allows 96 GB',
+      'To update your store, allow 1 to 10 servers and 1 to 64 GB and renew every month.',
+    ])
   })
 
   it('opens the prices to change them', async () => {

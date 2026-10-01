@@ -91,6 +91,8 @@ describe('a seller’s page inside Whop', () => {
     })
     await render('biz_other')
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/open')
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/prices')
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other')
     expect(heading()).toBe('Check your prices')
     expect(document.activeElement).toBe(document.querySelector('h1'))
     expect(document.querySelector('[aria-current="step"]')?.textContent).toContain('Prices')
