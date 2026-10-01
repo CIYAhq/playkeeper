@@ -158,7 +158,8 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 // Deleting a customer of one store leaves the same Whop user's account at
 // another store as it was, and the store's next read doesn't bring back
 // the membership of theirs that ended. If they buy again, they're a new
-// customer.
+// customer, whose new membership takes its end, without the memberships
+// they had before.
 func TestDeletingACustomerLeavesTheirOtherStoreAlone(t *testing.T) {
 	f, e, own := storesWithCustomers(t)
 	ctx := context.Background()
@@ -221,6 +222,9 @@ func TestDeletingACustomerLeavesTheirOtherStoreAlone(t *testing.T) {
 	e.reconcile()
 	if again := storeAccount(t, e, "biz_other", "user_alex"); again.State != CustomerPaused {
 		t.Fatalf("alex at Other once the plan they bought again ended: %+v", again)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM whop_memberships WHERE store_id = 'biz_other' AND whop_user_id = 'user_alex'`); n != 1 {
+		t.Fatalf("alex's memberships at Other once they bought again: %d, want the one they bought since", n)
 	}
 }
 
