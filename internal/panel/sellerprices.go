@@ -85,6 +85,39 @@ type sellerPrice struct {
 	Share    int64  `json:"share"`
 	Settable bool   `json:"settable"`
 	Problem  string `json:"problem,omitempty"`
+	// issues are what Problem says, each in a few words, for the plan's
+	// line when Open the store refuses it (refusedPlans).
+	issues []planIssue
+}
+
+// planRule is one of Open the store's rules for a hosting plan, in the
+// order a refusal says how to meet them.
+type planRule int
+
+const (
+	ruleOwnProduct planRule = iota
+	ruleAllowance
+	ruleDollars
+	ruleMonthly
+	ruleNoTrial
+	ruleFloor
+)
+
+// planRuleFixes says how to meet each rule, in a refusal's words.
+var planRuleFixes = [...]string{
+	ruleOwnProduct: "give each plan its own product",
+	ruleAllowance:  fmt.Sprintf("allow 1 to %d servers and %d to %d GB", invites.MaxAllowanceServers, invites.MinAllowanceMemoryMB>>10, invites.MaxAllowanceMemoryMB>>10),
+	ruleDollars:    "price in US dollars",
+	ruleMonthly:    "renew every month",
+	ruleNoTrial:    "take off free trials",
+	ruleFloor:      "charge at least " + dollarsOf(whopFloorPer4GB) + " a month for each 4 GB",
+}
+
+// planIssue is a rule a hosting plan breaks, with what the plan's line
+// says of it in a few words.
+type planIssue struct {
+	rule planRule
+	says string
 }
 
 // sellerPriceOf is a hosting plan as its seller prices it, and false for a
@@ -114,12 +147,17 @@ func hostedPlan(p whop.Plan) (sellerPrice, bool) {
 	switch least := centsOf(whopLeastCharge(p)); {
 	case !usd:
 		sp.Problem = fmt.Sprintf("It's priced in %s, and hosted plans are priced in US dollars.", strings.ToUpper(p.Currency))
+		sp.issues = []planIssue{{ruleDollars, "priced in " + strings.ToUpper(p.Currency)}}
 	case !monthly:
 		sp.Problem = "It doesn't renew every month, as hosted plans do."
+		sp.issues = []planIssue{{ruleMonthly, "doesn't renew every month"}}
 	case p.TrialDays > 0:
 		sp.Problem = "It has a free trial, and hosted plans charge from the first day."
+		sp.issues = []planIssue{{ruleNoTrial, "has a free trial"}}
 	case least < sp.Floor:
-		sp.Problem = fmt.Sprintf("It charges %s, under the %s floor for %s.", dollarsOf(least), dollarsOf(sp.Floor), gigabytes(memoryMB))
+		under := fmt.Sprintf("charges %s, under the %s floor for %s", dollarsOf(least), dollarsOf(sp.Floor), gigabytes(memoryMB))
+		sp.Problem = "It " + under + "."
+		sp.issues = []planIssue{{ruleFloor, under}}
 	}
 	return sp, true
 }
@@ -198,15 +236,16 @@ func (s *Server) sellerPricesOf(ctx context.Context, c *whop.Client, st whopStor
 // other problem (sharedProductProblems).
 func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 	v := sellerPrices{Plans: []sellerPrice{}, CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()}
-	shared := sharedProductProblems(slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool {
+	shared := sharedProducts(slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool {
 		return p.Visibility == "archived"
 	}))
 	for _, p := range plans {
 		if sp, ok := sellerPriceOf(p); ok {
-			if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {
-				sp.Problem = problem
-			} else if shared[p.ID] != "" {
-				sp.Problem = strings.TrimSpace(sp.Problem + " " + shared[p.ID])
+			if problem, issue := allowanceIssue(sp.Servers, sp.MemoryMB); problem != "" {
+				sp.Problem, sp.issues = problem, []planIssue{issue}
+			} else if sh, ok := shared[p.ID]; ok {
+				sp.Problem = strings.TrimSpace(sp.Problem + " " + sh.problem())
+				sp.issues = append(sp.issues, sh.issue())
 			}
 			v.Plans = append(v.Plans, sp)
 		}
@@ -223,29 +262,54 @@ func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 // hosting product sells one plan. Which plans count is the caller's: those
 // that sell, for Open the store.
 func sharedProductProblems(plans []whop.Plan) map[string]string {
+	out := map[string]string{}
+	for id, sh := range sharedProducts(plans) {
+		out[id] = sh.problem()
+	}
+	return out
+}
+
+// sharedProduct is the product a plan shares with other plans, and their
+// titles.
+type sharedProduct struct {
+	product string
+	others  []string
+}
+
+// sharedProducts is, by plan id, the product of each of plans whose product
+// has another of them, as for sharedProductProblems.
+func sharedProducts(plans []whop.Plan) map[string]sharedProduct {
 	byProduct := map[string][]whop.Plan{}
 	for _, p := range plans {
 		if p.Product.ID != "" {
 			byProduct[p.Product.ID] = append(byProduct[p.Product.ID], p)
 		}
 	}
-	out := map[string]string{}
+	out := map[string]sharedProduct{}
 	for _, same := range byProduct {
 		if len(same) < 2 {
 			continue
 		}
 		for _, p := range same {
-			var others []string
+			sh := sharedProduct{product: cmpOr(p.Product.Title, p.Product.ID)}
 			for _, o := range same {
 				if o.ID != p.ID {
-					others = append(others, cmpOr(o.Title, o.ID))
+					sh.others = append(sh.others, cmpOr(o.Title, o.ID))
 				}
 			}
-			out[p.ID] = fmt.Sprintf("It shares its product, %s, with %s, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
-				cmpOr(p.Product.Title, p.Product.ID), andList(others))
+			out[p.ID] = sh
 		}
 	}
 	return out
+}
+
+func (sh sharedProduct) problem() string {
+	return fmt.Sprintf("It shares its product, %s, with %s, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
+		sh.product, andList(sh.others))
+}
+
+func (sh sharedProduct) issue() planIssue {
+	return planIssue{ruleOwnProduct, "shares " + sh.product + " with " + andList(sh.others)}
 }
 
 // andList writes names as a person lists them, such as "Plus, Max and
@@ -261,13 +325,21 @@ func andList(names []string) string {
 // memoryMB between them from selling, when that's outside the bounds the
 // store's pass runs (invites.Allowance.Check), or "".
 func allowanceProblem(servers, memoryMB int) string {
+	problem, _ := allowanceIssue(servers, memoryMB)
+	return problem
+}
+
+// allowanceIssue is allowanceProblem, with the issue it is.
+func allowanceIssue(servers, memoryMB int) (string, planIssue) {
 	switch {
 	case (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:
-		return ""
+		return "", planIssue{}
 	case servers < 1 || servers > invites.MaxAllowanceServers:
-		return fmt.Sprintf("It allows %d servers, and hosted plans allow 1 to %d.", servers, invites.MaxAllowanceServers)
+		return fmt.Sprintf("It allows %d servers, and hosted plans allow 1 to %d.", servers, invites.MaxAllowanceServers),
+			planIssue{ruleAllowance, fmt.Sprintf("allows %d servers", servers)}
 	}
-	return fmt.Sprintf("It allows %s, and hosted plans allow %s to %s.", gigabytes(memoryMB), gigabytes(invites.MinAllowanceMemoryMB), gigabytes(invites.MaxAllowanceMemoryMB))
+	return fmt.Sprintf("It allows %s, and hosted plans allow %s to %s.", gigabytes(memoryMB), gigabytes(invites.MinAllowanceMemoryMB), gigabytes(invites.MaxAllowanceMemoryMB)),
+		planIssue{ruleAllowance, "allows " + gigabytes(memoryMB)}
 }
 
 // markHostedProducts marks each of the store's hosting products, the ones
@@ -453,6 +525,30 @@ func (s *Server) hWhopSellerSetPrice(w http.ResponseWriter, r *http.Request, sto
 	writeJSON(w, http.StatusOK, v)
 }
 
+// refusedPlans is what Open the store says when it refuses plans: a line
+// for each plan with what's wrong with it, in a few words, and how to meet
+// the rules they break, each once.
+func refusedPlans(plans []sellerPrice) (lines []string, fix string) {
+	broken := map[planRule]bool{}
+	for _, p := range plans {
+		if len(p.issues) == 0 {
+			continue
+		}
+		says := make([]string, len(p.issues))
+		for i, is := range p.issues {
+			says[i], broken[is.rule] = is.says, true
+		}
+		lines = append(lines, p.Title+": "+strings.Join(says, "; "))
+	}
+	var fixes []string
+	for rule, f := range planRuleFixes {
+		if broken[planRule(rule)] {
+			fixes = append(fixes, f)
+		}
+	}
+	return lines, andList(fixes)
+}
+
 // sellerOpened is what pressing Open the store did: whether the store is
 // open now, and if not, why it's still closed.
 type sellerOpened struct {
@@ -469,7 +565,8 @@ type sellerOpened struct {
 // leaves nothing wrong are the hosting products marked for the store site
 // and the hosting plans made visible there, and the store opens, for its
 // seller's reason alone. A refusal leaves an open store open: only its
-// pass closes it.
+// pass closes it. One for plans gives each a line with its problems, and
+// says once how to meet the rules they break (refusedPlans).
 func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store string) {
 	st, user, c, ok := s.sellerStore(w, r, store)
 	if !ok {
@@ -488,18 +585,17 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		return
 	}
 	v := sellerPricesFrom(st, plans)
-	var problems []string
-	for _, p := range v.Plans {
-		if p.Problem != "" {
-			problems = append(problems, p.Title+": "+p.Problem)
-		}
-	}
+	lines, fix := refusedPlans(v.Plans)
 	switch {
 	case len(v.Plans) == 0:
 		writeErr(w, http.StatusConflict, api.CodeConflict, "Your store has no hosting plan yet. A hosting plan's metadata says how many servers and how much memory it allows.", "")
 		return
-	case len(problems) > 0:
-		writeErr(w, http.StatusConflict, api.CodeConflict, strings.Join(problems, " "), "")
+	case len(lines) > 0:
+		to := "open"
+		if st.ClosedWhy == "" {
+			to = "update"
+		}
+		writeErr(w, http.StatusConflict, api.CodeConflict, strings.Join(lines, "\n"), "To "+to+" your store, "+fix+".")
 		return
 	}
 	problem, err := s.syncWhopShares(ctx, c, st, true)
