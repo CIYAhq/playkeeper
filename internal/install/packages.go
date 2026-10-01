@@ -1,6 +1,7 @@
 package install
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -22,7 +23,7 @@ type packageManager interface {
 	// install installs pkgs with the packages they need, and nothing they
 	// only recommend, and each of optional that the package manager has once
 	// its lists are fresh; dnf's sources name none.
-	install(sys System, out io.Writer, pkgs, optional []string) error
+	install(ctx context.Context, sys System, out io.Writer, pkgs, optional []string) error
 	// removable splits pkgs into those that can go and those that other
 	// installed software needs, saying which needs what.
 	removable(sys System, pkgs []string) (remove, keep []string, why string)
@@ -58,8 +59,8 @@ func (apt) installed(sys System) (map[string]bool, error) { return installedPack
 // install asks about optional only after apt-get update: a new server's
 // package lists are empty until then, so apt has no candidate for anything.
 // Each try updates the lists, so one after a mirror failure reads them afresh.
-func (apt) install(sys System, out io.Writer, pkgs, optional []string) error {
-	return mirrorRetry(sys, out, aptMirrorFailed, func(bool) (string, error) {
+func (apt) install(ctx context.Context, sys System, out io.Writer, pkgs, optional []string) error {
+	return mirrorRetry(ctx, sys, out, aptMirrorFailed, func(bool) (string, error) {
 		if o, err := aptGet(sys, out, "update"); err != nil {
 			return o, err
 		}
@@ -128,11 +129,11 @@ func (dnf) installed(sys System) (map[string]bool, error) {
 // install waits for another dnf or rpm first; dnf also waits for them
 // itself, but silently. A try after a mirror failure reads the repositories'
 // metadata afresh.
-func (dnf) install(sys System, out io.Writer, pkgs, _ []string) error {
+func (dnf) install(ctx context.Context, sys System, out io.Writer, pkgs, _ []string) error {
 	if err := waitForPackageLock(sys, out, dnf{}, sys.Now().Add(lockWait)); err != nil {
 		return err
 	}
-	return mirrorRetry(sys, out, dnfMirrorFailed, func(again bool) (string, error) {
+	return mirrorRetry(ctx, sys, out, dnfMirrorFailed, func(again bool) (string, error) {
 		args := []string{"-y"}
 		if again {
 			args = append(args, "--refresh")
@@ -309,8 +310,9 @@ const (
 // through a sync can list files it doesn't have yet, as AlmaLinux 9's extras
 // repository did on 1 Oct 2026 ("Cannot download, all mirrors were already
 // tried without success"), and has them a little later. It says once that it
-// tries again.
-func mirrorRetry(sys System, out io.Writer, mirrorFailed func(output string) bool, try func(again bool) (string, error)) error {
+// tries again, and gives up as soon as ctx is done while it waits, as when
+// the installer is interrupted.
+func mirrorRetry(ctx context.Context, sys System, out io.Writer, mirrorFailed func(output string) bool, try func(again bool) (string, error)) error {
 	wait := mirrorWait
 	for n := 1; ; n++ {
 		o, err := try(n > 1)
@@ -320,7 +322,12 @@ func mirrorRetry(sys System, out io.Writer, mirrorFailed func(output string) boo
 		if n == 1 {
 			fmt.Fprintln(out, "    a package mirror wasn't ready; trying again...")
 		}
-		sys.Sleep(wait)
+		for end := sys.Now().Add(wait); ctx.Err() == nil && sys.Now().Before(end); {
+			sys.Sleep(time.Second)
+		}
+		if ctx.Err() != nil {
+			return err
+		}
 		wait *= 2
 	}
 }

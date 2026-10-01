@@ -52,7 +52,7 @@ func TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded(t *testin
 			h := newELHost(t, "almalinux", "9.6", "AlmaLinux")
 			h.dnfFails = slices.Clone(c.fails)
 			start, out := h.clock, &bytes.Buffer{}
-			err := dnf{}.install(h.system(t), out, []string{"docker-ce", "docker-ce-cli", "containerd.io"}, nil)
+			err := dnf{}.install(context.Background(), h.system(t), out, []string{"docker-ce", "docker-ce-cli", "containerd.io"}, nil)
 			var tries []string
 			for _, cmd := range h.cmds {
 				if strings.HasPrefix(cmd, "dnf ") {
@@ -92,7 +92,7 @@ func TestAPTTriesAgainWithFreshListsOnlyWhenTheMirrorDidntHaveWhatItNeeded(t *te
 			h.aptPolicy = map[string]string{"docker-cli": "docker-cli:\n  Installed: (none)\n  Candidate: 26.1.5+dfsg1-9+deb13u1\n"}
 			h.aptUpdateFails, h.aptInstallFails = slices.Clone(c.updateFails), slices.Clone(c.install)
 			start, out := h.clock, &bytes.Buffer{}
-			err := apt{}.install(h.system(t), out, []string{"docker.io"}, []string{"docker-cli"})
+			err := apt{}.install(context.Background(), h.system(t), out, []string{"docker.io"}, []string{"docker-cli"})
 			var ran []string
 			for _, cmd := range h.cmds {
 				if strings.HasPrefix(cmd, "apt-get ") {
@@ -127,6 +127,48 @@ func checkMirrorRetry(t *testing.T, err error, ok bool, fails []string, out stri
 	}
 	if line := map[bool]string{true: mirrorRetryLine}[tries > 1]; out != line {
 		t.Fatalf("the install said %q; want %q, once at most", out, line)
+	}
+}
+
+func TestAnInstallInterruptedWhileItWaitsToTryAgainStopsThere(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		host       func(t *testing.T) *fakeHost
+		pm         packageManager
+		tries, why string
+	}{
+		{"dnf", func(t *testing.T) *fakeHost {
+			h := newELHost(t, "almalinux", "9.6", "AlmaLinux")
+			h.dnfFails = []string{dnfNoMirrorHadMetadata}
+			return h
+		}, dnf{}, "dnf ", "Failed to download metadata"},
+		{"apt", func(t *testing.T) *fakeHost {
+			h := newFakeHost(t)
+			h.aptUpdateFails = []string{aptListsMidSync}
+			return h
+		}, apt{}, "apt-get -o DPkg::Lock::Timeout=60 update", "E: Some index files failed to download"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := c.host(t)
+			ctx, interrupt := context.WithCancel(context.Background())
+			sys := h.system(t)
+			sleep := sys.Sleep
+			sys.Sleep = func(d time.Duration) { interrupt(); sleep(d) }
+			start := h.clock
+			err := c.pm.install(ctx, sys, &bytes.Buffer{}, []string{"docker"}, nil)
+			tries := 0
+			for _, cmd := range h.cmds {
+				if strings.HasPrefix(cmd, c.tries) {
+					tries++
+				}
+			}
+			if err == nil || !strings.Contains(err.Error(), c.why) || tries != 1 {
+				t.Fatalf("an install interrupted as it waits must stop with the mirror's failure, without trying again: %v, %d tries", err, tries)
+			}
+			if waited := h.clock.Sub(start); waited != time.Second {
+				t.Fatalf("it waited %s after the interruption; want it to stop within the second", waited)
+			}
+		})
 	}
 }
 
