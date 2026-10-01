@@ -343,6 +343,41 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	}
 }
 
+// Open the store refuses a hosting plan that allows more servers, or more
+// or less memory, than the fleet runs, since the store's pass would start
+// none of its buyers. The seller's prices say why first, before a price
+// under the floor, which follows from what the plan allows. Nothing
+// reaches Whop until the plan is within the bounds, at whose edges it
+// opens.
+func TestOpenTheStoreRefusesAPlanTheFleetDoesntRun(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
+	for _, c := range []struct{ servers, gb, says string }{
+		{"11", "4", "Other: It allows 11 servers, and hosted plans allow 1 to 10."},
+		{"1", "0.5", "Other: It allows 0.5 GB, and hosted plans allow 1 GB to 64 GB."},
+		{"1", "96", "Other: It allows 96 GB, and hosted plans allow 1 GB to 64 GB."},
+	} {
+		f.setOtherPlan("plan_other", map[string]any{"metadata": map[string]any{whop.MetaServers: c.servers, whop.MetaMemoryGB: c.gb}})
+		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != c.says {
+			t.Fatalf("Open the store with %s servers and %s GB: %d %v", c.servers, c.gb, r.status, r.body)
+		}
+		if p := priceOf(t, pricesOf(t, e.asSeller(t, "GET", "biz_other/prices", "", token, nil)), "plan_other"); "Other: "+p.Problem != c.says {
+			t.Fatalf("the prices with %s servers and %s GB: %+v", c.servers, c.gb, p)
+		}
+	}
+	if vis := f.otherPlanVisibility("plan_other"); len(f.shareWrites) != 0 || vis != "hidden" {
+		t.Fatalf("a plan the fleet doesn't run reached Whop: shares %v, the plan %v", f.shareWrites, vis)
+	}
+	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != whopNotOpenYetWhy {
+		t.Fatalf("a plan the fleet doesn't run opened the store: %q", st.ClosedWhy)
+	}
+	f.setOtherPlan("plan_other", map[string]any{"renewal_price": 192, "metadata": map[string]any{whop.MetaServers: "10", whop.MetaMemoryGB: "64"}})
+	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+		t.Fatalf("Open the store with 10 servers and 64 GB: %d %v", r.status, r.body)
+	}
+}
+
 // waitForLock waits until a call in the function named fn waits for a
 // mutex, as a seller's change does for whopMu while the store's pass holds
 // it.
