@@ -796,18 +796,17 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopS
 		if wc.Unconfirmed > 0 || wc.NextTryAt > now {
 			continue
 		}
-		waits := ""
+		waits, keep := "", false
 		if st.Via == whopViaApp {
 			var unsure bool
 			wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)
-			if unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied) {
-				s.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)
+			keep = unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)
+		}
+		if !keep {
+			if err := s.stepWhopCustomer(ctx, c, st, wc); err != nil {
+				s.whopCustomerFailed(st.ID, wc, err)
 				continue
 			}
-		}
-		if err := s.stepWhopCustomer(ctx, c, st, wc); err != nil {
-			s.whopCustomerFailed(st.ID, wc, err)
-			continue
 		}
 		if st.Via == whopViaApp {
 			s.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)
