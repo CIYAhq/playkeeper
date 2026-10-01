@@ -244,6 +244,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		defer cancel()
 		err := runOp(ctx, h, fn)
 		done := s.endOp(s.id, "server", &s.opMu, op, h, err, func() { s.op, s.opH = nil, nil })
+		s.opEnded()
 		if kind == "backup" && done.Status == api.OpFailed {
 			s.alert(discord.BackupFailed(done.Error))
 		}

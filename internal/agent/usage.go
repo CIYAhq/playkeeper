@@ -243,9 +243,11 @@ func (a *Agent) firstOnline() {
 
 // runOnline is the server's run logging that it's up. While an operation
 // still shows an earlier step, such as a start's "starting_container", the
-// server doesn't show online yet, and the start notes it once it does
-// (waitReady). Otherwise it shows online now: after a start that gave up
-// waiting for it, or with no start waiting at all.
+// server doesn't show online yet: the start notes it once it does
+// (waitReady), and a start that had just given up waiting leaves it to the
+// look once the operation has ended (opEnded). Otherwise it shows online
+// now: after a start that gave up waiting for it, or with no start waiting
+// at all.
 func (s *server) runOnline() {
 	op := s.currentOp()
 	if op == nil {
@@ -253,6 +255,17 @@ func (s *server) runOnline() {
 	}
 	if _, shown := opPhase(op); !shown {
 		s.firstOnline()
+	}
+}
+
+// opEnded looks again at a server whose run is up, once its operation has
+// ended and shows no step of its own any more.
+func (s *server) opEnded() {
+	s.mu.Lock()
+	up := s.runPhase == api.PhaseOnline
+	s.mu.Unlock()
+	if up {
+		s.runOnline()
 	}
 }
 

@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -202,6 +204,44 @@ func TestAServerUpAfterItsStartGaveUpSendsTheFirstServerHeartbeat(t *testing.T) 
 	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 1 })
 	if h := rec.heartbeat(0); h.Servers != 1 || h.Running != 1 {
 		t.Errorf("the first server's heartbeat: %+v", h)
+	}
+}
+
+// A run that logs it's up while an operation still shows a step of its own,
+// as when a start has just given up waiting, is noted once the operation
+// has ended.
+func TestTheFirstServerIsNotedOnceTheOperationShowingAStepEnds(t *testing.T) {
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+	})
+	e.create()
+	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 1 })
+	if _, err := e.a.db.Exec(`DELETE FROM kv WHERE key = ?`, kvUsageOnline); err != nil {
+		t.Fatal(err)
+	}
+	s := e.srv()
+	held, release := gate(t)
+	if _, err := e.opWhenFree(func() (*api.Operation, error) {
+		return s.beginOp("start", "admin", func(ctx context.Context, h *opHandle) error {
+			h.phase(string(api.PhaseStartingContainer))
+			held()
+			return errors.New("the server did not finish starting")
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitFor("the operation to show its step", func() bool {
+		op := s.currentOp()
+		return op != nil && op.Phase == string(api.PhaseStartingContainer)
+	})
+	s.runOnline()
+	if !rec.quiet(1) {
+		t.Fatalf("a heartbeat while the operation showed %s", api.PhaseStartingContainer)
+	}
+	release()
+	e.waitFor("the heartbeat once the operation ended", func() bool { return rec.count() == 2 })
+	if h := rec.heartbeat(1); h.Servers != 1 || h.Running != 1 {
+		t.Errorf("the heartbeat once the operation ended: %+v", h)
 	}
 }
 
