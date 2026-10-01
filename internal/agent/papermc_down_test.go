@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -323,5 +324,42 @@ func TestACallerThatLeavesDoesNotMakePaperMCLookDown(t *testing.T) {
 	}
 	if got, err := e.a.restoreBuild(t.Context(), "26.1.2", 74); err != nil || got.PaperBuild != 74 {
 		t.Fatalf("the next lookup asks PaperMC: %+v %v", got, err)
+	}
+}
+
+// A slow PaperMC list holds up only the callers that want it: its fetch
+// holds no lock, so a backup's restore lookup goes ahead meanwhile, even
+// when the caller that started the fetch has left.
+func TestASlowPaperListHoldsUpOnlyItsOwnCallers(t *testing.T) {
+	e := newAgentEnv(t)
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	e.fill.mu.Lock()
+	e.fill.holdList = release
+	e.fill.mu.Unlock()
+	before := e.fill.asked()
+	gone, leave := context.WithCancel(t.Context())
+	go e.a.versionCatalog(gone)
+	for deadline := time.Now().Add(5 * time.Second); e.fill.asked() == before; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the version list was never asked for")
+		}
+	}
+	leave()
+	restored := make(chan error, 1)
+	go func() { _, err := e.a.restoreBuild(context.Background(), "26.1.2", 74); restored <- err }()
+	select {
+	case err := <-restored:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the restore lookup waited for the version list")
+	}
+	unblock()
+	if _, _, err := e.a.versionCatalog(t.Context()); err != nil {
+		t.Fatalf("the list, once PaperMC answered: %v", err)
 	}
 }

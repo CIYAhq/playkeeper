@@ -13103,7 +13103,7 @@ control "Paper downloads from PaperMC's download host by its checksum" internal/
   'if u, ok := paperJarURL(sc.MinecraftVersion, sc.PaperBuild, sum); false && ok {' \
   ./internal/agent '^TestWhilePaperMCAnswers503TheFirstServerIsStillCreated$'
 control "the last Paper list PaperMC gave is kept for the next outage" internal/agent/versions.go \
-  'a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: c.list.at, Entries: entries})' \
+  'a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: now, Entries: entries})' \
   '' \
   ./internal/agent '^TestPaperMCsLastListIsKeptOnDiskForTheNextOutage$'
 control "a Paper backup restores from the list the machine has while PaperMC is down" internal/agent/versions.go \
@@ -13147,12 +13147,18 @@ control "make version-lists never drops a type it couldn't keep" cmd/version-lis
   'case unreadable != nil:' \
   'case false:' \
   ./cmd/version-lists '^TestAFailedTypeIsNeverDroppedFromTheLists$'
-# After Bugbot's finding on aec0ac7e: a caller that leaves doesn't make an
-# upstream look down.
+# After Bugbot's findings on aec0ac7e and 54eba81a: a caller that leaves
+# doesn't make an upstream look down, and the fetch holds no lock.
+control "Paper's list is fetched without holding the catalog's lock" internal/agent/versions.go \
+  '	c.mu.Unlock()
+	entries, at, err := fetchOnce(ctx, &c.mu, &c.flights, api.TypePaper, func() ([]api.CatalogEntry, time.Time, error) {' \
+  '	defer c.mu.Lock()
+	entries, at, err := fetchOnce(ctx, &sync.Mutex{}, &c.flights, api.TypePaper, func() ([]api.CatalogEntry, time.Time, error) {' \
+  ./internal/agent '^TestASlowPaperListHoldsUpOnlyItsOwnCallers$'
 control "a Paper list fetch outlives a caller that leaves" internal/agent/versions.go \
   'cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)' \
   'cctx, cancel := context.WithTimeout(ctx, 30*time.Second)' \
-  ./internal/agent '^TestACallerThatLeavesDoesNotMakeAnUpstreamLookDown$'
+  ./internal/agent '^TestACallerThatLeavesDoesNotMakePaperMCLookDown$'
 control "a waiter that leaves records no failure of the upstream" internal/agent/software.go \
   'if ctx.Err() != nil {
 		// The caller left; the fetch, if it goes on, says how it went.' \
