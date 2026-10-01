@@ -192,6 +192,9 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"id": "aff_" + biz, "status": "active"})
 	case route == "GET /affiliates/aff_"+biz+"/overrides":
 		page(b.shares)
+	case f.shareDown && strings.HasPrefix(route, "POST /affiliates/aff_"+biz+"/overrides") || f.shareDown && strings.HasPrefix(route, "PATCH /affiliates/aff_"+biz+"/overrides/"):
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the affiliate:update scope."}}`)
 	case route == "POST /affiliates/aff_"+biz+"/overrides":
 		share := map[string]any{"id": fmt.Sprintf("ovr_%s_%d", biz, len(b.shares)+1)}
 		for _, k := range []string{"override_type", "product_id", "commission_type", "commission_value", "revenue_basis"} {

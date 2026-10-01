@@ -9418,9 +9418,25 @@ control "seller prices: Whop is asked for no initial price" internal/whop/store.
   'map[string]any{"initial_price": price, "renewal_price": price}' \
   ./internal/whop '^TestSetPlanPriceChargesItOnceAtCheckoutAndOnEachRenewal$'
 control "seller prices: an open store's share follows a new price at once" internal/panel/sellerprices.go \
-  'case len(set) > 0:' \
-  'case len(set) < 0:' \
+  'if len(set) > 0 && !shareFirst {' \
+  'if len(set) < 0 && !shareFirst {' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: a lower price has its share set first" internal/panel/sellerprices.go \
+  'shareFirst := len(set) > 0 && price < sp.Price' \
+  'shareFirst := len(set) > 0 && price < 0' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a higher price is set before its share" internal/panel/sellerprices.go \
+  'shareFirst := len(set) > 0 && price < sp.Price' \
+  'shareFirst := len(set) > 0 && price != sp.Price' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a lower price whose share Whop won't set is refused" internal/panel/sellerprices.go \
+  'problem, err := s.syncWhopSharesAt(ctx, c, st, true, map[string]float64{sp.ID: float64(price) / 100})' \
+  'problem, err := s.syncWhopSharesAt(ctx, c, st, true, map[string]float64{sp.ID: float64(price) / 100}); err = nil' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a lower price is refused on a problem with the shares" internal/panel/sellerprices.go \
+  'case problem != "":' \
+  'case false:' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
 control "seller prices: a plan priced in another currency doesn't sell" internal/panel/sellerprices.go \
   'case !usd:' \
   'case false:' \
