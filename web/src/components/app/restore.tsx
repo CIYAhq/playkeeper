@@ -1,10 +1,10 @@
-import { useRef, useState, type DragEvent } from 'react'
+import { useId, useRef, useState, type DragEvent } from 'react'
 import { UploadIcon } from 'lucide-react'
 import { api, del, post } from '@/api/client'
 import type { RestorePreview, ServerStatus } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
-import { Spinner } from '@/components/app/bits'
+import { EulaLink, Spinner } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -133,6 +133,7 @@ export function RestoreDialog({ preview, server, machine, onClose }: { preview: 
   const [phrase, setPhrase] = useState('')
   const [name, setName] = useState('')
   const [eula, setEula] = useState(false)
+  const eulaId = useId()
   const [busy, setBusy] = useState(false)
   const creating = !!preview && !preview.serverId
   const m = preview?.manifest
@@ -223,15 +224,9 @@ export function RestoreDialog({ preview, server, machine, onClose }: { preview: 
                       <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} autoComplete="off" />
                     </label>
                     <label className="flex items-start gap-2.5 text-[13px]">
-                      <Checkbox checked={eula} onCheckedChange={(v) => setEula(v === true)} className="mt-0.5" />
+                      <Checkbox checked={eula} onCheckedChange={(v) => setEula(v === true)} aria-labelledby={`${eulaId}-sentence`} className="mt-0.5" />
                       <span>
-                        {rich('eula.accept', {
-                          link: (chunk) => (
-                            <a href={t('eula.url')} target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">
-                              {chunk}
-                            </a>
-                          ),
-                        })}
+                        <span id={`${eulaId}-sentence`}>{t('eula.accept')}</span> <EulaLink />
                       </span>
                     </label>
                   </div>

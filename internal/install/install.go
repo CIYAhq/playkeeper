@@ -109,6 +109,8 @@ type Facts struct {
 	// the dashboard answers there without a port once the machine has an
 	// address (config.Dashboard443) only on a new install that found it free.
 	Port443 string
+	// Provider is the cloud or VPS provider the machine runs at, if it tells.
+	Provider Provider
 }
 
 // Dashboard443 reports whether the install turns Serve the dashboard on the
@@ -316,20 +318,24 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		f.SudoLink = sudoMissesBin(sys)
 	}
 	ports := joinAnd(firewallRules(o))
-	why := ""
-	if o.Join == "" {
-		why = " " + webPortsWhy
+	// A machine with a dashboard says where its provider's firewall steps
+	// are right under the setup link, where they're needed (Result.Provider);
+	// a joined machine has no link, so its line says it here.
+	cloud := ""
+	if o.Join != "" {
+		cloud = " If your provider has a cloud firewall, allow " + ports + " there too."
 	}
 	if fw := activeFirewall(sys); fw != nil {
 		f.Firewall = fw
-		add("firewall", "Firewall ("+fw.short()+")", "info", fw.short()+" is active; the installer will allow "+ports+fw.where()+". If your provider has a cloud firewall, allow them there too."+why, "")
+		add("firewall", "Firewall ("+fw.short()+")", "info", fw.short()+" is active; the installer will allow "+ports+fw.where()+"."+cloud, "")
 	} else if name, allow := dropFirewall(sys, firewallRules(o)); name != "" {
-		add("firewall", "Firewall ("+name+")", "warn", name+" drops incoming connections that no rule allows, and the installer opens ports only in ufw and firewalld. Allow "+ports+" in "+name+" unless a rule already does, and in your provider's cloud firewall if it has one."+why,
+		add("firewall", "Firewall ("+name+")", "warn", name+" drops incoming connections that no rule allows, and the installer opens ports only in ufw and firewalld. Allow "+ports+" in "+name+" unless a rule already does."+cloud,
 			"For example: "+allow)
 	} else {
-		add("firewall", "Firewall", "info", "Found no firewall on this server that blocks incoming connections. If your provider has a cloud firewall, allow "+ports+" there."+why, "")
+		add("firewall", "Firewall", "info", "Found no firewall on this server that blocks incoming connections."+cloud, "")
 	}
 	f.PanelURLHost = primaryIP()
+	f.Provider = DetectProvider(sys)
 	if o.Join != "" {
 		add("join", "Dashboard", "info", "Once installed, this machine joins the dashboard at "+o.Join+". It dials out to it, so no port opens for it here.", "")
 	} else {
@@ -565,6 +571,11 @@ type Result struct {
 	// Dashboard443 says the dashboard answers on port 443 once the machine
 	// has an address (config.Dashboard443).
 	Dashboard443 bool
+	// PanelPort and GamePort are the ports a provider's firewall must let
+	// through, and Provider whose firewall it is, for the line under the
+	// setup link.
+	PanelPort, GamePort int
+	Provider            Provider
 }
 
 // Run installs Playkeeper, or upgrades an existing install in place. On any
@@ -905,7 +916,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
-	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on"}
+	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on", PanelPort: cfg.PanelPort, GamePort: cfg.GamePort, Provider: in.f.Provider}
 	if !cfg.NoPanel {
 		res.URL, res.ExistingAdm = fmt.Sprintf("https://%s:%d", in.f.PanelURLHost, cfg.PanelPort), in.f.ExistingAdmin
 		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", code: "certificate", do: func() error {

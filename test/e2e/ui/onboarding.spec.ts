@@ -50,7 +50,7 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await expect(eula).not.toBeChecked()
   const create = page.getByRole('button', { name: 'Create my server' })
   await expect(create).toBeDisabled()
-  await expect(page.getByRole('link', { name: 'Minecraft End User License Agreement' })).toHaveAttribute('href', 'https://www.minecraft.net/en-us/eula')
+  await expect(page.getByRole('link', { name: 'Read it' })).toHaveAttribute('href', 'https://www.minecraft.net/en-us/eula')
 
   // The protocol test bots speak Minecraft 26.1, so change the version to Paper 26.1.2.
   await tabTo(page, page.getByRole('button', { name: 'Change' }))
@@ -70,9 +70,15 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await expect(dialog).toBeHidden()
   await expect(page.getByText(/Paper 26\.1\.2 · /)).toBeVisible()
 
-  await tabTo(page, eula)
+  // Create pressed before the EULA is accepted says so at the box, and moves there.
+  await tabTo(page, create)
+  await page.keyboard.press('Enter')
+  const nudge = page.getByText('Tick this box first.')
+  await expect(nudge).toBeVisible()
+  await expect(eula).toBeFocused()
   await page.keyboard.press('Space')
   await expect(eula).toBeChecked()
+  await expect(nudge).toBeHidden()
   await shot(page, 'onboarding-4-play-style-desktop')
   screens++
   await tabTo(page, create)
