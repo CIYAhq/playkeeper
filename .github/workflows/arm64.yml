@@ -180,6 +180,9 @@ jobs:
         with:
           name: ${{ needs.package.outputs.artifact }}
           path: /tmp/release
+      - uses: ./.github/actions/package-cache
+        with:
+          set: chromium
       - name: Test tools (Node for the protocol bots and the browser tests)
         run: |
           ./scripts/setup.sh

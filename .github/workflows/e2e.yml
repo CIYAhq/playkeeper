@@ -89,6 +89,9 @@ jobs:
         with:
           name: ${{ inputs.artifact || 'release' }}
           path: /tmp/release
+      - uses: ./.github/actions/package-cache
+        with:
+          set: chromium
       - name: Test tools (Node for the protocol bots and the browser tests)
         run: |
           ./scripts/setup.sh
@@ -317,6 +320,9 @@ jobs:
         with:
           name: ${{ inputs.artifact || 'release' }}
           path: /tmp/release
+      - uses: ./.github/actions/package-cache
+        with:
+          set: chromium
       - name: Test tools (Node for the protocol bots and the browser tests)
         run: |
           ./scripts/setup.sh
@@ -366,6 +372,9 @@ jobs:
         with:
           name: ${{ inputs.artifact || 'release' }}
           path: /tmp/release
+      - uses: ./.github/actions/package-cache
+        with:
+          set: chromium
       - name: Test tools (Node and the test browser)
         run: |
           ./scripts/setup.sh
@@ -527,6 +536,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build the playkeeper.io image and check what it serves
         run: scripts/site-check.sh
+      - uses: ./.github/actions/package-cache
+        with:
+          set: chromium-webkit
       - name: Test tools (Node, Chromium and WebKit for the live demo checks)
         run: |
           ./scripts/setup.sh
@@ -607,6 +619,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/package-cache
+        with:
+          set: chromium
       - name: Pinned toolchains, the built UI and the test browser
         run: |
           ./scripts/setup.sh
@@ -642,6 +657,9 @@ jobs:
         size: [desktop, phone]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/package-cache
+        with:
+          set: chromium
       - name: Pinned toolchains and the test browser
         run: |
           ./scripts/setup.sh
@@ -666,6 +684,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/package-cache
+        with:
+          set: chromium
       - name: Pinned toolchains, the store's dependencies and the test browser
         run: |
           ./scripts/setup.sh

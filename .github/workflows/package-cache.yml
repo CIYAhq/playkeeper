@@ -1,0 +1,105 @@
+name: Package cache
+
+# Saves the system packages CI's jobs install with apt, in the Actions
+# cache, for .github/actions/package-cache to give back to them: Playwright's
+# for Chromium (the browser tests and the click-through), for Chromium and
+# WebKit (the site image's live demo checks), and the KVM lab's tools with
+# Chromium's (the OS matrix and the VM rehearsals), on GitHub's x86-64 and
+# ARM runners. Ubuntu's mirror sometimes sends packages at a fiftieth of its
+# usual speed (47 kB/s on 1 Oct 2026, when one job's 32 MB took 11 minutes);
+# from the cache they take seconds, and apt fetches from the mirror only
+# what changed since.
+#
+# Each set is installed here as the jobs that use it install it, and saved
+# with only the packages it installed, under a key that names their
+# versions, so a set is saved again only when one of them changed; the jobs
+# take the newest. Main runs it every day, which also picks up new runner
+# images and Ubuntu's updates, when a push changes what it installs, and
+# when it's started by hand. A pull request that changes it runs it too,
+# and what it saves there only that pull request's later runs can use.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/package-cache/**
+      - .github/workflows/package-cache.yml
+      - scripts/package-cache.sh
+      - test/e2e/ui/package-lock.json
+  pull_request:
+    paths:
+      - .github/actions/package-cache/**
+      - .github/workflows/package-cache.yml
+      - scripts/package-cache.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  refresh:
+    name: ${{ matrix.set }} on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    # A set saved for the first time comes from the mirror whole: at its
+    # slowest, 44 minutes for chromium-webkit's 125 MB.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # The packages each set's jobs install: `browsers` as Playwright's
+        # install-deps takes them, `apt` the others. A job that installs
+        # another package gets it from the mirror until it's added here.
+        include:
+          - { set: chromium, runner: ubuntu-24.04, browsers: chromium }
+          - { set: chromium-webkit, runner: ubuntu-24.04, browsers: chromium webkit }
+          - { set: vm-lab, runner: ubuntu-24.04, browsers: chromium, apt: qemu-system-x86 qemu-utils cloud-image-utils nmap tcpdump }
+          - { set: chromium, runner: ubuntu-24.04-arm, browsers: chromium }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: cache
+        uses: ./.github/actions/package-cache
+        with:
+          set: ${{ matrix.set }}
+      - name: The set's packages, installed as its jobs install them
+        env:
+          APT_PACKAGES: ${{ matrix.apt }}
+          BROWSERS: ${{ matrix.browsers }}
+        run: |
+          read -ra apt <<<"$APT_PACKAGES"
+          read -ra engines <<<"$BROWSERS"
+          sudo apt-get update -qq
+          if [ "${#apt[@]}" -gt 0 ]; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${apt[@]}"
+          fi
+          ./scripts/setup.sh
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps "${engines[@]}"
+      - name: Only what the set installed, named by its versions
+        id: keep
+        env:
+          PREFIX: ${{ steps.cache.outputs.prefix }}
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" /tmp/apt-packages
+          echo "key=$PREFIX$(scripts/package-cache.sh keep /tmp/apt-packages)" >> "$GITHUB_OUTPUT"
+      - name: Whether it's saved already
+        id: saved
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-packages
+          key: ${{ steps.keep.outputs.key }}
+          lookup-only: true
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.saved.outputs.cache-hit != 'true'
+        with:
+          path: /tmp/apt-packages
+          key: ${{ steps.keep.outputs.key }}
