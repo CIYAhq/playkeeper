@@ -57,6 +57,7 @@ export function ChoiceSelect<T extends string>({
   const phone = useIsPhone()
   const [open, setOpen] = useState(false)
   const hintId = useId()
+  const listId = useId()
   const current = options.find((o) => o.value === value)
   // A disabled option's hint is why it can't be picked.
   const why = (o: Choice<T>, i: number) => (o.disabled && secondLine(o) ? `${hintId}-${i}` : undefined)
@@ -64,13 +65,17 @@ export function ChoiceSelect<T extends string>({
   if (phone) {
     return (
       <>
+        {/* A combobox, as on a desktop: a button's label would hide the choice it shows from screen readers and the click-through. */}
         <button
           type="button"
+          role="combobox"
           id={id}
           disabled={disabled}
           title={disabledReason}
           aria-label={label}
           aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
           onClick={() => setOpen(true)}
           className={cn('inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-[15px] text-foreground disabled:opacity-60', disabledReason && 'disabled:cursor-not-allowed', className)}
         >
@@ -82,7 +87,7 @@ export function ChoiceSelect<T extends string>({
             <SheetHeader className="pb-2">
               <SheetTitle className="text-lg">{label}</SheetTitle>
             </SheetHeader>
-            <div className="mx-4 mb-4 overflow-hidden rounded-2xl border border-border" role="listbox" aria-label={label}>
+            <div id={listId} className="mx-4 mb-4 overflow-hidden rounded-2xl border border-border" role="listbox" aria-label={label}>
               {options.map((o, i) => (
                 <button
                   type="button"
