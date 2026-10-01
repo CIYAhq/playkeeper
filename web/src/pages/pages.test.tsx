@@ -3040,6 +3040,18 @@ describe('Onboarding', () => {
       expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
     })
 
+    // Setting up says you can leave the page: back on it, the server is still
+    // being set up, and the name it was created with is the account's.
+    it('is still confirmed after leaving the page while the server was set up', async () => {
+      const settingUp = server({ phase: 'starting', startedAt: undefined, operation: { id: 'op1', kind: 'create', status: 'running', phase: 'starting', actor: 'siya', startedAt: new Date().toISOString() } })
+      const ws = workspace({ servers: [settingUp], prefs: { 'minecraft.name': 'Steve_Builds' } })
+      answer({ '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
+      await render(<Onboarding />, ws)
+      expect(page()).toContain('Setting up Survival')
+      await online(ws, { '/whitelist': [steve], '/operators': [{ ...steve, level: 4 }] })
+      expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
+    })
+
     // A first start that timed out but came up after all: the agent adds the
     // name once it sees the server online.
     it('waits for the agent to add it before saying how it went', async () => {

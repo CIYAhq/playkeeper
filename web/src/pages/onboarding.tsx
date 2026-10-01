@@ -140,15 +140,18 @@ export function Onboarding() {
   const [serverId, setServerId] = useState<string>()
   const [owner, setOwner] = useState<string>()
   const server = ws.servers?.find((s) => s.id === serverId)
+  // Back on the page while the first server is set up: its create sent the name the account keeps.
+  const keptOwner = ownOperators(ws.prefs[ownNameKey], ws.machine, ws.me.version).operators?.[0]
 
   useEffect(() => {
     if (serverId || !ws.servers || ws.servers.length === 0) return
     const first = ws.servers[0]
     if (first && isSettingUp(first)) {
       setServerId(first.id)
+      setOwner(keptOwner)
       setStage('creating')
     } else navigate({ name: 'home' }, true)
-  }, [serverId, ws.servers])
+  }, [serverId, ws.servers, keptOwner])
 
   useEffect(() => {
     if (stage === 'creating' && server && server.phase === 'online' && !server.operation) setStage('online')
