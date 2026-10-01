@@ -23,11 +23,12 @@ const offered = (p: SellerPrice) => (p.price >= p.floor ? p.price : p.suggested)
  * The step that checks a seller's prices. While a plan breaks a rule Fix my
  * plans puts right, it offers that, and nothing else; while one breaks a
  * rule it can't, it says what to change in Whop, in a plain line each.
- * Otherwise it lists each plan at the price the page offers, and Looks good
- * saves the ones that changed. edit is the same once the store is open, to
- * change its prices, except that it always lists them, with Back: Fix my
- * plans is for a store that isn't open yet, and Update the store says what
- * a plan added since needs. notice is what Fix my plans last changed.
+ * Otherwise it lists each plan whose price it can set, renewing monthly in
+ * US dollars, at the price the page offers, and Looks good saves the ones
+ * that changed. edit is the same once the store is open, to change its
+ * prices, except that it always lists them, with Back: Fix my plans is for
+ * a store that isn't open yet, and Update the store says what a plan added
+ * since needs. notice is what Fix my plans last changed.
  * onPrices hands the page new prices to start the step again with, from
  * Fix my plans or Check again; onSaved hands it the prices saved so far
  * when a later one failed, and the step stays as it is, saying why.
@@ -57,6 +58,7 @@ export function PricesStep({
   const [failed, setFailed] = useState<string>()
   const title = edit ? t('sellerFlow.prices.editTitle') : t('sellerFlow.prices.title')
   const step = edit ? undefined : 0
+  const settable = prices.plans.filter((p) => p.settable)
 
   async function fix() {
     setBusy(true)
@@ -86,7 +88,7 @@ export function PricesStep({
   async function save(e: FormEvent) {
     e.preventDefault()
     const wrong: Record<string, string> = {}
-    for (const p of prices.plans) {
+    for (const p of settable) {
       const cents = centsOf(drafts[p.id] ?? '')
       if (cents === undefined) wrong[p.id] = t('sellerFlow.prices.notAPrice')
       else if (cents < p.floor) wrong[p.id] = t('sellerFlow.prices.atLeast', { floor: money(p.floor, 'usd') })
@@ -98,7 +100,7 @@ export function PricesStep({
     let latest = prices
     let at = ''
     try {
-      for (const p of prices.plans) {
+      for (const p of settable) {
         const cents = centsOf(drafts[p.id] ?? '') ?? p.price
         if (cents === p.price) continue
         at = p.id
@@ -179,7 +181,7 @@ export function PricesStep({
       {told}
       <form onSubmit={(e) => void save(e)} noValidate className="mt-4">
         <ul className="divide-y divide-border">
-          {prices.plans.map((p) => (
+          {settable.map((p) => (
             <PlanPrice
               key={p.id}
               plan={p}
