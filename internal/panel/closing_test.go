@@ -76,6 +76,115 @@ func TestANewAppStoreSellsNothingUntilItsSellerOpensIt(t *testing.T) {
 	}
 }
 
+// A store that sells nothing, closed, suspended or gone, has its hosting
+// products hidden from its page on Whop, as its plans' stock is 0, and
+// shown there again once it sells: those the dashboard hid and no other, so
+// one its seller hid stays hidden, as does one archived meanwhile, and a
+// product that isn't for hosting is left alone. Whop is read when that
+// changes, not on every pass, and what it refuses is done on a later pass.
+// A store back after leaving stays hidden until its seller opens it again,
+// which shows every hosting product, and closing after that hides them all.
+func TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	ctx := context.Background()
+	f.setOtherProduct("prod_plus", whop.Metadata{})
+	f.setOtherProduct("prod_merch", whop.Metadata{})
+	f.addOtherPlan(map[string]any{"id": "plan_plus", "title": "Plus", "renewal_price": 24, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "8"},
+		"product": map[string]any{"id": "prod_plus", "title": "Plus server"}})
+	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "renewal_price": 5, "product": map[string]any{"id": "prod_merch", "title": "Merch"}})
+	f.setOtherProductVisibility("prod_other", "hidden")
+	f.setOtherProductVisibility("prod_plus", "hidden")
+	f.mu.Lock()
+	b := f.installed["biz_other"]
+	f.mu.Unlock()
+	sell := func(name string) {
+		t.Helper()
+		if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+			t.Fatalf("%s: %d %v", name, r.status, r.body)
+		}
+	}
+	listed := func() string {
+		return "Other " + f.otherProductVisibility("prod_other") + ", Plus " + f.otherProductVisibility("prod_plus") + ", Merch " + f.otherProductVisibility("prod_merch")
+	}
+	reads := func() int {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return b.productReads
+	}
+	refuse := func(hiding, showing bool) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		b.hideDown, b.showProductDown = hiding, showing
+	}
+	// pass runs the store's pass, and another, which reads none of its
+	// products from Whop, since nothing changed.
+	pass := func(name, want string) {
+		t.Helper()
+		e.reconcile()
+		n := reads()
+		e.reconcile()
+		if got := listed(); got != want || reads() != n {
+			t.Fatalf("%s: %s, its products read %d more times on the next pass", name, got, reads()-n)
+		}
+	}
+
+	sell("Open the store")
+	f.setOtherProductVisibility("prod_plus", "hidden")
+	pass("open, Plus hidden by its seller", "Other visible, Plus hidden, Merch visible")
+	if err := e.srv.closeWhopStore(ctx, "biz_other", "held", "Other is held closed"); err != nil {
+		t.Fatal(err)
+	}
+	pass("closed", "Other hidden, Plus hidden, Merch visible")
+	if _, err := e.srv.openWhopStore(ctx, "biz_other", "held"); err != nil {
+		t.Fatal(err)
+	}
+	pass("open again", "Other visible, Plus hidden, Merch visible")
+
+	if _, err := e.srv.suspendWhopStore(ctx, "biz_other", "admin", "griefing"); err != nil {
+		t.Fatal(err)
+	}
+	refuse(true, false)
+	e.reconcile()
+	if got := listed(); got != "Other visible, Plus hidden, Merch visible" {
+		t.Fatalf("suspended, with Whop refusing to hide a product: %s", got)
+	}
+	refuse(false, false)
+	pass("suspended", "Other hidden, Plus hidden, Merch visible")
+	if _, err := e.srv.liftWhopStore(ctx, "biz_other", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	refuse(false, true)
+	e.reconcile()
+	if got := listed(); got != "Other hidden, Plus hidden, Merch visible" {
+		t.Fatalf("lifted, with Whop refusing to show a product: %s", got)
+	}
+	refuse(false, false)
+	pass("lifted", "Other visible, Plus hidden, Merch visible")
+
+	if err := e.srv.whopStoreLeft(ctx, "biz_other", "the Playkeeper Cloud app was uninstalled"); err != nil {
+		t.Fatal(err)
+	}
+	pass("gone", "Other hidden, Plus hidden, Merch visible")
+	if back, err := e.srv.addWhopStore(ctx, whop.Account{ID: "biz_other", Title: "Other Hosting"}); err != nil || !back {
+		t.Fatalf("Other back: %v, %v", back, err)
+	}
+	pass("back, not open yet", "Other hidden, Plus hidden, Merch visible")
+	sell("Open the store once back")
+	if got := listed(); got != "Other visible, Plus visible, Merch visible" {
+		t.Fatalf("open once back: %s", got)
+	}
+	if err := e.srv.closeWhopStore(ctx, "biz_other", "held", "Other is held closed"); err != nil {
+		t.Fatal(err)
+	}
+	pass("closed once back", "Other hidden, Plus hidden, Merch visible")
+	f.setOtherProductVisibility("prod_plus", "archived")
+	if _, err := e.srv.openWhopStore(ctx, "biz_other", "held"); err != nil {
+		t.Fatal(err)
+	}
+	pass("open once back, Plus archived meanwhile", "Other visible, Plus archived, Merch visible")
+}
+
 // Each reason a store is closed for is taken back by its own name alone,
 // and the store opens once none holds it closed. Only an app store is
 // opened or closed.
