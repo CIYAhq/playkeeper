@@ -142,11 +142,18 @@ func (dnf) install(ctx context.Context, sys System, out io.Writer, pkgs, _ []str
 	})
 }
 
-// dnfMirrorFailed reports whether dnf gave up because no mirror had a
-// repository's metadata or a package. A "[MIRROR]" line only says dnf moved
-// on to the next mirror, and comes before other failures too.
+// dnfMirrorFailures are what dnf says when no mirror had a repository's
+// metadata or a package: dnf 4's "Failed to download metadata" and "Error
+// downloading packages", dnf 5's "Failed to download packages", and the line
+// both print for a file every mirror failed, which is all dnf 5 says of
+// metadata before "No match for argument". A mirror dnf moves on from gets a
+// "[MIRROR]" line (">>>" in dnf 5), which comes before other failures too.
+var dnfMirrorFailures = []string{"Failed to download metadata", "Error downloading packages", "Failed to download packages", "All mirrors were already tried without success"}
+
+// dnfMirrorFailed reports whether dnf gave up because no mirror had what it
+// needed.
 func dnfMirrorFailed(out string) bool {
-	return strings.Contains(out, "Failed to download metadata") || strings.Contains(out, "Error downloading packages")
+	return slices.ContainsFunc(dnfMirrorFailures, func(s string) bool { return strings.Contains(out, s) })
 }
 
 // removable asks rpm what removing pkgs would break, and keeps each package

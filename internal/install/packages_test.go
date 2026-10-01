@@ -21,6 +21,17 @@ const (
 	dnfBadSignature        = "Downloading Packages:\n[MIRROR] containerd.io-1.7.27-3.1.el9.x86_64.rpm: Curl error (52): Server returned nothing (no headers, no data) for https://download.docker.com/linux/centos/9/x86_64/stable/Packages/containerd.io-1.7.27-3.1.el9.x86_64.rpm [Empty reply from server]\ncontainerd.io-1.7.27-3.1.el9.x86_64.rpm          35 MB/s |  44 MB     00:01\nPackage containerd.io-1.7.27-3.1.el9.x86_64.rpm is not signed\nThe downloaded packages were saved in cache until the next successful transaction.\nYou can remove cached packages by executing 'dnf clean packages'.\nError: GPG check FAILED\n"
 )
 
+// The same as dnf 5.2 on Fedora 42 printed them against the local mirror,
+// lines from its progress cut at 80 columns as it cuts them: for metadata no
+// mirror had, which it takes for a repository without packages; for a package
+// no mirror sent; and for a package that fails its signature check after dnf
+// got it from the next mirror.
+const (
+	dnf5NoMirrorHadMetadata = "Updating and loading repositories:\n Docker CE Stable (added by Playkeeper)  100% | 759.0 KiB/s |   3.0 KiB |  00m00s\n>>> Status code: 404 for https://download.docker.com/linux/centos/10/x86_64/stab\n>>> No more mirrors to try - All mirrors were already tried without success     \nRepositories loaded.\nFailed to resolve the transaction:\nNo match for argument: docker-ce\nYou can try to add to command line:\n  --skip-unavailable to skip unavailable packages\n"
+	dnf5NoMirrorHadPackage  = "[1/3] containerd.io-0:1.7.27-3.1.el10.x86_64 100% |   3.3 KiB/s |  10.0   B |  00m00s\n>>> Status code: 404 for https://download.docker.com/linux/centos/10/x86_64/stab\n>>> No more mirrors to try - All mirrors were already tried without success     \n--------------------------------------------------------------------------------\n[3/3] Total                             100% |   2.4 KiB/s |  10.0   B |  00m00s\nFailed to download packages\n Librepo error: Cannot download containerd.io-1.7.27-3.1.el10.x86_64.rpm: All mirrors were tried\n"
+	dnf5BadSignature        = "[3/3] containerd.io-0:1.7.27-3.1.el10.x86_64 100% |  35.0 MiB/s |  44.0 MiB |  00m01s\n>>> Curl error (52): Server returned nothing (no headers, no data) for https://d\n--------------------------------------------------------------------------------\n[3/3] Total                             100% |  35.0 MiB/s |  44.0 MiB |  00m01s\nRunning transaction\nTransaction failed: Signature verification failed.\nOpenPGP check for package \"containerd.io-1.7.27-3.1.el10.x86_64\" (/var/cache/libdnf5/playkeeper-docker-ce-eec3c796af9bdc51/packages/containerd.io-1.7.27-3.1.el10.x86_64.rpm) from repo \"playkeeper-docker-ce\" has failed: The package is not signed.\n"
+)
+
 // What apt-get prints as it fails: lists from a mirror part-way through a
 // sync, as apt 2.8 printed them in a test against such a mirror; a package
 // the lists name that the mirror no longer has; a package no list has; and a
@@ -47,6 +58,9 @@ func TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded(t *testin
 		{"mirrors that keep failing get four tries", []string{dnfNoMirrorHadMetadata, dnfNoMirrorHadPackage, dnfNoMirrorHadMetadata, dnfNoMirrorHadMetadata}, 4, false},
 		{"a package no repository has fails at once", []string{dnfNoMatch}, 1, false},
 		{"a signature that fails after a mirror dnf moved on from fails at once", []string{dnfBadSignature}, 1, false},
+		{"dnf 5: metadata no mirror had is asked for again", []string{dnf5NoMirrorHadMetadata}, 2, true},
+		{"dnf 5: a package no mirror sent is asked for again", []string{dnf5NoMirrorHadPackage}, 2, true},
+		{"dnf 5: a signature that fails after a mirror dnf moved on from fails at once", []string{dnf5BadSignature}, 1, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newELHost(t, "almalinux", "9.6", "AlmaLinux")
