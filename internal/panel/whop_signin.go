@@ -350,7 +350,7 @@ func (s *Server) whoOnWhop(ctx context.Context, o whop.OAuth, code, verifier str
 func (s *Server) whopSignInWithoutAccount(ctx context.Context, store, whopUserID string) string {
 	var n int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id AND p.allowance_from != ''
-		WHERE (? = '' OR m.store_id = ?) AND m.whop_user_id = ? AND m.stale = 0 AND m.status IN `+whopAccess, store, store, whopUserID).Scan(&n); err == nil && n > 0 {
+		WHERE (? = '' OR m.store_id = ?) AND m.whop_user_id = ? AND m.stale = 0 AND `+whopHostingSQL, store, store, whopUserID).Scan(&n); err == nil && n > 0 {
 		if store != "" {
 			s.kickWhopStore(store)
 		} else {

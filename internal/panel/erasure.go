@@ -78,7 +78,7 @@ func (s *Server) erasableCustomer(ctx context.Context, userID int64) (erasable, 
 }
 
 // hasPlan says whether the customer still has a plan at their store: they
-// run as active, or a membership of theirs there gives access, even one
+// run as active, or a membership of theirs there gives servers, even one
 // Whop's API hasn't confirmed yet, which may be a renewal. A store that
 // left holds none: nothing reads its memberships any more, and nothing
 // starts its customers again until it's back and open.
@@ -87,7 +87,7 @@ func (s *Server) hasPlan(ctx context.Context, q querier, c erasable) (bool, erro
 		return true, nil
 	}
 	var n int
-	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.status IN `+whopAccess+`
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND `+whopHostingSQL+`
 		AND NOT EXISTS (SELECT 1 FROM whop_stores st WHERE st.store_id = m.store_id AND st.left_at != 0)`, c.store, c.subject).Scan(&n)
 	if err != nil {
 		return false, errDB

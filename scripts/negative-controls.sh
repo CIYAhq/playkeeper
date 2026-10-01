@@ -8537,6 +8537,25 @@ control "hosting: a one-time purchase gives no servers in an app store" internal
   'if via == whopViaApp && status == "completed" {' \
   'if false && via == whopViaApp && status == "completed" {' \
   ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+control "hosting: an app store's one-time purchase gives no servers, in a query" internal/panel/whop_customers.go \
+  "OR m.status = 'completed' AND NOT EXISTS (SELECT 1 FROM whop_stores hv WHERE hv.store_id = m.store_id AND hv.via = 'app'))" \
+  "OR m.status = 'completed')" \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+# shellcheck disable=SC2016
+control "hosting: a one-time purchase keeps no servers running past a cancelled plan" internal/panel/whop_customers.go \
+  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)' \
+  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0)' \
+  ./internal/panel '^TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn$'
+# shellcheck disable=SC2016
+control "hosting: signing in on a one-time purchase in an app store makes no account" internal/panel/whop_signin.go \
+  'AND m.stale = 0 AND `+whopHostingSQL, store, store, whopUserID)' \
+  'AND m.stale = 0 AND m.status IN `+whopAccess, store, store, whopUserID)' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+# shellcheck disable=SC2016
+control "hosting: a one-time purchase in an app store holds no deletion" internal/panel/erasure.go \
+  'AND m.whop_user_id = ? AND `+whopHostingSQL+`' \
+  'AND m.whop_user_id = ? AND m.status IN `+whopAccess+`' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
 control "share paid: only Playkeeper's share line counts" internal/panel/whop_share.go \
   'if l.Origin != whopShareOrigin || l.Settled.Currency != "usd" {' \
   'if l.Settled.Currency != "usd" {' \

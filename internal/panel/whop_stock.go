@@ -220,7 +220,7 @@ func (s *Server) uncountedPurchases(ctx context.Context, storeID string, setAt m
 		custs[id] = g
 	}
 	rows.Close()
-	rows, err = s.db.QueryContext(ctx, `SELECT whop_user_id, plan_id FROM whop_memberships WHERE store_id = ? AND status IN `+whopAccess, storeID)
+	rows, err = s.db.QueryContext(ctx, `SELECT m.whop_user_id, m.plan_id FROM whop_memberships m WHERE m.store_id = ? AND `+whopHostingSQL, storeID)
 	if err != nil {
 		return nil, err
 	}

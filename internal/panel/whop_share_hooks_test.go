@@ -200,8 +200,42 @@ func TestAOneTimePurchaseGivesNoServersInAnAppStore(t *testing.T) {
 	if st := e.otherStore(t); st.ClosedWhy != "" || calledFor(core.got(), "start ", "user_bob") {
 		t.Fatalf("a one-time purchase in an app store: closed %q, the core's calls %q", st.ClosedWhy, core.got())
 	}
+	if got := e.srv.whopSignInWithoutAccount(t.Context(), "biz_other", "user_bob"); got != "no_account" {
+		t.Errorf("signing in on a one-time purchase in an app store: %q", got)
+	}
+	if has, err := e.srv.hasPlan(t.Context(), e.srv.db, erasable{store: "biz_other", subject: "user_bob"}); err != nil || has {
+		t.Errorf("a one-time purchase in an app store holds a deletion: %v, %v", has, err)
+	}
 	if !whopHosts(whopViaKey, "completed") || whopHosts(whopViaApp, "completed") || !whopHosts(whopViaApp, "past_due") || whopHosts(whopViaApp, "expired") {
 		t.Error("the statuses that give servers in the key store and in an app store")
+	}
+}
+
+// A customer of an app store who cancels their monthly plan is reminded to
+// download their world, though they also have a one-time purchase there,
+// since that keeps none of their servers running.
+func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
+	f, e, _ := twoStores(t)
+	useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	b.plans = append(b.plans, map[string]any{"id": "plan_once", "title": "Once", "visibility": "archived",
+		"plan_type": "one_time", "initial_price": 12, "currency": "usd", "unlimited_stock": true,
+		"product": map[string]any{"id": "prod_other", "title": "Minecraft server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	f.buyAt("biz_other", "mem_once", "user_kim", "plan_once", "completed")
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	f.mu.Lock()
+	b.memberships["mem_kim"]["status"], b.memberships["mem_kim"]["cancel_at_period_end"] = "canceling", true
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	e.reconcile()
+	if msgs := f.sentIn("biz_other", "user_kim"); !slices.ContainsFunc(msgs, func(m string) bool { return strings.Contains(m, "You cancelled your Other Hosting plan") }) {
+		t.Fatalf("kim's chat at Other Hosting: %q", msgs)
 	}
 }
 
