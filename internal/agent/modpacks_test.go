@@ -406,28 +406,50 @@ func TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor(t *testing.T)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newAgentEnv(t)
-			e.modServer("fabric", "", "allow-nether=false\n", true)
+			checked := func() bool {
+				s := e.srv()
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				return s.settingsChecked
+			}
+			restarts := func() int {
+				return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restart' AND actor = 'playkeeper' AND status = ?`, api.OpSucceeded)
+			}
+			// The image writes Playkeeper's console and allowlist into
+			// server.properties as the server starts, and the fake doesn't.
+			e.modServer("fabric", "enable-rcon=true\nwhite-list=true\nenforce-whitelist=true\n", "allow-nether=false\n", true)
 			if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
 				t.Fatalf("start: %+v", op)
 			}
+			// The agent that started the server looks too, once, before the
+			// test switches the settings off behind its back.
+			e.waitFor("the check of the agent that started it", checked)
 			e.waitFor("online", e.onlineIdle)
+			if n := restarts(); n != 0 {
+				t.Fatalf("%d restarts by the agent that started the server with its settings on, want 0", n)
+			}
 			writeTestFile(t, filepath.Join(e.dataDir(), "server.properties"), []byte(tc.properties), time.Time{})
 
 			// Updating restarts the agent, not the server.
 			e.stop()
 			e.start()
-			e.waitFor("the check", func() bool {
-				s := e.srv()
-				s.mu.Lock()
-				defer s.mu.Unlock()
-				return s.settingsChecked
-			})
+			e.waitFor("the check", checked)
 			e.waitFor("online and idle", e.onlineIdle)
-			if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restart' AND actor = 'playkeeper' AND status = ?`, api.OpSucceeded); n != tc.restarted {
+			if n := restarts(); n != tc.restarted {
 				t.Fatalf("%d restarts by Playkeeper, want %d", n, tc.restarted)
 			}
 			if n := e.countEvents("settings_restored"); n != tc.restarted {
 				t.Fatalf("%d settings_restored events, want %d", n, tc.restarted)
+			}
+			// Once: a later pass leaves the server be, even though the fake's
+			// restart didn't put the settings back as the image's does.
+			sc, err := e.srv().serverConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.srv().checkSettingsOnce(*sc)
+			if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restart' AND actor = 'playkeeper'`); n != tc.restarted {
+				t.Fatalf("%d restarts by Playkeeper after the agent looked again, want %d", n, tc.restarted)
 			}
 		})
 	}
