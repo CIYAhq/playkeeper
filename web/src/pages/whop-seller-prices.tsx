@@ -1,189 +1,233 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent } from 'react'
 import { get, post } from '@/api/client'
-import type { SellerOpened, SellerPrice, SellerPrices } from '@/api/types'
+import type { SellerFixed, SellerPrice, SellerPrices } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group'
-import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { formatMB } from '@/lib/format'
-import { money } from './whop-seller-view'
+import { errorText, money, StepHeader } from './whop-seller-step'
 
-/** A price in cents as the seller edits it, such as 12.00. */
+/** A price in cents as the seller edits it, such as 15.00. */
 const typed = (cents: number) => (cents / 100).toFixed(2)
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : t('error.network'))
+/** A price as the seller wrote it, in cents, or undefined when it isn't one. */
+function centsOf(s: string): number | undefined {
+  const m = /^\$?\s*(\d{1,5})(?:\.(\d{1,2}))?$/.exec(s.trim())
+  return m ? Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0')) : undefined
+}
+
+/** What the page offers for a plan: its price when that's at or above the floor, else the price it suggests. */
+const offered = (p: SellerPrice) => (p.price >= p.floor ? p.price : p.suggested)
 
 /**
- * A seller's prices and Open the store, on their page inside Whop: each
- * hosting plan's monthly price, which they set at or above the floor, and
- * Open the store while the store is closed, or Update the store once it's
- * open. onChange tells the page the store changed, so its view reads it
- * again. Its calls go to relative addresses, which carry Whop's token.
+ * The step that checks a seller's prices. While a plan breaks a rule Fix my
+ * plans puts right, it offers that, and nothing else; while one breaks a
+ * rule it can't, it says what to change in Whop, in a plain line each.
+ * Otherwise it lists each plan at the price the page offers, and Looks good
+ * saves the ones that changed. edit is the same once the store is open, to
+ * change its prices. notice is what Fix my plans last changed.
  */
-export function SellerPricesCard({ store, onChange }: { store: string; onChange: () => void }) {
-  const [prices, setPrices] = useState<SellerPrices>()
-  const [error, setError] = useState<string>()
-  const [opening, setOpening] = useState(false)
-  const [opened, setOpened] = useState<string>()
-  const [openError, setOpenError] = useState<string>()
+export function PricesStep({
+  store,
+  prices,
+  notice,
+  edit,
+  onPrices,
+  onDone,
+  onBack,
+}: {
+  store: string
+  prices: SellerPrices
+  notice?: string
+  edit?: boolean
+  onPrices: (prices: SellerPrices, changed?: string) => void
+  onDone: (prices: SellerPrices) => void
+  onBack?: () => void
+}) {
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => Object.fromEntries(prices.plans.map((p) => [p.id, typed(offered(p))])))
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState<string>()
+  const title = edit ? t('sellerFlow.prices.editTitle') : t('sellerFlow.prices.title')
+  const step = edit ? undefined : 0
 
-  useEffect(() => {
-    let cancelled = false
-    get<SellerPrices>(`/api/public/whop/seller/${store}/prices`)
-      .then((v) => !cancelled && setPrices(v))
-      .catch((err: unknown) => !cancelled && setError(errorText(err)))
-    return () => {
-      cancelled = true
-    }
-  }, [store])
-
-  /** Open the store, or Update the store once it's open: the same call. */
-  async function open(update: boolean) {
-    setOpening(true)
-    setOpenError(undefined)
+  async function fix() {
+    setBusy(true)
+    setFailed(undefined)
     try {
-      const done = await post<SellerOpened>(`/api/public/whop/seller/${store}/sell`)
-      setOpened(done.open ? t(update ? 'sellerPrices.updated' : 'sellerPrices.opened') : t('sellerPrices.stillClosed', { why: done.why ?? '' }))
-      setPrices((v) => v && { ...v, canOpen: !done.open, canUpdate: done.open })
-      onChange()
+      const done = await post<SellerFixed>(`/api/public/whop/seller/${store}/fix`)
+      onPrices(done.prices, done.changed)
     } catch (err) {
-      setOpenError(errorText(err))
+      setFailed(errorText(err))
     } finally {
-      setOpening(false)
+      setBusy(false)
     }
   }
 
-  if (error) return <p className="mt-4 text-sm text-destructive-foreground">{error}</p>
-  if (!prices) {
+  async function checkAgain() {
+    setBusy(true)
+    setFailed(undefined)
+    try {
+      onPrices(await get<SellerPrices>(`/api/public/whop/seller/${store}/prices`))
+    } catch (err) {
+      setFailed(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function save(e: FormEvent) {
+    e.preventDefault()
+    const wrong: Record<string, string> = {}
+    for (const p of prices.plans) {
+      const cents = centsOf(drafts[p.id] ?? '')
+      if (cents === undefined) wrong[p.id] = t('sellerFlow.prices.notAPrice')
+      else if (cents < p.floor) wrong[p.id] = t('sellerFlow.prices.atLeast', { floor: money(p.floor, 'usd') })
+    }
+    setErrors(wrong)
+    setFailed(undefined)
+    if (Object.keys(wrong).length > 0) return
+    setBusy(true)
+    let latest = prices
+    let at = ''
+    try {
+      for (const p of prices.plans) {
+        const cents = centsOf(drafts[p.id] ?? '') ?? p.price
+        if (cents === p.price) continue
+        at = p.id
+        latest = await post<SellerPrices>(`/api/public/whop/seller/${store}/prices`, { plan: p.id, price: typed(cents) })
+      }
+      onDone(latest)
+    } catch (err) {
+      setErrors({ [at]: errorText(err) })
+      if (latest !== prices) onPrices(latest)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const told = notice && (
+    <p role="status" className="mt-4 text-sm font-medium text-success-strong">
+      {t('sellerFlow.fix.done', { changed: notice })}
+    </p>
+  )
+  const problem = failed && (
+    <p role="alert" className="mt-4 text-sm text-destructive-foreground">
+      {failed}
+    </p>
+  )
+
+  if (prices.plans.length === 0) {
     return (
-      <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-        <Spinner className="size-4" />
-        {t('sellerPrices.loading')}
-      </p>
+      <>
+        <StepHeader step={step} title={title} lead={t('sellerFlow.prices.none')} />
+        <Button size="lg" className="mt-6 max-sm:w-full" loading={busy} onClick={() => void checkAgain()}>
+          {t('sellerFlow.checkAgain')}
+        </Button>
+        {problem}
+      </>
+    )
+  }
+  if (prices.fixable) {
+    return (
+      <>
+        <StepHeader step={step} title={title} lead={t('sellerFlow.fix.lead')} />
+        <Button size="lg" className="mt-6 max-sm:w-full" loading={busy} onClick={() => void fix()}>
+          {t('sellerFlow.fix.button')}
+        </Button>
+        {problem}
+      </>
+    )
+  }
+  if (prices.blocked?.length) {
+    return (
+      <>
+        <StepHeader step={step} title={title} lead={t('sellerFlow.blocked.lead')} />
+        {told}
+        <ul className="mt-4 flex flex-col gap-2 text-[15px]">
+          {prices.blocked.map((line) => (
+            <li key={line} className="rounded-lg bg-muted px-3 py-2">
+              {line}
+            </li>
+          ))}
+        </ul>
+        <Button size="lg" className="mt-6 max-sm:w-full" loading={busy} onClick={() => void checkAgain()}>
+          {t('sellerFlow.checkAgain')}
+        </Button>
+        {problem}
+      </>
     )
   }
   return (
-    <section className="mt-4">
-      <h2 className="text-[15px] font-semibold">{t('sellerPrices.title')}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{t('sellerPrices.about')}</p>
-      {prices.plans.length === 0 ? (
-        <p className="mt-2 text-sm text-muted-foreground">{t('sellerPrices.none')}</p>
-      ) : (
-        <ul className="mt-1 divide-y divide-border">
+    <>
+      <StepHeader step={step} title={title} lead={t('sellerFlow.prices.lead')} />
+      {told}
+      <form onSubmit={(e) => void save(e)} noValidate className="mt-4">
+        <ul className="divide-y divide-border">
           {prices.plans.map((p) => (
-            <PriceRow
+            <PlanPrice
               key={p.id}
-              store={store}
               plan={p}
-              onSaved={(v) => {
-                setPrices(v)
-                onChange()
+              value={drafts[p.id] ?? ''}
+              error={errors[p.id]}
+              onChange={(v) => {
+                setDrafts((d) => ({ ...d, [p.id]: v }))
+                setErrors((errs) => Object.fromEntries(Object.entries(errs).filter(([plan]) => plan !== p.id)))
               }}
             />
           ))}
         </ul>
-      )}
-      {prices.problem && <p className="mt-2 text-sm font-medium text-warning-foreground">{prices.problem}</p>}
-      {prices.canOpen && (
-        <div className="mt-3 flex flex-col items-start gap-1.5">
-          <Button loading={opening} onClick={() => void open(false)}>
-            {t('sellerPrices.open')}
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button type="submit" size="lg" className="max-sm:w-full" loading={busy}>
+            {edit ? t('sellerFlow.prices.save') : t('sellerFlow.prices.looksGood')}
           </Button>
-          <p className="text-xs text-muted-foreground">{t('sellerPrices.openAbout')}</p>
+          {onBack && (
+            <Button type="button" variant="ghost" className="max-sm:w-full" onClick={onBack}>
+              {t('sellerFlow.back')}
+            </Button>
+          )}
         </div>
-      )}
-      {prices.canUpdate && (
-        <div className="mt-3 flex flex-col items-start gap-1.5">
-          <Button variant="outline" loading={opening} onClick={() => void open(true)}>
-            {t('sellerPrices.update')}
-          </Button>
-          <p className="text-xs text-muted-foreground">{t('sellerPrices.updateAbout')}</p>
-        </div>
-      )}
-      {openError && <p className="mt-2 text-sm text-destructive-foreground">{openError}</p>}
-      {opened && <p className="mt-2 text-sm font-medium">{opened}</p>}
-    </section>
+      </form>
+      {problem}
+    </>
   )
 }
 
-/** One hosting plan, with its monthly price to set when it can be set here. */
-function PriceRow({ store, plan: p, onSaved }: { store: string; plan: SellerPrice; onSaved: (v: SellerPrices) => void }) {
+/** One plan, what it gives, and its monthly price to check. */
+function PlanPrice({ plan: p, value, error, onChange }: { plan: SellerPrice; value: string; error?: string; onChange: (value: string) => void }) {
   const id = useId()
-  const [value, setValue] = useState(() => typed(p.price))
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string>()
-
-  async function save(e: FormEvent) {
-    e.preventDefault()
-    setSaving(true)
-    setSaved(false)
-    setError(undefined)
-    try {
-      const v = await post<SellerPrices>(`/api/public/whop/seller/${store}/prices`, { plan: p.id, price: value.trim() })
-      const now = v.plans.find((x) => x.id === p.id)
-      if (now) setValue(typed(now.price))
-      setSaved(true)
-      onSaved(v)
-    } catch (err) {
-      setError(errorText(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const detail = t('sellerPrices.detail', {
-    allowance: t('sellerView.plan', { servers: t('unit.servers', { count: p.servers }), memory: formatMB(p.memoryMB) }),
-    floor: money(p.floor, 'usd'),
-    share: money(p.share, 'usd'),
-  })
   return (
-    <li className="py-3">
-      <form onSubmit={(e) => void save(e)} className="flex flex-col gap-1.5">
-        {p.settable ? (
-          <label htmlFor={id} className="text-sm font-medium">
-            {p.title}
-          </label>
-        ) : (
-          <span className="text-sm font-medium">{p.title}</span>
-        )}
-        <span className="text-xs text-muted-foreground">{detail}</span>
-        {p.settable ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <InputGroup className="w-36">
-              <InputGroupAddon>
-                <InputGroupText>$</InputGroupText>
-              </InputGroupAddon>
-              <InputGroupInput
-                id={id}
-                value={value}
-                inputMode="decimal"
-                autoComplete="off"
-                onChange={(e) => {
-                  setValue(e.target.value)
-                  setSaved(false)
-                  setError(undefined)
-                }}
-                aria-invalid={error ? true : undefined}
-                aria-describedby={error ? `${id}-error` : undefined}
-              />
-            </InputGroup>
-            <span className="text-sm text-muted-foreground">{t('sellerPrices.perMonth')}</span>
-            <Button type="submit" size="sm" variant="outline" loading={saving} disabled={value.trim() === typed(p.price)}>
-              {t('sellerPrices.save')}
-            </Button>
-            {saved && <span className="text-sm text-success-strong">{t('sellerPrices.saved')}</span>}
-          </div>
-        ) : (
-          <span className="text-sm">{money(p.price, p.currency)}</span>
-        )}
-        {error && (
-          <p id={`${id}-error`} className="text-sm text-destructive-foreground">
-            {error}
-          </p>
-        )}
-        {p.problem && <p className="text-sm text-warning-foreground">{p.problem}</p>}
-      </form>
+    <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 py-3">
+      <div className="min-w-0">
+        <label htmlFor={id} className="block text-[15px] font-medium">
+          {p.title}
+        </label>
+        <span id={`${id}-gives`} className="block text-[13px] text-muted-foreground">
+          {t('sellerFlow.prices.gives', { servers: t('unit.servers', { count: p.servers }), memory: formatMB(p.memoryMB) })}
+        </span>
+      </div>
+      <InputGroup className="w-40">
+        <InputGroupAddon>
+          <InputGroupText>$</InputGroupText>
+        </InputGroupAddon>
+        <InputGroupInput
+          id={id}
+          value={value}
+          inputMode="decimal"
+          autoComplete="off"
+          onChange={(e) => onChange(e.target.value)}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-gives ${id}-error` : `${id}-gives`}
+        />
+        <InputGroupAddon align="inline-end">
+          <InputGroupText>{t('sellerFlow.prices.perMonth')}</InputGroupText>
+        </InputGroupAddon>
+      </InputGroup>
+      {error && (
+        <p id={`${id}-error`} role="alert" className="w-full text-[13px] text-destructive-foreground">
+          {error}
+        </p>
+      )}
     </li>
   )
 }
