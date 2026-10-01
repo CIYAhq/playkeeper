@@ -616,7 +616,10 @@ type sellerFixed struct {
 // hWhopSellerFix is a seller pressing Fix my plans, before their store is
 // open: each hosting plan that renews then does so every month, in US
 // dollars, with no free trial, keeping its price (MakePlanMonthly), with the
-// app's permission to update plans. It says in a line what it changed. A
+// app's permission to update plans. A plan it changes loses any setup fee,
+// its initial price, which Whop would charge on top of the first payment
+// once the plan no longer renews yearly or starts with a trial; a plan it
+// doesn't change keeps one. It says in a line what it changed. A
 // plan charged only once, one allowing more than the fleet runs and plans
 // sharing a product stay the seller's to change in Whop, as the prices'
 // Blocked lines say, and so does a price under the floor, which the page
@@ -656,6 +659,9 @@ func (s *Server) hWhopSellerFix(w http.ResponseWriter, r *http.Request, store st
 		}
 		if p.TrialDays > 0 {
 			now = append(now, "has no free trial")
+		}
+		if len(now) > 0 && p.InitialPrice != 0 {
+			now = append(now, "has no setup fee")
 		}
 		if len(now) == 0 {
 			continue
