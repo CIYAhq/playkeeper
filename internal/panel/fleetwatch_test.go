@@ -238,10 +238,81 @@ func TestAMachineThatDoesntAnswerHoldsUpNoLook(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("a joined machine that doesn't answer held up the look")
 	}
 	e.posted(t, []map[string]any{{"kind": "disk_filling", "machine": "the dashboard's machine", "percent": 80}}, "disk_filling")
+}
+
+// A machine whose customers' plans set aside more memory than it has, as
+// when a plan grows past what it can hold, is posted once, with how much
+// more, and again only after it had room for them.
+func TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce(t *testing.T) {
+	_, e, _ := connectedWhop(t)
+	ctx := context.Background()
+	e.reply("GET", "/v1/servers", `[]`)
+	e.reply("GET", "/v1/machine", liveMachine(6144, true))
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}
+	if _, err := (customerCore{s: e.srv}).StartCustomer(ctx, alex, starter); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.watchFleet(ctx)
+	e.posted(t, nil, "overbooked")
+	big := CustomerPlan{ID: "plan_big", Name: "Big", Servers: 2, MemoryMB: 8192}
+	grow := func(p CustomerPlan) {
+		t.Helper()
+		if err := (customerCore{s: e.srv}).ChangeCustomerPlan(ctx, alex, p); err != nil {
+			t.Fatal(err)
+		}
+		e.srv.watchFleet(ctx)
+		e.srv.watchFleet(ctx)
+	}
+	grow(big)
+	e.posted(t, []map[string]any{{"kind": "overbooked", "machine": "the dashboard's machine", "memoryMB": 2048}}, "overbooked")
+	// A machine that doesn't answer for a while says nothing either way.
+	e.agent.mu.Lock()
+	e.agent.statuses["GET /v1/machine"] = http.StatusServiceUnavailable
+	e.agent.mu.Unlock()
+	e.srv.watchFleet(ctx)
+	e.agent.mu.Lock()
+	delete(e.agent.statuses, "GET /v1/machine")
+	e.agent.mu.Unlock()
+	e.srv.watchFleet(ctx)
+	e.posted(t, []map[string]any{{"memoryMB": 2048}}, "overbooked")
+	grow(starter)
+	grow(big)
+	e.posted(t, []map[string]any{{"memoryMB": 2048}, {"kind": "overbooked", "memoryMB": 2048}}, "overbooked")
+}
+
+// A joined machine that's connected but doesn't answer spends only its own
+// time in the room count: the other machines' room is still watched.
+func TestAMachineThatDoesntAnswerLeavesTheOthersRoomWatched(t *testing.T) {
+	_, e, own := connectedWhop(t)
+	ctx := context.Background()
+	e.reply("GET", "/v1/servers", `[]`)
+	e.reply("GET", "/v1/machine", liveMachine(6144, true))
+	ra := newRemoteAgent()
+	e.joinedAs(t, own.cookie, own.csrf, ra)
+	alex := Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}
+	if _, err := (customerCore{s: e.srv}).StartCustomer(ctx, alex, starter); err != nil {
+		t.Fatal(err)
+	}
+	if err := (customerCore{s: e.srv}).ChangeCustomerPlan(ctx, alex, CustomerPlan{ID: "plan_big", Name: "Big", Servers: 2, MemoryMB: 8192}); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	ra.handle("GET /v1/machine", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	was := fleetAskTimeout
+	fleetAskTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { fleetAskTimeout = was })
+	e.srv.watchFleet(ctx)
+	e.posted(t, []map[string]any{{"kind": "overbooked", "machine": "the dashboard's machine", "memoryMB": 2048}}, "overbooked")
 }
 
 // A look that can't read the plans on sale is skipped, not taken for a

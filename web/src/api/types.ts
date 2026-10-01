@@ -2233,10 +2233,21 @@ export interface TeamMember {
   suspendReason?: string
   /** Whether the signed-in account may suspend this customer, or lift its own suspension of them. */
   canSuspend?: boolean
+  /** Whether the signed-in account may delete this customer's account and records, and whether that was asked for and is under way. */
+  canDelete?: boolean
+  deleting?: boolean
 }
 
 /** Where a customer's account stands: active, paused because its plan ended, or suspended by the owner. */
 export type CustomerState = 'active' | 'paused' | 'suspended'
+
+/** The owner's setting: how many days after a customer's servers were deleted the customer is deleted too, with its default, the fewest and the most. */
+export interface CustomerRetentionView {
+  days: number
+  default: number
+  min: number
+  max: number
+}
 
 /** A customer's account once the owner suspended it or lifted that. */
 export interface CustomerSuspension {

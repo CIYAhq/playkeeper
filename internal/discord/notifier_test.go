@@ -620,6 +620,8 @@ func TestFleetAlertsArePostedWhateverTheSwitches(t *testing.T) {
 	h.Notify(SlowTicks("Survival", "home-server", 63, 12, 10))
 	h.Notify(MachineOff("*m2*", 5))
 	h.Notify(SlowTicks("*Sky*", "m2", 70, 3, 11))
+	h.Notify(Overbooked("home-server", 2048))
+	h.Notify(Overbooked("m2", 1536))
 	h.sendDue()
 	var got []string
 	for _, r := range h.fake.take() {
@@ -640,11 +642,13 @@ func TestFleetAlertsArePostedWhateverTheSwitches(t *testing.T) {
 		`Server lagging: **Survival** on **home\-server** took 63 ms a tick on average for 10 minutes, with 12 playing. At 50 ms it keeps full speed, so its machine may be too busy.`,
 		`Machine off the dashboard: **\*m2\*** hasn't been connected to the dashboard for 5 minutes, so the dashboard can't reach its servers.`,
 		`Server lagging: **\*Sky\*** on **m2** took 70 ms a tick on average for 11 minutes, with 3 playing. At 50 ms it keeps full speed, so its machine may be too busy.`,
+		`Machine overbooked: The customers on **home\-server** have plans that set aside 2 GB more memory than it has. A plan grew past what it can hold: move a customer to another machine on its page in Settings › Machines.`,
+		`Machine overbooked: The customers on **m2** have plans that set aside 1.5 GB more memory than it has. A plan grew past what it can hold: move a customer to another machine on its page in Settings › Machines.`,
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("with every switch off, the fleet's alerts still go out, each one:\n%q\nwant\n%q", got, want)
 	}
-	for _, k := range []Kind{KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks} {
+	for _, k := range []Kind{KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked} {
 		if k.Valid() || ParseAlerts(string(k)).Has(k) {
 			t.Errorf("%s must not be a switch: the fleet watch is", k)
 		}
