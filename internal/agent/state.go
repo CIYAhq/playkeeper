@@ -168,6 +168,24 @@ func (a *Agent) insertAudit(ex execer, serverID, actor, action, target, result, 
 	return err
 }
 
+// execAudited runs the statement query that makes a change together with
+// the change's audit entry, the entry first, so whoever sees the change
+// finds it audited and a crash can't keep one without the other.
+func (s *server) execAudited(actor, action, target, result, detail, query string, args ...any) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.insertAudit(tx, s.id, actor, action, target, result, detail); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(query, args...); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (a *Agent) listAudit(limit int) ([]api.AuditEntry, error) {
 	rows, err := a.db.Query(`SELECT id, server_id, ts, actor, action, target, result, detail FROM audit ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {

@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.14
 
 - **Public pages for servers on every machine:** with **Addresses without a port** on, a server on a machine joined to this dashboard has its public page at its name, like `alex.beta.playkeeper.me`, as a server on this dashboard's machine does. This dashboard's machine serves it, asking the server's machine what the page shows, and its **Settings › Public page** works as there. The page shows that server alone and nothing that says which machine runs it: it gives no Bedrock address, which would be the machine's, and its links are under this dashboard's address. The name now points at this dashboard's machine. Java players who type it as the dashboard shows it, without a port, still reach the server's machine through its SRV record, and Bedrock players join at the machine's address, which the dashboard shows; typed with a port, the name reaches this dashboard's machine instead. HTTPS needs **An address for each server**, which gives the dashboard a certificate for every server's name; without it, the page answers over plain HTTP only. The joined machine needs 0.4.14 too.
+- Fixed: when a copy somewhere else is made, fails, or is deleted, by the backup rules or by hand, its line in the activity is now stored together with it, so a crash at that moment can't keep one without the other.
 
 ## 0.4.13
 

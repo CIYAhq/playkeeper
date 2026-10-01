@@ -4950,16 +4950,71 @@ control "a new place counts its copies from none" internal/agent/offsite.go \
   ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
 # shellcheck disable=SC2016
 control "a finished copy is stored with its count and its leaving the queue" internal/agent/offsite.go \
-  '	if err := s.recordCopy(b, cp); err != nil {' \
+  '	if err := s.recordCopy(b, cp, offsitePlace(row.cfg.Config)); err != nil {' \
   '	raw, _ := json.Marshal(cp)
 	_, err := s.db.Exec(`INSERT OR REPLACE INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?)`, s.id, b.ID, b.Kind, b.CreatedAt.UnixMilli(), b.FileName, b.SizeBytes, b.MinecraftVersion, b.LevelName, string(raw), s.now().UnixMilli())
 	if err == nil {
 		_, _ = s.db.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id)
 		s.dropUpload(b.ID)
+		s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+offsitePlace(row.cfg.Config))
 	}
 	if err != nil {' \
   ./internal/agent '^TestARecordedCopyIsAlreadyCountedAndOutOfTheQueue$'
+control "a failed try of a copy is stored after its audit entry" internal/agent/offsite.go \
+  '		if attempts == 1 {
+			if err := s.insertAudit(tx, s.id, "playkeeper", "offsite.copy_failed", job.backupID, "failed", msg); err != nil {
+				return err
+			}
+		}' \
+  '		if attempts == 1 {
+			defer func() { _ = s.insertAudit(tx, s.id, "playkeeper", "offsite.copy_failed", job.backupID, "failed", msg) }()
+		}' \
+  ./internal/agent '^TestCopiesMadeFailedAndDeletedAreAlreadyAudited$'
+control "an audited change stores its audit entry first" internal/agent/state.go \
+  '	if err := s.insertAudit(tx, s.id, actor, action, target, result, detail); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(query, args...); err != nil {
+		return err
+	}' \
+  '	if _, err := tx.Exec(query, args...); err != nil {
+		return err
+	}
+	if err := s.insertAudit(tx, s.id, actor, action, target, result, detail); err != nil {
+		return err
+	}' \
+  ./internal/agent '^(TestCopiesMadeFailedAndDeletedAreAlreadyAudited|TestABackupThatCanNeverBeCopiedLeavesTheQueueAudited)$'
+# shellcheck disable=SC2016
+control "a copy the rules delete leaves its record with its audit entry" internal/agent/offsite.go \
+  '		if err := s.execAudited(retentionActor, "offsite.copy_deleted", id, "succeeded", name,
+			`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, id); err != nil {' \
+  '		_, err = s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, id)
+		s.audit(retentionActor, "offsite.copy_deleted", id, "succeeded", name)
+		if err != nil {' \
+  ./internal/agent '^TestCopiesMadeFailedAndDeletedAreAlreadyAudited$'
+# shellcheck disable=SC2016
+control "a backup that can never be copied leaves the queue with its audit entry" internal/agent/offsite.go \
+  '			if err := s.execAudited("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg,
+				`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, job.backupID); err != nil {' \
+  '			s.dropUpload(job.backupID)
+			s.audit("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg)
+			if false {' \
+  ./internal/agent '^TestABackupThatCanNeverBeCopiedLeavesTheQueueAudited$'
+control "a copy is recorded after its audit entry" internal/agent/offsite.go \
+  '	if err := s.insertAudit(tx, s.id, "playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+place); err != nil {
+		return err
+	}' \
+  '	defer s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+place)' \
+  ./internal/agent '^TestCopiesMadeFailedAndDeletedAreAlreadyAudited$'
+# shellcheck disable=SC2016
+control "a copy deleted by hand leaves its record with its audit entry" internal/agent/offsite.go \
+  '	if err := s.execAudited(actor, "offsite.copy_deleted", backupID, "succeeded", name,
+		`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID); err != nil {' \
+  '	_, err = s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID)
+	s.audit(actor, "offsite.copy_deleted", backupID, "succeeded", name)
+	if err != nil {' \
+  ./internal/agent '^TestCopiesMadeFailedAndDeletedAreAlreadyAudited$'
 control "a scheduled backup refused for want of a pause is recorded" internal/agent/schedules.go \
   's.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)' \
   '_ = why' \
