@@ -559,7 +559,7 @@ func TestAgentProxy(t *testing.T) {
 
 	th := startHub(t, nil)
 	d, id := th.join(t, th.addr, "home")
-	startLink(t, d, id, AgentProxy(sock), nil)
+	startLink(t, d, id, AgentProxy(sock), func(o *LinkOptions) { o.MaxRequestBytes = 1 << 10 })
 	eventually(t, "connected", func() bool { return th.Connected(d.MachineID) })
 	rt := th.Transport(d.MachineID)
 
@@ -574,14 +574,27 @@ func TestAgentProxy(t *testing.T) {
 		t.Fatalf("the proxy added X-Forwarded-For: %v", h)
 	}
 
-	srv.Close()
-	resp, err := send(rt, "GET", "/v1/machine", "", nil)
-	if err != nil {
-		t.Fatal(err)
+	// A body that doesn't say its size and passes the limit on its way to
+	// the agent is too large; the agent is fine.
+	answer := func(method, path string, body io.Reader) (int, apiError) {
+		t.Helper()
+		resp, err := send(rt, method, path, "alice", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var e apiError
+		if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+			t.Fatalf("%s %s: %d, %v", method, path, resp.StatusCode, err)
+		}
+		return resp.StatusCode, e
 	}
-	defer resp.Body.Close()
-	var e apiError
-	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil || resp.StatusCode != http.StatusBadGateway || e.Code != CodeAgentDown || e.Hint == "" {
-		t.Fatalf("with the agent down: %d %+v, %v", resp.StatusCode, e, err)
+	if status, e := answer("POST", "/v1/servers/abc/settings", io.MultiReader(strings.NewReader(strings.Repeat("x", 4<<10)))); status != http.StatusRequestEntityTooLarge || e.Code != CodeTooLarge || e.Params["limit"] != "1 KiB" {
+		t.Fatalf("4 KiB that doesn't say so, through the agent's socket: %d %+v", status, e)
+	}
+
+	srv.Close()
+	if status, e := answer("GET", "/v1/machine", nil); status != http.StatusBadGateway || e.Code != CodeAgentDown || e.Hint == "" {
+		t.Fatalf("with the agent down: %d %+v", status, e)
 	}
 }
