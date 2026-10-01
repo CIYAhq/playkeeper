@@ -365,10 +365,11 @@ func (s *Server) whileNoPlan(ctx context.Context, userID int64, start func() err
 }
 
 // leftCopiesPending says whether a copy a move of the customer's left is
-// still on its old machine, to be deleted there.
+// still on its old machine, to be deleted there. One on a machine removed
+// since is out of reach, as their servers there are (see eraseServers).
 func (s *Server) leftCopiesPending(ctx context.Context, userID int64) bool {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM left_copies WHERE user_id = ? AND left_at = 0`, userID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM left_copies WHERE user_id = ? AND left_at = 0 AND machine_id IN (SELECT id FROM machines WHERE revoked_at = 0)`, userID).Scan(&n)
 	return err != nil || n > 0
 }
 
