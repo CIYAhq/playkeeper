@@ -3094,7 +3094,7 @@ export interface PublicPageSettings {
 export type PagePortState = 'open' | 'busy' | 'claimed' | 'waiting' | 'denied' | 'off'
 
 /**
- * One port of the public page; holder names what uses it when Playkeeper can tell. From 0.4.13 port 443 is
+ * One port of the public page; holder names what uses it when Playkeeper can tell. From 0.4.14 port 443 is
  * no_certificate for a server on a joined machine while it has no certificate for that server's address.
  */
 export interface PagePort {

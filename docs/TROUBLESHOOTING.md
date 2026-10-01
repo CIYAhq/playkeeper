@@ -34,7 +34,7 @@ Customers can't sign in with Whop at the new address? Until the Whop app lists i
 ## The address doesn't open in a browser
 
 - The page lives at the machine's name, so it needs one first: **Machine settings › Address**. The IP address doesn't show it.
-- A server on a machine joined to your dashboard has its page at its address without a port, served by the dashboard's machine, once **Addresses without a port** works and the joined machine runs 0.4.13. It opens over HTTPS only with **An address for each server** on, which gives the dashboard a certificate for every server's name; without it, browsers get the page over plain HTTP.
+- A server on a machine joined to your dashboard has its page at its address without a port, served by the dashboard's machine, once **Addresses without a port** works and the joined machine runs 0.4.14. It opens over HTTPS only with **An address for each server** on, which gives the dashboard a certificate for every server's name; without it, browsers get the page over plain HTTP.
 - Each server's **Settings › Public page** says whether browsers reach it, and what holds a port back:
   - Another program listens on port 443 or 80, a Docker container publishes one, or a web server such as nginx or Caddy is set to start with the machine. Playkeeper never takes a port from them. To see what listens: `sudo ss -ltnp 'sport = :443'`. Once it's gone, select **Try again**.
   - For a few minutes after the VPS starts, the ports are left to whatever starts with it.

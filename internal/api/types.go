@@ -3117,7 +3117,7 @@ const (
 	PortDenied = "denied"
 	// PortOff: the page is off, or the machine has no address.
 	PortOff = "off"
-	// PortNoCertificate (from 0.4.13): port 443 answers, but has no
+	// PortNoCertificate (from 0.4.14): port 443 answers, but has no
 	// certificate for the address of a server on a joined machine, so
 	// browsers get its page on port 80 only.
 	PortNoCertificate = "no_certificate"
@@ -3183,7 +3183,7 @@ type PublicServer struct {
 	Board  *PublicBoard  `json:"board,omitempty"`
 }
 
-// PublicServerShown (from 0.4.13) is what the public page shows of one
+// PublicServerShown (from 0.4.14) is what the public page shows of one
 // server, for the page the dashboard serves at the name of a server on a
 // joined machine: where players join, Bedrock included, and the links'
 // addresses are the dashboard's to say, so Address, Bedrock, Map and Pack
