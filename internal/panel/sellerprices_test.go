@@ -141,9 +141,11 @@ func priceOf(t *testing.T, v sellerPrices, plan string) sellerPrice {
 // in another currency are refused.
 func TestASellerPricesTheirPlansAtOrAboveTheFloor(t *testing.T) {
 	f, e, token := openedAsSeller(t)
-	f.addOtherPlan(map[string]any{"id": "plan_plus", "title": "Plus", "renewal_price": 20, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "8"}})
-	f.addOtherPlan(map[string]any{"id": "plan_euro", "title": "Euro", "currency": "eur", "renewal_price": 14, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
-	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "renewal_price": 5})
+	f.addOtherPlan(map[string]any{"id": "plan_plus", "title": "Plus", "renewal_price": 20, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "8"},
+		"product": map[string]any{"id": "prod_plus", "title": "Plus server"}})
+	f.addOtherPlan(map[string]any{"id": "plan_euro", "title": "Euro", "currency": "eur", "renewal_price": 14, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"},
+		"product": map[string]any{"id": "prod_euro", "title": "Euro server"}})
+	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "renewal_price": 5, "product": map[string]any{"id": "prod_merch", "title": "Merch"}})
 	e.reconcile()
 	r := e.asSeller(t, "GET", "biz_other/prices", "", token, nil)
 	if r.status != http.StatusOK {
@@ -395,6 +397,57 @@ func TestOpenTheStoreRefusesAPlanTheFleetDoesntRun(t *testing.T) {
 	f.setOtherPlan("plan_other", map[string]any{"renewal_price": 192, "metadata": map[string]any{whop.MetaServers: "10", whop.MetaMemoryGB: "64"}})
 	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store with 10 servers and 64 GB: %d %v", r.status, r.body)
+	}
+}
+
+// Open the store refuses a hosting product that sells another plan, for
+// hosting or not, since Playkeeper's share is one percentage on the whole
+// product: with a $12 and a $15 plan of 4 GB on one product, the $15 plan
+// would pay $10.63 instead of $8.50, and a plan that isn't for hosting
+// would pay a cut of its own. The seller's prices say so on each hosting
+// plan, after any other problem it has, and nothing reaches Whop. An
+// archived plan no longer sells, so it doesn't count, and once each plan
+// has a product of its own, the store opens.
+func TestOpenTheStoreRefusesAProductThatSellsAnotherPlan(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden", "renewal_price": 10})
+	f.addOtherPlan(map[string]any{"id": "plan_dear", "title": "Dear", "renewal_price": 15, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "renewal_price": 5})
+	f.addOtherPlan(map[string]any{"id": "plan_old", "title": "Old", "visibility": "archived", "renewal_price": 20, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	refused := func(name string, says map[string]string) {
+		t.Helper()
+		v := pricesOf(t, e.asSeller(t, "GET", "biz_other/prices", "", token, nil))
+		var want []string
+		for _, p := range v.Plans {
+			if p.Problem != says[p.ID] {
+				t.Fatalf("%s: %s's problem is %q", name, p.Title, p.Problem)
+			}
+			if p.Problem != "" {
+				want = append(want, p.Title+": "+p.Problem)
+			}
+		}
+		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != strings.Join(want, " ") {
+			t.Fatalf("Open the store with %s: %d %v", name, r.status, r.body)
+		}
+	}
+	refused("Dear and Merch on Other's product", map[string]string{
+		"plan_other": "It charges $10.00, under the $12.00 floor for 4 GB. It shares its product, Minecraft server, with Dear and Merch, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
+		"plan_dear":  "It shares its product, Minecraft server, with Other and Merch, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
+	})
+	f.setOtherProduct("prod_dear", whop.Metadata{})
+	f.setOtherPlan("plan_dear", map[string]any{"product": map[string]any{"id": "prod_dear", "title": "Dear server"}})
+	f.setOtherPlan("plan_other", map[string]any{"renewal_price": 12})
+	refused("Merch on Other's product", map[string]string{
+		"plan_other": "It shares its product, Minecraft server, with Merch, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
+	})
+	if vis := f.otherPlanVisibility("plan_other"); len(f.shareWrites) != 0 || vis != "hidden" {
+		t.Fatalf("a product that sells another plan reached Whop: shares %v, Other %v", f.shareWrites, vis)
+	}
+	f.setOtherProduct("prod_merch", whop.Metadata{})
+	f.setOtherPlan("plan_merch", map[string]any{"product": map[string]any{"id": "prod_merch", "title": "Merch"}})
+	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+		t.Fatalf("Open the store with each plan on its own product, and Old archived on Other's: %d %v", r.status, r.body)
 	}
 }
 

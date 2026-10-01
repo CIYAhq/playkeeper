@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -179,18 +180,67 @@ func (s *Server) sellerPricesOf(ctx context.Context, c *whop.Client, st whopStor
 // sellerPricesFrom is the store's hosting plans among plans, as its seller
 // prices them. A plan that allows more or less than the fleet runs has that
 // as its problem, before any other: the store's pass would start none of
-// its buyers, and the floor follows from what it allows.
+// its buyers, and the floor follows from what it allows. A plan whose
+// product sells another plan that isn't archived has that on top of any
+// other problem (sharedProductProblems).
 func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 	v := sellerPrices{Plans: []sellerPrice{}, CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()}
+	shared := sharedProductProblems(slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool {
+		return p.Visibility == "archived"
+	}))
 	for _, p := range plans {
 		if sp, ok := sellerPriceOf(p); ok {
 			if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {
 				sp.Problem = problem
+			} else if shared[p.ID] != "" {
+				sp.Problem = strings.TrimSpace(sp.Problem + " " + shared[p.ID])
 			}
 			v.Plans = append(v.Plans, sp)
 		}
 	}
 	return v
+}
+
+// sharedProductProblems is, by plan id, what's wrong with each of plans
+// whose product has another of them, for hosting or not: Playkeeper's share
+// is one percentage on the whole product (Whop's single_product), set for
+// its neediest hosting plan, so it would take more than its share of another
+// hosting plan's payments, and a cut of a plan that isn't for hosting. Each
+// hosting product sells one plan. Which plans count is the caller's: those
+// that sell, for Open the store.
+func sharedProductProblems(plans []whop.Plan) map[string]string {
+	byProduct := map[string][]whop.Plan{}
+	for _, p := range plans {
+		if p.Product.ID != "" {
+			byProduct[p.Product.ID] = append(byProduct[p.Product.ID], p)
+		}
+	}
+	out := map[string]string{}
+	for _, same := range byProduct {
+		if len(same) < 2 {
+			continue
+		}
+		for _, p := range same {
+			var others []string
+			for _, o := range same {
+				if o.ID != p.ID {
+					others = append(others, cmpOr(o.Title, o.ID))
+				}
+			}
+			out[p.ID] = fmt.Sprintf("It shares its product, %s, with %s, and a hosted plan needs a product of its own, since Playkeeper's share is set on the whole product.",
+				cmpOr(p.Product.Title, p.Product.ID), andList(others))
+		}
+	}
+	return out
+}
+
+// andList writes names as a person lists them, such as "Plus, Max and
+// Merch".
+func andList(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 // allowanceProblem is what keeps a hosting plan that allows servers with
