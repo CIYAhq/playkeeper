@@ -514,6 +514,7 @@ func (a *Agent) collectUpdateResult() {
 	rb, _ := json.Marshal(r)
 	actor, action, detail := nonEmptyOr(res.Actor, "playkeeper"), "update."+res.Outcome, strings.TrimSpace("from "+res.From+" "+res.Error)
 	a.upd.mu.Lock()
+	defer a.upd.mu.Unlock()
 	var op *api.Operation
 	if res.OpID != "" {
 		op, _ = a.loadOperation(res.OpID)
@@ -532,7 +533,6 @@ func (a *Agent) collectUpdateResult() {
 	_ = a.kvSet(kvUpdateResult, string(rb))
 	a.upd.lastResult = &r
 	a.upd.installing, a.upd.opID = "", ""
-	a.upd.mu.Unlock()
 	os.Remove(path)
 	a.log.Info("update finished", "outcome", res.Outcome, "from", res.From, "to", res.To)
 }
@@ -572,6 +572,7 @@ func (a *Agent) abandonUpdate(opID, v, outcome, msg, hint string) {
 	r := api.UpdateResult{From: version.Version, To: v, Outcome: outcome, Error: msg, FinishedAt: a.now().UTC()}
 	rb, _ := json.Marshal(r)
 	a.upd.mu.Lock()
+	defer a.upd.mu.Unlock()
 	if op, err := a.loadOperation(opID); err == nil {
 		fin := a.now().UTC()
 		op.Status, op.Error, op.Hint, op.Phase, op.FinishedAt = api.OpFailed, msg, hint, outcome, &fin
@@ -583,7 +584,6 @@ func (a *Agent) abandonUpdate(opID, v, outcome, msg, hint string) {
 	_ = a.kvSet(kvUpdateAbandoned, opID)
 	a.upd.lastResult = &r
 	a.upd.installing, a.upd.opID = "", ""
-	a.upd.mu.Unlock()
 }
 
 // endUpdateOp stores the update operation op as ended together with its
