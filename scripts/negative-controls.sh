@@ -8571,8 +8571,8 @@ control "hosting: an app store's one-time purchase gives no servers, in a query"
   ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
 # shellcheck disable=SC2016
 control "hosting: a one-time purchase keeps no servers running past a cancelled plan" internal/panel/whop_customers.go \
-  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)' \
-  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0)' \
+  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0' \
+  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0' \
   ./internal/panel '^TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn$'
 # shellcheck disable=SC2016
 control "hosting: signing in on a one-time purchase in an app store makes no account" internal/panel/whop_signin.go \
