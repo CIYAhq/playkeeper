@@ -249,6 +249,33 @@ lab_scp() { # SRC... IP:DEST
   scp -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i "$LAB_KEY" "$@"
 }
 
+# lab_dnf IP ARG... runs sudo dnf -y ARG... in the guest, with dnf's output on
+# stderr. When dnf can't get a repository's metadata or a package from any of
+# its mirrors, it tries again with the metadata read afresh: a mirror part-way
+# through a sync can list files it doesn't have yet, as AlmaLinux 9's extras
+# repository's did on 1 Oct 2026 ("Cannot download, all mirrors were already
+# tried without success"). Up to four tries, 15, 30 and 60 seconds apart; any
+# other failure, such as a package that doesn't exist, fails at once with
+# dnf's status. LAB_DNF_WAIT is the first wait in seconds (the tests use 0).
+lab_dnf_transient='Failed to download metadata|all mirrors were already tried|Cannot download repomd\.xml|Yum repo downloading error|Curl error|Error downloading packages'
+lab_dnf() {
+  local ip=$1 try status out wait=${LAB_DNF_WAIT:-15}
+  local refresh=()
+  shift
+  for try in 1 2 3 4; do
+    out=$(lab_ssh "$ip" sudo dnf -y "${refresh[@]}" "$@" 2>&1) && status=0 || status=$?
+    [ -z "$out" ] || printf '%s\n' "$out" >&2
+    [ "$status" = 0 ] && return 0
+    if [ "$try" = 4 ] || ! grep -Eq "$lab_dnf_transient" <<<"$out"; then
+      return "$status"
+    fi
+    lab_log "dnf couldn't get what it needed from the mirrors; trying again in ${wait}s with fresh metadata (try $try of 4)"
+    sleep "$wait"
+    wait=$((wait * 2))
+    refresh=(--refresh)
+  done
+}
+
 lab_wait_ssh() {
   local ip=$1 i
   for i in $(seq 1 "$LAB_SSH_WAIT"); do

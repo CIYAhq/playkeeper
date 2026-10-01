@@ -3089,6 +3089,27 @@ shcontrol "setup.sh tries the module download again after a network error" scrip
   '"$root/scripts/net-retry.sh" go mod download' \
   'go mod download' \
   scripts/setup_test.sh
+# shellcheck disable=SC2016
+shcontrol "dnf in a rehearsal's guest is tried again when no mirror had what it needed" scripts/e2e/vm-lab.sh \
+  'if [ "$try" = 4 ] || ! grep -Eq "$lab_dnf_transient" <<<"$out"; then' \
+  'if true; then' \
+  scripts/e2e/vm-lab_test.sh
+# shellcheck disable=SC2016
+shcontrol "dnf's next try in a rehearsal's guest reads the metadata afresh" scripts/e2e/vm-lab.sh \
+  '    refresh=(--refresh)
+' \
+  '' \
+  scripts/e2e/vm-lab_test.sh
+# shellcheck disable=SC2016
+shcontrol "only a mirror's failure is tried again in a rehearsal's guest" scripts/e2e/vm-lab.sh \
+  ' || ! grep -Eq "$lab_dnf_transient" <<<"$out"; then' \
+  '; then' \
+  scripts/e2e/vm-lab_test.sh
+# shellcheck disable=SC2016
+shcontrol "the OS rehearsal installs Podman through lab_dnf" scripts/e2e/vm-os.sh \
+  'lab_dnf "$G" -q install podman && g "' \
+  'g "sudo dnf -y -q install podman && ' \
+  scripts/e2e/vm-lab_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
