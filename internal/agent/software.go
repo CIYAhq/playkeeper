@@ -51,8 +51,20 @@ type cachedCatalog struct {
 }
 
 type cachedBuilds struct {
+	list buildList
+	// retryAt is set while list is from before the upstream last failed:
+	// until then it's served without asking the upstream.
+	retryAt time.Time
+}
+
+// buildList is a type's builds for one Minecraft version and when its
+// upstream listed them: just now, or while the upstream can't be reached,
+// the last list it gave, kept on this machine, or else the one built into
+// Playkeeper.
+type buildList struct {
 	builds []software.Build
 	at     time.Time
+	from   listFrom
 }
 
 // maxCachedBuilds bounds the build lists kept, one per type and version.
@@ -427,16 +439,25 @@ func withReleaseDates(entries []api.CatalogEntry, dates map[string]time.Time) []
 }
 
 // typeBuilds lists a type's builds for one Minecraft version, newest first,
-// reused for catalogTTL. If the upstream cannot be reached, the last list
-// is used if there is one, in memory or kept on disk.
+// and when its upstream listed them (typeBuildList).
 func (a *Agent) typeBuilds(ctx context.Context, typ, mc string) ([]software.Build, time.Time, error) {
+	l, err := a.typeBuildList(ctx, typ, mc)
+	return l.builds, l.at, err
+}
+
+// typeBuildList is a type's builds for one Minecraft version, reused for
+// catalogTTL. While the upstream can't be reached it is the last list the
+// upstream gave, kept in memory and on disk, or else the one built into
+// Playkeeper, and the upstream is asked again a minute later.
+func (a *Agent) typeBuildList(ctx context.Context, typ, mc string) (buildList, error) {
 	key := typ + "@" + mc
 	c := &a.software
 	c.mu.Lock()
 	hit, ok := c.builds[key]
 	c.mu.Unlock()
-	if ok && a.now().Sub(hit.at) < catalogTTL {
-		return hit.builds, hit.at, nil
+	now := a.now()
+	if ok && (now.Before(hit.retryAt) || hit.retryAt.IsZero() && now.Sub(hit.list.at) < catalogTTL) {
+		return hit.list, nil
 	}
 	bs, at, err := fetchOnce(ctx, &c.mu, &c.buildFlights, key, func() ([]software.Build, time.Time, error) {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -450,34 +471,54 @@ func (a *Agent) typeBuilds(ctx context.Context, typ, mc string) ([]software.Buil
 		if c.builds == nil || len(c.builds) >= maxCachedBuilds {
 			c.builds = map[string]cachedBuilds{}
 		}
-		c.builds[key] = cachedBuilds{builds: bs, at: now}
+		c.builds[key] = cachedBuilds{list: buildList{builds: bs, at: now}}
 		c.mu.Unlock()
 		a.saveSoftwareList(typ, mc, savedBuilds{At: now, Builds: bs})
 		return bs, now, nil
 	})
-	if err != nil {
-		if ok {
-			return hit.builds, hit.at, nil
-		}
-		var saved savedBuilds
-		if a.savedSoftwareList(typ, mc, &saved) {
-			c.mu.Lock()
-			if c.builds == nil || len(c.builds) >= maxCachedBuilds {
-				c.builds = map[string]cachedBuilds{}
-			}
-			if _, fetched := c.builds[key]; !fetched {
-				c.builds[key] = cachedBuilds{builds: saved.Builds, at: saved.At}
-			}
-			c.mu.Unlock()
-			return saved.Builds, saved.At, nil
-		}
-		if bs, at, berr := builtInTypeBuilds(typ, mc); berr == nil {
-			a.log.Info("offering the build list built into Playkeeper", "type", typ, "minecraft", mc, "madeAt", at)
-			return bs, at, nil
-		}
-		return nil, time.Time{}, err
+	if err == nil {
+		return buildList{builds: bs, at: at}, nil
 	}
-	return bs, at, nil
+	var l buildList
+	var saved savedBuilds
+	switch {
+	case ok:
+		l = hit.list
+		if l.from == fromUpstream {
+			l.from = fromKept
+		}
+	case a.savedSoftwareList(typ, mc, &saved):
+		l = buildList{builds: saved.Builds, at: saved.At, from: fromKept}
+	default:
+		bs, at, berr := builtInTypeBuilds(typ, mc)
+		if berr != nil {
+			return buildList{}, err
+		}
+		a.log.Info("offering the build list built into Playkeeper", "type", typ, "minecraft", mc, "madeAt", at)
+		l = buildList{builds: bs, at: at, from: fromBuiltIn}
+	}
+	c.mu.Lock()
+	if c.builds == nil || len(c.builds) >= maxCachedBuilds {
+		c.builds = map[string]cachedBuilds{}
+	}
+	if cur, fetched := c.builds[key]; !fetched || cur.list.from != fromUpstream || !cur.list.at.After(l.at) {
+		c.builds[key] = cachedBuilds{list: l, retryAt: a.now().Add(upstreamRetry)}
+	}
+	c.mu.Unlock()
+	return l, nil
+}
+
+// withNamedBuild is l with the build a backup or a modpack names, as pin,
+// when l is from before the upstream couldn't be reached and doesn't have
+// it: the upstream can't say it's no longer offered.
+func (a *Agent) withNamedBuild(l buildList, err error, pin software.Pin, build string) (buildList, error) {
+	offline := err != nil && upstreamTrouble(err) || err == nil && l.from != fromUpstream
+	if !offline || build == "" || pin.Validate() != nil || slices.ContainsFunc(l.builds, func(b software.Build) bool { return b.Version == build }) {
+		return l, err
+	}
+	a.log.Info("using the build named, as its upstream can't be asked whether it's offered", "type", pin.Type, "minecraft", pin.MinecraftVersion, "build", build, "err", err)
+	l.builds = append(slices.Clone(l.builds), software.Build{Version: build, Channel: software.Stable, Pin: pin})
+	return l, nil
 }
 
 func (a *Agent) hCatalogBuilds(w http.ResponseWriter, r *http.Request) {
@@ -594,16 +635,12 @@ func (a *Agent) restoreTargetFor(ctx context.Context, m backup.Manifest) (restor
 	rt := restoreTarget{typ: typ, pin: software.Pin{Type: typ, MinecraftVersion: m.MinecraftVersion}}
 	channel := software.Stable
 	if typ != software.Vanilla {
-		bs, _, err := a.typeBuilds(ctx, typ, m.MinecraftVersion)
-		if own := software.PinOf(typ, m.MinecraftVersion, m.Build); err != nil && upstreamTrouble(err) && own.Validate() == nil {
-			// The backup's own build, which its upstream can't confirm is
-			// still offered while it can't be reached.
-			a.log.Info("restoring on the backup's own build, as its upstream can't be asked", "type", typ, "build", m.Build, "err", err)
-			bs, err = []software.Build{{Version: m.Build, Channel: software.Stable, Pin: own}}, nil
-		}
+		l, err := a.typeBuildList(ctx, typ, m.MinecraftVersion)
+		l, err = a.withNamedBuild(l, err, software.PinOf(typ, m.MinecraftVersion, m.Build), m.Build)
 		if err != nil {
 			return restoreTarget{}, softwareError(err)
 		}
+		bs := l.builds
 		i := slices.IndexFunc(bs, func(b software.Build) bool { return b.Version == m.Build })
 		if i < 0 {
 			if i = slices.IndexFunc(bs, func(b software.Build) bool { return b.Recommended }); i < 0 {
