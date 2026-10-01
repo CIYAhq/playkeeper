@@ -60,8 +60,9 @@ func TestActiveUFWAllowsPort80AndUninstallLeavesTheAdminsRules(t *testing.T) {
 	o := opts("")
 	o.Yes = true
 	f := Preflight(context.Background(), sys, o)
-	if c := check(f, "firewall"); c == nil || !strings.Contains(c.Detail, "allow 8443/tcp, 25565/tcp, 443/tcp and 80/tcp") ||
-		!strings.Contains(c.Detail, "cloud firewall") || !strings.Contains(c.Detail, "Let's Encrypt") || !strings.Contains(c.Detail, "Port 443 carries the dashboard without a port") {
+	// The provider's firewall is for the line under the setup link, where
+	// it's needed; the check says only what the installer does.
+	if c := check(f, "firewall"); c == nil || !strings.Contains(c.Detail, "allow 8443/tcp, 25565/tcp, 443/tcp and 80/tcp") || strings.Contains(c.Detail, "cloud firewall") {
 		t.Fatalf("firewall check: %+v", c)
 	}
 	plan := strings.Join(Plan(f, o), "\n")
@@ -89,17 +90,24 @@ func TestActiveUFWAllowsPort80AndUninstallLeavesTheAdminsRules(t *testing.T) {
 	}
 }
 
-func TestWithoutUFWTheProviderFirewallIsExplained(t *testing.T) {
+// Without ufw the check says so, and the provider's firewall is for the line
+// under the setup link, which names the install's ports (cmd/playkeeper's
+// TestInstallSummarySaysWhatToDoWhenTheLinkWontOpen).
+func TestWithoutUFWTheProviderFirewallIsLeftToTheSummary(t *testing.T) {
 	h := newFakeHost(t)
 	sys := h.system(t)
 	o := opts("")
 	o.Yes = true
 	f := Preflight(context.Background(), sys, o)
-	if c := check(f, "firewall"); c == nil || !strings.Contains(c.Detail, "allow 8443/tcp, 25565/tcp, 443/tcp and 80/tcp there") || !strings.Contains(c.Detail, "port 80 sends browsers there") {
+	if c := check(f, "firewall"); c == nil || c.Detail != "Found no firewall on this server that blocks incoming connections." {
 		t.Fatalf("firewall check: %+v", c)
 	}
-	if _, err := Run(context.Background(), sys, o, "test"); err != nil {
+	res, err := Run(context.Background(), sys, o, "test")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if res.PanelPort != 8443 || res.GamePort != 25565 {
+		t.Fatalf("the summary's ports: %d and %d", res.PanelPort, res.GamePort)
 	}
 	for _, cmd := range h.cmds {
 		if strings.HasPrefix(cmd, "ufw ") && cmd != "ufw status" {
