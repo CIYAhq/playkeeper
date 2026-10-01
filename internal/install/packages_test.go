@@ -10,15 +10,15 @@ import (
 )
 
 // What dnf prints as it gives up: AlmaLinux 9's on 1 Oct 2026, when the
-// extras repository's mirrors were part-way through a sync; when a package's
-// download timed out on every mirror; for a package no repository has; and
-// for a package that fails its signature check after dnf got it from the
-// next mirror.
+// extras repository's mirrors were part-way through a sync; and, as dnf 4.14
+// on AlmaLinux 9.8 printed them against a local mirror, for a package no
+// mirror sent, a package no repository has, and a package that fails its
+// signature check after dnf got it from the next mirror.
 const (
 	dnfNoMirrorHadMetadata = "Error: Failed to download metadata for repo 'extras': Yum repo downloading error: Downloading error(s): repodata/4a21bf8eeb47d833caaebca30efd66e0a793131b21da17553e03b677347a9635-comps-extras.x86_64.xml - Cannot download, all mirrors were already tried without success\n"
-	dnfNoMirrorHadPackage  = "Downloading Packages:\n[MIRROR] containerd.io-1.7.27-3.1.el9.x86_64.rpm: Curl error (28): Timeout was reached for https://download.docker.com/linux/centos/9/x86_64/stable/Packages/containerd.io-1.7.27-3.1.el9.x86_64.rpm [Operation timed out after 30000 milliseconds with 0 out of 0 bytes received]\n[FAILED] containerd.io-1.7.27-3.1.el9.x86_64.rpm: Curl error (28): Timeout was reached for https://download.docker.com/linux/centos/9/x86_64/stable/Packages/containerd.io-1.7.27-3.1.el9.x86_64.rpm [Operation timed out after 30000 milliseconds with 0 out of 0 bytes received]\n\nError: Error downloading packages:\n  Curl error (28): Timeout was reached for https://download.docker.com/linux/centos/9/x86_64/stable/Packages/containerd.io-1.7.27-3.1.el9.x86_64.rpm [Operation timed out after 30000 milliseconds with 0 out of 0 bytes received]\n"
+	dnfNoMirrorHadPackage  = "Downloading Packages:\n[MIRROR] containerd.io-1.7.27-3.1.el9.x86_64.rpm: Status code: 404 for https://download.docker.com/linux/centos/9/x86_64/stable/Packages/containerd.io-1.7.27-3.1.el9.x86_64.rpm (IP: 203.0.113.90)\n[FAILED] containerd.io-1.7.27-3.1.el9.x86_64.rpm: No more mirrors to try - All mirrors were already tried without success\nThe downloaded packages were saved in cache until the next successful transaction.\nYou can remove cached packages by executing 'dnf clean packages'.\nError: Error downloading packages:\n  containerd.io-1.7.27-3.1.el9.x86_64: Cannot download, all mirrors were already tried without success\n"
 	dnfNoMatch             = "No match for argument: docker-ce\nError: Unable to find a match: docker-ce\n"
-	dnfBadSignature        = "Downloading Packages:\n[MIRROR] containerd.io-1.7.27-3.1.el9.x86_64.rpm: Curl error (56): Failure when receiving data from the peer for https://download.docker.com/linux/centos/9/x86_64/stable/Packages/containerd.io-1.7.27-3.1.el9.x86_64.rpm [Recv failure: Connection reset by peer]\ncontainerd.io-1.7.27-3.1.el9.x86_64.rpm 35 MB/s | 44 MB 00:01\nPublic key for containerd.io-1.7.27-3.1.el9.x86_64.rpm is not installed. Failing package is: containerd.io-1.7.27-3.1.el9.x86_64\n GPG Keys are configured as: file:///etc/pki/rpm-gpg/playkeeper-docker-ce.gpg\nThe downloaded packages were saved in cache until the next successful transaction.\nYou can remove cached packages by executing 'dnf clean packages'.\nError: GPG check FAILED\n"
+	dnfBadSignature        = "Downloading Packages:\n[MIRROR] containerd.io-1.7.27-3.1.el9.x86_64.rpm: Curl error (52): Server returned nothing (no headers, no data) for https://download.docker.com/linux/centos/9/x86_64/stable/Packages/containerd.io-1.7.27-3.1.el9.x86_64.rpm [Empty reply from server]\ncontainerd.io-1.7.27-3.1.el9.x86_64.rpm          35 MB/s |  44 MB     00:01\nPackage containerd.io-1.7.27-3.1.el9.x86_64.rpm is not signed\nThe downloaded packages were saved in cache until the next successful transaction.\nYou can remove cached packages by executing 'dnf clean packages'.\nError: GPG check FAILED\n"
 )
 
 // What apt-get prints as it fails: lists from a mirror part-way through a
