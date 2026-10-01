@@ -11927,6 +11927,23 @@ control "dashboard watch: its alerts go out whatever the switches say" internal/
   'KindDashboardDown:
 		return true' \
   ./internal/discord '^TestAJoinedMachinesWatchOnItsDashboardPostsWhateverTheSwitches$'
+control "dashboard watch: only a confirmed machine gets the webhook" internal/panel/dashboardwatch.go \
+  'if !m.customersAt.IsZero() {' \
+  'if true {' \
+  ./internal/panel '^TestOnlyConfirmedMachinesHaveTheDashboardsWebhook$'
+control "dashboard watch: confirming or stopping a machine tells it at once" internal/panel/machinecustomers.go \
+  '	s.kickSaleRoom()
+	s.kickWatch()' \
+  '	s.kickSaleRoom()' \
+  ./internal/panel '^(TestOnlyConfirmedMachinesHaveTheDashboardsWebhook|TestAMachineTheHetznerTokenConfirmedHasTheDashboardsWebhook)$'
+control "dashboard watch: disconnecting Discord clears the webhook at once" internal/panel/team.go \
+  'if method == "DELETE" || pattern == "/v1/discord/connect" {' \
+  'if pattern == "/v1/discord/connect" {' \
+  ./internal/panel '^TestOnlyConfirmedMachinesHaveTheDashboardsWebhook$'
+control "dashboard watch: a machine back online is told again" internal/panel/machines.go \
+  's.watchReconnected(e.MachineID)' \
+  '_ = e.MachineID' \
+  ./internal/panel '^TestAMachineThatWasAwayCatchesUpOnTheDashboardsWebhook$'
 
 # Step 8 of the fleet plan: a server moved in from another machine keeps its
 # id, and only the dashboard's move-in picks one.
