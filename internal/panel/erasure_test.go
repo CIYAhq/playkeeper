@@ -632,7 +632,8 @@ func TestADeletedCustomersEndedMembershipIsntKeptAgain(t *testing.T) {
 // end included, still reaches it: left saying active and unconfirmed, it
 // would keep them out of the pass for good.
 func TestADeletedCustomerWhoBuysAgainAfterAFailedPaymentStarts(t *testing.T) {
-	f, e, _ := twoStores(t)
+	f, e, own := twoStores(t)
+	hookApp(t, e, own)
 	if _, err := e.srv.db.Exec(`INSERT INTO erased_customers(store_id, subject_hash, erased_at) VALUES('biz_other', ?, 1)`, erasedSubject("biz_other", "user_kim")); err != nil {
 		t.Fatal(err)
 	}
@@ -640,7 +641,7 @@ func TestADeletedCustomerWhoBuysAgainAfterAFailedPaymentStarts(t *testing.T) {
 	f.users["user_kim"] = "kim"
 	f.mu.Unlock()
 	failed := f.buyAt("biz_other", "mem_kim4", "user_kim", "plan_other", "active")
-	if r := e.deliverFor(t, "biz_other", "msg_kim4", whop.EventMembershipActivated, failed); r.status != http.StatusOK {
+	if r := e.deliverApp(t, whopTestAppHookSecret, "biz_other", "msg_kim4", whop.EventMembershipActivated, failed); r.status != http.StatusOK {
 		t.Fatalf("kim's first purchase: %d %v", r.status, r.body)
 	}
 	f.mu.Lock()
@@ -648,7 +649,7 @@ func TestADeletedCustomerWhoBuysAgainAfterAFailedPaymentStarts(t *testing.T) {
 	f.mu.Unlock()
 	e.reconcile()
 	again := f.buyAt("biz_other", "mem_kim5", "user_kim", "plan_other", "active")
-	if r := e.deliverFor(t, "biz_other", "msg_kim5", whop.EventMembershipActivated, again); r.status != http.StatusOK {
+	if r := e.deliverApp(t, whopTestAppHookSecret, "biz_other", "msg_kim5", whop.EventMembershipActivated, again); r.status != http.StatusOK {
 		t.Fatalf("kim's second purchase: %d %v", r.status, r.body)
 	}
 	e.reconcile()
