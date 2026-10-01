@@ -157,13 +157,15 @@ unchanged() {
 os_prep() {
   case ${OS_PREP:-} in
     firewalld)
-      g 'sudo dnf -y -q install firewalld && sudo systemctl enable --now firewalld && echo "firewalld $(sudo firewall-cmd --state), zones: $(sudo firewall-cmd --get-active-zones | tr "\n" " ")"'
+      lab_dnf "$G" -q install firewalld && g 'sudo systemctl enable --now firewalld && echo "firewalld $(sudo firewall-cmd --state), zones: $(sudo firewall-cmd --get-active-zones | tr "\n" " ")"'
       ;;
     podman)
-      g "sudo dnf -y -q install podman && sudo systemctl enable -q podman-restart.service && sudo podman run -d --restart=always --name existing-podman -p 25590:8080 docker.io/library/$BUSYBOX sh -c 'echo ok >/tmp/index.html && exec httpd -f -p 8080 -h /tmp' >/dev/null && echo \"Podman \$(sudo podman version --format '{{.Version}}') running a container\""
+      lab_dnf "$G" -q install podman && g "sudo systemctl enable -q podman-restart.service && sudo podman run -d --restart=always --name existing-podman -p 25590:8080 docker.io/library/$BUSYBOX sh -c 'echo ok >/tmp/index.html && exec httpd -f -p 8080 -h /tmp' >/dev/null && echo \"Podman \$(sudo podman version --format '{{.Version}}') running a container\""
       ;;
     docker-selinux)
-      g 'set -e; . /etc/os-release; printf "[docker-ce-stable]\nname=Docker CE Stable\nbaseurl=https://download.docker.com/linux/centos/${VERSION_ID%%.*}/\$basearch/stable\nenabled=1\ngpgcheck=1\ngpgkey=https://download.docker.com/linux/centos/gpg\n" | sudo tee /etc/yum.repos.d/docker-ce.repo >/dev/null; sudo dnf -y -q install docker-ce docker-ce-cli containerd.io; sudo mkdir -p /etc/docker; echo "{\"selinux-enabled\": true}" | sudo tee /etc/docker/daemon.json >/dev/null; sudo systemctl enable --now docker; echo "Docker $(sudo docker version --format "{{.Server.Version}}") from Docker'"'"'s repository, with SELinux labelling"'
+      g 'set -e; . /etc/os-release; printf "[docker-ce-stable]\nname=Docker CE Stable\nbaseurl=https://download.docker.com/linux/centos/${VERSION_ID%%.*}/\$basearch/stable\nenabled=1\ngpgcheck=1\ngpgkey=https://download.docker.com/linux/centos/gpg\n" | sudo tee /etc/yum.repos.d/docker-ce.repo >/dev/null' &&
+        lab_dnf "$G" -q install docker-ce docker-ce-cli containerd.io &&
+        g 'set -e; sudo mkdir -p /etc/docker; echo "{\"selinux-enabled\": true}" | sudo tee /etc/docker/daemon.json >/dev/null; sudo systemctl enable --now docker; echo "Docker $(sudo docker version --format "{{.Server.Version}}") from Docker'"'"'s repository, with SELinux labelling"'
       ;;
     *)
       echo "unknown OS_PREP '$OS_PREP'"
@@ -227,11 +229,11 @@ ok "$(grep -m1 'Operating system' "$OUT/preflight.txt" | sed -E 's/^ *\[(ok  |WA
 
 if [ "${OS_PREP:-}" = podman ]; then
   step "podman-docker is refused, with the command that removes it"
-  g 'sudo dnf -y -q install podman-docker'
+  lab_dnf "$G" -q install podman-docker
   g 'sudo pk/playkeeper-*/playkeeper preflight' >"$OUT/podman-docker.txt" 2>&1 || true
   cat "$OUT/podman-docker.txt"
   grep -q 'FAIL.*podman-docker is installed' "$OUT/podman-docker.txt" || fail "preflight did not refuse podman-docker"
-  g 'sudo dnf -y -q remove podman-docker'
+  lab_dnf "$G" -q remove podman-docker
   unchanged after-podman-docker
   ok "$(grep -m1 -o 'Fix: .*' "$OUT/podman-docker.txt")"
 fi

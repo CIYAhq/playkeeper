@@ -71,6 +71,7 @@ test-sh:
 	bash scripts/discord-feed_test.sh
 	bash scripts/net-retry_test.sh
 	bash scripts/e2e/vm-rehearsal_test.sh
+	bash scripts/e2e/vm-lab_test.sh
 
 # A production build into a folder of its own, so web/dist stays as it was:
 # its first-load plugin (web/src/lib/first-load.ts) fails it over the budget.
