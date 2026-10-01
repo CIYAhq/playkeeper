@@ -739,6 +739,7 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		return
 	}
 	v := sellerPricesFrom(st, plans)
+	updating := st.ClosedWhy == ""
 	lines, fix := refusedPlans(v.Plans)
 	switch {
 	case len(v.Plans) == 0:
@@ -746,7 +747,7 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		return
 	case len(lines) > 0:
 		to := "open"
-		if st.ClosedWhy == "" {
+		if updating {
 			to = "update"
 		}
 		writeErr(w, http.StatusConflict, api.CodeConflict, strings.Join(lines, "\n"), "To "+to+" your store, "+fix+".")
@@ -784,7 +785,7 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		return
 	}
 	pressed := "Open the store"
-	if st.ClosedWhy == "" {
+	if updating {
 		pressed = "Update the store"
 	}
 	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", pressed+": Playkeeper's share is set on each hosting product, the products are marked for the store site, and their plans are visible")
