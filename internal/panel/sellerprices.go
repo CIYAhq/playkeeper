@@ -72,8 +72,9 @@ func parseSellerPrice(s string) (int64, error) {
 // closed and neither suspended nor gone, or Update the store, the same
 // call once it's open. Problem is what's wrong with Playkeeper's share once
 // a price changed, if anything. Fixable says Fix my plans has a plan's
-// renewal, currency or free trial to put right, and Blocked is what it
-// can't, in a plain line each, for the seller to change in Whop.
+// renewal, currency or free trial to put right, which it does only while
+// Open the store is the seller's to press, and Blocked is what it can't, in
+// a plain line each, for the seller to change in Whop.
 type sellerPrices struct {
 	Plans     []sellerPrice `json:"plans"`
 	CanOpen   bool          `json:"canOpen"`
@@ -281,7 +282,7 @@ func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 			for _, is := range sp.issues {
 				switch {
 				case is.rule.fixable():
-					v.Fixable = true
+					v.Fixable = v.CanOpen
 				case is.blocked != "" && !seen[is.blocked]:
 					seen[is.blocked] = true
 					v.Blocked = append(v.Blocked, is.blocked)
