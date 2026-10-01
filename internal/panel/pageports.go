@@ -129,6 +129,9 @@ func (s *Server) lookAtPage(ctx context.Context) {
 	if !want.HTTPS && !want.HTTP {
 		return
 	}
+	// The agent sees only its own servers' pages, so a joined server's is
+	// the panel's to say.
+	want.Joined = on && !st.On
 	ports, files, err := s.agent.PublicPagePorts(ctx, want)
 	if err != nil {
 		s.log.Warn("could not get ports 443 and 80 for the public page", "err", err)

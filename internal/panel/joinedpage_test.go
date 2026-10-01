@@ -228,6 +228,9 @@ func TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn(t *testing.T) {
 	if asks() != 1 {
 		t.Fatalf("with a joined server on the page the keeper asked for the ports %d times", asks())
 	}
+	if asked := j.e.agentRequest(t, "POST", "/v1/public-page/ports").body; asked["joined"] != true {
+		t.Fatalf("the keeper asked for the ports without saying a joined server's page is on: %v", asked)
+	}
 	j.on.Store(false)
 	j.e.clock.add(pageCacheFor + time.Second)
 	j.e.srv.lookAtPage(ctx)

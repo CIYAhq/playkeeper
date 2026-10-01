@@ -3092,6 +3092,11 @@ const CodePortInUse = "port_in_use"
 type PagePortsRequest struct {
 	HTTPS bool `json:"https"`
 	HTTP  bool `json:"http"`
+	// Joined (from 0.4.14): a server on a joined machine is on the page at
+	// its name, which only the panel knows. The agent opens the ports for it
+	// as for a server of its own on the page, while the machine has an
+	// address.
+	Joined bool `json:"joined,omitempty"`
 }
 
 // PublicPagePorts says whether the page answers on ports 443 and 80.

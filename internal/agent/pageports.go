@@ -70,7 +70,9 @@ func (a *Agent) takePagePorts(ctx context.Context, want api.PagePortsRequest) (a
 		}
 		return api.PublicPagePorts{HTTPS: out[0], HTTP: out[1]}
 	}
-	if st := a.publicPageState(nil); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {
+	st := a.publicPageState(nil)
+	joined := want.Joined && st.Host != ""
+	if !st.On && !st.Dashboard && !joined || !want.HTTPS && !want.HTTP {
 		return api.PublicPagePorts{HTTPS: out[0], HTTP: out[1]}, nil
 	}
 	if a.opts.Uptime() < pageSettle {
