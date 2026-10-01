@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -101,28 +102,23 @@ func TestASlowCopyDeleteOnTheDashboardsMachineWaitsForItsStore(t *testing.T) {
 
 // The dashboard keeps resource packs on its own machine (hResourcePackUpload),
 // so it sends none over a link; one sent anyway has the link's limits, as
-// every request that isn't a stream does.
+// every request that isn't a stream does, and one too large never reaches the
+// machine's agent.
 func TestAResourcePackUploadOverALinkHasTheLinksLimits(t *testing.T) {
 	shortWaits(t, 500*time.Millisecond)
 	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
 	ra := newRemoteAgent()
+	var dataErr error
 	var mu sync.Mutex
-	readErr := map[string]error{}
-	read := func(w http.ResponseWriter, r *http.Request) {
+	pack, data := "/v1/servers/rstuvwxyzq/resourcepack", "/v1/servers/rstuvwxyzq/datapacks"
+	ra.handle("POST "+data, func(w http.ResponseWriter, r *http.Request) {
 		_, err := io.Copy(io.Discard, r.Body)
 		mu.Lock()
-		readErr[r.URL.Path] = err
+		dataErr = err
 		mu.Unlock()
-		if err != nil {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
-			return
-		}
 		io.WriteString(w, `{"ok":true}`)
-	}
-	pack, data := "/v1/servers/rstuvwxyzq/resourcepack", "/v1/servers/rstuvwxyzq/datapacks"
-	ra.handle("POST "+pack, read)
-	ra.handle("POST "+data, read)
+	})
 	mid, _ := e.joinMachine(t, cookie, csrf, ra)
 	send := func(path string, body []byte) (*http.Response, error) {
 		req, err := http.NewRequest("POST", "http://machine"+path, bytes.NewReader(body))
@@ -139,20 +135,28 @@ func TestAResourcePackUploadOverALinkHasTheLinksLimits(t *testing.T) {
 		t.Fatalf("2 MiB of a data pack, a stream: %v %v", resp, err)
 	}
 	resp.Body.Close()
+	mu.Lock()
+	err = dataErr
+	mu.Unlock()
+	if err != nil {
+		t.Fatalf("the machine couldn't read the data pack whole: %v", err)
+	}
+
 	resp, err = send(pack, big)
 	if err != nil {
 		t.Fatalf("2 MiB of a resource pack: %v", err)
 	}
-	resp.Body.Close()
-	mu.Lock()
-	dataErr, packErr := readErr[data], readErr[pack]
-	mu.Unlock()
-	if dataErr != nil {
-		t.Fatalf("the machine couldn't read the data pack whole: %v", dataErr)
+	var refusal struct {
+		Code   string            `json:"code"`
+		Params map[string]string `json:"params"`
 	}
-	var tooBig *http.MaxBytesError
-	if resp.StatusCode != http.StatusRequestEntityTooLarge || !errors.As(packErr, &tooBig) || tooBig.Limit != 1<<20 {
-		t.Fatalf("2 MiB of a resource pack reached the machine: %d, read error %v", resp.StatusCode, packErr)
+	json.NewDecoder(resp.Body).Decode(&refusal)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge || refusal.Code != machinelink.CodeTooLarge || refusal.Params["limit"] != "1 MiB" {
+		t.Fatalf("2 MiB of a resource pack: %d %+v", resp.StatusCode, refusal)
+	}
+	if _, ok := ra.saw("POST " + pack); ok {
+		t.Fatal("2 MiB of a resource pack reached the machine's agent")
 	}
 
 	ra.handle("POST "+pack, slowAnswer(1500*time.Millisecond, `{"ok":true}`, nil))

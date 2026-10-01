@@ -194,6 +194,11 @@ func errTooLarge(name string, limit int64) *Error {
 		Hint: "Update Playkeeper on both machines. If it keeps happening, the other machine may be misbehaving."}
 }
 
+func errRequestTooLarge(limit int64) *Error {
+	return &Error{Code: CodeTooLarge, Params: map[string]string{"limit": formatBytes(limit)},
+		Msg: "The request is larger than this machine accepts from the dashboard (" + formatBytes(limit) + ")."}
+}
+
 func errHelloTooLarge() *Error {
 	return &Error{Code: CodeTooLarge, Params: map[string]string{"limit": formatBytes(maxFrame)},
 		Msg:  "This machine sent the dashboard a greeting larger than it accepts (" + formatBytes(maxFrame) + ").",
