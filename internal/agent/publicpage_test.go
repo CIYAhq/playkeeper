@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -267,13 +268,28 @@ func closeAll(files []*os.File) {
 // A server on a joined machine on the page at its name is the panel's to
 // say, as the agent sees only its own servers' pages: with none of those on
 // it, the agent hands over the ports for the joined one, but only while the
-// machine has an address.
+// machine has an address. That changes no setting and leaves no audit
+// entry, so the agent logs it.
 func TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt(t *testing.T) {
-	e, https, _ := pageEnv(t, time.Hour, func(e *agentEnv) { e.cfg.Dev = false })
+	var logs logBuffer
+	e, https, _ := pageEnv(t, time.Hour, func(e *agentEnv) {
+		e.cfg.Dev = false
+		ports := e.tweak
+		e.tweak = func(o *Options) {
+			ports(o)
+			o.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+		}
+	})
+	const handedOver = "the public page's ports go to the panel for a server on a joined machine"
+	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	closeAll(files)
+	if len(files) != 2 || strings.Contains(logs.String(), handedOver) {
+		t.Fatalf("for a server of its own on the page the agent handed over %d and logged:\n%s", len(files), logs.String())
+	}
 	if code, _ := e.call("POST", e.sp("/public-page"), map[string]any{"enabled": false, "actor": "admin"}); code != 200 {
 		t.Fatal("turning the page off")
 	}
-	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	ports, files = e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
 	closeAll(files)
 	if len(files) != 0 || ports.HTTPS.State != api.PortOff {
 		t.Fatalf("with no server on the page the agent handed over %+v", ports)
@@ -284,13 +300,16 @@ func TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt(t *testing.T) {
 	if len(files) != 2 || ports.HTTPS.State != api.PortOpen || ports.HTTPS.Port != https {
 		t.Fatalf("for a joined server's page the agent handed over %d: %+v", len(files), ports)
 	}
+	if n := strings.Count(logs.String(), handedOver); n != 1 {
+		t.Fatalf("the ports went to the panel for a joined server's page, logged %d times:\n%s", n, logs.String())
+	}
 	if err := e.a.updateAddress(func(st *addressState) { st.Kind, st.Host = api.AddressNone, "" }); err != nil {
 		t.Fatal(err)
 	}
 	ports, files = e.a.takePagePorts(context.Background(), joined)
 	closeAll(files)
-	if len(files) != 0 {
-		t.Fatalf("without an address the agent handed over %+v for a joined server's page", ports)
+	if len(files) != 0 || strings.Count(logs.String(), handedOver) != 1 {
+		t.Fatalf("without an address the agent handed over %+v for a joined server's page, and logged:\n%s", ports, logs.String())
 	}
 }
 
