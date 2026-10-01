@@ -686,3 +686,108 @@ func TestLoweringAPriceSetsTheShareFirst(t *testing.T) {
 		t.Fatalf("lowering Other to $15: %d %v, the share %v, prices set %v", r.status, r.body, share(), f.priceSets)
 	}
 }
+
+// The seller's prices suggest $15 a month for each 4 GB, and say whether
+// Fix my plans has anything to change: it puts right a plan's renewal, its
+// currency and its free trial, but not a plan charged only once, one that
+// allows more than the fleet runs, or plans sharing a product, which each
+// get a plain line saying what to change in Whop, a shared product once. An
+// archived plan no longer sells, so it needs nothing.
+func TestTheSellersPricesSayWhatFixMyPlansCanChange(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	prices := func() sellerPrices {
+		t.Helper()
+		return pricesOf(t, e.asSeller(t, "GET", "biz_other/prices", "", token, nil))
+	}
+	f.addOtherPlan(map[string]any{"id": "plan_big", "title": "Big", "renewal_price": 30, "metadata": map[string]any{whop.MetaServers: "2", whop.MetaMemoryGB: "8"},
+		"product": map[string]any{"id": "prod_big", "title": "Big server"}})
+	v := prices()
+	if p := priceOf(t, v, "plan_other"); p.Suggested != 1500 || v.Fixable || len(v.Blocked) != 0 {
+		t.Fatalf("plans that sell as they are: Other %+v, fixable %v, blocked %v", p, v.Fixable, v.Blocked)
+	}
+	if p := priceOf(t, v, "plan_big"); p.Suggested != 3000 {
+		t.Fatalf("Big: %+v", p)
+	}
+	for _, c := range []struct {
+		name  string
+		terms map[string]any
+	}{
+		{"renewing yearly", map[string]any{"billing_period": 365}},
+		{"priced in euros", map[string]any{"currency": "eur"}},
+		{"with a free trial", map[string]any{"trial_period_days": 7}},
+	} {
+		f.setOtherPlan("plan_other", c.terms)
+		if v := prices(); !v.Fixable || len(v.Blocked) != 0 {
+			t.Fatalf("a plan %s: fixable %v, blocked %v", c.name, v.Fixable, v.Blocked)
+		}
+		f.setOtherPlan("plan_other", map[string]any{"billing_period": 30, "currency": "usd", "trial_period_days": 0})
+	}
+	f.addOtherPlan(map[string]any{"id": "plan_once", "title": "Once", "plan_type": "one_time", "initial_price": 12, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"},
+		"product": map[string]any{"id": "prod_once", "title": "Once server"}})
+	f.addOtherPlan(map[string]any{"id": "plan_huge", "title": "Huge", "renewal_price": 300, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "96"},
+		"product": map[string]any{"id": "prod_huge", "title": "Huge server"}})
+	f.addOtherPlan(map[string]any{"id": "plan_dear", "title": "Dear", "renewal_price": 15, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "renewal_price": 5, "product": map[string]any{"id": "prod_big", "title": "Big server"}})
+	f.addOtherPlan(map[string]any{"id": "plan_old", "title": "Old", "visibility": "archived", "renewal_price": 20, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	v = prices()
+	want := []string{
+		"Other and Dear are on the same product. Give each its own product in Whop.",
+		"Big and Merch are on the same product. Give each its own product in Whop.",
+		"Once is charged only once. Replace it with a monthly plan in Whop.",
+		"Huge allows 96 GB. Make it 64 GB or less in Whop.",
+	}
+	if v.Fixable || !slices.Equal(v.Blocked, want) {
+		t.Fatalf("plans Fix my plans can't put right: fixable %v, blocked %q", v.Fixable, v.Blocked)
+	}
+}
+
+// Fix my plans, before the store opens, has each plan that renews do so
+// every month, in US dollars, with no free trial, keeping its price, and
+// says in a line what it changed. A plan that's right already is left
+// alone, and pressing it again changes nothing. Whop refusing leaves the
+// plans as they were. Once the store is open, its plans stay as they are.
+func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	fix := func() resp {
+		t.Helper()
+		return e.asSeller(t, "POST", "biz_other/fix", `{}`, token, nil)
+	}
+	other := func() map[string]any {
+		t.Helper()
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return maps.Clone(f.installed["biz_other"].plan("plan_other"))
+	}
+	f.setOtherPlan("plan_other", map[string]any{"billing_period": 365, "currency": "eur", "trial_period_days": 7})
+	f.addOtherPlan(map[string]any{"id": "plan_big", "title": "Big", "renewal_price": 30, "metadata": map[string]any{whop.MetaServers: "2", whop.MetaMemoryGB: "8"},
+		"product": map[string]any{"id": "prod_big", "title": "Big server"}})
+	f.termsDown = true
+	if r := fix(); r.status != http.StatusBadGateway || len(f.termSets) != 0 || other()["billing_period"] != 365 {
+		t.Fatalf("Fix my plans with Whop refusing: %d %v, plans changed %v", r.status, r.body, f.termSets)
+	}
+	f.termsDown = false
+	r := fix()
+	if r.status != http.StatusOK || r.body["changed"] != "Other now renews every month, is in US dollars and has no free trial." || !slices.Equal(f.termSets, []string{"plan_other"}) {
+		t.Fatalf("Fix my plans: %d %v, plans changed %v", r.status, r.body, f.termSets)
+	}
+	if p := other(); p["billing_period"] != 30.0 || p["currency"] != "usd" || p["trial_period_days"] != 0.0 || p["renewal_price"] != 12 {
+		t.Fatalf("Other once fixed: %v", p)
+	}
+	if v := pricesOf(t, resp{status: r.status, body: r.body["prices"].(map[string]any)}); v.Fixable || len(v.Plans) != 2 {
+		t.Fatalf("the prices once fixed: %+v", v)
+	}
+	if rows := e.auditRows(t, "whop.plan_fix"); len(rows) != 1 || !strings.HasPrefix(rows[0], "whop:user_otherowner biz_other succeeded Other now renews every month") {
+		t.Fatalf("the audit log: %v", rows)
+	}
+	if r := fix(); r.status != http.StatusOK || r.body["changed"] != nil || len(f.termSets) != 1 {
+		t.Fatalf("Fix my plans again: %d %v, plans changed %v", r.status, r.body, f.termSets)
+	}
+	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+		t.Fatalf("Open the store: %d %v", r.status, r.body)
+	}
+	f.setOtherPlan("plan_other", map[string]any{"trial_period_days": 3})
+	if r := fix(); r.status != http.StatusConflict || len(f.termSets) != 1 {
+		t.Fatalf("Fix my plans on an open store: %d %v, plans changed %v", r.status, r.body, f.termSets)
+	}
+}

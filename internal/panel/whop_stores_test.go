@@ -170,7 +170,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		}
 		b.products[id] = meta
 		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": "Minecraft server", "metadata": meta})
-	case strings.HasPrefix(route, "PATCH /variants/") && (body["renewal_price"] != nil && f.priceDown || body["visibility"] != nil && f.showDown):
+	case strings.HasPrefix(route, "PATCH /variants/") && (body["renewal_price"] != nil && f.priceDown || body["visibility"] != nil && f.showDown || body["billing_period"] != nil && f.termsDown):
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the plan:update scope."}}`)
 	case strings.HasPrefix(route, "PATCH /variants/"):
@@ -185,6 +185,12 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		}
 		if vis, ok := body["visibility"]; ok {
 			p["visibility"] = vis
+		}
+		if _, ok := body["billing_period"]; ok {
+			for _, k := range []string{"currency", "billing_period", "trial_period_days"} {
+				p[k] = body[k]
+			}
+			f.termSets = append(f.termSets, id)
 		}
 		json.NewEncoder(w).Encode(p)
 	case route == "POST /affiliates":
