@@ -64,7 +64,7 @@ func TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain(t *testing.T) {
 	if code, out := e.setOwn(creative, " Alex.Example.com. "); code != 200 {
 		t.Fatalf("setting it: %d %v", code, out)
 	}
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	v := e.address()
@@ -115,7 +115,7 @@ func TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain(t *testing.T) {
 
 	e.dns.set("alex.example.com", testIP.String())
 	e.dns.setSRV("alex.example.com", 25566, "alex.example.com")
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	if j := joinOf(e.address(), creative); !j.Published {
@@ -183,7 +183,7 @@ func TestOwnAddressesGetAFewCertificatesADay(t *testing.T) {
 	}
 	e.dns.setSRV("alex.example.com", 25566, "alex.example.com")
 	e.dns.setSRV("sam.example.com", 25567, "sam.example.com")
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	if host, held := e.a.ownCertificateDue(e.a.address()); host != "" || !held {
@@ -293,7 +293,7 @@ func TestAnOwnAddressWorksWithoutTheMachinesName(t *testing.T) {
 	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
 		t.Fatalf("setting it: %d %v", code, out)
 	}
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	v := e.address()
@@ -337,7 +337,7 @@ func TestTheManagedBetaMachineCanBeBetaPlaykeeperMe(t *testing.T) {
 	if code, out := e.setOwn(alex, "alex.playkeeper.me"); code != 200 {
 		t.Fatalf("alex's own address: %d %v", code, out)
 	}
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	e.a.serversChanged()

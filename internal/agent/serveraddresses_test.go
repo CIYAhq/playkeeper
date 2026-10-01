@@ -89,7 +89,7 @@ func TestEveryServerGetsAnAddressUnderTheWildcard(t *testing.T) {
 	}
 
 	e.dns.set("*.play.example.com", testIP.String())
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	v = e.address()
@@ -158,7 +158,7 @@ func TestTheWildcardIsCheckedBeforeTheFirstServer(t *testing.T) {
 	}
 	e.waitFor("a look with the wildcard missing", wildcard(false))
 	e.dns.set("*.play.example.com", testIP.String())
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	if !wildcard(true)() {
@@ -337,7 +337,7 @@ func TestTheDaysCertificatesCountWhateverBecameOfTheirNames(t *testing.T) {
 	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
 		t.Fatalf("giving creative an address: %d %v", code, out)
 	}
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	if host, held := e.a.ownCertificateDue(e.a.address()); host != "" || !held {
@@ -493,7 +493,7 @@ func TestServersJoinWithNoPortOnceTheDomainIsHandedOver(t *testing.T) {
 	}
 	check := func() api.Address {
 		t.Helper()
-		if _, err := e.a.checkOwn(context.Background()); err != nil {
+		if _, err := e.checkOwn(); err != nil {
 			t.Fatal(err)
 		}
 		return e.address()
@@ -581,7 +581,7 @@ func TestTheServersShareOneWildcardCertificate(t *testing.T) {
 	if code, st := e.setZone(zone); code != 200 {
 		t.Fatalf("the zone: %d %+v", code, st)
 	}
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	e.certified("*.play.example.com")
@@ -612,7 +612,7 @@ func TestTheServersShareOneWildcardCertificate(t *testing.T) {
 	}
 
 	e.dns.set("*.play.example.com", testIP.String())
-	if _, err := e.a.checkOwn(context.Background()); err != nil {
+	if _, err := e.checkOwn(); err != nil {
 		t.Fatal(err)
 	}
 	if host, held := e.a.ownCertificateDue(e.a.address()); host != "" || held {
