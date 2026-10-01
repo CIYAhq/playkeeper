@@ -179,6 +179,35 @@ func TestOnlyThoseWhoManageTheMachineUseTheSwitch(t *testing.T) {
 	}
 }
 
+// Setup tells the dashboard's machine that its first account was made, once
+// and only when it made one, for the heartbeat the agent sends then. A
+// machine that can't take it doesn't hold setup up.
+func TestTheFirstAccountTellsItsMachine(t *testing.T) {
+	e := newEnv(t)
+	const told = "POST /v1/usage-stats/first-account"
+	xrw := map[string]string{"X-Requested-With": "playkeeper"}
+	code, err := NewSetupToken(e.cfg.SetupTokenPath(), time.Hour, e.clock.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "POST", "/api/setup", `{"token":"wrong-code-xxxxx-xxxxx","username":"admin","password":"correct horse battery"}`, xrw); r.status != http.StatusForbidden {
+		t.Fatalf("setup with a wrong code: %d %v", r.status, r.body)
+	}
+	if n := e.hitCount(told); n != 0 {
+		t.Errorf("a refused setup told the machine %d times", n)
+	}
+	e.replyStatus("POST", "/v1/usage-stats/first-account", http.StatusInternalServerError, `{"error":"Database error.","code":"internal"}`)
+	if r := e.do(t, "POST", "/api/setup", `{"token":"`+code+`","username":"admin","password":"correct horse battery"}`, xrw); r.status != http.StatusOK || r.cookie == "" {
+		t.Fatalf("setup while the machine can't take it: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "POST", "/api/setup", `{"token":"`+code+`","username":"eve","password":"eve password 123"}`, xrw); r.status != http.StatusConflict {
+		t.Fatalf("a second setup: %d %v", r.status, r.body)
+	}
+	if n := e.hitCount(told); n != 1 {
+		t.Errorf("the machine was told %d times, want once", n)
+	}
+}
+
 // A machine that was away when the switch turned usage stats off gets them
 // off when it connects; otherwise one that connects keeps its own.
 func TestAMachineThatWasAwayIsTurnedOffWhenItConnects(t *testing.T) {
