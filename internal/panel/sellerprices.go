@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
@@ -176,15 +177,33 @@ func (s *Server) sellerPricesOf(ctx context.Context, c *whop.Client, st whopStor
 }
 
 // sellerPricesFrom is the store's hosting plans among plans, as its seller
-// prices them.
+// prices them. A plan that allows more or less than the fleet runs has that
+// as its problem, before any other: the store's pass would start none of
+// its buyers, and the floor follows from what it allows.
 func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 	v := sellerPrices{Plans: []sellerPrice{}, CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()}
 	for _, p := range plans {
 		if sp, ok := sellerPriceOf(p); ok {
+			if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {
+				sp.Problem = problem
+			}
 			v.Plans = append(v.Plans, sp)
 		}
 	}
 	return v
+}
+
+// allowanceProblem is what keeps a hosting plan that allows servers with
+// memoryMB between them from selling, when that's outside the bounds the
+// store's pass runs (invites.Allowance.Check), or "".
+func allowanceProblem(servers, memoryMB int) string {
+	switch {
+	case (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:
+		return ""
+	case servers < 1 || servers > invites.MaxAllowanceServers:
+		return fmt.Sprintf("It allows %d servers, and hosted plans allow 1 to %d.", servers, invites.MaxAllowanceServers)
+	}
+	return fmt.Sprintf("It allows %s, and hosted plans allow %s to %s.", gigabytes(memoryMB), gigabytes(invites.MinAllowanceMemoryMB), gigabytes(invites.MaxAllowanceMemoryMB))
 }
 
 // markHostedProducts marks each of the store's hosting products, the ones
@@ -358,7 +377,8 @@ type sellerOpened struct {
 }
 
 // hWhopSellerSell is a seller pressing Open the store. Every hosting plan
-// must renew monthly in US dollars, without a trial, at or above the floor.
+// must renew monthly in US dollars, without a trial, at or above the floor,
+// and allow what the fleet runs (sellerPricesFrom).
 // Then Playkeeper's share is set on each hosting product, putting right any
 // share the seller changed (syncWhopShares, with force), and only when that
 // leaves nothing wrong are the hosting products marked for the store site
