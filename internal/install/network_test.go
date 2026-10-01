@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -190,7 +192,8 @@ func (fw *fakeFirewall) save() string {
 	return b.String()
 }
 
-// run handles the iptables commands the installer uses: -S, -D, -F, -X, -P.
+// run handles the iptables commands the installer uses: -S, -C, -I, -D, -F,
+// -X, -P.
 func (fw *fakeFirewall) run(args []string) (string, error) {
 	table := "filter"
 	if len(args) >= 2 && args[0] == "-t" {
@@ -208,6 +211,19 @@ func (fw *fakeFirewall) run(args []string) (string, error) {
 			out += "-A " + c.name + " " + r + "\n"
 		}
 		return out, nil
+	case "-C":
+		for _, r := range c.rules {
+			if reflect.DeepEqual(splitRule(r), args[2:]) {
+				return "", nil
+			}
+		}
+		return "", errors.New("iptables: Bad rule (does a matching rule exist in that chain?)")
+	case "-I":
+		at, err := strconv.Atoi(args[2])
+		if err != nil || at < 1 || at > len(c.rules)+1 {
+			return "", fmt.Errorf("iptables: Index of insertion too big: %v", args)
+		}
+		c.rules = slices.Insert(c.rules, at-1, strings.Join(args[3:], " "))
 	case "-D":
 		for i, r := range c.rules {
 			if reflect.DeepEqual(splitRule(r), args[2:]) {

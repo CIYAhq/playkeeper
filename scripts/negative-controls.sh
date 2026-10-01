@@ -1060,6 +1060,30 @@ control "firewalld's backups of Docker's zone and policy go too" internal/instal
   'removeIfExists(sys.P(dir+"/"+name+".xml.old"))' \
   'removeIfExists(sys.P(dir+"/"+name+".xml.missing"))' \
   ./internal/install '^TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules$'
+control "Oracle Cloud's iptables: the ports go before the rule that rejects everything" internal/install/firewall.go \
+  'append([]string{"-I", "INPUT", strconv.Itoa(place)}, spec...)' \
+  'append([]string{"-I", "INPUT", strconv.Itoa(place + 1)}, spec...)' \
+  ./internal/install '^TestOracleCloudsIptablesLetsThePortsInBeforeItsLastRule$'
+control "Oracle Cloud's iptables: the ports are saved for the next boot" internal/install/firewall.go \
+  '		saved, err := addSavedRule(sys, savedRules[bin], strings.Join(spec, " "))' \
+  '		saved, err := false, error(nil)' \
+  ./internal/install '^TestOracleCloudsIptablesLetsThePortsInBeforeItsLastRule$'
+control "Oracle Cloud's iptables: uninstall takes the saved ports out" internal/install/firewall.go \
+  '		errs = append(errs, removeSavedRule(sys, savedRules[bin], strings.Join(spec, " ")))' \
+  '' \
+  ./internal/install '^TestOracleCloudsIptablesLetsThePortsInBeforeItsLastRule$'
+control "a rule that rejects everything is named even unsaved" internal/install/firewall.go \
+  'if _, last := catchAll(out); last || slices.Contains(strings.Split(out, "\n"), "-P INPUT DROP") {' \
+  'if slices.Contains(strings.Split(out, "\n"), "-P INPUT DROP") {' \
+  ./internal/install '^TestARejectAllRuleNobodySavedIsNamed$'
+control "the setup link asks for the public address only behind NAT" internal/install/install.go \
+  'if !privateAddr(host) || in.sys.PublicIPv4 == nil || in.o.Usage.Test || testInstall(in.sys) {' \
+  'if in.sys.PublicIPv4 == nil || in.o.Usage.Test || testInstall(in.sys) {' \
+  ./internal/install '^TestTheSetupLinkUsesThePublicAddressBehindNAT$'
+control "test installs don't ask the names service for the public address" internal/install/install.go \
+  'if !privateAddr(host) || in.sys.PublicIPv4 == nil || in.o.Usage.Test || testInstall(in.sys) {' \
+  'if !privateAddr(host) || in.sys.PublicIPv4 == nil {' \
+  ./internal/install '^TestTheSetupLinkUsesThePublicAddressBehindNAT$'
 control "a failed Docker install removes the repository it added" internal/install/install.go \
   '				return removeFiles(sys, in.m.DockerRepoFiles)' \
   '				return nil' \

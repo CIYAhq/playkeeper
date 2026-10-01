@@ -443,7 +443,10 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 	} else {
 		fmt.Fprintf(w, "  3. Your worlds and backups were kept; the server starts again if it was running before.\n\n")
 	}
-	fmt.Fprintf(w, "If %s is not your public address, use your VPS's public IP instead.\n", strings.TrimPrefix(res.URL, "https://"))
+	if res.PrivateHost {
+		host, _, _ := strings.Cut(strings.TrimPrefix(res.URL, "https://"), ":")
+		fmt.Fprintf(w, "%s is this VPS's private address: if the link won't open, use the public IP from your provider's console in its place.\n", host)
+	}
 	if res.Dashboard443 {
 		fmt.Fprintf(w, "Once you give it an address, the dashboard opens there without a port: allow TCP 443 in your provider's firewall too.\n")
 	}

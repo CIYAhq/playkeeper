@@ -76,6 +76,23 @@ func TestInstallSummaryForFirstInstallAndReinstall(t *testing.T) {
 	}
 }
 
+// A setup link with a private address, which the installer couldn't swap for
+// the public one, says so and where the public one is; a public one needs
+// no line.
+func TestInstallSummarySaysWhenTheAddressIsPrivate(t *testing.T) {
+	var private, public bytes.Buffer
+	writeInstallSummary(&private, &install.Result{URL: "https://10.0.0.5:8443", PrivateHost: true, SetupCode: "abc123", Fingerprint: "AA:BB"})
+	writeInstallSummary(&public, &install.Result{URL: "https://203.0.113.7:8443", SetupCode: "abc123", Fingerprint: "AA:BB"})
+	if want := "\n10.0.0.5 is this VPS's private address: if the link won't open, use the public IP from your provider's console in its place.\n"; !strings.Contains(private.String(), want) {
+		t.Errorf("the summary lacks %q:\n%s", want, private.String())
+	}
+	for _, bad := range []string{"private address", "is not your public address"} {
+		if strings.Contains(public.String(), bad) {
+			t.Errorf("a public address's summary says %q:\n%s", bad, public.String())
+		}
+	}
+}
+
 func TestDevStaysOffTheRealNamesServiceAndLetsEncrypt(t *testing.T) {
 	cfg := config.Default()
 	devDefaults(&cfg)

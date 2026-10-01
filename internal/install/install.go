@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -457,6 +458,34 @@ func Plan(f Facts, o Options) []string {
 	return p
 }
 
+// publicHost is the address for the setup link: the machine's own, or, when
+// that's a private one behind the provider's NAT, as on AWS, Google Cloud,
+// Azure and Oracle Cloud, the public one the names service sees, so the link
+// opens from home. A test install asks nothing.
+func (in *installer) publicHost(ctx context.Context) string {
+	host := in.f.PanelURLHost
+	if !privateAddr(host) || in.sys.PublicIPv4 == nil || in.o.Usage.Test || testInstall(in.sys) {
+		return host
+	}
+	lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ip, err := in.sys.PublicIPv4(lctx)
+	if a, perr := netip.ParseAddr(ip); err != nil || perr != nil || !a.Is4() || privateAddr(ip) {
+		return host
+	}
+	return ip
+}
+
+// privateAddr reports whether host is an IPv4 address that only its own
+// network reaches: a private one (RFC 1918), a shared one (100.64.0.0/10)
+// or a link-local one.
+func privateAddr(host string) bool {
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.Is4() && (ip.IsPrivate() || ip.IsLinkLocalUnicast() || sharedAddrs.Contains(ip))
+}
+
+var sharedAddrs = netip.MustParsePrefix("100.64.0.0/10")
+
 // Manifest records everything an install created, for uninstall.
 type Manifest struct {
 	Version           string    `json:"version"`
@@ -472,15 +501,18 @@ type Manifest struct {
 	Units             []string  `json:"units"`
 	FirewallRules     []string  `json:"firewallRules"`
 	// Firewall is the firewall FirewallRules are in: "firewalld", in
-	// FirewallZone, or "" for ufw. FirewallZoneFiles are the zone's files
-	// firewalld didn't have before the install changed it, and
-	// FirewallZoneBefore its saved settings then.
+	// FirewallZone, "iptables" (rejectAll), or "" for ufw.
+	// FirewallZoneFiles are the zone's files firewalld didn't have before
+	// the install changed it, and FirewallZoneBefore its saved settings then.
 	Firewall           string   `json:"firewall,omitempty"`
 	FirewallZone       string   `json:"firewallZone,omitempty"`
 	FirewallZoneFiles  []string `json:"firewallZoneFiles,omitempty"`
 	FirewallZoneBefore string   `json:"firewallZoneBefore,omitempty"`
-	ReusedData         bool     `json:"reusedData"`
-	KeptOnUninstall    []string `json:"keptOnUninstall"`
+	// FirewallFamilies are the iptables commands whose rules FirewallRules
+	// are in, for Firewall "iptables": "iptables" and maybe "ip6tables".
+	FirewallFamilies []string `json:"firewallFamilies,omitempty"`
+	ReusedData       bool     `json:"reusedData"`
+	KeptOnUninstall  []string `json:"keptOnUninstall"`
 	// PackageManager installed PackagesInstalled: "dnf", or "" for apt.
 	PackageManager string `json:"packageManager,omitempty"`
 	// NetBeforeDocker is the host network as it was before Playkeeper
@@ -521,7 +553,11 @@ type installer struct {
 
 // Result is what a successful install prints for the user.
 type Result struct {
-	URL         string
+	URL string
+	// PrivateHost says URL's address is a private one: the machine's own
+	// behind a provider's NAT, when its public one wasn't found.
+	PrivateHost bool
+
 	SetupCode   string
 	Fingerprint string
 	Duration    time.Duration
@@ -876,7 +912,8 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 
 	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on"}
 	if !cfg.NoPanel {
-		res.URL, res.ExistingAdm = fmt.Sprintf("https://%s:%d", in.f.PanelURLHost, cfg.PanelPort), in.f.ExistingAdmin
+		host := in.publicHost(ctx)
+		res.URL, res.ExistingAdm, res.PrivateHost = fmt.Sprintf("https://%s:%d", host, cfg.PanelPort), in.f.ExistingAdmin, privateAddr(host)
 		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", code: "certificate", do: func() error {
 			tlsDir := sys.P(cfg.TLSDir())
 			fp, err := panel.EnsureSelfSignedCert(tlsDir, sys.Now())

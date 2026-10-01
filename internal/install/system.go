@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/netguard"
 )
 
@@ -56,6 +57,10 @@ type System struct {
 	// Firewall runs iptables for the uninstall, which takes out the network
 	// guard's rules (internal/netguard); nil leaves them.
 	Firewall netguard.Runner
+	// PublicIPv4 asks Playkeeper's names service which IPv4 address this
+	// machine's requests come from, for a machine whose own address is a
+	// private one behind the provider's NAT; nil asks nothing.
+	PublicIPv4 func(ctx context.Context) (string, error)
 }
 
 type DockerInfo struct {
@@ -139,7 +144,21 @@ func Real() System {
 		WaitVersion: waitVersion,
 		Version:     binaryVersion,
 		Firewall:    netguard.Exec,
+		PublicIPv4:  namesIPv4,
 	}
+}
+
+// namesIPv4 is the public IPv4 address the names service sees this machine's
+// requests come from.
+func namesIPv4(ctx context.Context) (string, error) {
+	info, err := (&names.Client{}).IP(ctx, names.IPv4)
+	if err != nil {
+		return "", err
+	}
+	if !info.Public {
+		return "", fmt.Errorf("the names service sees %s, which isn't a public address", info.IP)
+	}
+	return info.IP, nil
 }
 
 // withSbin is path with the sbin directories added where they are missing.
