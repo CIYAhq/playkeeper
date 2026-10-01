@@ -44,8 +44,10 @@ type softwareCache struct {
 }
 
 type cachedCatalog struct {
-	entries []api.CatalogEntry
-	at      time.Time
+	list versionList
+	// retryAt is set while list is from before the upstream last failed:
+	// until then it's served without asking the upstream.
+	retryAt time.Time
 }
 
 type cachedBuilds struct {
@@ -98,10 +100,20 @@ func (a *Agent) softwareListPath(typ, mc string, list any) (string, bool) {
 
 // saveSoftwareList keeps list, which typ's upstream just sent.
 func (a *Agent) saveSoftwareList(typ, mc string, list any) {
-	path, ok := a.softwareListPath(typ, mc, list)
-	if !ok {
-		return
+	if path, ok := a.softwareListPath(typ, mc, list); ok {
+		a.keepList(path, list)
 	}
+}
+
+// savedSoftwareList reads what saveSoftwareList kept into list.
+func (a *Agent) savedSoftwareList(typ, mc string, list any) bool {
+	path, ok := a.softwareListPath(typ, mc, list)
+	return ok && a.readList(path, list)
+}
+
+// keepList writes what an upstream just sent to path, for when it can't be
+// reached.
+func (a *Agent) keepList(path string, list any) {
 	b, err := json.Marshal(list)
 	if err == nil {
 		err = os.MkdirAll(filepath.Dir(path), 0o700)
@@ -110,18 +122,73 @@ func (a *Agent) saveSoftwareList(typ, mc string, list any) {
 		err = writeFileAtomic(path, b, 0o600)
 	}
 	if err != nil {
-		a.log.Warn("could not keep a server type's list for when its source can't be reached", "type", typ, "version", mc, "err", err)
+		a.log.Warn("could not keep what an upstream sent for when it can't be reached", "file", filepath.Base(path), "err", err)
 	}
 }
 
-// savedSoftwareList reads what saveSoftwareList kept into list.
-func (a *Agent) savedSoftwareList(typ, mc string, list any) bool {
-	path, ok := a.softwareListPath(typ, mc, list)
-	if !ok {
-		return false
-	}
+// readList reads what keepList kept at path into list.
+func (a *Agent) readList(path string, list any) bool {
 	b, err := os.ReadFile(path)
 	return err == nil && json.Unmarshal(b, list) == nil
+}
+
+// Tests replace the other types' lists built into Playkeeper.
+var (
+	builtInTypeCatalog  = software.Sources{}.BuiltInCatalog
+	builtInTypeResolved = software.Sources{}.BuiltInResolved
+)
+
+// savedResolved is what Resolve found for a pin, kept so the pin installs
+// again while its upstream's metadata can't be read.
+type savedResolved struct {
+	At       time.Time         `json:"at"`
+	Resolved software.Resolved `json:"resolved"`
+}
+
+var reListName = regexp.MustCompile(`^[0-9A-Za-z.+-]+$`)
+
+// resolvedPath is where what Resolve found for pin is kept. Only a valid
+// pin names a file.
+func (a *Agent) resolvedPath(pin software.Pin) (string, bool) {
+	if pin.Validate() != nil {
+		return "", false
+	}
+	name := "resolved-" + pin.Type + "-" + pin.MinecraftVersion
+	if b := pinBuild(pin); b != "" {
+		name += "-" + b
+	}
+	if !reListName.MatchString(name) {
+		return "", false
+	}
+	return filepath.Join(a.cfg.AgentDir(), "software-lists", name+".json"), true
+}
+
+// resolve looks up everything installing pin needs, and keeps it. While
+// the upstreams' metadata can't be read, it is what this machine kept when
+// it last resolved pin, or else what the list built into Playkeeper has for
+// it; either way every download is still checked against its hash.
+func (a *Agent) resolve(ctx context.Context, pin software.Pin) (software.Resolved, error) {
+	res, err := a.sources().Resolve(ctx, pin)
+	if err == nil {
+		if path, ok := a.resolvedPath(pin); ok {
+			a.keepList(path, savedResolved{At: a.now(), Resolved: res})
+		}
+		return res, nil
+	}
+	var e *software.Error
+	if ctx.Err() != nil || errors.As(err, &e) && (e.Kind == software.KindNotFound || e.Kind == software.KindUnsupported || e.Kind == software.KindNoVersions) {
+		return software.Resolved{}, err
+	}
+	var kept savedResolved
+	if path, ok := a.resolvedPath(pin); ok && a.readList(path, &kept) && kept.Resolved.Pin == pin && kept.Resolved.Check() == nil {
+		a.log.Info("installing with what this machine kept when it last looked the version up", "type", pin.Type, "minecraft", pin.MinecraftVersion, "at", kept.At, "err", err)
+		return kept.Resolved, nil
+	}
+	if built, at, ok := builtInTypeResolved(pin); ok {
+		a.log.Info("installing with the version list built into Playkeeper", "type", pin.Type, "minecraft", pin.MinecraftVersion, "madeAt", at, "err", err)
+		return built, nil
+	}
+	return software.Resolved{}, err
 }
 
 // flight is a list being fetched: once done is closed, what it fetched and
@@ -180,18 +247,27 @@ func typeCheck(id string) string {
 }
 
 // typeCatalog is the list of versions to offer for a server type and when
-// it was fetched, reused for catalogTTL. If the upstream cannot be reached,
-// the last list is used if there is one, in memory or kept on disk.
+// its upstream listed it (typeList).
 func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry, time.Time, error) {
+	l, err := a.typeList(ctx, typ)
+	return l.entries, l.at, err
+}
+
+// typeList is the list of versions to offer for a server type, reused for
+// catalogTTL. While the upstream can't be reached it is the last list the
+// upstream gave, kept in memory and on disk, or else the list built into
+// Playkeeper, and the upstream is asked again a minute later.
+func (a *Agent) typeList(ctx context.Context, typ string) (versionList, error) {
 	if typ == api.TypePaper {
-		return a.versionCatalog(ctx)
+		return a.paperList(ctx)
 	}
 	c := &a.software
 	c.mu.Lock()
 	hit, ok := c.catalogs[typ]
 	c.mu.Unlock()
-	if ok && a.now().Sub(hit.at) < catalogTTL {
-		return hit.entries, hit.at, nil
+	now := a.now()
+	if ok && (now.Before(hit.retryAt) || hit.retryAt.IsZero() && now.Sub(hit.list.at) < catalogTTL) {
+		return hit.list, nil
 	}
 	entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, typ, func() ([]api.CatalogEntry, time.Time, error) {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
@@ -206,39 +282,53 @@ func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry
 		if c.catalogs == nil {
 			c.catalogs = map[string]cachedCatalog{}
 		}
-		c.catalogs[typ] = cachedCatalog{entries: entries, at: now}
+		c.catalogs[typ] = cachedCatalog{list: versionList{entries: entries, at: now}}
 		c.mu.Unlock()
 		a.saveSoftwareList(typ, "", savedCatalog{At: now, Entries: entries})
 		return entries, now, nil
 	})
-	if err != nil {
-		a.log.Warn("could not load a server type's version list", "type", typ, "err", err)
-		if ok {
-			return hit.entries, hit.at, nil
-		}
-		var saved savedCatalog
-		if a.savedSoftwareList(typ, "", &saved) {
-			c.mu.Lock()
-			if c.catalogs == nil {
-				c.catalogs = map[string]cachedCatalog{}
-			}
-			if _, fetched := c.catalogs[typ]; !fetched {
-				c.catalogs[typ] = cachedCatalog{entries: saved.Entries, at: saved.At}
-			}
-			c.mu.Unlock()
-			return saved.Entries, saved.At, nil
-		}
-		// A machine with no list of its own offers the one built into
-		// Playkeeper, unkept, so the next request asks the upstream again.
-		bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-		defer cancel()
-		if rels, at, berr := a.sources().BuiltInCatalog(bctx, typ); berr == nil {
-			a.log.Info("offering the version list built into Playkeeper", "type", typ, "madeAt", at)
-			return catalogEntries(rels), at, nil
-		}
-		return nil, time.Time{}, err
+	if err == nil {
+		return versionList{entries: entries, at: at}, nil
 	}
-	return entries, at, nil
+	a.log.Warn("could not load a server type's version list", "type", typ, "err", err)
+	var l versionList
+	var saved savedCatalog
+	switch {
+	case ok:
+		l = hit.list
+		if l.from == fromUpstream {
+			l.from = fromKept
+		}
+	case a.savedSoftwareList(typ, "", &saved):
+		l = versionList{entries: saved.Entries, at: saved.At, from: fromKept}
+	default:
+		rels, at, berr := builtInTypeCatalog(typ)
+		if berr != nil {
+			return versionList{}, err
+		}
+		a.log.Info("offering the version list built into Playkeeper", "type", typ, "madeAt", at)
+		l = versionList{entries: catalogEntries(rels), at: at, from: fromBuiltIn}
+	}
+	l.upstream = upstreamOf(err, typ)
+	c.mu.Lock()
+	if c.catalogs == nil {
+		c.catalogs = map[string]cachedCatalog{}
+	}
+	if cur, fetched := c.catalogs[typ]; !fetched || cur.list.from != fromUpstream || !cur.list.at.After(l.at) {
+		c.catalogs[typ] = cachedCatalog{list: l, retryAt: a.now().Add(upstreamRetry)}
+	}
+	c.mu.Unlock()
+	return l, nil
+}
+
+// upstreamOf names the upstream a type's list failed on: the software
+// package's error says which, as Mojang's manifest is every type's.
+func upstreamOf(err error, typ string) string {
+	var e *software.Error
+	if errors.As(err, &e) && e.Params["upstream"] != "" {
+		return e.Params["upstream"]
+	}
+	return typeName(typ)
 }
 
 // catalogEntries is a type's releases as the dashboard lists them.
@@ -441,6 +531,40 @@ func (a *Agent) pinFor(ctx context.Context, e api.CatalogEntry, build string) (s
 	return bs[i].Pin, bs[i].Channel, nil
 }
 
+// pinWithBuild is typ's pin for Minecraft mc on build, as a backup or a
+// modpack names it.
+func pinWithBuild(typ, mc, build string) software.Pin {
+	p := software.Pin{Type: typ, MinecraftVersion: mc}
+	switch typ {
+	case software.Purpur:
+		p.PurpurBuild, _ = strconv.Atoi(build)
+	case software.Fabric:
+		p.FabricLoader = build
+	case software.Quilt:
+		p.QuiltLoader = build
+	case software.NeoForge:
+		p.NeoForgeVersion = build
+	case software.Forge:
+		p.ForgeVersion = build
+	}
+	return p
+}
+
+// upstreamTrouble reports whether err is an upstream that couldn't be asked
+// or answered wrongly, rather than one that answered what was asked for
+// doesn't exist.
+func upstreamTrouble(err error) bool {
+	var e *software.Error
+	if !errors.As(err, &e) {
+		return false
+	}
+	switch e.Kind {
+	case software.KindUnreachable, software.KindUpstreamStatus, software.KindRateLimited, software.KindMalformed, software.KindTooLarge:
+		return true
+	}
+	return false
+}
+
 // configBuild is the build a config of a type other than Paper pins.
 func configBuild(sc api.ServerConfig) string {
 	if sc.Software == nil {
@@ -473,6 +597,12 @@ func (a *Agent) restoreTargetFor(ctx context.Context, m backup.Manifest) (restor
 	channel := software.Stable
 	if typ != software.Vanilla {
 		bs, _, err := a.typeBuilds(ctx, typ, m.MinecraftVersion)
+		if own := pinWithBuild(typ, m.MinecraftVersion, m.Build); err != nil && upstreamTrouble(err) && own.Validate() == nil {
+			// The backup's own build, which its upstream can't confirm is
+			// still offered while it can't be reached.
+			a.log.Info("restoring on the backup's own build, as its upstream can't be asked", "type", typ, "build", m.Build, "err", err)
+			bs, err = []software.Build{{Version: m.Build, Channel: software.Stable, Pin: own}}, nil
+		}
 		if err != nil {
 			return restoreTarget{}, softwareError(err)
 		}
@@ -597,7 +727,7 @@ func (s *server) ensureTypeSoftware(ctx context.Context, h *opHandle, sc *api.Se
 func (s *server) installSoftware(ctx context.Context, h *opHandle, sc *api.ServerConfig, pin software.Pin) error {
 	h.phase(string(api.PhaseDownloading))
 	s.setRunPhase(api.PhaseDownloading, "")
-	res, err := s.sources().Resolve(ctx, pin)
+	res, err := s.resolve(ctx, pin)
 	if err != nil {
 		return softwareError(err)
 	}

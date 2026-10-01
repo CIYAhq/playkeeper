@@ -190,7 +190,7 @@ func TestCreateFromTemplateRefusesAChangedPlan(t *testing.T) {
 	}
 	e.fill.set("", vs)
 	e.a.catalog.mu.Lock()
-	e.a.catalog.at = time.Time{}
+	e.a.catalog.list.at = time.Time{}
 	e.a.catalog.mu.Unlock()
 	before := e.countRows(`SELECT COUNT(*) FROM servers`)
 	code, out := e.createFromTemplate(plan.Fingerprint, nil)

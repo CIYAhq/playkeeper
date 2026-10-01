@@ -527,32 +527,16 @@ func TestANeoForgeListWithOnlyBetasIsRefused(t *testing.T) {
 	wantKind(t, err, KindMalformed)
 }
 
-// The list built into Playkeeper, for a machine with no list of its own
-// while NeoForge's can't be had, has NeoForge's stable versions and says
-// when it was made. No other type has one, nor NeoForge for 1.20.1.
-func TestTheBuiltInNeoForgeList(t *testing.T) {
-	f := newFakeNet(t)
-	serveMojang(t, f, mojangFiles(t))
-	rels, at, err := f.sources().BuiltInCatalog(context.Background(), NeoForge)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if at.IsZero() || at.After(time.Now()) {
-		t.Errorf("made at %v", at)
-	}
-	i := slices.IndexFunc(rels, func(r Release) bool { return r.MinecraftVersion == "26.2" })
-	if i < 0 || !rels[i].Recommended || rels[i].Channel != Stable {
-		t.Fatalf("no stable NeoForge recommended for 26.2 in %+v", rels)
-	}
-	bs, bat, err := Sources{}.BuiltInBuilds(NeoForge, "26.2")
-	if err != nil || !bat.Equal(at) {
-		t.Fatalf("builds made at %v (the catalog's at %v): %v", bat, at, err)
+// The NeoForge Maven metadata built into Playkeeper has NeoForge's stable
+// builds and says when it was made. No other type has built-in build
+// lists, nor NeoForge for 1.20.1.
+func TestTheBuiltInNeoForgeBuilds(t *testing.T) {
+	bs, at, err := Sources{}.BuiltInBuilds(NeoForge, "26.2")
+	if err != nil || at.IsZero() || at.After(time.Now()) {
+		t.Fatalf("builds made at %v: %v", at, err)
 	}
 	if !slices.ContainsFunc(bs, func(b Build) bool { return b.Version == "26.2.0.88" && b.Channel == Stable }) {
 		t.Errorf("26.2's builds: %+v", bs)
-	}
-	if _, _, err := f.sources().BuiltInCatalog(context.Background(), Forge); !errors.Is(err, ErrNoBuiltInList) {
-		t.Errorf("Forge's catalog: %v", err)
 	}
 	for _, c := range []struct{ typ, mc string }{{Forge, "26.2"}, {NeoForge, "1.20.1"}, {NeoForge, "26.3-snapshot-2"}, {NeoForge, ""}} {
 		if _, _, err := (Sources{}).BuiltInBuilds(c.typ, c.mc); !errors.Is(err, ErrNoBuiltInList) {

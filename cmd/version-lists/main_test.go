@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,33 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
+
+// A release made while the other types' upstreams are down still ships the
+// lists that were last made, as they were.
+func TestTheOtherTypesListsAreKeptWhileTheirUpstreamsAreDown(t *testing.T) {
+	built, err := os.ReadFile("../../internal/minecraft/software/builtin/lists.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "lists.json")
+	if err := os.WriteFile(path, built, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	down := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("no network here") })}
+	err = writeSoftware(path, software.Sources{Client: down}, time.Now())
+	if err == nil || strings.Count(err.Error(), "kept as it was") != 6 {
+		t.Fatalf("every type's list must be kept, and say so: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != string(built) {
+		t.Fatal("the lists changed while their upstreams were down")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // A release made while PaperMC's API is down still ships the last list
 // that was made; once it answers, the list is replaced with what it lists.

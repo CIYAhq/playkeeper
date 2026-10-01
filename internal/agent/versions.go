@@ -30,14 +30,32 @@ type cachedBuild struct {
 }
 
 type catalogCache struct {
-	mu      sync.Mutex
-	entries []api.CatalogEntry
-	at      time.Time
-	// retryAt is set while entries are from before PaperMC last failed:
-	// until then they're served without asking it.
+	mu   sync.Mutex
+	list versionList
+	// retryAt is set while list is from before PaperMC last failed: until
+	// then it's served without asking PaperMC.
 	retryAt time.Time
 	builds  map[string]cachedBuild
 }
+
+// versionList is a type's versions and when its upstream listed them:
+// just now, or while the upstream can't be reached, the last list it gave,
+// kept on this machine, or else the list built into Playkeeper.
+type versionList struct {
+	entries []api.CatalogEntry
+	at      time.Time
+	from    listFrom
+	// upstream names the upstream that couldn't be reached.
+	upstream string
+}
+
+type listFrom string
+
+const (
+	fromUpstream listFrom = ""
+	fromKept     listFrom = "kept"
+	fromBuiltIn  listFrom = "builtin"
+)
 
 func (a *Agent) fill() minecraft.Fill {
 	return minecraft.Fill{BaseURL: a.opts.FillURL, Client: a.opts.HTTPClient}
@@ -51,41 +69,53 @@ var (
 	paperJarURL         = minecraft.PaperJarURL
 )
 
-// versionCatalog is the list of Paper versions and when PaperMC listed it,
-// reused for catalogTTL. While PaperMC can't be reached it is the last
-// list PaperMC gave, kept in memory and on disk, or else the list built
-// into Playkeeper.
+// versionCatalog is the list of Paper versions and when PaperMC listed it
+// (paperList).
 func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Time, error) {
+	l, err := a.paperList(ctx)
+	return l.entries, l.at, err
+}
+
+// paperList is the list of Paper versions, reused for catalogTTL. While
+// PaperMC can't be reached it is the last list PaperMC gave, kept in memory
+// and on disk, or else the list built into Playkeeper.
+func (a *Agent) paperList(ctx context.Context) (versionList, error) {
 	c := &a.catalog
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := a.now()
-	if c.entries != nil && (now.Before(c.retryAt) || c.retryAt.IsZero() && now.Sub(c.at) < catalogTTL) {
-		return c.entries, c.at, nil
+	if c.list.entries != nil && (now.Before(c.retryAt) || c.retryAt.IsZero() && now.Sub(c.list.at) < catalogTTL) {
+		return c.list, nil
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	entries, err := a.fill().Catalog(cctx)
 	if err == nil {
-		c.entries, c.at, c.retryAt = entries, a.now(), time.Time{}
-		a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: c.at, Entries: entries})
-		return entries, c.at, nil
+		c.list, c.retryAt = versionList{entries: entries, at: a.now()}, time.Time{}
+		a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: c.list.at, Entries: entries})
+		return c.list, nil
 	}
 	a.log.Warn("could not load the Paper version list", "err", err)
-	if c.entries == nil {
+	switch {
+	case c.list.entries != nil:
+		if c.list.from == fromUpstream {
+			c.list.from = fromKept
+		}
+	default:
 		var saved savedCatalog
 		if a.savedSoftwareList(api.TypePaper, "", &saved) && len(saved.Entries) > 0 {
-			c.entries, c.at = saved.Entries, saved.At
+			c.list = versionList{entries: saved.Entries, at: saved.At, from: fromKept}
 		} else if built, at, berr := builtInPaperCatalog(); berr == nil {
 			a.log.Info("offering the Paper version list built into Playkeeper", "madeAt", at)
-			c.entries, c.at = built, at
+			c.list = versionList{entries: built, at: at, from: fromBuiltIn}
 		} else {
 			a.log.Warn("the Paper version list built into Playkeeper can't be used", "err", berr)
-			return nil, time.Time{}, err
+			return versionList{}, err
 		}
 	}
+	c.list.upstream = "PaperMC"
 	c.retryAt = a.now().Add(upstreamRetry)
-	return c.entries, c.at, nil
+	return c.list, nil
 }
 
 // catalogEntry finds a version to create or update a server with.
@@ -152,7 +182,7 @@ func (a *Agent) restoreBuildOrKnown(ctx context.Context, mc string, build int) (
 func (a *Agent) keptPaperCatalog() []api.CatalogEntry {
 	c := &a.catalog
 	c.mu.Lock()
-	entries := c.entries
+	entries := c.list.entries
 	c.mu.Unlock()
 	if entries != nil {
 		return entries
