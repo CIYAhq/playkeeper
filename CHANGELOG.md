@@ -8,6 +8,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - **Renewals, selling through the Playkeeper Cloud app (early beta):** a customer's servers keep running while their latest payment that carried Playkeeper's share is younger than the 30 days it pays for plus a grace, which leaves Whop time to retry a card that failed: 7 days, or what you pick in **Settings › Sell on Whop › A renewal may be late by**. Past it their plan shrinks or they're paused, their line on the store's page saying since when, and paying again starts them. A membership brought back without a payment no longer starts its customer again on an old one, and a payment refunded in full no longer counts.
 - Fixed: when a copy somewhere else is made, fails, or is deleted, by the backup rules or by hand, its line in the activity is now stored together with it, so a crash at that moment can't keep one without the other.
 - Fixed: pre-generation could retry a task once more than it should after the server ran out of memory, instead of pausing it for memory. When a task is paused, resumed, cancelled or ends, its line in the activity is now stored together with it.
+- Fixed: deleting a copy somewhere else from a store that takes over a minute no longer says the agent isn't running, or on a joined machine that it didn't answer, while cutting the deletion off. The dashboard waits for the store, up to the two minutes the agent gives it.
 
 ## 0.4.13
 
