@@ -107,7 +107,7 @@ export function PricesStep({
       onDone(latest)
     } catch (err) {
       setErrors({ [at]: errorText(err) })
-      if (latest !== prices) onPrices(latest)
+      if (latest !== prices) onSaved(latest)
     } finally {
       setBusy(false)
     }

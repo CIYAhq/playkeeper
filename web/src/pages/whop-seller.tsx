@@ -141,6 +141,7 @@ function SellerFlow({ store, open }: { store: string; open: WhopSellerOpen }) {
             prices={prices}
             notice={notice}
             onPrices={repriced}
+            onSaved={setPrices}
             onDone={(p) => {
               setPrices(p)
               setNotice(undefined)
@@ -169,6 +170,7 @@ function SellerFlow({ store, open }: { store: string; open: WhopSellerOpen }) {
             prices={prices}
             edit
             onPrices={repriced}
+            onSaved={setPrices}
             onDone={(p) => {
               setPrices(p)
               setDrafts((n) => n + 1)
