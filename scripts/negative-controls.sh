@@ -8807,8 +8807,8 @@ control "later payments: what a membership was paid for lapses with its payment"
   'if false && h.Paid.memoryMB > 0 && h.PaidAt.Before(since) {' \
   ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
 control "later payments: the pass counts a payment only so long" internal/panel/whop_share_hooks.go \
-  'if h = h.lapsed(since); h.Lapsed && !h.PaidAt.IsZero() {' \
-  'if h.Lapsed && !h.PaidAt.IsZero() {' \
+  'switch h = h.lapsed(since); {' \
+  'switch {' \
   ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
 control "later payments: the payment check takes no payment older than it pays for" internal/panel/whop_share.go \
   'if at := pay.PaidTime(); !at.IsZero() && at.Before(since) {' \
