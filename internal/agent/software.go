@@ -136,6 +136,7 @@ func (a *Agent) readList(path string, list any) bool {
 var (
 	builtInTypeCatalog  = software.Sources{}.BuiltInCatalog
 	builtInTypeResolved = software.Sources{}.BuiltInResolved
+	builtInTypeBuilds   = software.Sources{}.BuiltInBuilds
 )
 
 // savedResolved is what Resolve found for a pin, kept so the pin installs
@@ -454,7 +455,7 @@ func (a *Agent) typeBuilds(ctx context.Context, typ, mc string) ([]software.Buil
 			c.mu.Unlock()
 			return saved.Builds, saved.At, nil
 		}
-		if bs, at, berr := a.sources().BuiltInBuilds(typ, mc); berr == nil {
+		if bs, at, berr := builtInTypeBuilds(typ, mc); berr == nil {
 			a.log.Info("offering the build list built into Playkeeper", "type", typ, "minecraft", mc, "madeAt", at)
 			return bs, at, nil
 		}
@@ -531,25 +532,6 @@ func (a *Agent) pinFor(ctx context.Context, e api.CatalogEntry, build string) (s
 	return bs[i].Pin, bs[i].Channel, nil
 }
 
-// pinWithBuild is typ's pin for Minecraft mc on build, as a backup or a
-// modpack names it.
-func pinWithBuild(typ, mc, build string) software.Pin {
-	p := software.Pin{Type: typ, MinecraftVersion: mc}
-	switch typ {
-	case software.Purpur:
-		p.PurpurBuild, _ = strconv.Atoi(build)
-	case software.Fabric:
-		p.FabricLoader = build
-	case software.Quilt:
-		p.QuiltLoader = build
-	case software.NeoForge:
-		p.NeoForgeVersion = build
-	case software.Forge:
-		p.ForgeVersion = build
-	}
-	return p
-}
-
 // upstreamTrouble reports whether err is an upstream that couldn't be asked
 // or answered wrongly, rather than one that answered what was asked for
 // doesn't exist.
@@ -597,7 +579,7 @@ func (a *Agent) restoreTargetFor(ctx context.Context, m backup.Manifest) (restor
 	channel := software.Stable
 	if typ != software.Vanilla {
 		bs, _, err := a.typeBuilds(ctx, typ, m.MinecraftVersion)
-		if own := pinWithBuild(typ, m.MinecraftVersion, m.Build); err != nil && upstreamTrouble(err) && own.Validate() == nil {
+		if own := software.PinOf(typ, m.MinecraftVersion, m.Build); err != nil && upstreamTrouble(err) && own.Validate() == nil {
 			// The backup's own build, which its upstream can't confirm is
 			// still offered while it can't be reached.
 			a.log.Info("restoring on the backup's own build, as its upstream can't be asked", "type", typ, "build", m.Build, "err", err)

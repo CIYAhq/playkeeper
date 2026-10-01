@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -23,11 +24,51 @@ type BuiltInLists struct {
 	Types map[string]BuiltInType `json:"types"`
 }
 
-// BuiltInType is one type's list, as its upstream listed it at MadeAt.
+// BuiltInType is one type's list, as its upstream listed it at MadeAt:
+// its releases, what installing each needs, and the builds each release's
+// Minecraft version has, for the build to choose.
 type BuiltInType struct {
-	MadeAt   time.Time  `json:"madeAt"`
-	Releases []Release  `json:"releases"`
-	Resolved []Resolved `json:"resolved"`
+	MadeAt   time.Time                 `json:"madeAt"`
+	Releases []Release                 `json:"releases"`
+	Resolved []Resolved                `json:"resolved"`
+	Builds   map[string][]BuiltInBuild `json:"builds,omitempty"`
+}
+
+// BuiltInBuild is a Build as the lists keep it: its pin is the type's and
+// the Minecraft version's, on Version.
+type BuiltInBuild struct {
+	Version     string  `json:"version"`
+	Channel     Channel `json:"channel"`
+	Recommended bool    `json:"recommended,omitempty"`
+}
+
+// builds are a Minecraft version's builds of typeID, with their pins.
+func builtinBuilds(typeID, mc string, kept []BuiltInBuild) []Build {
+	out := make([]Build, 0, len(kept))
+	for _, b := range kept {
+		out = append(out, Build{Version: b.Version, Channel: b.Channel, Recommended: b.Recommended, Pin: PinOf(typeID, mc, b.Version)})
+	}
+	return out
+}
+
+// PinOf is typeID's pin for Minecraft mc on build: a Purpur build, a Fabric
+// or Quilt loader, or a NeoForge or Forge version. Validate says whether it
+// is one.
+func PinOf(typeID, mc, build string) Pin {
+	p := Pin{Type: typeID, MinecraftVersion: mc}
+	switch typeID {
+	case Purpur:
+		p.PurpurBuild, _ = strconv.Atoi(build)
+	case Fabric:
+		p.FabricLoader = build
+	case Quilt:
+		p.QuiltLoader = build
+	case NeoForge:
+		p.NeoForgeVersion = build
+	case Forge:
+		p.ForgeVersion = build
+	}
+	return p
 }
 
 //go:embed builtin/lists.json
@@ -70,9 +111,19 @@ func (t BuiltInType) check(typ string) error {
 		if !slices.ContainsFunc(t.Resolved, func(res Resolved) bool { return res.Pin == r.Pin }) {
 			return fmt.Errorf("nothing is resolved for %s", r.ID)
 		}
+		if bs := builtinBuilds(typ, r.MinecraftVersion, t.Builds[r.MinecraftVersion]); typ != Vanilla && !slices.ContainsFunc(bs, func(b Build) bool { return b.Pin == r.Pin }) {
+			return fmt.Errorf("the builds of %s don't have the one it pins", r.ID)
+		}
 	}
 	if recommended != 1 {
 		return fmt.Errorf("%d releases are recommended", recommended)
+	}
+	for mc, kept := range t.Builds {
+		for _, b := range builtinBuilds(typ, mc, kept) {
+			if err := b.Pin.Validate(); err != nil {
+				return err
+			}
+		}
 	}
 	for _, res := range t.Resolved {
 		if res.Pin.Type != typ {
@@ -112,6 +163,17 @@ func (l BuiltInLists) Catalog(typeID string) ([]Release, time.Time, error) {
 		return nil, time.Time{}, ErrNoBuiltInList
 	}
 	return slices.Clone(t.Releases), t.MadeAt, nil
+}
+
+// BuildsOf is a type's builds for Minecraft mc in these lists, and when
+// they were made.
+func (l BuiltInLists) BuildsOf(typeID, mc string) ([]Build, time.Time, error) {
+	t, ok := l.Types[typeID]
+	kept, listed := t.Builds[mc]
+	if !ok || !listed {
+		return nil, time.Time{}, ErrNoBuiltInList
+	}
+	return builtinBuilds(typeID, mc, kept), t.MadeAt, nil
 }
 
 // ResolvedFor is what Resolve found for pin when these lists were made.
@@ -181,6 +243,22 @@ func (s Sources) RecordBuiltIn(ctx context.Context, typeID string, now time.Time
 			return BuiltInType{}, err
 		}
 		t.Resolved = append(t.Resolved, res)
+		if typeID == Vanilla {
+			continue
+		}
+		bs, err := s.Builds(ctx, typeID, r.MinecraftVersion)
+		if err != nil {
+			return BuiltInType{}, err
+		}
+		if t.Builds == nil {
+			t.Builds = map[string][]BuiltInBuild{}
+		}
+		for _, b := range bs {
+			if b.Pin != PinOf(typeID, r.MinecraftVersion, b.Version) {
+				return BuiltInType{}, fmt.Errorf("%s's build %q of %s pins %+v", typeName(typeID), b.Version, r.MinecraftVersion, b.Pin)
+			}
+			t.Builds[r.MinecraftVersion] = append(t.Builds[r.MinecraftVersion], BuiltInBuild{Version: b.Version, Channel: b.Channel, Recommended: b.Recommended})
+		}
 	}
 	if err := t.check(typeID); err != nil {
 		return BuiltInType{}, err

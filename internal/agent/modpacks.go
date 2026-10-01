@@ -317,7 +317,7 @@ func (a *Agent) packTarget(ctx context.Context, typ, mc, loader string) (restore
 	if typ != software.Vanilla {
 		bs, _, err := a.typeBuilds(ctx, typ, mc)
 		if err != nil && upstreamTrouble(err) {
-			if named := pinWithBuild(typ, mc, loader); loader != "" && named.Validate() == nil {
+			if named := software.PinOf(typ, mc, loader); loader != "" && named.Validate() == nil {
 				a.log.Info("using the loader the pack names, as its upstream can't be asked", "type", typ, "loader", loader, "err", err)
 				bs, err = []software.Build{{Version: loader, Channel: software.Stable, Pin: named}}, nil
 			} else if l, lerr := a.typeList(ctx, typ); lerr == nil {

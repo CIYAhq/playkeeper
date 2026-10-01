@@ -228,13 +228,19 @@ func (s Sources) Builds(ctx context.Context, typeID, mc string) ([]Build, error)
 }
 
 // ErrNoBuiltInList is a type or Minecraft version with no list built into
-// Playkeeper. Every type has a version list (BuiltInCatalog); only NeoForge
-// has build lists, for Minecraft 1.20.2 and newer.
+// Playkeeper. Every type has a version list (BuiltInCatalog), with build
+// lists for the versions it offers, and NeoForge for every Minecraft
+// version from 1.20.2 on.
 var ErrNoBuiltInList = errors.New("no version list is built into Playkeeper for it")
 
-// BuiltInBuilds is Builds from the NeoForge Maven metadata built into
-// Playkeeper, and when that metadata was made.
+// BuiltInBuilds is Builds from the lists built into Playkeeper, or else the
+// NeoForge Maven metadata built into it, and when they were made.
 func (s Sources) BuiltInBuilds(typeID, mc string) ([]Build, time.Time, error) {
+	if l, err := builtinLists(); err == nil {
+		if bs, at, err := l.BuildsOf(typeID, mc); err == nil {
+			return bs, at, nil
+		}
+	}
 	if typeID != NeoForge || mc == "1.20.1" || !offered(mc) {
 		return nil, time.Time{}, ErrNoBuiltInList
 	}

@@ -527,18 +527,19 @@ func TestANeoForgeListWithOnlyBetasIsRefused(t *testing.T) {
 	wantKind(t, err, KindMalformed)
 }
 
-// The NeoForge Maven metadata built into Playkeeper has NeoForge's stable
-// builds and says when it was made. No other type has built-in build
-// lists, nor NeoForge for 1.20.1.
+// The NeoForge Maven metadata built into Playkeeper gives NeoForge's builds
+// for the Minecraft versions its built-in list doesn't offer, and says when
+// it was made. Nothing does for a version neither has, nor for NeoForge's
+// 1.20.1.
 func TestTheBuiltInNeoForgeBuilds(t *testing.T) {
-	bs, at, err := Sources{}.BuiltInBuilds(NeoForge, "26.2")
+	bs, at, err := Sources{}.BuiltInBuilds(NeoForge, "1.21.4")
 	if err != nil || at.IsZero() || at.After(time.Now()) {
 		t.Fatalf("builds made at %v: %v", at, err)
 	}
-	if !slices.ContainsFunc(bs, func(b Build) bool { return b.Version == "26.2.0.88" && b.Channel == Stable }) {
-		t.Errorf("26.2's builds: %+v", bs)
+	if len(bs) == 0 || !slices.ContainsFunc(bs, func(b Build) bool { return b.Recommended && b.Channel == Stable }) {
+		t.Errorf("1.21.4's builds: %+v", bs)
 	}
-	for _, c := range []struct{ typ, mc string }{{Forge, "26.2"}, {NeoForge, "1.20.1"}, {NeoForge, "26.3-snapshot-2"}, {NeoForge, ""}} {
+	for _, c := range []struct{ typ, mc string }{{Forge, "1.21.4"}, {NeoForge, "1.20.1"}, {NeoForge, "26.3-snapshot-2"}, {NeoForge, ""}} {
 		if _, _, err := (Sources{}).BuiltInBuilds(c.typ, c.mc); !errors.Is(err, ErrNoBuiltInList) {
 			t.Errorf("%s %q: %v", c.typ, c.mc, err)
 		}
