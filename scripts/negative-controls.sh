@@ -10369,6 +10369,10 @@ webcontrol "seller flow: Change prices isn't stopped by what to change in Whop" 
   'if (!edit && prices.blocked?.length) {' \
   'if (prices.blocked?.length) {' \
   src/pages/whop-seller-prices.test.tsx 'even while a plan needs a fix'
+webcontrol "seller flow: the page lists and saves only the plans whose price it can set" web/src/pages/whop-seller-prices.tsx \
+  'const settable = prices.plans.filter((p) => p.settable)' \
+  'const settable = prices.plans' \
+  src/pages/whop-seller-prices.test.tsx 'lists only the plans whose price it can set'
 webcontrol "seller flow: Change prices can always go back" web/src/pages/whop-seller-prices.tsx \
   'const back = onBack && (' \
   'const back = false && (' \
