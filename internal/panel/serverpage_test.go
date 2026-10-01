@@ -34,8 +34,9 @@ var facePNG = []byte("\x89PNG\r\n\x1a\nface bytes")
 type pageAgent struct {
 	on atomic.Bool
 	// hosts are servers' own addresses, each with a page of its own server.
-	hosts   []string
-	names   []string
+	hosts []string
+	// names are who's playing, which a test may change while the page runs.
+	names   atomic.Pointer[[]string]
 	pages   atomic.Int32
 	asks    chan api.PagePortsRequest
 	answer  func(api.PagePortsRequest) (api.PublicPagePorts, []*os.File)
@@ -57,8 +58,12 @@ func (a *pageAgent) handle(t *testing.T) http.HandlerFunc {
 				writeErr(w, 404, api.CodeNotFound, "There's no server page here.", "")
 				return
 			}
+			var names []string
+			if p := a.names.Load(); p != nil {
+				names = *p
+			}
 			sv := api.PublicServer{Slug: "survival", Name: `Tom's <script>alert(1)</script> "world"`, MOTD: "Hi", Address: pageHostName, State: api.PublicOnline,
-				Players: &api.PublicPlayers{Online: len(a.names), Max: 10, Names: a.names}, MinecraftVersion: "1.21.10", Type: "paper", HasIcon: true}
+				Players: &api.PublicPlayers{Online: len(names), Max: 10, Names: names}, MinecraftVersion: "1.21.10", Type: "paper", HasIcon: true}
 			writeJSON(w, 200, api.PublicPage{Address: pageHostName, Servers: []api.PublicServer{sv}})
 		case r.URL.Path == "/v1/public-page/icons/survival":
 			w.Header().Set("Content-Type", "image/png")
@@ -71,10 +76,14 @@ func (a *pageAgent) handle(t *testing.T) http.HandlerFunc {
 		case r.URL.Path == "/v1/public-page/ports":
 			var want api.PagePortsRequest
 			json.NewDecoder(r.Body).Decode(&want)
+			// The test hears of the ask only once the answer is made, so what
+			// the answer notes, like the port it opened, is the test's to read:
+			// the answer reaches the panel through a socket, which orders
+			// nothing the race detector sees.
+			ports, files := a.answer(want)
 			if a.asks != nil {
 				a.asks <- want
 			}
-			ports, files := a.answer(want)
 			sendSockets(t, w, ports, files)
 		case r.URL.Path == "/v1/public-page/ports/retry":
 			a.retried.Add(1)
@@ -209,7 +218,7 @@ func TestThePageNamesAndFacesOnlyPlayersTheOwnerShows(t *testing.T) {
 	if resp, _ := pageGet(t, h, "GET", pageHostName, "/api/public/server-page/faces/mara_k"); resp.StatusCode != 404 {
 		t.Fatalf("a face while no names are shown: %d", resp.StatusCode)
 	}
-	a.names = []string{"mara_k"}
+	a.names.Store(&[]string{"mara_k"})
 	e.clock.add(pageCacheFor + time.Second)
 	if resp, body := pageGet(t, h, "GET", pageHostName, "/api/public/server-page/faces/MARA_K"); resp.StatusCode != 200 || body != string(facePNG) {
 		t.Fatalf("a listed player's face: %d %q", resp.StatusCode, body)
