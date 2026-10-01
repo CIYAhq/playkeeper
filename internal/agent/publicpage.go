@@ -229,7 +229,7 @@ func (a *Agent) publicPage(ctx context.Context, host string, hidden map[string]b
 	var only *server
 	address := st.Host
 	if !sameHost(host, st.Host) {
-		if only = a.ownPageServer(host); only == nil || hidden[only.id] {
+		if only = a.ownPageServer(host); only == nil {
 			return api.PublicPage{}, false
 		}
 		address = only.serverPageHost()

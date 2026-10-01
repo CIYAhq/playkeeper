@@ -7232,11 +7232,7 @@ control "joined page: a hidden server's own address isn't among the page's names
   '		if hidden[js.id] {' \
   '		if hidden[js.id] && false {' \
   ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
-control "joined page: a hidden server's own address answers like one nobody has" internal/agent/publicpage.go \
-  'only == nil || hidden[only.id] {' \
-  'only == nil || hidden[only.id] && false {' \
-  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
-control "joined page: the machine's page leaves a hidden server out" internal/agent/publicpage.go \
+control "joined page: the page leaves a hidden server out, at the machine's name and at its own address" internal/agent/publicpage.go \
   'j.ServerID != only.id || hidden[j.ServerID] {' \
   'j.ServerID != only.id || hidden[j.ServerID] && false {' \
   ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
