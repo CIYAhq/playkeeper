@@ -141,6 +141,17 @@ func newPageEnv(t *testing.T, a *pageAgent) *env {
 	return e
 }
 
+// heldPort is a port the keeper holds, as far as the page's state goes.
+func heldPort(t *testing.T, port int) *pageListener {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	return &pageListener{srv: &http.Server{}, ln: ln, port: port}
+}
+
 // pageGet asks the page's handler for path with the Host header host.
 func pageGet(t *testing.T, h http.Handler, method, host, path string) (*http.Response, string) {
 	t.Helper()
@@ -278,7 +289,7 @@ func TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate(t *testing.
 		t.Fatalf("with a certificate but port 443 not served, plain HTTP must serve the page: %d %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	e.srv.page.mu.Lock()
-	e.srv.page.held[0] = &pageListener{srv: &http.Server{}, port: 443}
+	e.srv.page.held[0] = heldPort(t, 443)
 	e.srv.page.mu.Unlock()
 	resp, _ := pageGet(t, h, "GET", pageHostName, "/?a=1")
 	if resp.StatusCode != http.StatusPermanentRedirect || resp.Header.Get("Location") != "https://"+pageHostName+"/?a=1" {
@@ -396,7 +407,7 @@ func TestAServersOwnAddressOpensItsOwnPage(t *testing.T) {
 		t.Fatal("the machine's name got a certificate nobody wrote")
 	}
 	e.srv.page.mu.Lock()
-	e.srv.page.held[0] = &pageListener{srv: &http.Server{}, port: 443}
+	e.srv.page.held[0] = heldPort(t, 443)
 	e.srv.page.mu.Unlock()
 	plain := e.srv.pageHandler(false)
 	if resp, _ := pageGet(t, plain, "GET", "alex.example.org", "/?a=1"); resp.StatusCode != http.StatusPermanentRedirect || resp.Header.Get("Location") != "https://alex.example.org/?a=1" {
@@ -481,6 +492,50 @@ func TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn(t *testing.T) {
 	} else {
 		ln.Close()
 	}
+}
+
+// A port the page was given is back as soon as the page goes off, even one
+// whose server hadn't started serving on it yet.
+func TestAPortIsGivenBackBeforeItsServerStarts(t *testing.T) {
+	e := newPageEnv(t, &pageAgent{})
+	reached, hold := make(chan struct{}), make(chan struct{})
+	let := sync.OnceFunc(func() { close(hold) })
+	prev := pageServing
+	pageServing = func() {
+		close(reached)
+		<-hold
+	}
+	t.Cleanup(func() { pageServing = prev })
+	t.Cleanup(let)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := ln.(*net.TCPListener).File()
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	l, err := e.srv.servePagePort(f, port, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.srv.page.mu.Lock()
+	e.srv.page.held[1] = l
+	e.srv.page.mu.Unlock()
+	select {
+	case <-reached:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the page's server never started")
+	}
+	e.srv.closePagePorts(api.PortOff)
+	again, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+	let()
+	if err != nil {
+		t.Fatalf("port %d stayed taken after the page went off: %v", port, err)
+	}
+	again.Close()
 }
 
 func TestTheDashboardShowsThePortsAndTriesAgain(t *testing.T) {

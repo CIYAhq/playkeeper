@@ -54,9 +54,10 @@ func (e *env) dashboardAddress(t *testing.T, port int, reached bool) {
 }
 
 // holding443 has the keeper hold port 443, as after a hand-over.
-func (e *env) holding443() {
+func (e *env) holding443(t *testing.T) {
+	t.Helper()
 	e.srv.page.mu.Lock()
-	e.srv.page.held[0] = &pageListener{srv: &http.Server{}, port: 443}
+	e.srv.page.held[0] = heldPort(t, 443)
 	e.srv.page.mu.Unlock()
 }
 
@@ -175,7 +176,7 @@ func TestPort80HeldForTheDashboardAloneOnlyRedirects(t *testing.T) {
 	now := e.clock.now()
 	writeBundle(t, e.cfg.CertsDir(), dashboardHost, now.Add(-time.Hour), now.Add(90*24*time.Hour))
 	e.srv.pageCerts = e.srv.pageCertStore()
-	e.holding443()
+	e.holding443(t)
 	if resp, _ := on443(plain, "GET", dashboardHost, "/servers/x?a=1", neighbor, nil); resp.StatusCode != http.StatusPermanentRedirect || resp.Header.Get("Location") != "https://"+dashboardHost+"/servers/x?a=1" {
 		t.Fatalf("port 80 once port 443 serves: %d %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
@@ -199,7 +200,7 @@ func TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere(t *testin
 		return resp.StatusCode == http.StatusTemporaryRedirect && resp.Header.Get("Location") == "https://"+dashboardHost+path
 	}
 	// Held but not reached from outside, then reached but not held.
-	e.holding443()
+	e.holding443(t)
 	if sent("/") {
 		t.Fatal("sent to port 443 before a browser from outside reached it")
 	}
@@ -210,7 +211,7 @@ func TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere(t *testin
 	if sent("/") {
 		t.Fatal("sent to port 443 while the panel doesn't hold it")
 	}
-	e.holding443()
+	e.holding443(t)
 	for _, p := range []string{"/", "/login", "/servers/survival/players?tab=1", "/settings/whop", "/join/Xq3pL9sKd2", "/map/Xq3pL9sKd2Wm8Rt4Vn6bYc",
 		"/packs/Pk7uYt2wQz9mN4bV6cX1aL", "/servers/survival/file/server.properties", "/setup"} {
 		if !sent(p) {
@@ -320,7 +321,7 @@ func TestPort443TellsTheAgentABrowserFromOutsideReachedIt(t *testing.T) {
 // when it's off.
 func TestALookDoesntUndoWhatChangedWhileItAsked(t *testing.T) {
 	e := newDashboardEnv(t)
-	e.holding443()
+	e.holding443(t)
 	e.agent.mu.Lock()
 	e.agent.answers["POST /v1/dashboard-443/reached"] = func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, api.Dashboard443{On: true, State: api.PortOpen, Reached: true, Port: 443})
@@ -568,7 +569,7 @@ func TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress(t *testing.T) {
 	}
 
 	// Once the panel has port 443, the page's check of it may count.
-	e.holding443()
+	e.holding443(t)
 	if e.get(t, "/api/dashboard-port", own.cookie, &v); !v.Serving {
 		t.Fatalf("the view once the panel has port 443: %+v", v)
 	}
