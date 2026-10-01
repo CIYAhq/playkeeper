@@ -7865,6 +7865,22 @@ control "no page loads an ad pixel" site/pages/start.html \
   '<section class="band-chalk start-hero" aria-labelledby="page-title" data-whop-pixel="biz_bbmk63HMB3yZ4c">' \
   ./internal/site '^TestNoPageLoadsAnAdPixel$'
 
+# The privacy policy (site/pages/privacy.html): every page's footer and the
+# Cloud page link it, and it links the seller terms only once their page is
+# on the site.
+control "privacy: every page's footer links the privacy policy" internal/site/nav.go \
+  '{Label: "Privacy", Path: "/privacy"},' \
+  '' \
+  ./internal/site '^TestThePrivacyPolicy$'
+control "privacy: the Cloud page links the privacy policy" site/pages/cloud.html \
+  'Our <a href="/privacy">privacy policy</a> says what' \
+  'Our privacy policy says what' \
+  ./internal/site '^TestThePrivacyPolicy$'
+control "privacy: the policy links the seller terms only once their page is on the site" site/pages/privacy.html \
+  'we handle it for them, as our {{if exists "/cloud/seller-terms"}}' \
+  'we handle it for them, as our {{if true}}' \
+  ./internal/site '^TestThePrivacyPolicy$'
+
 # An own domain under playkeeper.me: only a name nobody can claim, and only
 # under the current base.
 control "own domain: a playkeeper.me name nobody can claim is accepted" internal/agent/address.go \
