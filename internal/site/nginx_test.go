@@ -73,18 +73,18 @@ func boxes(b []byte) []string {
 
 // A page that plays a film of the site's own (film: true), like the AI build
 // battle's, gets a location in nginx's include whose policy lets the site's
-// media in, as /start's does, but not Whop's pixel; the site's own policy
-// doesn't. A <video> on a page without the setting, or the setting on a page
-// without one, stops the build. A film is under 1.5 MB and starts playing
-// before it has all arrived: its moov box comes before its mdat.
+// media in, as /start's does; the site's own policy doesn't. A <video> on a
+// page without the setting, or the setting on a page without one, stops the
+// build. A film is under 1.5 MB and starts playing before it has all
+// arrived: its moov box comes before its mdat.
 func TestFilms(t *testing.T) {
 	o := build(t, Default)
 	const p = "/templates/ai-build-battle"
 	nginx := string(o.Nginx)
 	loc := between(nginx, "location = "+p+" {", "}")
 	policy := between(loc, `set $csp "`, `";`)
-	if policy != o.FilmPolicy || !strings.Contains(policy, "media-src 'self';") || strings.Contains(policy, "whop") || strings.Contains(policy, "worker-src") {
-		t.Errorf("%s's policy is %q, want the film policy %q, which lets the site's media in and nothing of Whop's", p, policy, o.FilmPolicy)
+	if policy != o.FilmPolicy || !strings.Contains(policy, "media-src 'self';") {
+		t.Errorf("%s's policy is %q, want the film policy %q, which lets the site's media in", p, policy, o.FilmPolicy)
 	}
 	if policy != strings.Replace(o.Policy, "img-src 'self';", "img-src 'self'; media-src 'self';", 1) {
 		t.Errorf("%s's policy is %q, not the site's with media-src", p, policy)

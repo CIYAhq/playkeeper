@@ -7842,13 +7842,24 @@ control "giving a server its own address needs the right to manage the machine" 
 # once a page view and none with Global Privacy Control or Do Not Track, are
 # held by site.spec.ts, which this script doesn't run.
 control "pages reach the stats service only as the policy allows" internal/site/nginx.go \
-  'origin(s.Stats), ' \
-  '' \
+  ', origin(s.Stats))' \
+  ')' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
 control "the share page doesn't name the stats service" site/layouts/base.html \
   '{{if and (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<meta name="playkeeper-stats"' \
   '{{if true}}<meta name="playkeeper-stats"' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
+
+# playkeeper.io loads no ad pixel: one that comes back, in a policy or a
+# page, fails the build's test.
+control "no policy lets an ad pixel in" internal/site/nginx.go \
+  '"script-src " + sources("'"'"'self'"'"'", origin(s.Analytics.Script)),' \
+  '"script-src " + sources("'"'"'self'"'"'", origin(s.Analytics.Script), "https://t.whop.tw"),' \
+  ./internal/site '^TestNoPageLoadsAnAdPixel$'
+control "no page loads an ad pixel" site/pages/start.html \
+  '<section class="band-chalk start-hero" aria-labelledby="page-title">' \
+  '<section class="band-chalk start-hero" aria-labelledby="page-title" data-whop-pixel="biz_bbmk63HMB3yZ4c">' \
+  ./internal/site '^TestNoPageLoadsAnAdPixel$'
 
 # An own domain under playkeeper.me: only a name nobody can claim, and only
 # under the current base.
