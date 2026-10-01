@@ -134,12 +134,15 @@ func (s *Server) keepMembership(storeID string, m whop.Membership, stale bool) e
 		end = m.PeriodEnd.UnixMilli()
 	}
 	// A customer the dashboard deleted stays deleted: a membership of theirs
-	// that no longer gives access isn't brought back (see erasure.go). The
-	// look is part of the write, so a deletion can't land between the two,
-	// as it could for a webhook, which doesn't wait for whopMu.
+	// that no longer gives access isn't brought back (see erasure.go). One
+	// stored since, as one that gives access is, still takes what Whop says
+	// of it, its end included. The look is part of the write, so a deletion
+	// can't land between the two, as it could for a webhook, which doesn't
+	// wait for whopMu.
 	args := append([]any{storeID, m.ID, m.UserID, m.PlanID, m.Status, m.CancelAtPeriodEnd, end, stale, s.now().UnixMilli(), m.HasAccess()}, forgottenArgs(storeID, m.UserID)...)
+	args = append(args, m.ID, storeID)
 	_, err := s.db.Exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, cancel_at_period_end, period_end, stale, updated_at)
-		SELECT ?,?,?,?,?,?,?,?,? WHERE ? OR NOT (`+forgottenSQL+`)
+		SELECT ?,?,?,?,?,?,?,?,? WHERE ? OR NOT (`+forgottenSQL+`) OR EXISTS(SELECT 1 FROM whop_memberships WHERE membership_id = ? AND store_id = ?)
 		ON CONFLICT(membership_id) DO UPDATE SET whop_user_id = excluded.whop_user_id, plan_id = excluded.plan_id, status = excluded.status,
 		cancel_at_period_end = excluded.cancel_at_period_end, period_end = excluded.period_end, stale = excluded.stale, updated_at = excluded.updated_at,
 		told_cancel = CASE WHEN excluded.stale = 0 AND excluded.cancel_at_period_end = 0 THEN 0 ELSE whop_memberships.told_cancel END
