@@ -6,5 +6,4 @@
 # it pass every run for a few days. scripts/quarantine.sh reads this file.
 #
 # PACKAGE OR SCRIPT      TEST OR CHECK                                          HOW IT FAILED
-./internal/agent         TestLagCountsOnlyTheCurrentRunsGC                      after_a_restart, on siya/site-copy-hosting-6127 (run 36411806815)
 test/e2e/software.py     pregen                                                 Paper at 2048 MB is killed at its container's memory limit while it pre-generates (cause=oom in the agent's journal), which loses Chunky's task: 10 of 85 ARM runs on 28 Sep. A product bug to fix, not the test's
