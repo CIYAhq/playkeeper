@@ -8614,10 +8614,34 @@ control "grant watch: a grant Whop couldn't check counts neither way" internal/p
   'case problem == "":' \
   'default:' \
   ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
-control "payment check: before a customer starts" internal/panel/whop_customers.go \
-  'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
-  'if err := error(nil); err != nil {' \
+control "payment check: an app store's customer is hosted by their paid plan" internal/panel/whop_customers.go \
+  'wc.Plan, waits = s.whopPaidPlan(ctx, c, st, wc)' \
+  '_, waits = s.whopPaidPlan(ctx, c, st, wc)' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: a membership counts only as far as a payment of it carried the share" internal/panel/whop_share_hooks.go \
+  'if h.paidFor() {' \
+  'if true {' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: a membership not paid for its plan is checked while the store is open" internal/panel/whop_share_hooks.go \
+  'if !h.paidFor() && st.ClosedWhy == "" && h.NextCheckAt <= now {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: a membership moved to more memory gives what it was paid for" internal/panel/whop_share_hooks.go \
+  'if h.Paid.memoryMB > 0 {' \
+  'if false {' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: the customer's page says what waits" internal/panel/whop_customers.go \
+  's.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)' \
+  '_ = waits' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: only the membership's own payment" internal/whop/payments.go \
+  'return p.MembershipID != membershipID || p.Status != "paid"' \
+  'return false' \
+  ./internal/panel '^TestThePaymentCheckTakesOnlyTheMembershipsOwnPayment$'
+control "payment check: only a paid payment" internal/whop/payments.go \
+  'return p.MembershipID != membershipID || p.Status != "paid"' \
+  'return p.MembershipID != membershipID' \
+  ./internal/whop '^TestPaidPaymentsAreOnlyTheMembershipsOwn$'
 control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
   's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
   '_ = whopUserID' \
@@ -8646,11 +8670,6 @@ control "payments: a refund still unsettled is read again once it settles" inter
   'r.Unsettled() && !at.IsZero()' \
   'false && r.Unsettled() && !at.IsZero()' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
-control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
-  'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
-  'if false {' \
-  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
-
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.
 control "pausing: a paused customer only looks, downloads and looks after their account" internal/panel/workspace.go \

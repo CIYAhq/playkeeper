@@ -813,6 +813,35 @@ CREATE TABLE erased_customers (
   PRIMARY KEY (store_id, subject_hash)
 );
 `,
+	// What the payment check found for each app store's membership that
+	// gives servers (see whopPaidPlan): the plan it gave, and its servers,
+	// memory and disk, when a payment of it last carried Playkeeper's share,
+	// none yet with a memory of 0, and while it isn't paid for its plan,
+	// why, how often it looked and when it looks again. Customers already
+	// started on an app store keep the memberships they were started with,
+	// as found paid then.
+	`
+CREATE TABLE whop_membership_checks (
+  store_id      TEXT    NOT NULL,
+  membership_id TEXT    NOT NULL,
+  paid_plan_id  TEXT    NOT NULL DEFAULT '',
+  paid_title    TEXT    NOT NULL DEFAULT '',
+  paid_servers  INTEGER NOT NULL DEFAULT 0,
+  paid_mb       INTEGER NOT NULL DEFAULT 0,
+  paid_disk_gb  INTEGER NOT NULL DEFAULT 0,
+  problem       TEXT    NOT NULL DEFAULT '',
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  next_check_at INTEGER NOT NULL DEFAULT 0,
+  checked_at    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (store_id, membership_id)
+);
+INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb)
+  SELECT m.store_id, m.membership_id, p.plan_id, p.title, p.allowance_servers, p.allowance_memory_mb, p.disk_gb FROM whop_memberships m
+  JOIN whop_stores s ON s.store_id = m.store_id AND s.via = 'app'
+  JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id AND p.allowance_from != ''
+  JOIN whop_customers c ON c.store_id = m.store_id AND c.whop_user_id = m.whop_user_id AND c.applied != '' AND c.paused = 0
+  WHERE m.stale = 0 AND m.status IN ('trialing', 'active', 'canceling', 'past_due');
+`,
 }
 
 const (

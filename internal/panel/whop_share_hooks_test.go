@@ -397,23 +397,70 @@ func TestEveryPaymentTheChecksReadIsKeptForTheSellersView(t *testing.T) {
 	}
 }
 
-// A plan grows when it gives more servers or memory than the one applied.
-func TestAPlanGrowsWithMoreServersOrMemory(t *testing.T) {
-	applied := planKey(CustomerPlan{ID: "plan_a", Servers: 1, MemoryMB: 4096})
-	for _, c := range []struct {
-		p    CustomerPlan
-		want bool
-	}{
-		{CustomerPlan{Servers: 2, MemoryMB: 4096}, true},
-		{CustomerPlan{Servers: 1, MemoryMB: 8192}, true},
-		{CustomerPlan{Servers: 1, MemoryMB: 4096, DiskGB: 40}, false},
-		{CustomerPlan{Servers: 1, MemoryMB: 2048}, false},
-	} {
-		if got := whopPlanGrows(applied, c.p); got != c.want {
-			t.Errorf("%+v after %q: %v", c.p, applied, got)
-		}
+// An app store's customer is hosted only by memberships whose payment
+// carried Playkeeper's share: when their paid membership ends while another
+// of the same size, never paid, goes on, they're paused, and they start
+// again once a payment of it carries the share. A membership moved to a
+// plan with more memory gives what it was paid for until a payment carries
+// the share for its new plan.
+func TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	pass := func() []string {
+		n := len(core.got())
+		e.clock.add(2 * whopPollEvery)
+		e.reconcile()
+		return core.got()[n:]
 	}
-	if !whopPlanGrows("", CustomerPlan{Servers: 1, MemoryMB: 4096}) || !whopPlanGrows("a|b|c|d", CustomerPlan{Servers: 1, MemoryMB: 4096}) {
-		t.Error("a plan applied in a shape that can't be read doesn't count as growing")
+	problem := func() string {
+		var p string
+		e.srv.db.QueryRow(`SELECT problem FROM whop_customers WHERE store_id = 'biz_other' AND whop_user_id = 'user_kim'`).Scan(&p)
+		return p
+	}
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	for _, p := range []struct {
+		id, gb string
+		price  float64
+	}{{"plan_other2", "4", 12}, {"plan_other_big", "8", 24}} {
+		b.plans = append(b.plans, map[string]any{"id": p.id, "title": p.id, "visibility": "visible", "plan_type": "renewal", "billing_period": 30,
+			"currency": "usd", "renewal_price": p.price, "product": map[string]any{"id": "prod_other", "title": "Minecraft server"},
+			"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: p.gb}, "unlimited_stock": true})
+	}
+	f.mu.Unlock()
+	pay := func(id, membership, plan, share string) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		at := e.clock.now().UTC().Format(time.RFC3339)
+		b.payments = append([]map[string]any{{"id": id, "status": "paid", "membership_id": membership, "plan_id": plan, "product_id": "prod_other",
+			"created_at": at, "paid_at": at, "user": map[string]any{"id": "user_kim"}, "total": map[string]any{"amount": "24.00", "currency": "usd", "decimals": 2}}}, b.payments...)
+		b.fees[id] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
+			"settlement_amount": map[string]any{"amount": share, "currency": "usd", "decimals": 2}}}
+	}
+	f.buyAt("biz_other", "mem_a", "user_kim", "plan_other", "active")
+	if calls := pass(); !calledFor(calls, "start plan_other ", "user_kim") {
+		t.Fatalf("kim on a paid membership: %q", calls)
+	}
+	f.mu.Lock()
+	b.memberships["mem_b"] = map[string]any{"id": "mem_b", "status": "active", "plan_id": "plan_other2", "product_id": "prod_other", "user_id": "user_kim", "cancel_at_period_end": false}
+	b.memberships["mem_a"]["status"] = "expired"
+	f.mu.Unlock()
+	if calls := pass(); !calledFor(calls, "pause ", "user_kim") || !strings.Contains(problem(), "no paid payment") {
+		t.Fatalf("kim's paid membership ended while another, never paid, goes on: the core's calls %q, problem %q", calls, problem())
+	}
+	pay("pay_b", "mem_b", "plan_other2", "8.50")
+	if calls := pass(); !calledFor(calls, "start plan_other2 ", "user_kim") || problem() != "" {
+		t.Fatalf("once mem_b's payment carried the share: the core's calls %q, problem %q", calls, problem())
+	}
+	f.mu.Lock()
+	b.memberships["mem_b"]["plan_id"] = "plan_other_big"
+	f.mu.Unlock()
+	if calls := pass(); len(calls) != 0 || !strings.Contains(problem(), "didn't carry Playkeeper's share of $17.00") {
+		t.Fatalf("mem_b moved to 8 GB on a payment of the 4 GB share: the core's calls %q, problem %q", calls, problem())
+	}
+	pay("pay_big", "mem_b", "plan_other_big", "17.00")
+	if calls := pass(); !calledFor(calls, "change to plan_other_big ", "user_kim") || problem() != "" {
+		t.Fatalf("once a payment carried the 8 GB share: the core's calls %q, problem %q", calls, problem())
 	}
 }

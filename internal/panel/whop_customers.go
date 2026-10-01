@@ -549,6 +549,29 @@ type whopCustomer struct {
 	Unconfirmed int
 	Latest      string
 	UpdatedAt   int64
+	// Hosting is each confirmed membership of theirs that gives servers,
+	// with what the payment check found for it, since in an app store only
+	// those it found paid count (whopPaidPlan).
+	Hosting []whopHosting
+}
+
+// whopHosting is one membership that gives a customer servers: Part, what
+// its plan gives now, and what the payment check found, Paid, what it gave
+// when a payment of it last carried Playkeeper's share (zero for never),
+// and while it isn't paid for Part, the Problem it found, its Attempts and
+// when it looks again.
+type whopHosting struct {
+	ID          string
+	Part, Paid  planPart
+	Problem     string
+	Attempts    int
+	NextCheckAt int64
+}
+
+// paidFor says whether a payment of the membership carried the share for
+// what its plan gives now: the share is by memory alone.
+func (h whopHosting) paidFor() bool {
+	return h.Paid.memoryMB > 0 && h.Paid.memoryMB >= h.Part.memoryMB
 }
 
 // planPart is one plan with an allowance that a customer's membership grants.
@@ -628,9 +651,13 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 		*wc = r
 	}
 	rows.Close()
-	rows, err = s.db.QueryContext(ctx, `SELECT m.whop_user_id, m.plan_id, m.status, m.stale, m.updated_at,
-		COALESCE(p.title, ''), COALESCE(p.allowance_servers, 0), COALESCE(p.allowance_memory_mb, 0), COALESCE(p.disk_gb, 0), COALESCE(p.allowance_from, '')
-		FROM whop_memberships m LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id`, storeID)
+	rows, err = s.db.QueryContext(ctx, `SELECT m.whop_user_id, m.membership_id, m.plan_id, m.status, m.stale, m.updated_at,
+		COALESCE(p.title, ''), COALESCE(p.allowance_servers, 0), COALESCE(p.allowance_memory_mb, 0), COALESCE(p.disk_gb, 0), COALESCE(p.allowance_from, ''),
+		COALESCE(k.paid_plan_id, ''), COALESCE(k.paid_title, ''), COALESCE(k.paid_servers, 0), COALESCE(k.paid_mb, 0), COALESCE(k.paid_disk_gb, 0),
+		COALESCE(k.problem, ''), COALESCE(k.attempts, 0), COALESCE(k.next_check_at, 0)
+		FROM whop_memberships m LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id
+		LEFT JOIN whop_membership_checks k ON k.store_id = m.store_id AND k.membership_id = m.membership_id
+		WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id`, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -638,10 +665,12 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 	for rows.Next() {
 		var id, from string
 		var pt planPart
+		var h whopHosting
 		var status string
 		var stale bool
 		var updated int64
-		if err := rows.Scan(&id, &pt.id, &status, &stale, &updated, &pt.name, &pt.servers, &pt.memoryMB, &pt.diskGB, &from); err != nil {
+		if err := rows.Scan(&id, &h.ID, &pt.id, &status, &stale, &updated, &pt.name, &pt.servers, &pt.memoryMB, &pt.diskGB, &from,
+			&h.Paid.id, &h.Paid.name, &h.Paid.servers, &h.Paid.memoryMB, &h.Paid.diskGB, &h.Problem, &h.Attempts, &h.NextCheckAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -652,6 +681,8 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 			wc.Unconfirmed++
 		case from != "" && whopHosts(via, status):
 			parts[id] = append(parts[id], pt)
+			h.Part = pt
+			wc.Hosting = append(wc.Hosting, h)
 		}
 	}
 	rows.Close()
@@ -674,8 +705,9 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 // their last plan ending pauses them; a plan starting again after that
 // starts them again. A customer with a membership Whop's API hasn't
 // confirmed is left as they are until it does, and one whose call failed
-// waits for their next try. While the store is closed, nobody starts. Each
-// is the core's customer of the store.
+// waits for their next try. While the store is closed, nobody starts. In an
+// app store, only memberships whose payment carried Playkeeper's share
+// count (whopPaidPlan). Each is the core's customer of the store.
 func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopStore) {
 	custs, err := s.whopCustomers(ctx, st.ID)
 	if err != nil {
@@ -687,8 +719,16 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopS
 		if wc.Unconfirmed > 0 || wc.NextTryAt > now {
 			continue
 		}
+		waits := ""
+		if st.Via == whopViaApp {
+			wc.Plan, waits = s.whopPaidPlan(ctx, c, st, wc)
+		}
 		if err := s.stepWhopCustomer(ctx, c, st, wc); err != nil {
 			s.whopCustomerFailed(st.ID, wc, err)
+			continue
+		}
+		if st.Via == whopViaApp {
+			s.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)
 		}
 	}
 }
@@ -704,11 +744,6 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopSt
 	case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":
 		// A closed store starts nobody: they start once it opens.
 	case has && (wc.Applied == "" || wc.Paused):
-		if st.Via == whopViaApp {
-			if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {
-				return err
-			}
-		}
 		if cust.Handle == "" {
 			u, err := c.User(ctx, wc.WhopUserID)
 			if err != nil {
@@ -725,11 +760,6 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopSt
 		}
 		return s.recordWhopCustomer(cust, planKey(wc.Plan), false, at)
 	case has && wc.Applied != planKey(wc.Plan):
-		if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {
-			if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {
-				return err
-			}
-		}
 		if err := s.hosting.ChangeCustomerPlan(ctx, cust, wc.Plan); err != nil {
 			return err
 		}

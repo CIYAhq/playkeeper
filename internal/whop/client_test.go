@@ -663,6 +663,24 @@ func TestPaidPaymentsAreAMembershipsNewestFirst(t *testing.T) {
 	}
 }
 
+// A membership's paid payments are only those Whop names it on and calls
+// paid, so a filter Whop ignores, or a membership it nests, finds none
+// rather than another membership's payment.
+func TestPaidPaymentsAreOnlyTheMembershipsOwn(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /payments": answer(map[string]any{"data": []map[string]any{
+			{"id": "pay_other", "status": "paid", "membership_id": "mem_2", "paid_at": "2026-10-30T12:00:00.000Z"},
+			{"id": "pay_open", "status": "open", "membership_id": "mem_1"},
+			{"id": "pay_nested", "status": "paid", "membership": map[string]any{"id": "mem_1"}, "paid_at": "2026-10-29T12:00:00.000Z"},
+			{"id": "pay_own", "status": "paid", "membership_id": "mem_1", "paid_at": "2026-09-30T12:00:00.000Z"},
+		}, "page_info": map[string]any{"has_next_page": false}}),
+	})
+	pays, err := c.PaidPayments(context.Background(), "biz_other", "mem_1")
+	if err != nil || len(pays) != 1 || pays[0].ID != "pay_own" {
+		t.Fatalf("PaidPayments = %+v, %v", pays, err)
+	}
+}
+
 func TestRedirectsAreNotFollowed(t *testing.T) {
 	var leaked atomic.Bool
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { leaked.Store(true) }))
