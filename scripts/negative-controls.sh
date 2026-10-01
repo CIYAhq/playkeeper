@@ -2363,6 +2363,10 @@ control "a server a pack's mod started without the console and allowlist is rest
   'if off {' \
   'if false && off {' \
   ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
+control "the settings check restarts a server once for each agent process" internal/agent/modpacks.go \
+  '	done := s.settingsChecked' \
+  '	done := false' \
+  ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
 control "the settings check waits a minute after the pack's mod writes its marker" internal/agent/modpacks.go \
   'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {' \
   'if err != nil || used == nil {' \
