@@ -11890,8 +11890,12 @@ webcontrol "room per store: one store's plans have no store heading" web/src/pag
 # Step 6 of the fleet plan, its last part: joined machines the dashboard
 # confirmed watch it with its Discord webhook, and only they keep it.
 control "dashboard watch: a machine that isn't joined keeps no dashboard's webhook" internal/agent/dashboardwatch.go \
-  'if !a.linkedToDashboard() {' \
-  'if false {' \
+  'd, err := machinelink.LoadDashboard(a.cfg.LinkDashboardPath())
+	if err != nil {
+		writeError(w, errConflict(' \
+  'd, err := machinelink.LoadDashboard(a.cfg.LinkDashboardPath())
+	if false && err != nil {
+		writeError(w, errConflict(' \
   ./internal/agent '^TestAMachineThatIsntJoinedRefusesTheDashboardsWebhook$'
 control "dashboard watch: only a Discord webhook is kept" internal/agent/dashboardwatch.go \
   'wh, err := discord.ParseWebhookURL(req.WebhookURL)
@@ -11900,11 +11904,23 @@ control "dashboard watch: only a Discord webhook is kept" internal/agent/dashboa
 	if false && err != nil {' \
   ./internal/agent '^TestAMachineThatIsntJoinedRefusesTheDashboardsWebhook$'
 control "dashboard watch: a machine that left its dashboard forgets the webhook" internal/agent/dashboardwatch.go \
-  'if errors.Is(err, os.ErrNotExist) {
-		if err := a.clearDashboardWatch(' \
-  'if false {
-		if err := a.clearDashboardWatch(' \
+  'case err != nil:
+		why = "this machine isn'"'"'t joined to a dashboard any more"' \
+  'case false:
+		why = "this machine isn'"'"'t joined to a dashboard any more"' \
   ./internal/agent '^TestAMachineForgetsTheDashboardsWebhookWhenItLeaves$'
+control "dashboard watch: a machine that joins again forgets the webhook" internal/agent/dashboardwatch.go \
+  'case dashboardJoin(d) != a.watch.join:' \
+  'case false:' \
+  ./internal/agent '^TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook$'
+control "dashboard watch: a join is its dashboard's key" internal/agent/dashboardwatch.go \
+  'return d.Fingerprint() + " " + d.MachineID' \
+  'return d.MachineID' \
+  ./internal/agent '^TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook$'
+control "dashboard watch: a join is the id its dashboard gave the machine" internal/agent/dashboardwatch.go \
+  'return d.Fingerprint() + " " + d.MachineID' \
+  'return d.Fingerprint()' \
+  ./internal/agent '^TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook$'
 # shellcheck disable=SC2016
 control "dashboard watch: the dashboard clears its webhook" internal/agent/dashboardwatch.go \
   'res, err := a.db.Exec(`DELETE FROM dashboard_watch WHERE id = 1`)' \

@@ -23,7 +23,8 @@ import (
 // posts with it only that it can't reach the dashboard, once its link has
 // been down for dashboardDownAfter, and that it reaches it again. A machine
 // that isn't joined to a dashboard any more, after playkeeper leave or once
-// the dashboard removed it, forgets the webhook.
+// the dashboard removed it, forgets the webhook, and so does one that has
+// joined again since, that dashboard or another.
 
 // discordWebhookPath gives the dashboard's own panel the webhook's URL, to
 // pass on to the machines it confirmed; it's socket-only.
@@ -44,8 +45,10 @@ type dashboardWatch struct {
 	n *discord.Notifier
 
 	mu sync.Mutex
-	// set says the machine has the dashboard's webhook.
-	set bool
+	// set says the machine has the dashboard's webhook, and join is the join
+	// it came with (dashboardJoin).
+	set  bool
+	join string
 	// downSince is when the dashboard was last heard before the link went
 	// down, zero while it's up, and posted whether the machine has posted
 	// that it can't reach the dashboard since.
@@ -53,17 +56,22 @@ type dashboardWatch struct {
 	posted    bool
 }
 
+// dashboardJoin names a join: the dashboard's key and the id it gave this
+// machine, which a machine that joins again, that dashboard or another,
+// doesn't have.
+func dashboardJoin(d machinelink.Dashboard) string { return d.Fingerprint() + " " + d.MachineID }
+
 // initDashboardWatch loads the dashboard's webhook, if the dashboard gave
 // this machine one, and makes the watch's notifier; Start runs it. Only
 // the watch's two kinds are posted: no other alert, and no status message.
 func (a *Agent) initDashboardWatch() error {
 	var s discord.Settings
-	var raw string
-	err := a.db.QueryRow(`SELECT webhook_url FROM dashboard_watch WHERE id = 1`).Scan(&raw)
+	var raw, key, machineID string
+	err := a.db.QueryRow(`SELECT webhook_url, dashboard_key, machine_id FROM dashboard_watch WHERE id = 1`).Scan(&raw, &key, &machineID)
 	switch {
 	case err == nil:
 		if w, err := discord.ParseWebhookURL(raw); err == nil {
-			s.Webhook, a.watch.set = w, true
+			s.Webhook, a.watch.set, a.watch.join = w, true, key+" "+machineID
 		}
 	case !errors.Is(err, sql.ErrNoRows):
 		return err
@@ -81,8 +89,8 @@ func (a *Agent) hDiscordWebhook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"webhookUrl": url})
 }
 
-// hDashboardWatchSet keeps the dashboard's webhook for the watch. A machine
-// that isn't joined to a dashboard refuses it.
+// hDashboardWatchSet keeps the dashboard's webhook for the watch, with the
+// join it came with. A machine that isn't joined to a dashboard refuses it.
 func (a *Agent) hDashboardWatchSet(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Actor      string `json:"actor"`
@@ -97,7 +105,8 @@ func (a *Agent) hDashboardWatchSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if !a.linkedToDashboard() {
+	d, err := machinelink.LoadDashboard(a.cfg.LinkDashboardPath())
+	if err != nil {
 		writeError(w, errConflict("This machine isn't joined to a dashboard, so it keeps no dashboard's webhook.", ""))
 		return
 	}
@@ -108,9 +117,10 @@ func (a *Agent) hDashboardWatchSet(w http.ResponseWriter, r *http.Request) {
 	}
 	a.watch.mu.Lock()
 	defer a.watch.mu.Unlock()
-	res, err := a.db.Exec(`INSERT INTO dashboard_watch(id, webhook_url, set_at) VALUES(1, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET webhook_url = excluded.webhook_url, set_at = excluded.set_at WHERE webhook_url != excluded.webhook_url`,
-		wh.SecretURL(), a.now().UnixMilli())
+	res, err := a.db.Exec(`INSERT INTO dashboard_watch(id, webhook_url, dashboard_key, machine_id, set_at) VALUES(1, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET webhook_url = excluded.webhook_url, dashboard_key = excluded.dashboard_key, machine_id = excluded.machine_id, set_at = excluded.set_at
+		WHERE webhook_url != excluded.webhook_url OR dashboard_key != excluded.dashboard_key OR machine_id != excluded.machine_id`,
+		wh.SecretURL(), d.Fingerprint(), d.MachineID, a.now().UnixMilli())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -118,7 +128,7 @@ func (a *Agent) hDashboardWatchSet(w http.ResponseWriter, r *http.Request) {
 	if n, _ := res.RowsAffected(); n > 0 {
 		a.audit(actor, "dashboard_watch.set", "discord", "succeeded", "")
 	}
-	a.watch.set = true
+	a.watch.set, a.watch.join = true, dashboardJoin(d)
 	a.watch.n.SetSettings(discord.Settings{Webhook: wh})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -142,23 +152,21 @@ func (a *Agent) hDashboardWatchClear(w http.ResponseWriter, r *http.Request) {
 func (a *Agent) clearDashboardWatch(actor, why string) error {
 	a.watch.mu.Lock()
 	defer a.watch.mu.Unlock()
+	return a.clearDashboardWatchLocked(actor, why)
+}
+
+// clearDashboardWatchLocked is clearDashboardWatch with a.watch.mu held.
+func (a *Agent) clearDashboardWatchLocked(actor, why string) error {
 	res, err := a.db.Exec(`DELETE FROM dashboard_watch WHERE id = 1`)
 	if err != nil {
 		return err
 	}
-	a.watch.set, a.watch.downSince, a.watch.posted = false, time.Time{}, false
+	a.watch.set, a.watch.join, a.watch.downSince, a.watch.posted = false, "", time.Time{}, false
 	a.watch.n.SetSettings(discord.Settings{})
 	if n, _ := res.RowsAffected(); n > 0 {
 		a.audit(actor, "dashboard_watch.cleared", "discord", "succeeded", why)
 	}
 	return nil
-}
-
-// linkedToDashboard reports whether this machine is joined to a dashboard
-// now: its link keeps the dashboard it joined only while it is.
-func (a *Agent) linkedToDashboard() bool {
-	_, err := os.Stat(a.cfg.LinkDashboardPath())
-	return err == nil
 }
 
 // watchDashboard looks at the link every DashboardWatchInterval.
@@ -182,7 +190,8 @@ func (a *Agent) watchDashboard(ctx context.Context) {
 // lookAtDashboard posts that the dashboard can't be reached once the link
 // has been down for dashboardDownAfter, and that it's reachable again once
 // the link is back, while the machine has the dashboard's webhook. A
-// machine that isn't joined any more forgets the webhook.
+// machine that isn't joined any more, or has joined again since the
+// webhook came, forgets it.
 func (a *Agent) lookAtDashboard() {
 	a.watch.mu.Lock()
 	set := a.watch.set
@@ -191,21 +200,32 @@ func (a *Agent) lookAtDashboard() {
 		return
 	}
 	d, err := machinelink.LoadDashboard(a.cfg.LinkDashboardPath())
-	if errors.Is(err, os.ErrNotExist) {
-		if err := a.clearDashboardWatch("playkeeper", "this machine isn't joined to a dashboard any more"); err != nil {
-			a.log.Error("forget the dashboard's webhook", "err", err)
-		}
-		return
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		a.log.Warn("the watch on the dashboard can't read the dashboard this machine joined", "err", err)
 		return
 	}
 	now := a.now()
-	up, heard := linkUp(a.cfg.LinkStatusPath(), now)
+	var up bool
+	var heard time.Time
+	if err == nil {
+		up, heard = linkUp(a.cfg.LinkStatusPath(), now)
+	}
 	a.watch.mu.Lock()
 	defer a.watch.mu.Unlock()
 	if !a.watch.set {
+		return
+	}
+	why := ""
+	switch {
+	case err != nil:
+		why = "this machine isn't joined to a dashboard any more"
+	case dashboardJoin(d) != a.watch.join:
+		why = "this machine joined a dashboard again"
+	}
+	if why != "" {
+		if err := a.clearDashboardWatchLocked("playkeeper", why); err != nil {
+			a.log.Error("forget the dashboard's webhook", "err", err)
+		}
 		return
 	}
 	a.watch.n.SetServer(discord.ServerInfo{DashboardURL: "https://" + d.Address})

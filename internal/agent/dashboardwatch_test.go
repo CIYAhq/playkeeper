@@ -22,19 +22,26 @@ func watchEnv(t *testing.T) (*agentEnv, *fakeHook) {
 
 // joinDashboard writes what a link that joined the dashboard at
 // panel.example.com:8443, as m2, keeps.
-func (e *agentEnv) joinDashboard() {
+func (e *agentEnv) joinDashboard() { e.joinDashboardAs(nil, "abcdefghjk") }
+
+// joinDashboardAs is joinDashboard with the dashboard's key, a new one when
+// pub is nil, and the id it gave the machine. It returns the key.
+func (e *agentEnv) joinDashboardAs(pub ed25519.PublicKey, machineID string) ed25519.PublicKey {
 	e.t.Helper()
-	pub, _, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		e.t.Fatal(err)
+	if pub == nil {
+		var err error
+		if pub, _, err = ed25519.GenerateKey(nil); err != nil {
+			e.t.Fatal(err)
+		}
 	}
 	if err := os.MkdirAll(e.cfg.LinkDir(), 0o700); err != nil {
 		e.t.Fatal(err)
 	}
-	d := machinelink.Dashboard{Address: "panel.example.com:8443", Key: pub, MachineID: "abcdefghjk", Name: "m2", JoinedAt: time.Now()}
+	d := machinelink.Dashboard{Address: "panel.example.com:8443", Key: pub, MachineID: machineID, Name: "m2", JoinedAt: time.Now()}
 	if err := d.Save(e.cfg.LinkDashboardPath()); err != nil {
 		e.t.Fatal(err)
 	}
+	return pub
 }
 
 // linkIs writes the link's state as a running link does: state, with the
@@ -191,6 +198,44 @@ func TestAMachineForgetsTheDashboardsWebhookWhenItLeaves(t *testing.T) {
 	e.joinDashboard()
 	e.later(10 * time.Minute)
 	f.quietFor(e, 150*time.Millisecond)
+}
+
+// A machine that leaves and joins again between two looks never misses its
+// dashboard file, which the new join replaces.
+func TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		again func(e *agentEnv, key ed25519.PublicKey)
+	}{
+		{"the same dashboard, which gives it another id", func(e *agentEnv, key ed25519.PublicKey) { e.joinDashboardAs(key, "mnpqrstuvw") }},
+		{"another dashboard", func(e *agentEnv, _ ed25519.PublicKey) { e.joinDashboardAs(nil, "abcdefghjk") }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, f := watchEnv(t)
+			key := e.joinDashboardAs(nil, "abcdefghjk")
+			e.linkIs(machinelink.LinkConnected, e.a.now())
+			if code, out := e.giveWebhook(hookURL); code != 204 {
+				t.Fatalf("the dashboard's webhook: %d %v", code, out)
+			}
+			c.again(e, key)
+			e.waitFor("the webhook forgotten", func() bool { return e.countRows(`SELECT COUNT(*) FROM dashboard_watch`) == 0 })
+			if e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'dashboard_watch.cleared' AND actor = 'playkeeper' AND detail = 'this machine joined a dashboard again'`) != 1 {
+				t.Fatal("forgetting the webhook isn't audited")
+			}
+			e.linkIs(machinelink.LinkRetrying, e.a.now())
+			e.later(10 * time.Minute)
+			f.quietFor(e, 150*time.Millisecond)
+
+			// The new join keeps a webhook its dashboard gives it.
+			if code, out := e.giveWebhook(hookURL); code != 204 {
+				t.Fatalf("the webhook again: %d %v", code, out)
+			}
+			time.Sleep(150 * time.Millisecond)
+			if e.countRows(`SELECT COUNT(*) FROM dashboard_watch`) != 1 {
+				t.Fatal("the new join lost the webhook its dashboard gave it")
+			}
+		})
+	}
 }
 
 func TestTheDashboardClearsItsWebhook(t *testing.T) {
