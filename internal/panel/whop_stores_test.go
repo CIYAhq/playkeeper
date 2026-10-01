@@ -112,7 +112,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case route == "GET /permissions" && f.permissionsDown, route == "GET /memberships" && f.membershipsDown,
-		route == "GET /affiliates/aff_"+biz+"/overrides" && b.sharesDown:
+		route == "GET /affiliates/aff_"+biz+"/overrides" && b.sharesDown, route == "GET /payments" && b.paymentsDown:
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
 	case route == "GET /permissions":

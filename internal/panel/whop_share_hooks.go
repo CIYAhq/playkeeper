@@ -369,17 +369,24 @@ func (s *Server) whopClosedFor(ctx context.Context, storeID, by string) (bool, e
 // plan is checked while the store is open and its share was found right
 // recently (whopShareFresh), at once and then on the usual retry schedule,
 // without holding up the rest of the customer, so a paid membership that
-// ends pauses them even while another waits. The problem says what waits,
-// "" when nothing does.
-func (s *Server) whopPaidPlan(ctx context.Context, c *whop.Client, st whopStore, wc whopCustomer) (CustomerPlan, string) {
+// ends pauses them even while another waits. What waits is waiting, ""
+// when nothing does, and unsure is whether a membership that gives nothing
+// never had Whop's answer, paid or not (whopNotPaid), so what it would
+// give isn't known yet.
+func (s *Server) whopPaidPlan(ctx context.Context, c *whop.Client, st whopStore, wc whopCustomer) (plan CustomerPlan, waiting string, unsure bool) {
 	now := s.now().UnixMilli()
 	var parts []planPart
 	var waits []string
 	for _, h := range wc.Hosting {
 		if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {
-			if err := s.whopSharePaid(ctx, c, st, wc.WhopUserID, h.ID, h.Part.memoryMB); err == nil {
-				h.Paid, h.Problem = h.Part, ""
-			} else {
+			err := s.whopSharePaid(ctx, c, st, wc.WhopUserID, h.ID, h.Part.memoryMB)
+			var np *whopNotPaid
+			switch {
+			case err == nil:
+				h.Paid, h.Problem, h.Answered = h.Part, "", true
+			case errors.As(err, &np):
+				h.Problem, h.Answered = err.Error(), true
+			default:
 				h.Problem = err.Error()
 				var we *whop.Error
 				if errors.As(err, &we) {
@@ -394,12 +401,14 @@ func (s *Server) whopPaidPlan(ctx context.Context, c *whop.Client, st whopStore,
 		}
 		if h.Paid.memoryMB > 0 {
 			parts = append(parts, h.Paid)
+		} else if !h.Answered {
+			unsure = true
 		}
 		if h.Problem != "" {
 			waits = append(waits, h.Problem)
 		}
 	}
-	return customerPlan(parts), strings.Join(waits, "; ")
+	return customerPlan(parts), strings.Join(waits, "; "), unsure
 }
 
 // keepWhopMembershipCheck keeps what the payment check found for a
@@ -409,15 +418,16 @@ func (s *Server) keepWhopMembershipCheck(store string, h whopHosting) {
 	now := s.now()
 	var err error
 	if h.paidFor() {
-		_, err = s.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb, checked_at)
-			VALUES(?,?,?,?,?,?,?,?)
+		_, err = s.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb, checked_at, answered)
+			VALUES(?,?,?,?,?,?,?,?,1)
 			ON CONFLICT(store_id, membership_id) DO UPDATE SET paid_plan_id = excluded.paid_plan_id, paid_title = excluded.paid_title, paid_servers = excluded.paid_servers,
-			paid_mb = excluded.paid_mb, paid_disk_gb = excluded.paid_disk_gb, problem = '', attempts = 0, next_check_at = 0, checked_at = excluded.checked_at`,
+			paid_mb = excluded.paid_mb, paid_disk_gb = excluded.paid_disk_gb, problem = '', attempts = 0, next_check_at = 0, checked_at = excluded.checked_at, answered = 1`,
 			store, h.ID, h.Paid.id, h.Paid.name, h.Paid.servers, h.Paid.memoryMB, h.Paid.diskGB, now.UnixMilli())
 	} else {
-		_, err = s.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, problem, attempts, next_check_at, checked_at) VALUES(?,?,?,1,?,?)
-			ON CONFLICT(store_id, membership_id) DO UPDATE SET problem = excluded.problem, attempts = attempts + 1, next_check_at = excluded.next_check_at, checked_at = excluded.checked_at`,
-			store, h.ID, h.Problem, now.Add(whopBackoff(h.Attempts)).UnixMilli(), now.UnixMilli())
+		_, err = s.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, problem, attempts, next_check_at, checked_at, answered) VALUES(?,?,?,1,?,?,?)
+			ON CONFLICT(store_id, membership_id) DO UPDATE SET problem = excluded.problem, attempts = attempts + 1, next_check_at = excluded.next_check_at, checked_at = excluded.checked_at,
+			answered = MAX(answered, excluded.answered)`,
+			store, h.ID, h.Problem, now.Add(whopBackoff(h.Attempts)).UnixMilli(), now.UnixMilli(), h.Answered)
 	}
 	if err != nil {
 		s.log.Error("could not keep what the payment check found", "store", store, "membership", h.ID, "err", err)
