@@ -90,7 +90,7 @@ export function LiveView({
       </section>
       <section className="mt-6" aria-labelledby="seller-customers">
         <h2 id="seller-customers" className="text-[15px] font-semibold">
-          {t('sellerFlow.live.customers', { count: view.customers.length })}
+          {view.customers.length > 0 ? t('sellerFlow.live.customers', { count: view.customers.length }) : t('sellerFlow.live.customersTitle')}
         </h2>
         {view.customers.length === 0 ? (
           <p className="mt-1 text-sm text-muted-foreground">{t('sellerFlow.live.noCustomers')}</p>

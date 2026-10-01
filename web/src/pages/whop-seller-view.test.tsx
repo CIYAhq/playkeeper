@@ -86,7 +86,8 @@ describe('a seller’s open store', () => {
   it('says when there’s nothing to show yet, and what a store that needs a look needs', async () => {
     const text = await render(viewWith({ store: { id: 'biz_other', title: 'Other Hosting', state: 'needsLook', why: 'Starter and Plus are on the same product.' } }))
     expect(text).toContain('No sales yet.')
-    expect(text).toContain('No customers yet.')
+    expect(text).toContain('CustomersNo customers yet.')
+    expect(text).not.toContain('0 customers')
     expect(text).toContain('Starter and Plus are on the same product.')
     expect(document.querySelector('a')).toBeNull()
   })

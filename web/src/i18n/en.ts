@@ -3070,6 +3070,7 @@ export const en = {
   'sellerFlow.live.earnings': 'Earnings',
   'sellerFlow.live.noEarnings': 'No sales yet.',
   'sellerFlow.live.customers': { one: '{count} customer', other: '{count} customers' },
+  'sellerFlow.live.customersTitle': 'Customers',
   'sellerFlow.live.noCustomers': 'No customers yet.',
   'sellerFlow.live.more': 'and {count} more',
   'sellerFlow.live.changePrices': 'Change prices',

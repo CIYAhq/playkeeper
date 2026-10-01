@@ -58,8 +58,8 @@ export function RefusalText({ refusal }: { refusal: Refusal }) {
   )
 }
 
-/** An amount in its currency's smallest unit, such as cents, as money. */
+/** An amount in its currency's smallest unit, such as cents, as money, with its plain sign, such as $ rather than US$, since a seller's prices are all in one currency. */
 export function money(amount: number, currency: string): string {
-  const f = new Intl.NumberFormat(formatLocale(), { style: 'currency', currency: currency.toUpperCase() })
+  const f = new Intl.NumberFormat(formatLocale(), { style: 'currency', currency: currency.toUpperCase(), currencyDisplay: 'narrowSymbol' })
   return f.format(amount / 10 ** (f.resolvedOptions().maximumFractionDigits ?? 2))
 }
