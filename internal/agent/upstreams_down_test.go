@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -212,6 +215,59 @@ func TestABuildListUpstreamThatFailedIsAskedAgainOnlyAfterAMinute(t *testing.T) 
 	ask()
 	if e.up.hitCount(fabricGames) == asked {
 		t.Fatal("a minute on, Fabric is asked again")
+	}
+}
+
+// A caller that leaves, as a closed browser tab does, says nothing about the
+// upstream: PaperMC's list is still fetched and offered, a waiter on another
+// type's slow fetch records no failure, and a restore lookup that was
+// cancelled isn't kept as PaperMC's answer.
+func TestACallerThatLeavesDoesNotMakeAnUpstreamLookDown(t *testing.T) {
+	e := newAgentEnv(t)
+	gone, leave := context.WithCancel(t.Context())
+	leave()
+	e.a.paperList(gone)
+	if cat := e.a.catalogInfo(t.Context(), ""); cat.VersionsFrom != "" || len(cat.Versions) == 0 {
+		t.Fatalf("PaperMC answers, so its own list is offered: %+v", cat)
+	}
+
+	if _, err := e.a.restoreBuildOrKnown(gone, "26.1.2", 74); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a restore lookup whose caller left: %v", err)
+	}
+	if got, err := e.a.restoreBuild(t.Context(), "26.1.2", 74); err != nil || got.PaperBuild != 74 {
+		t.Fatalf("the next lookup asks PaperMC: %+v %v", got, err)
+	}
+
+	e.up.serveFabricLists()
+	reached, release := make(chan struct{}, 1), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	e.up.handle(fabricGames, func(w http.ResponseWriter, r *http.Request) {
+		reached <- struct{}{}
+		<-release
+		io.WriteString(w, `[{"version":"26.2","stable":true}]`)
+	})
+	fetched := make(chan error, 1)
+	go func() { _, err := e.a.typeList(context.Background(), software.Fabric); fetched <- err }()
+	<-reached
+	waiter, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := e.a.typeList(waiter, software.Fabric); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a waiter that left: %v", err)
+	}
+	e.a.software.mu.Lock()
+	hit, recorded := e.a.software.catalogs[software.Fabric]
+	e.a.software.mu.Unlock()
+	if recorded {
+		t.Fatalf("a waiter that left recorded Fabric as down: %+v", hit)
+	}
+	unblock()
+	if err := <-fetched; err != nil {
+		t.Fatal(err)
+	}
+	if l, err := e.a.typeList(t.Context(), software.Fabric); err != nil || l.from != fromUpstream {
+		t.Fatalf("Fabric's own list: %+v %v", l, err)
 	}
 }
 
