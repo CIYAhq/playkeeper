@@ -883,6 +883,11 @@ INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_t
 	`
 ALTER TABLE whop_share_watch ADD COLUMN share_right_at INTEGER NOT NULL DEFAULT 0;
 `,
+	// Since when the share check has failed for each app store, without an
+	// answer from Whop, 0 while it gets one (see noteWhopShareUnchecked).
+	`
+ALTER TABLE whop_share_watch ADD COLUMN share_unchecked_since INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (
