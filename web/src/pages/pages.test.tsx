@@ -747,6 +747,19 @@ describe('Overview', () => {
     expect(text).toContain('mara_k is on the allowlist.')
   })
 
+  // The walkthrough of 1 Oct 2026: "Survival is up" under "Starting Survival failed".
+  it('says the server is up in its first steps only while it is', async () => {
+    const start = failed('start', 'starting', 'The server stopped while starting (exit code 1).')
+    for (const s of [server({ phase: 'stopped', lastOperation: start }), server({ phase: 'starting', operation: { ...start, status: 'running' } })]) {
+      const text = await render(<Overview server={s} />)
+      expect(text, s.phase).toContain('Here’s how to make Survival yours.')
+      expect(text, s.phase).not.toContain('is up')
+    }
+    const later = await render(<Overview server={server({ phase: 'stopped', firstSteps: { invited: 'mara_k', backedUp: false, downloaded: false } })} />)
+    expect(later).toContain('3 small steps left for Survival.')
+    expect(later).not.toContain('is up')
+  })
+
   // Regression for items 62 and 86: after a failed create the steps must
   // point at the step the job failed in, not at the server's own phase.
   it('marks the step a failed create stopped at', async () => {
@@ -2871,6 +2884,24 @@ describe('Onboarding', () => {
     ],
   }
   const checkAgain = () => [...document.querySelectorAll('button')].find((b) => /^(Check again|Checked)$/.test(b.textContent ?? ''))
+
+  // The walkthrough of 1 Oct 2026: the card said "exit code 1" over a Java
+  // stack trace, and offered only "Go to my dashboard".
+  it('says in plain words why setting up the first server failed, and tries again from there', async () => {
+    const crash = { at: new Date().toISOString(), start: true, kind: 'download_failed' as const, params: { reason: 'tls', file: 'mojang_26.2.jar' }, certain: true, title: '', explanation: '', evidence: [], fixes: [], lines: [], roomMB: 0 }
+    const s = server({ phase: 'stopped', desired: 'stopped', startedAt: undefined, lastOperation: failed('create', 'starting', 'The server stopped while starting (exit code 1).'), crash })
+    answer({ '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
+    const started = vi.fn(() => ({}))
+    answerPosts({ '/start': started })
+    const text = await render(<Onboarding />, workspace({ servers: [s] }))
+    expect(text).toContain('Setting up Survival didn’t finish')
+    expect(text).toContain('Couldn’t download Minecraft from Mojang. Check this VPS’s internet, then try again.')
+    expect(text).not.toContain('exit code 1')
+    const retry = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Try again')
+    await act(async () => retry?.click())
+    expect(started).toHaveBeenCalledOnce()
+    expect(vi.mocked(client.post).mock.calls.at(-1)?.[0]).toBe('/api/servers/abcdefghjk/start')
+  })
 
   it('says the checks ran again, but not when they could not be run', async () => {
     answer({ '/preflight': preflight })

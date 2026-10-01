@@ -31,6 +31,7 @@ const (
 	CrashWorldLocked       CrashKind = "world_locked"
 	CrashDiskFull          CrashKind = "disk_full"
 	CrashEULA              CrashKind = "eula"
+	CrashDownloadFailed    CrashKind = "download_failed"
 	CrashPermissionDenied  CrashKind = "permission_denied"
 	CrashKilled            CrashKind = "killed"
 	CrashUnknown           CrashKind = "unknown"
