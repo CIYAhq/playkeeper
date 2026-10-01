@@ -876,7 +876,57 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	s.mu.Lock()
 	delete(s.intentional, id)
 	s.mu.Unlock()
-	return s.waitReady(ctx, h, id)
+	if err := s.waitReady(ctx, h, id); err != nil {
+		return err
+	}
+	actor := "playkeeper"
+	if h != nil && h.op != nil {
+		actor = h.op.Actor
+	}
+	s.admitPendingPlayers(actor)
+	return nil
+}
+
+// pendingAddTries and pendingAddWait are how often a player its create
+// asked for is tried over RCON, which may not answer the moment the server
+// is up.
+const (
+	pendingAddTries = 3
+	pendingAddWait  = time.Second
+)
+
+// admitPendingPlayers puts the players the server's create asked for on
+// its allowlist, now that it runs, and forgets them: a name Minecraft
+// doesn't know goes in the audit log and isn't tried again.
+func (s *server) admitPendingPlayers(actor string) {
+	sc, err := s.serverConfig()
+	if err != nil || sc == nil || sc.PendingPlayers == "" {
+		return
+	}
+	for _, name := range strings.Fields(sc.PendingPlayers) {
+		var out string
+		for try := range pendingAddTries {
+			if out, err = s.rconCommand("whitelist add " + name); err == nil {
+				break
+			}
+			if try < pendingAddTries-1 {
+				time.Sleep(pendingAddWait)
+			}
+		}
+		out = minecraft.StripANSI(out)
+		switch {
+		case err != nil:
+			s.audit(actor, "whitelist.add", name, "failed", "The server did not respond: "+err.Error())
+		case unknownPlayer(out):
+			s.audit(actor, "whitelist.add", name, "failed", out)
+		default:
+			s.audit(actor, "whitelist.add", name, "succeeded", out)
+		}
+	}
+	sc.PendingPlayers = ""
+	if err := s.saveServerConfig(*sc); err != nil {
+		s.log.Warn("could not forget the players a create put on the allowlist", "server", s.id, "err", err)
+	}
 }
 
 func classifyStartError(err error, port int) error {

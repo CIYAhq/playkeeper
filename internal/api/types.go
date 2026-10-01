@@ -482,6 +482,10 @@ type ServerConfig struct {
 	// published from the container with the same number (from 0.4.4); 0
 	// while crossplay is off.
 	CrossplayPort int `json:"crossplayPort,omitempty"`
+	// PendingPlayers (from 0.4.16) are the Minecraft names its create asked
+	// to put on the allowlist, separated by spaces, until a start brings the
+	// server up and adds them. A string keeps ServerConfig comparable.
+	PendingPlayers string `json:"pendingPlayers,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -515,6 +519,10 @@ type CreateServerRequest struct {
 	// VersionID, Build, Modpack, PlayStyle, Gameplay, MOTD and MaxPlayers
 	// stay empty.
 	Template *TemplateRef `json:"template,omitempty"`
+	// Players (from 0.4.16) go on the allowlist once the server first
+	// runs: the dashboard sends the Minecraft name of whoever creates it,
+	// so they can join it.
+	Players []string `json:"players,omitempty"`
 }
 
 type SettingsRequest struct {

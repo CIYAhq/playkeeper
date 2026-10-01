@@ -10,7 +10,7 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, Segmented, Stepper, useIsPhone } from '@/components/app/controls'
-import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, VersionsFrom, versionBlocked, type CreateChoices } from '@/components/app/create'
+import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, ownNameKey, ownPlayers, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, VersionsFrom, versionBlocked, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
 import { ModpackPicker, packVoicePort, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
@@ -308,7 +308,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
         upload.keep()
       } else {
         const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack, voicePort !== undefined) : createRequest(c)
-        op = await post<Operation>(machineApi(target.id, '/servers'), body)
+        op = await post<Operation>(machineApi(target.id, '/servers'), { ...body, ...ownPlayers(ws.prefs[ownNameKey], target, ws.me.version) })
       }
       await openCreated(op, ws.refresh)
     } catch (e) {
