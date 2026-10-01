@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-panel-race test-web test-sh web-budget web build package notices site dev e2e-vm clean template-check template-thumbnails plugins
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-panel-race test-web test-sh web-budget web build package notices site dev e2e-vm clean template-check template-thumbnails plugins version-lists
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -92,6 +92,9 @@ plugins: ## Build the plugins that ship inside Playkeeper into internal/addons/f
 
 notices: ## Regenerate THIRD_PARTY_NOTICES after changing Go or npm dependencies
 	./scripts/third-party-notices.sh
+
+version-lists: ## Refresh the version lists built into Playkeeper from the upstreams, before a release
+	go run ./cmd/version-lists
 
 site: ## Build playkeeper.io into site/dist (html/ is the web root; site/README.md)
 	go run ./cmd/site

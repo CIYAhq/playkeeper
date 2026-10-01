@@ -49,6 +49,9 @@ type fakeFill struct {
 	mu       sync.Mutex
 	versions []fakeVersion
 	requests []string
+	// jarHost is where the fake says each jar is: PaperMC's download host
+	// when empty.
+	jarHost string
 }
 
 func startFakeFill(t *testing.T, versions []fakeVersion) (*fakeFill, Fill) {
@@ -61,7 +64,11 @@ func startFakeFill(t *testing.T, versions []fakeVersion) (*fakeFill, Fill) {
 func (f *fakeFill) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.requests = append(f.requests, r.URL.Path)
+	jarHost := f.jarHost
 	f.mu.Unlock()
+	if jarHost == "" {
+		jarHost = "fill-data.papermc.io"
+	}
 	version := func(v fakeVersion) map[string]any {
 		return map[string]any{"id": v.id, "support": map[string]any{"status": v.support}, "java": map[string]any{"version": map[string]any{"minimum": v.java}}}
 	}
@@ -85,8 +92,9 @@ func (f *fakeFill) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		var out []any
 		for _, b := range v.builds {
+			name := fmt.Sprintf("paper-%s-%d.jar", v.id, b.id)
 			out = append(out, map[string]any{"id": b.id, "channel": b.channel, "downloads": map[string]any{"server:default": map[string]any{
-				"name": fmt.Sprintf("paper-%s-%d.jar", v.id, b.id), "checksums": map[string]any{"sha256": b.sha}}}})
+				"name": name, "checksums": map[string]any{"sha256": b.sha}, "url": "https://" + jarHost + "/v1/objects/" + b.sha + "/" + name}}})
 		}
 		json.NewEncoder(w).Encode(out)
 		return

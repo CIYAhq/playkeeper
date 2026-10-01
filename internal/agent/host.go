@@ -3,13 +3,16 @@ package agent
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/diagnose"
@@ -47,24 +50,83 @@ func diskUsage(path string) (free, total int64, err error) {
 	}
 }
 
-// checkEgress confirms the host can reach PaperMC's download API, which the
-// server image needs on first start.
+// egressHosts are the services a first server downloads from: PaperMC's
+// version list and its downloads, and Mojang, whose server jar Paper
+// patches on its first start.
+var egressHosts = []struct{ name, host, url string }{
+	{"PaperMC", "fill.papermc.io", "https://fill.papermc.io/v3/projects/paper"},
+	{"PaperMC's downloads", "fill-data.papermc.io", "https://fill-data.papermc.io/"},
+	{"Mojang", "piston-meta.mojang.com", "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"},
+}
+
+// egressTrouble is some of egressHosts answering with an error of their
+// own, or not at all, while others answer: the machine reaches the
+// internet, so it's most likely those services' trouble, which Playkeeper
+// works around, rather than the machine's.
+type egressTrouble struct {
+	// down says how each service failed; hosts are the ones that didn't
+	// answer at all, which a firewall could be blocking too.
+	down, hosts []string
+}
+
+func (e *egressTrouble) Error() string { return strings.Join(e.down, "; ") }
+
+// checkEgress confirms the host reaches the services a first server
+// downloads from. It fails only when none of them answers: one that answers
+// HTTP 503, or doesn't answer, is an egressTrouble.
 func checkEgress(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, "https://fill.papermc.io/v3/projects/paper", nil)
-	if err != nil {
-		return err
+	errs := make([]error, len(egressHosts))
+	statuses := make([]int, len(egressHosts))
+	var wg sync.WaitGroup
+	for i, h := range egressHosts {
+		wg.Go(func() {
+			req, err := http.NewRequestWithContext(ctx, http.MethodHead, h.url, nil)
+			if err == nil {
+				var resp *http.Response
+				if resp, err = http.DefaultClient.Do(req); err == nil {
+					resp.Body.Close()
+					statuses[i] = resp.StatusCode
+				}
+			}
+			errs[i] = err
+		})
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
+	wg.Wait()
+	t := &egressTrouble{}
+	for i, h := range egressHosts {
+		switch {
+		case errs[i] != nil:
+			t.down = append(t.down, fmt.Sprintf("%s (%s) didn't answer: %v", h.name, h.host, unwrapURLError(errs[i])))
+			t.hosts = append(t.hosts, h.host)
+		case statuses[i] >= 500:
+			t.down = append(t.down, fmt.Sprintf("%s answered HTTP %d", h.name, statuses[i]))
+		}
 	}
-	resp.Body.Close()
-	if resp.StatusCode >= 500 {
-		return fmt.Errorf("PaperMC answered HTTP %d", resp.StatusCode)
+	switch {
+	case len(t.hosts) == len(egressHosts):
+		return fmt.Errorf("none of %s answered (%v)", hostList(), unwrapURLError(errs[0]))
+	case len(t.down) > 0:
+		return t
 	}
 	return nil
+}
+
+func hostList() string {
+	hosts := make([]string, 0, len(egressHosts))
+	for _, h := range egressHosts {
+		hosts = append(hosts, h.host)
+	}
+	return strings.Join(hosts, ", ")
+}
+
+func unwrapURLError(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
 }
 
 // portInUse reports whether anything accepts TCP connections on the port.

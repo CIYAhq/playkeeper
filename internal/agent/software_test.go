@@ -250,9 +250,10 @@ func TestAKeptListOutlivesANeoForgeListThatHasLostItsStableVersions(t *testing.T
 	}
 }
 
-// Only a supported type and a Minecraft release name a kept list's file, so
-// no request can make the agent read or write another path, and a build
-// list is never read from or written over the version list.
+// Only a known type and a Minecraft release name a kept list's file, so no
+// request can make the agent read or write another path, and a build list
+// is never read from or written over the version list. Paper keeps a
+// version list only.
 func TestAKeptListIsNamedOnlyByATypeAndARelease(t *testing.T) {
 	e := newAgentEnv(t)
 	dir := filepath.Join(e.cfg.AgentDir(), "software-lists")
@@ -265,7 +266,9 @@ func TestAKeptListIsNamedOnlyByATypeAndARelease(t *testing.T) {
 		{"neoforge", "26.2", &savedBuilds{}, filepath.Join(dir, "builds-neoforge-26.2.json")},
 		{"forge", "1.20.1", savedBuilds{}, filepath.Join(dir, "builds-forge-1.20.1.json")},
 		{"neoforge", "", &savedBuilds{}, ""},
-		{"paper", "", savedCatalog{}, ""},
+		{"paper", "", savedCatalog{}, filepath.Join(dir, "catalog-paper.json")},
+		{"paper", "26.2", savedBuilds{}, ""},
+		{"spigot", "", savedCatalog{}, ""},
 		{"../../../x", "", savedCatalog{}, ""},
 		{"neoforge", "../../x", savedBuilds{}, ""},
 		{"neoforge", "26.2/../../../x", savedBuilds{}, ""},

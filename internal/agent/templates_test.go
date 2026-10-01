@@ -214,11 +214,10 @@ func TestTemplateCreateNeedsAVersion(t *testing.T) {
 	if code != 200 || !plan.Ready {
 		t.Fatalf("plan: %d %+v", code, plan)
 	}
-	// PaperMC stops listing versions, so the plan again chooses none.
+	// PaperMC stops listing versions, and the machine has no other list, so
+	// the plan again chooses none.
 	e.fill.set("", []fillVersionSpec{})
-	e.a.catalog.mu.Lock()
-	e.a.catalog.entries, e.a.catalog.at = nil, time.Time{}
-	e.a.catalog.mu.Unlock()
+	e.forgetPaperLists()
 	before := e.countRows(`SELECT COUNT(*) FROM servers`)
 	if code, out := e.createFromTemplate(plan.Fingerprint, nil); code != http.StatusConflict {
 		t.Fatalf("a plan without a version: %d %v", code, out)

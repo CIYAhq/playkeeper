@@ -758,12 +758,12 @@ func (a *Agent) importVersions(ctx context.Context, w *worldimport.World) (versi
 		return []api.WorldImportVersion{recommended}, rec, nil
 	case c < 0:
 		out := []api.WorldImportVersion{recommended}
-		if keep, err := a.restoreBuild(ctx, own, 0); err == nil {
+		if keep, err := a.restoreBuildOrKnown(ctx, own, 0); err == nil {
 			out = append(out, api.WorldImportVersion{CatalogEntry: keep, Keep: true})
 		}
 		return out, rec, nil
 	default:
-		if keep, err := a.restoreBuild(ctx, own, 0); err == nil {
+		if keep, err := a.restoreBuildOrKnown(ctx, own, 0); err == nil {
 			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
 		}
 		return nil, rec, nil

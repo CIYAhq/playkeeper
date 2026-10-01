@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.15
+
+- **Onboarding and new Paper servers while PaperMC is down:** on 1 Oct PaperMC's version list answered 503 for hours, and onboarding stopped at the machine check. A service that answers with an error, or not at all, is now a warning there, not a stop. Paper's versions come from the last list PaperMC gave, which the machine now keeps, or else from the list built into the release, and Paper downloads straight from PaperMC's download host by its checksum, without the version list. A Paper backup restores the same way.
+
 ## 0.4.14
 
 - **A simpler page for sellers (early beta):** the Playkeeper Cloud page in a seller's Whop dashboard walks them through one step at a time, each with one button: **Check your prices**, filled in at $15 a month for each 4 GB where a plan is under the floor, then **Open the store**, then **You're live**, with a link to the store and, kept short, its earnings and customers. Before the store opens, **Fix my plans** puts right a plan that doesn't renew monthly, isn't priced in US dollars or has a free trial, taking off any setup fee with it, and says what it changed; what it can't change, such as two plans on one product, gets a plain line each. Opening the store also hides the free Playkeeper Hosting product Whop adds for the store's website, and a refusal gives each plan a short line, then says once what to do. Until then, the store's own site has a **Set up your store** page with the three steps to get there, each one sentence and one button.

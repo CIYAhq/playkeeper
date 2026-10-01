@@ -51,6 +51,14 @@ type fakeDocker struct {
 	beforeStop   func()        // when set, runs before a container stop takes effect
 	beforeBoot   func()        // when set, a server container's boot runs it first, so a test can hold the server starting
 	setupHangs   bool          // setup containers end their log streams but keep running
+	// paperAPIDown makes Paper's setup containers fail as the image does
+	// while PaperMC's API answers 503, unless they're given the jar's
+	// address on PaperMC's download host; setupEnvs is what each was given.
+	paperAPIDown bool
+	setupEnvs    [][]string
+	// paperDownloadsDown makes a Paper setup container given the jar's
+	// address fail, as when PaperMC's download host doesn't have it.
+	paperDownloadsDown bool
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
 	bootFailsOn string
@@ -619,6 +627,23 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	if setup && fd.setupHangs {
 		fd.log(c, "[mc-image-helper] Downloading /data/paper.jar")
 		close(c.rotated)
+		return
+	}
+	if setup {
+		fd.setupEnvs = append(fd.setupEnvs, slices.Clone(c.cfg.Env))
+	}
+	if paper, direct := env(c.cfg, "TYPE") == "PAPER", env(c.cfg, "PAPER_DOWNLOAD_URL"); setup && paper && (fd.paperAPIDown && direct == "" || fd.paperDownloadsDown && direct != "") {
+		if direct == "" {
+			fd.log(c, "[mc-image-helper] ERROR : 'install-paper' command failed. Version is 1.68.0: FailedRequestException: HTTP request of https://fill.papermc.io/v3/projects/paper/versions/"+
+				env(c.cfg, "VERSION")+"/builds/"+env(c.cfg, "PAPER_BUILD")+" failed with 503 Service Unavailable")
+			fd.log(c, "[init] [ERROR] Failed to download paper")
+		} else {
+			fd.log(c, "[mc-image-helper] ERROR : 'install-paper' command failed. Version is 1.68.0: FailedRequestException: HTTP request of "+direct+" failed with 404 Not Found")
+			fd.log(c, "[init] [ERROR] Failed to download from custom PaperMC URL")
+		}
+		c.running, c.exitCode, c.finished = false, 1, time.Now().UTC()
+		close(c.wake)
+		c.wake = make(chan struct{})
 		return
 	}
 	if setup {

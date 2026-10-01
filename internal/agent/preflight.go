@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -71,11 +72,19 @@ func (a *Agent) Preflight(ctx context.Context) api.Preflight {
 	default:
 		add("port", "Game port", "pass", fmt.Sprintf("Port %d is free for Minecraft players.", port), "")
 	}
-	if err := a.opts.CheckEgress(ctx); err != nil {
-		add("egress", "Download access", "fail", "Cannot reach PaperMC (fill.papermc.io): "+err.Error(),
-			"Allow outbound HTTPS from this server to fill.papermc.io, piston-data.mojang.com and registry-1.docker.io.")
-	} else {
-		add("egress", "Download access", "pass", "PaperMC's download service is reachable.", "")
+	var trouble *egressTrouble
+	switch err := a.opts.CheckEgress(ctx); {
+	case errors.As(err, &trouble):
+		fix := ""
+		if len(trouble.hosts) > 0 {
+			fix = "If it keeps happening, allow outbound HTTPS from this server to " + strings.Join(trouble.hosts, " and ") + "."
+		}
+		add("egress", "Download access", "warn", sentence(trouble.Error())+" Playkeeper uses the versions it knows until it's back.", fix)
+	case err != nil:
+		add("egress", "Download access", "fail", "This server can't reach the services it downloads Minecraft from: "+err.Error()+".",
+			"Allow outbound HTTPS from this server to fill.papermc.io, fill-data.papermc.io, piston-meta.mojang.com, piston-data.mojang.com and registry-1.docker.io.")
+	default:
+		add("egress", "Download access", "pass", "PaperMC's and Mojang's download services are reachable.", "")
 	}
 	if dockerOK {
 		if list, err := a.docker.ContainerList(ctx, true); err == nil {
