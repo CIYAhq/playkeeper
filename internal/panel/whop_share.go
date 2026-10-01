@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -160,22 +162,29 @@ func whopLeastCharge(p whop.Plan) float64 {
 }
 
 // whopShareWants works out each hosting product's share from its plans,
-// each plan whose metadata allows servers and that isn't archived: the
-// most any of its plans needs, from the plan's memory and the least it
-// charges. A plan that can't carry Playkeeper's share, being free or
-// charging less, is a problem naming it.
+// each plan whose metadata allows servers (hostedPlan): the most any of
+// its plans needs, from the plan's memory and the least it charges. Every
+// plan it's given counts, archived or not, since an archived plan's
+// members go on renewing (whopSharePlans gives it those someone has). A
+// plan Open the store wouldn't sell, being one-time, yearly, in another
+// currency, on a free trial or under the floor, is a problem naming it, as
+// is one that can't carry Playkeeper's share, and neither sets its
+// product's share.
 func whopShareWants(plans []whop.Plan) ([]whopShareWant, []string) {
 	wants := map[string]*whopShareWant{}
 	var problems []string
 	for _, p := range plans {
-		_, memoryMB, ok := whop.PlanAllowance(p.Metadata)
-		if !ok || p.Visibility == "archived" || p.Product.ID == "" {
+		sp, ok := hostedPlan(p)
+		if !ok {
 			continue
 		}
-		share := whopShareFor(memoryMB)
-		pct, err := whop.SharePercent(float64(share)/100, whopLeastCharge(p))
+		if sp.Problem != "" {
+			problems = append(problems, sp.Title+": "+strings.TrimSuffix(sp.Problem, "."))
+			continue
+		}
+		pct, err := whop.SharePercent(float64(sp.Share)/100, whopLeastCharge(p))
 		if err != nil {
-			problems = append(problems, fmt.Sprintf("%s charges %s, which can't carry Playkeeper's share of %s", cmpOr(p.Title, p.ID), p.Price(), dollarsOf(share)))
+			problems = append(problems, fmt.Sprintf("%s charges %s, which can't carry Playkeeper's share of %s", sp.Title, p.Price(), dollarsOf(sp.Share)))
 			continue
 		}
 		w := wants[p.Product.ID]
@@ -191,6 +200,66 @@ func whopShareWants(plans []whop.Plan) ([]whopShareWant, []string) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Product < out[j].Product })
 	return out, problems
+}
+
+// whopSharePlans is the store's plans Playkeeper's share must cover: each
+// one Whop lists that isn't archived, and each archived one someone still
+// has a membership of that gives servers, since its members go on renewing.
+// One Whop no longer lists is read by its id; one gone from Whop
+// altogether is a problem, in gone, since nothing shows its share.
+func (s *Server) whopSharePlans(ctx context.Context, c *whop.Client, st whopStore) (plans []whop.Plan, gone []string, err error) {
+	listed, err := c.Plans(ctx, st.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	held, err := s.whopHeldPlans(ctx, st.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	seen := map[string]bool{}
+	for _, p := range listed {
+		seen[p.ID] = true
+		if p.Visibility != "archived" || held[p.ID] != "" {
+			plans = append(plans, p)
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(held)) {
+		if seen[id] {
+			continue
+		}
+		p, err := c.Plan(ctx, id)
+		if whop.NotFound(err) {
+			gone = append(gone, held[id]+", which customers still have, is gone from Whop, so nothing shows Playkeeper's share on it")
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		plans = append(plans, p)
+	}
+	return plans, gone, nil
+}
+
+// whopHeldPlans is the store's hosting plans someone has a membership of
+// that gives them servers in an app store (whopAppHosting), by id, each
+// with its title as the dashboard last read it.
+func (s *Server) whopHeldPlans(ctx context.Context, storeID string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT p.plan_id, p.title FROM whop_plans p
+		JOIN whop_memberships m ON m.store_id = p.store_id AND m.plan_id = p.plan_id
+		WHERE p.store_id = ? AND p.allowance_from != '' AND m.stale = 0 AND m.status IN `+whopAppHosting, storeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	held := map[string]string{}
+	for rows.Next() {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, err
+		}
+		held[id] = cmpOr(title, id)
+	}
+	return held, rows.Err()
 }
 
 // whopShareSet is a product's share as the dashboard last set it.
@@ -249,11 +318,12 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 	if err != nil {
 		return "", err
 	}
-	plans, err := c.Plans(ctx, st.ID)
+	plans, gone, err := s.whopSharePlans(ctx, c, st)
 	if err != nil {
 		return "", err
 	}
 	wants, problems := whopShareWants(plans)
+	problems = append(problems, gone...)
 	shares, err := c.RevShares(ctx, partner)
 	if err != nil {
 		return "", err

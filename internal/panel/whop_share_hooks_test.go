@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -69,6 +70,135 @@ func TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves(t *testing.T) {
 	e.reconcile()
 	if st := e.otherStore(t); st.LeftAt.IsZero() || !strings.Contains(st.LeftWhy, "Playkeeper's share has been gone or short for 3 days: Playkeeper's share on Minecraft server was removed.") {
 		t.Fatalf("after three days without its share: left %v, %q", st.LeftAt, st.LeftWhy)
+	}
+}
+
+// An archived plan someone still has goes on needing Playkeeper's share,
+// since its members go on renewing: archiving a customer's plan and
+// removing the share closes the store, which leaves after whopShareGrace,
+// whether Whop's plan list still shows the plan or not. An archived plan
+// nobody has needs nothing.
+func TestAnArchivedPlanSomeoneStillHasNeedsItsShare(t *testing.T) {
+	for _, unlisted := range []bool{false, true} {
+		f, e, _ := twoStores(t)
+		core := useFakeCore(e)
+		pass := func() {
+			e.clock.add(2 * whopPollEvery)
+			e.reconcile()
+		}
+		f.mu.Lock()
+		f.users["user_kim"] = "kimbuilds"
+		b := f.installed["biz_other"]
+		b.unlistArchived = unlisted
+		b.plan("plan_other")["visibility"] = "archived"
+		kept := b.shares
+		b.shares = nil
+		f.mu.Unlock()
+		pass()
+		if st := e.otherStore(t); st.ClosedWhy != "" {
+			t.Fatalf("unlisted %v: an archived plan nobody has, without its share: closed %q", unlisted, st.ClosedWhy)
+		}
+		f.mu.Lock()
+		b.plan("plan_other")["visibility"] = "visible"
+		b.shares = kept
+		f.mu.Unlock()
+		f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+		pass()
+		if !calledFor(core.got(), "start ", "user_kim") {
+			t.Fatalf("unlisted %v: kim didn't start: %q", unlisted, core.got())
+		}
+		f.mu.Lock()
+		b.plan("plan_other")["visibility"] = "archived"
+		b.shares = nil
+		f.mu.Unlock()
+		pass()
+		if st := e.otherStore(t); st.ClosedWhy != "Playkeeper's share on Minecraft server was removed." {
+			t.Fatalf("unlisted %v: kim's plan archived and its share removed: closed %q", unlisted, st.ClosedWhy)
+		}
+		e.clock.add(whopShareGrace)
+		e.reconcile()
+		if st := e.otherStore(t); st.LeftAt.IsZero() {
+			t.Fatalf("unlisted %v: three days on, the store hasn't left: %q", unlisted, st.ClosedWhy)
+		}
+	}
+}
+
+// A plan someone still has that's gone from Whop altogether is a problem,
+// since nothing shows Playkeeper's share on it any more.
+func TestAPlanSomeoneHasThatsGoneFromWhopIsAProblem(t *testing.T) {
+	f, e, _ := twoStores(t)
+	useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	f.mu.Lock()
+	b := f.installed["biz_other"]
+	b.plans = slices.DeleteFunc(b.plans, func(p map[string]any) bool { return p["id"] == "plan_other" })
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if st := e.otherStore(t); !strings.Contains(st.ClosedWhy, "Other, which customers still have, is gone from Whop") {
+		t.Fatalf("kim's plan gone from Whop: closed %q", st.ClosedWhy)
+	}
+}
+
+// A hosting plan the seller adds after Open the store is held to its rules
+// at the next share check: one that's one-time, yearly, under the floor or
+// on a free trial closes the store for its share, naming the plan, and its
+// buyer doesn't start, though their payment carried the share.
+func TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules(t *testing.T) {
+	for _, c := range []struct {
+		name, status, says string
+		terms              map[string]any
+	}{
+		{"one-time", "completed", "New: It doesn't renew every month", map[string]any{"plan_type": "one_time", "initial_price": 12}},
+		{"yearly", "active", "New: It doesn't renew every month", map[string]any{"plan_type": "renewal", "billing_period": 365, "renewal_price": 12}},
+		{"under the floor", "active", "New: It charges $9.00, under the $12.00 floor for 4 GB", map[string]any{"plan_type": "renewal", "billing_period": 30, "renewal_price": 9}},
+		{"on a free trial", "active", "New: It has a free trial", map[string]any{"plan_type": "renewal", "billing_period": 30, "renewal_price": 12, "trial_period_days": 3}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f, e, _ := twoStores(t)
+			core := useFakeCore(e)
+			plan := map[string]any{"id": "plan_new", "title": "New", "visibility": "visible", "currency": "usd", "unlimited_stock": true,
+				"product": map[string]any{"id": "prod_other", "title": "Minecraft server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}}
+			maps.Copy(plan, c.terms)
+			f.mu.Lock()
+			f.users["user_bob"] = "bob"
+			f.installed["biz_other"].plans = append(f.installed["biz_other"].plans, plan)
+			f.mu.Unlock()
+			f.buyAt("biz_other", "mem_bob", "user_bob", "plan_new", c.status)
+			e.clock.add(2 * whopPollEvery)
+			e.reconcile()
+			if st := e.otherStore(t); !strings.Contains(st.ClosedWhy, c.says) || calledFor(core.got(), "start ", "user_bob") {
+				t.Fatalf("closed %q, the core's calls %q", st.ClosedWhy, core.got())
+			}
+		})
+	}
+}
+
+// A one-time purchase gives no servers in an app store, whose hosted plans
+// renew monthly: its buyer isn't started, even on a payment that carried
+// the share, while the key store still hosts one.
+func TestAOneTimePurchaseGivesNoServersInAnAppStore(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_bob"] = "bob"
+	f.installed["biz_other"].plans = append(f.installed["biz_other"].plans, map[string]any{"id": "plan_once", "title": "Once", "visibility": "archived",
+		"plan_type": "one_time", "initial_price": 12, "currency": "usd", "unlimited_stock": true,
+		"product": map[string]any{"id": "prod_other", "title": "Minecraft server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_bob", "user_bob", "plan_once", "completed")
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if st := e.otherStore(t); st.ClosedWhy != "" || calledFor(core.got(), "start ", "user_bob") {
+		t.Fatalf("a one-time purchase in an app store: closed %q, the core's calls %q", st.ClosedWhy, core.got())
+	}
+	if !whopHosts(whopViaKey, "completed") || whopHosts(whopViaApp, "completed") || !whopHosts(whopViaApp, "past_due") || whopHosts(whopViaApp, "expired") {
+		t.Error("the statuses that give servers in the key store and in an app store")
 	}
 }
 

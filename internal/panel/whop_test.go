@@ -55,6 +55,9 @@ type fakeBusiness struct {
 	payments []map[string]any
 	fees     map[string][]map[string]any
 	refunds  []map[string]any
+	// unlistArchived leaves archived plans out of the plan list, as Whop
+	// may, though each is still read by its id.
+	unlistArchived bool
 }
 
 // fakeChat is an installed business's support chat with one customer.

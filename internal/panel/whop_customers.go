@@ -56,6 +56,21 @@ var reWhopID = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
 // whop.Membership.HasAccess).
 const whopAccess = `('trialing', 'active', 'canceling', 'past_due', 'completed')`
 
+// whopAppHosting are the statuses in which a membership gives servers in an
+// app store (whopHosts).
+const whopAppHosting = `('trialing', 'active', 'canceling', 'past_due')`
+
+// whopHosts says whether a membership in status gives its customer servers
+// in a store reached via: one with access, but in an app store not a
+// one-time purchase ("completed"), which would keep its servers for good
+// on one payment, while hosted plans renew monthly.
+func whopHosts(via, status string) bool {
+	if via == whopViaApp && status == "completed" {
+		return false
+	}
+	return whop.Membership{Status: status}.HasAccess()
+}
+
 // whopWebhook receives Whop's deliveries for the key store: it checks the
 // signature with the store's webhook secret, counts each delivery once,
 // keeps what a membership event of the store's says for the reconciler to
@@ -584,6 +599,10 @@ func capAllowance(al invites.Allowance) invites.Allowance {
 // whopCustomers reads every customer the dashboard knows of the store, from
 // their memberships of its plans and what was done for them, newest first.
 func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCustomer, error) {
+	var via string
+	if err := s.db.QueryRowContext(ctx, `SELECT via FROM whop_stores WHERE store_id = ?`, storeID).Scan(&via); err != nil && !isNoRows(err) {
+		return nil, err
+	}
 	byID := map[string]*whopCustomer{}
 	get := func(id string) *whopCustomer {
 		if wc, ok := byID[id]; ok {
@@ -631,7 +650,7 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 		switch {
 		case stale:
 			wc.Unconfirmed++
-		case from != "" && (whop.Membership{Status: status}).HasAccess():
+		case from != "" && whopHosts(via, status):
 			parts[id] = append(parts[id], pt)
 		}
 	}

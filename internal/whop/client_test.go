@@ -614,6 +614,26 @@ func TestPaymentsAndRefundsSinceATime(t *testing.T) {
 	}
 }
 
+// A plan is read by its id, archived or not, and one Whop doesn't have is
+// not found.
+func TestAPlanIsReadByItsID(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /variants/plan_old": answer(map[string]any{"id": "plan_old", "title": "Old", "visibility": "archived", "plan_type": "renewal", "billing_period": 30,
+			"renewal_price": 12, "product": map[string]any{"id": "prod_a"}}),
+		"GET /variants/plan_gone": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":{"type":"not_found","message":"No such variant"}}`)
+		},
+	})
+	p, err := c.Plan(context.Background(), "plan_old")
+	if err != nil || p.ID != "plan_old" || p.Visibility != "archived" || p.RenewalPrice != 12 || p.Product.ID != "prod_a" {
+		t.Fatalf("Plan = %+v, %v", p, err)
+	}
+	if _, err := c.Plan(context.Background(), "plan_gone"); !NotFound(err) {
+		t.Fatalf("a plan Whop doesn't have: %v", err)
+	}
+}
+
 // A membership's paid payments are read newest first, from its account,
 // whatever order Whop's answer comes in.
 func TestPaidPaymentsAreAMembershipsNewestFirst(t *testing.T) {

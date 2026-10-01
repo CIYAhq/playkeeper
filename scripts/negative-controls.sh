@@ -8509,6 +8509,30 @@ control "share: setting it again takes it as a percentage of the full price" int
   'map[string]any{"commission_type": "percentage", "commission_value": percent, "revenue_basis": "pre_fees"}' \
   'map[string]any{"commission_value": percent}' \
   ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: an archived plan someone still has needs its share" internal/panel/whop_share.go \
+  'if p.Visibility != "archived" || held[p.ID] != "" {' \
+  'if p.Visibility != "archived" {' \
+  ./internal/panel '^TestAnArchivedPlanSomeoneStillHasNeedsItsShare$'
+control "share: a plan someone has that Whop no longer lists is read by its id" internal/panel/whop_share.go \
+  'if seen[id] {' \
+  'if true {' \
+  ./internal/panel '^TestAnArchivedPlanSomeoneStillHasNeedsItsShare$'
+control "share: a plan someone has that's gone from Whop is a problem" internal/panel/whop_share.go \
+  'problems = append(problems, gone...)' \
+  '_ = gone' \
+  ./internal/panel '^TestAPlanSomeoneHasThatsGoneFromWhopIsAProblem$'
+control "share: a one-time purchase doesn't make its plan one someone has" internal/panel/whop_share.go \
+  'AND m.status IN `+whopAppHosting' \
+  'AND m.status IN `+whopAccess' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+control "share: each hosting plan is held to Open the store's rules" internal/panel/whop_share.go \
+  'if sp.Problem != "" {' \
+  'if sp.Problem != "" && false {' \
+  ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "hosting: a one-time purchase gives no servers in an app store" internal/panel/whop_customers.go \
+  'if via == whopViaApp && status == "completed" {' \
+  'if false && via == whopViaApp && status == "completed" {' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
 control "share paid: only Playkeeper's share line counts" internal/panel/whop_share.go \
   'if l.Origin != whopShareOrigin || l.Settled.Currency != "usd" {' \
   'if l.Settled.Currency != "usd" {' \
