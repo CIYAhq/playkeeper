@@ -173,6 +173,38 @@ func TestEachSetupStepSendsAHeartbeatOnce(t *testing.T) {
 	}
 }
 
+// A first start that gave up waiting for its server still has the server's
+// heartbeat sent once it comes up, and it counts the server running.
+func TestAServerUpAfterItsStartGaveUpSendsTheFirstServerHeartbeat(t *testing.T) {
+	boot, let := gate(t)
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) {
+			o.UsageFirst, o.UsageInterval, o.ReadyTimeout = time.Hour, time.Hour, 300*time.Millisecond
+		}
+		e.fd.mu.Lock()
+		e.fd.beforeBoot = boot
+		e.fd.mu.Unlock()
+	})
+	code, out := e.startCreate(map[string]any{})
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, "did not finish starting") {
+		t.Fatalf("the start didn't give up waiting: %+v", op)
+	}
+	if !rec.quiet(0) {
+		t.Fatalf("%d heartbeats before the server came up", rec.count())
+	}
+	e.fd.mu.Lock()
+	e.fd.beforeBoot = nil
+	e.fd.mu.Unlock()
+	let()
+	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 1 })
+	if h := rec.heartbeat(0); h.Servers != 1 || h.Running != 1 {
+		t.Errorf("the first server's heartbeat: %+v", h)
+	}
+}
+
 // While usage stats are off, by root's choice or the switch's, the setup
 // steps send nothing.
 func TestSetupStepsSendNothingWhileUsageStatsAreOff(t *testing.T) {

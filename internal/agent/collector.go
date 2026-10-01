@@ -275,6 +275,7 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 			s.mu.Unlock()
 			if take {
 				s.mapRunOnline(runStart)
+				s.runOnline()
 			}
 			if recovered && fresh {
 				s.alert(discord.Event{Kind: discord.KindRecovered, At: ts})

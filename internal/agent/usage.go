@@ -233,12 +233,26 @@ func (a *Agent) usageStep(key string) error {
 	return err
 }
 
-// firstOnline runs as a start sees its server online. The start's operation
-// shows the server online by then, so the heartbeat this may send counts it
-// running.
+// firstOnline notes a server showing online, the first time one does, so
+// the heartbeat this may send counts it running.
 func (a *Agent) firstOnline() {
 	if err := a.usageStep(kvUsageOnline); err != nil {
 		a.log.Info("could not note the first server online for usage stats", "err", err)
+	}
+}
+
+// runOnline is the server's run logging that it's up. While an operation
+// still shows an earlier step, such as a start's "starting_container", the
+// server doesn't show online yet, and the start notes it once it does
+// (waitReady). Otherwise it shows online now: after a start that gave up
+// waiting for it, or with no start waiting at all.
+func (s *server) runOnline() {
+	op := s.currentOp()
+	if op == nil {
+		op = s.machineOp()
+	}
+	if _, shown := opPhase(op); !shown {
+		s.firstOnline()
 	}
 }
 

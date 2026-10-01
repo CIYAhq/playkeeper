@@ -351,15 +351,25 @@ func observedPhase(c docker.ContainerJSON, err error, created bool, logPhase api
 	case crashed || changed:
 		p = api.PhaseCrashed
 	}
-	if op != nil {
-		switch api.Phase(op.Phase) {
-		case api.PhasePulling, api.PhaseDownloading, api.PhaseStartingContainer, api.PhaseStopping:
-			p = api.Phase(op.Phase)
-		case "verifying_download":
-			p = api.PhaseDownloading
-		}
+	if shown, ok := opPhase(op); ok {
+		p = shown
 	}
 	return p
+}
+
+// opPhase is the phase op, in progress on a server, shows for it whatever
+// the server's log says, if it's at a step that shows one.
+func opPhase(op *api.Operation) (api.Phase, bool) {
+	if op == nil {
+		return "", false
+	}
+	switch api.Phase(op.Phase) {
+	case api.PhasePulling, api.PhaseDownloading, api.PhaseStartingContainer, api.PhaseStopping:
+		return api.Phase(op.Phase), true
+	case "verifying_download":
+		return api.PhaseDownloading, true
+	}
+	return "", false
 }
 
 // firstSteps ticks off the "Get started" checklist from what has happened.
