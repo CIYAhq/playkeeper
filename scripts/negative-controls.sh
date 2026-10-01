@@ -8678,8 +8678,8 @@ control "grant watch: a grant Whop couldn't check counts neither way" internal/p
   'default:' \
   ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
 control "payment check: an app store's customer is hosted by their paid plan" internal/panel/whop_customers.go \
-  'wc.Plan, waits = s.whopPaidPlan(ctx, c, st, wc)' \
-  '_, waits = s.whopPaidPlan(ctx, c, st, wc)' \
+  'wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
+  '_, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 control "payment check: a membership counts only as far as a payment of it carried the share" internal/panel/whop_share_hooks.go \
   'if h.paidFor() {' \
@@ -8715,8 +8715,8 @@ control "payment check: the migration keeps one membership of the plan a custome
   ';' \
   ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
 control "payment check: a started customer isn't given less while a membership of theirs has no answer" internal/panel/whop_customers.go \
-  'if unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied) {' \
-  'if false && unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied) {' \
+  'keep = unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)' \
+  'keep = false && unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)' \
   ./internal/panel '^TestAStartedCustomerIsntPausedWhileTheirPaymentCantBeChecked$'
 control "payment check: Whop's answer that a membership wasn't paid counts as an answer" internal/panel/whop_share_hooks.go \
   'case errors.As(err, &np):' \
