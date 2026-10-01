@@ -441,6 +441,16 @@ func TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor(t *testing.T)
 			if n := e.countEvents("settings_restored"); n != tc.restarted {
 				t.Fatalf("%d settings_restored events, want %d", n, tc.restarted)
 			}
+			// Once: a later pass leaves the server be, even though the fake's
+			// restart didn't put the settings back as the image's does.
+			sc, err := e.srv().serverConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.srv().checkSettingsOnce(*sc)
+			if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restart' AND actor = 'playkeeper'`); n != tc.restarted {
+				t.Fatalf("%d restarts by Playkeeper after the agent looked again, want %d", n, tc.restarted)
+			}
 		})
 	}
 }
