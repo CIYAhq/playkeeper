@@ -133,8 +133,8 @@ func TestPlaykeepersShareIsSetOnEachHostingProductFromItsPrice(t *testing.T) {
 	if s := f.share("biz_other", "prod_other"); s["commission_value"] != 56.67 {
 		t.Fatalf("after the price went to $15: %v", s)
 	}
-	if s := f.share("biz_other", "prod_big"); s == nil || s["commission_value"] != 85.0 {
-		t.Fatalf("the product the seller added, whose first payment is $20 for 8 GB: %v", s)
+	if s := f.share("biz_other", "prod_big"); s == nil || s["commission_value"] != 70.84 {
+		t.Fatalf("the product the seller added, which renews at $24 for 8 GB after a first payment of $20 more: %v", s)
 	}
 	var bp int64
 	e.srv.db.QueryRow(`SELECT basis_points FROM whop_shares WHERE store_id = 'biz_other' AND product_id = 'prod_other'`).Scan(&bp)
@@ -167,11 +167,35 @@ func TestAProductsShareCoversEachOfItsPlans(t *testing.T) {
 		plan("dear", "prod_c", 0, 2000, "4"),
 	})
 	if len(problems) != 0 || len(wants) != 3 || wants[0] != (whopShareWant{Product: "prod_a", Title: "prod_a", BasisPoints: 8500}) ||
-		wants[1] != (whopShareWant{Product: "prod_b", Title: "prod_b", BasisPoints: 8500}) || wants[2] != (whopShareWant{Product: "prod_c", Title: "prod_c", BasisPoints: 100}) {
+		wants[1] != (whopShareWant{Product: "prod_b", Title: "prod_b", BasisPoints: 7084}) || wants[2] != (whopShareWant{Product: "prod_c", Title: "prod_c", BasisPoints: 100}) {
 		t.Fatalf("wants %+v, problems %v", wants, problems)
 	}
 	if _, problems := whopShareWants([]whop.Plan{plan("free", "prod_c", 0, 0, "4")}); len(problems) != 1 || !strings.Contains(problems[0], "free charges") {
 		t.Fatalf("a free plan: %v", problems)
+	}
+}
+
+// The least one payment of a plan charges is what Whop charges at once: a
+// renewing plan's renewal price, with its initial price charged on top of
+// the first one, or the initial price alone during a free trial, and a
+// one-time plan's initial price.
+func TestAPlansLeastChargeIsWhatOnePaymentCharges(t *testing.T) {
+	for _, c := range []struct {
+		p    whop.Plan
+		want float64
+	}{
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 0, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 5, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 12, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 1, RenewalPrice: 12, TrialDays: 3}, 1},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 0, RenewalPrice: 12, TrialDays: 3}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 20, RenewalPrice: 0}, 0},
+		{whop.Plan{PlanType: "one_time", InitialPrice: 12}, 12},
+		{whop.Plan{PlanType: "one_time"}, 0},
+	} {
+		if got := whopLeastCharge(c.p); got != c.want {
+			t.Errorf("%+v: %v, not %v", c.p, got, c.want)
+		}
 	}
 }
 
