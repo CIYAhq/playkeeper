@@ -8186,8 +8186,8 @@ control "stores: reading a store leaves another's plans" internal/panel/whop.go 
   "DELETE FROM whop_plans WHERE ? != '' AND plan_id NOT IN" \
   ./internal/panel '^TestReadingOneStoreLeavesAnothersPlans$'
 control "stores: a store's customers have its own memberships" internal/panel/whop_customers.go \
-  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? ORDER BY' \
-  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? OR 1 ORDER BY' \
+  'WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id' \
+  'WHERE m.store_id = ? OR 1 ORDER BY m.updated_at, m.membership_id' \
   ./internal/panel '^TestEachStoreStartsItsOwnCustomers$'
 control "stores: a store's customers are its own" internal/panel/whop_customers.go \
   'problem, updated_at FROM whop_customers WHERE store_id = ?`' \
@@ -8624,7 +8624,7 @@ control "payment check: a membership counts only as far as a payment of it carri
   ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
 control "payment check: a membership not paid for its plan is checked while the store is open" internal/panel/whop_share_hooks.go \
   'if !h.paidFor() && st.ClosedWhy == "" && h.NextCheckAt <= now {' \
-  'if false {' \
+  'if !h.paidFor() && st.ClosedWhy == "" && h.NextCheckAt <= now && false {' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 control "payment check: a membership moved to more memory gives what it was paid for" internal/panel/whop_share_hooks.go \
   'if h.Paid.memoryMB > 0 {' \
