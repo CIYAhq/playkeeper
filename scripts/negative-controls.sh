@@ -8146,8 +8146,8 @@ control "customers per store: a lapsed customer's message names their store" int
   'Scan(&info.customer.Provider, new(string), &info.customer.Subject' \
   ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
 control "customers per store: a sign-in keeps the store it's for" internal/panel/whop_signin.go \
-  'tokenHash(state), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
-  'tokenHash(state), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
+  'signInKey(state, secret), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
+  'signInKey(state, secret), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
   ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
 control "customers per store: coming back from Whop opens the store's account" internal/panel/whop_signin.go \
   'acct, ok, err := s.signInAccount(ctx, store, who.Subject)' \
