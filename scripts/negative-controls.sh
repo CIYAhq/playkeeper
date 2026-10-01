@@ -12708,6 +12708,63 @@ webcontrol "a phone's select points at its list while it's open" web/src/compone
   'aria-controls={open ? listId : undefined}' \
   'aria-controls={undefined}' \
   web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
+# After PaperMC's API answered 503 on 1 Oct 2026: onboarding and server
+# creation don't depend on any upstream's list answering.
+control "the machine check warns, not fails, while one service is down" internal/agent/preflight.go \
+  'case errors.As(err, &trouble):' \
+  'case false && errors.As(err, &trouble):' \
+  ./internal/agent '^TestTheMachineCheckWarnsWhileAServiceIsDownAndFailsOnlyWhenNoneAnswers$'
+control "a machine with no Paper list of its own offers the one built into the release" internal/agent/versions.go \
+  '} else if built, at, berr := builtInPaperCatalog(); berr == nil {' \
+  '} else if built, at, berr := builtInPaperCatalog(); false && berr == nil {' \
+  ./internal/agent '^TestWhilePaperMCAnswers503TheFirstServerIsStillCreated$'
+control "Paper downloads from PaperMC's download host by its checksum" internal/agent/versions.go \
+  'if u, ok := paperJarURL(sc.MinecraftVersion, sc.PaperBuild, sum); ok {' \
+  'if u, ok := paperJarURL(sc.MinecraftVersion, sc.PaperBuild, sum); false && ok {' \
+  ./internal/agent '^TestWhilePaperMCAnswers503TheFirstServerIsStillCreated$'
+control "the last Paper list PaperMC gave is kept for the next outage" internal/agent/versions.go \
+  'a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: c.list.at, Entries: entries})' \
+  '' \
+  ./internal/agent '^TestPaperMCsLastListIsKeptOnDiskForTheNextOutage$'
+control "a Paper backup restores from the list the machine has while PaperMC is down" internal/agent/versions.go \
+  'for _, k := range a.keptPaperCatalog() {' \
+  'for _, k := range []api.CatalogEntry(nil) {' \
+  ./internal/agent '^TestAPaperBackupIsRestoredWhilePaperMCIsDown$'
+control "the other types offer the list built into the release" internal/agent/software.go \
+  'rels, at, berr := builtInTypeCatalog(typ)' \
+  'rels, at, berr := []software.Release(nil), time.Time{}, software.ErrNoBuiltInList' \
+  ./internal/agent '^TestWhileMojangsVersionListIsDownAVanillaServerIsStillCreated$'
+control "an install uses the built-in plan while the metadata is down" internal/agent/software.go \
+  'if built, at, ok := builtInTypeResolved(pin); ok {' \
+  'if built, at, ok := builtInTypeResolved(pin); false && ok {' \
+  ./internal/agent '^TestWhileMojangsVersionListIsDownAVanillaServerIsStillCreated$'
+control "what an install looked up is kept for the next outage" internal/agent/software.go \
+  'a.keepList(path, savedResolved{At: a.now(), Resolved: res})' \
+  '_ = path' \
+  ./internal/agent '^TestAVersionResolvedBeforeInstallsAgainWhileItsUpstreamIsDown$'
+control "a version list whose upstream failed is asked for again only after a minute" internal/agent/software.go \
+  'c.catalogs[typ] = cachedCatalog{list: l, retryAt: a.now().Add(upstreamRetry)}' \
+  'c.catalogs[typ] = cachedCatalog{list: l}' \
+  ./internal/agent '^TestWhileMojangsVersionListIsDownAVanillaServerIsStillCreated$'
+# After Bugbot's findings on cb4f6c4d: build lists remember the failure too,
+# and a build a backup or a pack names survives an outage.
+control "a build list whose upstream failed is asked for again only after a minute" internal/agent/software.go \
+  'c.builds[key] = cachedBuilds{list: l, retryAt: a.now().Add(upstreamRetry)}' \
+  'c.builds[key] = cachedBuilds{list: l}' \
+  ./internal/agent '^TestABuildListUpstreamThatFailedIsAskedAgainOnlyAfterAMinute$'
+control "a build a backup or a pack names survives an outage" internal/agent/software.go \
+  'offline := err != nil && upstreamTrouble(err) || err == nil && l.from != fromUpstream' \
+  'offline := err != nil && upstreamTrouble(err)' \
+  ./internal/agent '^TestARestoreAndAPackKeepTheBuildTheyNameWhileTheUpstreamIsDown$'
+control "a built-in list with a download on a foreign host is refused" internal/minecraft/software/builtin.go \
+  'if !servesFrom(a.Upstream, a.Hosts) {' \
+  'if false && !servesFrom(a.Upstream, a.Hosts) {' \
+  ./internal/minecraft/software '^TestABuiltInListAMachineCouldNotInstallFromIsRefused$'
+webcontrol "the dashboard says when the versions aren't the upstream's own list" web/src/components/app/create.tsx \
+  "const text = catalog.versionsFrom === 'kept'" \
+  "if (catalog) return null
+  const text = catalog.versionsFrom === 'kept'" \
+  web/src/components/app/versions-from.test.tsx 'names the list built into the release and its date'
 
 if [ "$bad" != 0 ]; then
   echo
