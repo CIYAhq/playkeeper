@@ -439,10 +439,11 @@ func TestACustomersDeletionWaitsForTheirMoves(t *testing.T) {
 	if !kept() {
 		t.Fatal("alex was deleted while their server was being moved")
 	}
-	for _, q := range []string{`DELETE FROM server_moves WHERE user_id = ?`, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days) VALUES('cafebabe23', 'm_old', ?, 7)`} {
-		if _, err := e.srv.db.Exec(q, p.alex.id); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := e.srv.db.Exec(`DELETE FROM server_moves WHERE user_id = ?`, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.db.Exec(`INSERT INTO left_copies(server_id, machine_id, user_id, keep_days) VALUES('cafebabe23', ?, ?, 7)`, machineID(t, e.env), p.alex.id); err != nil {
+		t.Fatal(err)
 	}
 	e.srv.eraseDueCustomers(ctx)
 	if !kept() {
@@ -454,6 +455,29 @@ func TestACustomersDeletionWaitsForTheirMoves(t *testing.T) {
 	e.srv.eraseDueCustomers(ctx)
 	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); ok || p.deletions() != 1 {
 		t.Fatalf("alex once their move was done: deleted %d times", p.deletions())
+	}
+}
+
+// A copy a move left on a machine that was removed since doesn't hold a
+// customer's deletion: nothing can delete it there, as nothing can delete
+// a server on a removed machine.
+func TestACopyLeftOnARemovedMachineDoesntHoldADeletion(t *testing.T) {
+	p := newPausable(t)
+	e, ctx := p.e, context.Background()
+	p.lapse("succeeded")
+	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	e.reply("GET", "/v1/kept-backups", `[]`)
+	if _, err := e.srv.db.Exec(`INSERT INTO left_copies(server_id, machine_id, user_id, keep_days) VALUES(?, 'm_removed', ?, 7)`, p.serverID, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "DELETE", customerDeletePath(p.alex.id), `{"confirm":"alex"}`, p.own.auth()); r.status != http.StatusAccepted {
+		t.Fatalf("asking for alex's deletion: %d %v", r.status, r.body)
+	}
+	e.srv.eraseDueCustomers(ctx)
+	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); ok || p.deletions() != 1 {
+		t.Fatalf("alex, whose move left a copy on a removed machine: deleted %d times", p.deletions())
 	}
 }
 
@@ -599,6 +623,37 @@ func TestADeletedCustomersEndedMembershipIsntKeptAgain(t *testing.T) {
 	rows.Close()
 	if !slices.Equal(kept, []string{"mem_kim2", "mem_kim3"}) {
 		t.Fatalf("kim's memberships kept: %v", kept)
+	}
+}
+
+// A deleted customer who buys again starts, even after a purchase whose
+// payment failed before the store's pass confirmed it. That membership is
+// stored as one that gives access is, and what Whop says of it since, its
+// end included, still reaches it: left saying active and unconfirmed, it
+// would keep them out of the pass for good.
+func TestADeletedCustomerWhoBuysAgainAfterAFailedPaymentStarts(t *testing.T) {
+	f, e, _ := twoStores(t)
+	if _, err := e.srv.db.Exec(`INSERT INTO erased_customers(store_id, subject_hash, erased_at) VALUES('biz_other', ?, 1)`, erasedSubject("biz_other", "user_kim")); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.users["user_kim"] = "kim"
+	f.mu.Unlock()
+	failed := f.buyAt("biz_other", "mem_kim4", "user_kim", "plan_other", "active")
+	if r := e.deliverFor(t, "biz_other", "msg_kim4", whop.EventMembershipActivated, failed); r.status != http.StatusOK {
+		t.Fatalf("kim's first purchase: %d %v", r.status, r.body)
+	}
+	f.mu.Lock()
+	failed["status"] = "expired"
+	f.mu.Unlock()
+	e.reconcile()
+	again := f.buyAt("biz_other", "mem_kim5", "user_kim", "plan_other", "active")
+	if r := e.deliverFor(t, "biz_other", "msg_kim5", whop.EventMembershipActivated, again); r.status != http.StatusOK {
+		t.Fatalf("kim's second purchase: %d %v", r.status, r.body)
+	}
+	e.reconcile()
+	if kim, ok, err := (customerCore{s: e.srv}).CustomerAccount(context.Background(), whopProvider, "biz_other", "user_kim"); err != nil || !ok || kim.State != CustomerActive {
+		t.Fatalf("kim, who bought again: %+v, an account %v, %v", kim, ok, err)
 	}
 }
 
