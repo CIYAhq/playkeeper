@@ -114,7 +114,7 @@ describe('a seller’s page inside Whop', () => {
     const terms = [...document.querySelectorAll('a')].find((a) => a.textContent === 'seller terms')
     expect(terms?.getAttribute('href')).toBe('https://playkeeper.io/cloud/seller-terms')
     expect(terms?.getAttribute('target')).toBe('_blank')
-    await click(document.querySelector<HTMLElement>('[role="checkbox"]') ?? undefined)
+    await click(document.querySelector<HTMLElement>('input[type="checkbox"]') ?? undefined)
     expect(button('Open the store')?.disabled).toBe(false)
     await click(button('Open the store'))
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell', { acceptTerms: true })
