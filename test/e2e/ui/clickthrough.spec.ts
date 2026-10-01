@@ -384,6 +384,81 @@ test('a combobox choice that differs from the last only in its digits still chan
   expect(await combobox()).not.toEqual(before)
 })
 
+test('a choice in a phone’s sheet that differs from the last only in its digits works through its combobox, however fast the sheet goes', async ({ browser }) => {
+  // A phone's select as ChoiceSelect draws it, its sheet gone before the
+  // crawl can look, as with reduced motion or a slow runner. Only what opened
+  // the sheet shows the choice then: a combobox keeps its digits for the
+  // crawl, while a button's are dropped, so its choices look alike.
+  const page = (trigger: string) => `<!doctype html><title>Machines</title><div id="root"><h1>Machines</h1><section><h2>Hetzner stock</h2>${trigger}</section></div>
+    <script>
+      const box = document.querySelector('[aria-label="Server type"]')
+      const expands = box.hasAttribute('aria-expanded')
+      box.addEventListener('click', () => {
+        const sheet = document.createElement('div')
+        sheet.setAttribute('role', 'dialog')
+        sheet.setAttribute('aria-label', 'Server type')
+        sheet.innerHTML = '<div role="listbox" aria-label="Server type">' + ['CX23', 'CX33', 'CX43', 'CX53'].map((t) => '<button type="button" role="option" aria-selected="' + (t === box.textContent) + '">' + t + '</button>').join('') + '</div>'
+        for (const option of sheet.querySelectorAll('[role=option]')) {
+          option.addEventListener('click', () => {
+            box.textContent = option.textContent
+            if (expands) box.setAttribute('aria-expanded', 'false')
+            sheet.remove()
+          })
+        }
+        if (expands) box.setAttribute('aria-expanded', 'true')
+        document.body.append(sheet)
+      })
+    </script>`
+  const pages: Record<string, string> = {
+    '/combobox': page('<button type="button" role="combobox" aria-label="Server type" aria-haspopup="dialog" aria-expanded="false">CX53</button>'),
+    '/button': page('<button type="button" aria-label="Server type" aria-haspopup="dialog">CX53</button>'),
+  }
+  const server = http.createServer((req, res) => {
+    const body = pages[req.url ?? '']
+    res.writeHead(body ? 200 : 404, { 'Content-Type': 'text/html' })
+    res.end(body ?? '')
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const crawl = async (route: string) => {
+    const context = await browser.newContext({ baseURL: base })
+    const crawler = new Crawler(await context.newPage(), 'phone', base)
+    await crawler.init()
+    await crawler.crawl(route)
+    return { crawler, context, options: crawler.results.filter((r) => r.key.startsWith('option ')) }
+  }
+  const verdicts = (options: Result[]) => options.map((r) => `${r.key}: ${r.status}`)
+  try {
+    const combobox = await crawl('/combobox')
+    try {
+      expect(verdicts(combobox.options)).toEqual([
+        'option "CX#" in listbox "Server type": works',
+        'option "CX#" in listbox "Server type" #2: works',
+        'option "CX#" in listbox "Server type" #3: works',
+        'option "CX#" in listbox "Server type" #4: stays selected',
+      ])
+      expect(combobox.options.slice(0, 3).map((r) => /text=(CX\d+)/.exec(r.effects.join(' '))?.[1])).toEqual(['CX23', 'CX33', 'CX43'])
+      const broken = await combobox.crawler.breakAndPress(combobox.options[1]!)
+      expect(typeof broken === 'string' ? broken : broken.status).toBe('dead')
+    } finally {
+      await combobox.context.close()
+    }
+    const button = await crawl('/button')
+    try {
+      expect(verdicts(button.options)).toEqual([
+        'option "CX#" in listbox "Server type": dead',
+        'option "CX#" in listbox "Server type" #2: dead',
+        'option "CX#" in listbox "Server type" #3: dead',
+        'option "CX#" in listbox "Server type" #4: stays selected',
+      ])
+    } finally {
+      await button.context.close()
+    }
+  } finally {
+    server.close()
+  }
+})
+
 test('a download that starts late still counts, and a download link that does nothing is dead', async ({ browser }) => {
   // The browser fetches a download link itself, past page.route, so a real
   // server answers: a download link and a plain link to an attachment 9 s

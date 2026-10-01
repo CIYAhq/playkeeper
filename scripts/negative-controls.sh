@@ -8561,6 +8561,18 @@ control "share: a plan past the fleet's limits is a problem" internal/panel/whop
   'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {' \
   'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" && false {' \
   ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "share: a price not on Whop yet is judged as Whop will charge it" internal/panel/whop_share.go \
+  'plans[i].InitialPrice, plans[i].RenewalPrice = 0, price' \
+  '_, _ = i, price' \
+  ./internal/panel '^TestAShareIsSetForAPriceBeforeItsOnWhop$'
+control "share: a hosting plan that shares its product needs a look" internal/panel/whop_customers.go \
+  'problem = whopSharedNote(plans)' \
+  '_ = plans' \
+  ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
+control "share: only plans on sale share a product" internal/panel/whop_share.go \
+  'func(p whop.Plan) bool { return p.Visibility == "archived" })' \
+  'func(p whop.Plan) bool { return false })' \
+  ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
 control "hosting: a one-time purchase gives no servers in an app store" internal/panel/whop_customers.go \
   'if via == whopViaApp && status == "completed" {' \
   'if false && via == whopViaApp && status == "completed" {' \
@@ -9114,9 +9126,9 @@ control "deleting customers: a membership that gives access is kept" internal/pa
   's.now().UnixMilli(), m.HasAccess()}' \
   's.now().UnixMilli(), false}' \
   ./internal/panel '^TestADeletedCustomersEndedMembershipIsntKeptAgain$'
-control "deleting customers: one who came back has their ended memberships kept" internal/panel/erasure.go \
-  'AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ?)' \
-  'AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ? AND 0)' \
+control "deleting customers: the store's reads leave out a deleted customer's ended memberships" internal/panel/erasure.go \
+  'erased_customers WHERE store_id = ? AND subject_hash = ?)' \
+  'erased_customers WHERE store_id = ? AND subject_hash = ? AND 0)' \
   ./internal/panel '^TestDeletingACustomerLeavesTheirOtherStoreAlone$'
 control "deleting customers: the deletion waits while their servers move" internal/panel/erasure.go \
   'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
@@ -12044,6 +12056,18 @@ control "every cookie setHostCookie sets has a __Host- name" internal/panel/twof
   'pendingCookieName = "__Host-playkeeper-2fa"' \
   'pendingCookieName = "playkeeper-2fa"' \
   ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+webcontrol "a phone's select is a combobox, so its choice is read digits and all" web/src/components/app/controls.tsx \
+  '          role="combobox"' \
+  '          role={undefined}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
+webcontrol "a phone's select says when its sheet is open" web/src/components/app/controls.tsx \
+  'aria-expanded={open}' \
+  'aria-expanded={false}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
+webcontrol "a phone's select points at its list while it's open" web/src/components/app/controls.tsx \
+  'aria-controls={open ? listId : undefined}' \
+  'aria-controls={undefined}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
 
 if [ "$bad" != 0 ]; then
   echo
