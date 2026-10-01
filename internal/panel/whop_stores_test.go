@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -717,6 +718,60 @@ func TestAStoreWhoseGrantIsGoneChangesNothing(t *testing.T) {
 	readOther()
 	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 3 || problem != "" || len(sent) != 2 {
 		t.Fatalf("once the grant could be checked: calls %q, problem %q, messages %q", got, problem, sent)
+	}
+}
+
+// One read of an app store's membership that doesn't find it pauses nobody,
+// since Whop answers an app 404 for a business that stopped approving it
+// too: the membership stays unconfirmed, so its customer is left as they
+// are, until the store's next pass reads every membership. If that read
+// lists it, it's back; if not, it's gone, and its customer is paused.
+func TestOne404OnAnAppStoresMembershipPausesNobody(t *testing.T) {
+	f, e, _ := twoStores(t)
+	ctx := context.Background()
+	core := useFakeCore(e)
+	f.buyAt("biz_other", "mem_a", "user_alex", "plan_other", "active")
+	e.reconcile()
+	if !calledFor(core.got(), "start ", "user_alex") {
+		t.Fatalf("alex didn't start: %q", core.got())
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such membership"}}`)
+	}))
+	t.Cleanup(srv.Close)
+	notFound := &whop.Client{APIURL: srv.URL, Key: "k", HTTP: srv.Client()}
+	unfound := func() {
+		t.Helper()
+		if _, err := e.srv.db.Exec(`UPDATE whop_memberships SET stale = 1 WHERE membership_id = 'mem_a'`); err != nil {
+			t.Fatal(err)
+		}
+		st, _, _ := e.srv.whopStoreByID(ctx, "biz_other")
+		if err := e.srv.refreshWhopMemberships(ctx, notFound, st, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		c, _ := e.srv.whopClientFor(ctx, st)
+		e.srv.syncWhopCustomers(ctx, c, st)
+	}
+	membership := func() (n, stale int, unfoundAt int64) {
+		e.srv.db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(stale), 0), COALESCE(MAX(not_found_at), 0) FROM whop_memberships WHERE membership_id = 'mem_a'`).Scan(&n, &stale, &unfoundAt)
+		return
+	}
+	unfound()
+	if n, _, _ := membership(); n != 1 || calledFor(core.got(), "pause ", "user_alex") {
+		t.Fatalf("one 404 on mem_a: %d kept, the core's calls %q", n, core.got())
+	}
+	e.reconcile()
+	if n, stale, unfoundAt := membership(); n != 1 || stale != 0 || unfoundAt != 0 || calledFor(core.got(), "pause ", "user_alex") {
+		t.Fatalf("the next full read lists mem_a: %d kept, stale %d, unfound at %d, the core's calls %q", n, stale, unfoundAt, core.got())
+	}
+	unfound()
+	f.mu.Lock()
+	delete(f.installed["biz_other"].memberships, "mem_a")
+	f.mu.Unlock()
+	e.reconcile()
+	if n, _, _ := membership(); n != 0 || !calledFor(core.got(), "pause ", "user_alex") {
+		t.Fatalf("mem_a gone from the next full read too: %d kept, the core's calls %q", n, core.got())
 	}
 }
 

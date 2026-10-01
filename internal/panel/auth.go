@@ -813,6 +813,12 @@ CREATE TABLE erased_customers (
   PRIMARY KEY (store_id, subject_hash)
 );
 `,
+	// When a read of one app store's membership didn't find it, 0 while
+	// it's found: the store's next full read settles it (see
+	// refreshWhopMemberships).
+	`
+ALTER TABLE whop_memberships ADD COLUMN not_found_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (

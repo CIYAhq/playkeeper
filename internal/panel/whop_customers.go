@@ -141,7 +141,7 @@ func (s *Server) keepMembership(storeID string, m whop.Membership, stale bool) e
 	_, err := s.db.Exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, cancel_at_period_end, period_end, stale, updated_at)
 		SELECT ?,?,?,?,?,?,?,?,? WHERE ? OR NOT (`+forgottenSQL+`)
 		ON CONFLICT(membership_id) DO UPDATE SET whop_user_id = excluded.whop_user_id, plan_id = excluded.plan_id, status = excluded.status,
-		cancel_at_period_end = excluded.cancel_at_period_end, period_end = excluded.period_end, stale = excluded.stale, updated_at = excluded.updated_at,
+		cancel_at_period_end = excluded.cancel_at_period_end, period_end = excluded.period_end, stale = excluded.stale, updated_at = excluded.updated_at, not_found_at = 0,
 		told_cancel = CASE WHEN excluded.stale = 0 AND excluded.cancel_at_period_end = 0 THEN 0 ELSE whop_memberships.told_cancel END
 		WHERE whop_memberships.store_id = excluded.store_id`, args...)
 	return err
@@ -427,7 +427,10 @@ func whopHooked(st whopStore, dash string) bool {
 }
 
 // refreshWhopMemberships reads every membership of the store from Whop once
-// every every, and in between only those a webhook told of.
+// every every, and in between only those a webhook told of. One that read
+// doesn't find is gone from the key store at once; an app store keeps it
+// unconfirmed and reads every membership at its next pass, and it's gone
+// only if that read doesn't list it either.
 func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st whopStore, every time.Duration) error {
 	now := s.now()
 	if now.Sub(st.PolledAt) >= every {
@@ -439,6 +442,9 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 			if err := s.keepMembership(st.ID, m, false); err != nil {
 				return err
 			}
+		}
+		if _, err := s.db.Exec(`DELETE FROM whop_memberships WHERE store_id = ? AND stale = 1 AND not_found_at > 0`, st.ID); err != nil {
+			return err
 		}
 		_, err = s.db.Exec(`UPDATE whop_stores SET polled_at = ? WHERE store_id = ?`, now.UnixMilli(), st.ID)
 		return err
@@ -459,6 +465,17 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 	rows.Close()
 	for _, id := range stale {
 		m, err := c.Membership(ctx, id)
+		// Whop answers an app 404 for a business that stopped approving it,
+		// as well as for a membership that's gone.
+		if whop.NotFound(err) && st.Via == whopViaApp {
+			if _, err := s.db.Exec(`UPDATE whop_memberships SET not_found_at = ? WHERE store_id = ? AND membership_id = ?`, now.UnixMilli(), st.ID, id); err != nil {
+				return err
+			}
+			if _, err := s.db.Exec(`UPDATE whop_stores SET polled_at = 0 WHERE store_id = ?`, st.ID); err != nil {
+				return err
+			}
+			continue
+		}
 		if whop.NotFound(err) {
 			if _, err := s.db.Exec(`DELETE FROM whop_memberships WHERE store_id = ? AND membership_id = ?`, st.ID, id); err != nil {
 				return err
