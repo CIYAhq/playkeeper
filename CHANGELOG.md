@@ -9,7 +9,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - **Open the store and Update the store (early beta):** **Open the store** refuses a plan the machines can't run, outside 1 to 10 servers and 1 to 64 GB, and a hosting product that sells another plan. **Update the store** brings a hosting plan added after opening to the store site.
 - Fixed, deleting a customer: the customers of a store that left can be deleted, a copy a move left on a machine since removed no longer holds a deletion forever, and someone deleted who buys again starts afresh, neither locked out nor given their old memberships back.
 - **An overbooked machine, in Discord:** with a store or joined machines, the dashboard also posts in its Discord when a machine's customers' plans set aside more memory than it has, as when a plan grows past what it can hold, and again only once the machine has had room for them. Like the room and health alerts, it goes out whatever the alert switches say, and moving a customer stays yours.
-- Tests: two flaky tests fixed. The click-through reads a phone's select as a combobox holding its choice, and the agent stores a finished off-site copy with its count and its leaving the queue in one transaction, which a test had caught out of step.
+- Fixed: the off-site copies card could briefly fail to call a server's first copy to a place the first, or show a finished copy as still waiting, because the agent stored a finished copy, its count and its leaving the queue as separate writes. It now stores them together.
+- Tests: a flaky click-through fixed: it reads a phone's select as a combobox holding its choice.
 
 ## 0.4.12
 
