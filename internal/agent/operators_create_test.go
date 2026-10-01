@@ -168,6 +168,68 @@ func TestACreatesOperatorsAreAddedWhenASlowFirstStartComesUpAfterAll(t *testing.
 	}
 }
 
+// A server that gives no answer about the players, as its console can just
+// after it comes up, keeps them, and they're added once it answers, with one
+// line each in the activity.
+func TestACreatesOperatorsTheServerDidntAnswerAboutAreTriedAgain(t *testing.T) {
+	old := pendingRetryWait
+	pendingRetryWait = 200 * time.Millisecond
+	t.Cleanup(func() { pendingRetryWait = old })
+	for _, c := range []struct {
+		name, unanswered string
+		// audited is how many lines the start left in the activity.
+		audited int
+	}{
+		{"the allowlist", "whitelist add Steve_Builds", 0},
+		{"the operator, once on the allowlist", "op Steve_Builds", 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.rcon.mu.Lock()
+			e.rcon.hangUp[c.unanswered] = true
+			e.rcon.mu.Unlock()
+			code, out := e.startCreate(map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin", "operators": []string{"Steve_Builds"}})
+			if code != 202 {
+				t.Fatalf("create: %d %v", code, out)
+			}
+			e.sid = out["serverId"].(string)
+			if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+				t.Fatalf("the first start: %+v", op)
+			}
+			if sc := e.status().Config; sc == nil || sc.PendingOperators != "Steve_Builds" {
+				t.Fatalf("a player the server gave no answer about was forgotten: %+v", sc)
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE target = 'Steve_Builds'`); n != c.audited {
+				t.Fatalf("%d audit entries after the start, want %d", n, c.audited)
+			}
+			if c.audited > 0 {
+				// Minecraft writes the allowlist as it adds someone; this fake console doesn't.
+				e.putData("whitelist.json", `[{"uuid":"00000000-0000-0000-0000-0000000000a1","name":"Steve_Builds"}]`)
+			}
+
+			e.rcon.mu.Lock()
+			delete(e.rcon.hangUp, c.unanswered)
+			e.rcon.mu.Unlock()
+			deadline := time.Now().Add(10 * time.Second)
+			for e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'operator.add' AND target = 'Steve_Builds'`) == 0 {
+				if time.Now().After(deadline) {
+					t.Fatalf("the player wasn't added once the server answered: %v", e.rcon.commandsSent())
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			time.Sleep(500 * time.Millisecond)
+			for _, action := range []string{"whitelist.add", "operator.add"} {
+				if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = '` + action + `' AND target = 'Steve_Builds' AND result = 'succeeded'`); n != 1 {
+					t.Fatalf("%d audit entries for %s", n, action)
+				}
+			}
+			if sc := e.status().Config; sc == nil || sc.PendingOperators != "" {
+				t.Fatalf("the player was kept after it was added: %+v", sc)
+			}
+		})
+	}
+}
+
 // A name Minecraft doesn't know can't go on the allowlist, so it isn't made
 // an operator either, and the audit log says why.
 func TestACreatesUnknownPlayerIsNotMadeAnOperator(t *testing.T) {

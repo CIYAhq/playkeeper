@@ -887,7 +887,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if h != nil && h.op != nil {
 		actor = h.op.Actor
 	}
-	s.admitPendingOperators(actor)
+	s.admitPendingOperators(actor, pendingAddTries)
 	return nil
 }
 
@@ -917,39 +917,68 @@ func (s *server) keepSpawnOpen(sc api.ServerConfig) error {
 }
 
 // pendingAddTries and pendingAddWait are how often a command for a player
-// its create asked for is tried over RCON, which may not answer the moment
-// the server is up.
+// its create asked for is tried over RCON as a start brings the server up,
+// which may not answer at that moment.
 const (
 	pendingAddTries = 3
 	pendingAddWait  = time.Second
 )
 
+// pendingRetryWait is how long players the server gave no answer about wait
+// before they're tried again; tests shorten it.
+var pendingRetryWait = time.Minute
+
 // admitPendingOperators puts the players the server's create asked for on
-// its allowlist and makes them operators, now that it runs, and forgets
-// them: a name Minecraft doesn't know goes in the audit log and isn't tried
-// again.
-func (s *server) admitPendingOperators(actor string) {
+// its allowlist and makes them operators, now that it runs, trying each
+// command up to tries times. A name that made it is forgotten, and so is one
+// Minecraft doesn't know, which goes in the audit log; one the server gave no
+// answer about stays, to be tried again after pendingRetryWait.
+func (s *server) admitPendingOperators(actor string, tries int) {
 	sc, err := s.serverConfig()
 	if err != nil || sc == nil || sc.PendingOperators == "" {
 		return
 	}
+	// What a try before got done needs no command again, nor a second line in the activity.
+	listed, _ := s.whitelist()
+	ops, _ := s.operators()
+	var left []string
 	for _, name := range strings.Fields(sc.PendingOperators) {
+		ok, answered := true, true
+		if !slices.ContainsFunc(listed, func(e api.WhitelistEntry) bool { return strings.EqualFold(e.Name, name) }) {
+			ok, answered = s.pendingCommand(actor, "whitelist.add", name, "whitelist add "+name, tries)
+		}
 		// A name that couldn't go on the allowlist can't be an operator either.
-		if s.pendingCommand(actor, "whitelist.add", name, "whitelist add "+name) {
-			s.pendingCommand(actor, "operator.add", name, "op "+name)
+		if ok && !slices.ContainsFunc(ops, func(e api.OperatorEntry) bool { return strings.EqualFold(e.Name, name) }) {
+			_, answered = s.pendingCommand(actor, "operator.add", name, "op "+name, tries)
+		}
+		if !answered {
+			left = append(left, name)
 		}
 	}
-	sc.PendingOperators = ""
-	if err := s.saveServerConfig(*sc); err != nil {
-		s.log.Warn("could not forget the players a create made operators", "server", s.id, "err", err)
+	if len(left) > 0 {
+		s.mu.Lock()
+		s.admitAfter = s.now().Add(pendingRetryWait)
+		s.mu.Unlock()
+		s.log.Warn("the server didn't answer, so the players its create asked for are tried again later", "server", s.id, "players", strings.Join(left, " "))
+	}
+	if rest := strings.Join(left, " "); rest != sc.PendingOperators {
+		sc.PendingOperators = rest
+		if err := s.saveServerConfig(*sc); err != nil {
+			s.log.Warn("could not record which players a create asked for are left to add", "server", s.id, "err", err)
+		}
 	}
 }
 
 // admitWhenOnline adds the operators a create asked for to a server that is
 // online without a start that added them: one whose first start timed out
-// while it went on starting, which Start then finds already running.
+// while it went on starting, which Start then finds already running, or one
+// that gave no answer about them before. It tries each command once, so the
+// server's operation lock is held only that long.
 func (s *server) admitWhenOnline(ctx context.Context, sc api.ServerConfig) {
-	if sc.PendingOperators == "" || !s.online(ctx) {
+	s.mu.Lock()
+	later := s.now().Before(s.admitAfter)
+	s.mu.Unlock()
+	if sc.PendingOperators == "" || later || !s.online(ctx) {
 		return
 	}
 	release, ok := s.holdOpLock()
@@ -957,33 +986,33 @@ func (s *server) admitWhenOnline(ctx context.Context, sc api.ServerConfig) {
 		return
 	}
 	defer release()
-	s.admitPendingOperators("playkeeper")
+	s.admitPendingOperators("playkeeper", 1)
 }
 
-// pendingCommand runs a command about one of those players, audits it as
-// action, and says whether it worked.
-func (s *server) pendingCommand(actor, action, name, cmd string) bool {
+// pendingCommand runs a command about one of those players, up to tries
+// times while the server gives no answer. An answer is audited as action. It
+// says whether the command worked, and whether the server answered at all.
+func (s *server) pendingCommand(actor, action, name, cmd string, tries int) (ok, answered bool) {
 	var out string
 	var err error
-	for try := range pendingAddTries {
+	for try := range tries {
 		if out, err = s.rconCommand(cmd); err == nil {
 			break
 		}
-		if try < pendingAddTries-1 {
+		if try < tries-1 {
 			time.Sleep(pendingAddWait)
 		}
 	}
+	if err != nil {
+		return false, false
+	}
 	out = minecraft.StripANSI(out)
-	switch {
-	case err != nil:
-		s.audit(actor, action, name, "failed", "The server did not respond: "+err.Error())
-		return false
-	case unknownPlayer(out):
+	if unknownPlayer(out) {
 		s.audit(actor, action, name, "failed", out)
-		return false
+		return false, true
 	}
 	s.audit(actor, action, name, "succeeded", out)
-	return true
+	return true, true
 }
 
 func classifyStartError(err error, port int) error {
