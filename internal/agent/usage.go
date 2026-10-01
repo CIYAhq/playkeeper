@@ -20,19 +20,31 @@ import (
 )
 
 // Anonymous usage stats (internal/usage): a heartbeat a minute after the
-// agent starts and twice a day after that, saying the machine runs
-// Playkeeper, which version on which system, its kind of address and how
-// many Minecraft servers it has. README.md ("Usage stats") says what each
-// field is.
+// agent starts, right after the dashboard's first account is made and
+// right after the machine's first server comes online, and twice a day
+// after that, saying the machine runs Playkeeper, which version on which
+// system, its kind of address and how many Minecraft servers it has.
+// README.md ("Usage stats") says what each field is.
 const (
 	kvUsageID    = "usage_id"
 	kvUsageStats = "usage_stats"
 	kvUsageSent  = "usage_sent"
+	// The setup steps that send a heartbeat at once, the first time the
+	// machine reaches each: the dashboard's first account, and its first
+	// server online.
+	kvUsageAccount = "usage_first_account"
+	kvUsageOnline  = "usage_first_online"
 )
 
+// usageFirstAccountPath is the panel saying the dashboard's first account
+// was just made. Only the agent's socket answers it (see socketOnly).
+const usageFirstAccountPath = "/v1/usage-stats/first-account"
+
 type usageState struct {
+	// mu serializes making the usage ID and noting the setup steps.
 	mu sync.Mutex
-	// kick wakes the heartbeat loop when the switch turns usage stats on.
+	// kick wakes the heartbeat loop when the switch turns usage stats on,
+	// or a setup step sends one at once.
 	kick chan struct{}
 }
 
@@ -172,7 +184,8 @@ func (a *Agent) sendUsage(ctx context.Context) error {
 // usageLoop sends a heartbeat UsageFirst after the agent starts, then every
 // UsageInterval plus up to a 24th of it (half an hour for 12 hours), so
 // machines started together don't all send at once, and right away when the
-// switch turns usage stats on.
+// switch turns usage stats on or a setup step is reached, counting the
+// interval again from there.
 func (a *Agent) usageLoop(ctx context.Context) {
 	if a.opts.UsageInterval < 0 {
 		return
@@ -193,6 +206,66 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		}
 		wait = a.opts.UsageInterval + time.Duration(rand.Int64N(int64(a.opts.UsageInterval/24)+1))
 	}
+}
+
+// kickUsage has the heartbeat loop send one now. A kick it hasn't taken yet
+// already covers this one: the heartbeat says what is true when it's sent.
+func (a *Agent) kickUsage() {
+	select {
+	case a.usage.kick <- struct{}{}:
+	default:
+	}
+}
+
+// usageStep sends a heartbeat now, if usage stats are on, the first time the
+// machine reaches the setup step noted under key, so a machine deleted
+// within 12 hours of its install still reports how far its setup got.
+func (a *Agent) usageStep(key string) error {
+	a.usage.mu.Lock()
+	_, noted, err := a.kvGet(key)
+	if err == nil && !noted {
+		err = a.kvSet(key, a.now().UTC().Format(time.RFC3339))
+	}
+	a.usage.mu.Unlock()
+	if err == nil && !noted {
+		a.kickUsage()
+	}
+	return err
+}
+
+// firstOnline runs as a start sees its server online. The start's operation
+// shows the server online by then, so the heartbeat this may send counts it
+// running.
+func (a *Agent) firstOnline() {
+	if err := a.usageStep(kvUsageOnline); err != nil {
+		a.log.Info("could not note the first server online for usage stats", "err", err)
+	}
+}
+
+// loadUsage notes the first server online already on a machine whose servers
+// came online before Playkeeper noted it (before 0.4.16), so updating sends
+// no heartbeat for a step taken long ago.
+func (a *Agent) loadUsage() {
+	if _, noted, err := a.kvGet(kvUsageOnline); err != nil || noted {
+		return
+	}
+	var ran bool
+	if err := a.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM events WHERE kind = 'server_ready')`).Scan(&ran); err != nil || !ran {
+		return
+	}
+	if err := a.kvSet(kvUsageOnline, a.now().UTC().Format(time.RFC3339)); err != nil {
+		a.log.Warn("could not note that a server came online before", "err", err)
+	}
+}
+
+// hUsageFirstAccount is the panel saying the dashboard's first account was
+// just made.
+func (a *Agent) hUsageFirstAccount(w http.ResponseWriter, r *http.Request) {
+	if err := a.usageStep(kvUsageAccount); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *Agent) hUsageStats(w http.ResponseWriter, r *http.Request) {
@@ -239,10 +312,7 @@ func (a *Agent) hUsageStatsSet(w http.ResponseWriter, r *http.Request) {
 	}
 	a.audit(actor, "usage_stats."+v, "", "succeeded", "")
 	if req.On {
-		select {
-		case a.usage.kick <- struct{}{}:
-		default:
-		}
+		a.kickUsage()
 	}
 	a.hUsageStats(w, r)
 }

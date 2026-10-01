@@ -899,6 +899,7 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 		s.mu.Unlock()
 		if phase == api.PhaseOnline {
 			h.phase(string(api.PhaseOnline))
+			s.firstOnline()
 			return nil
 		}
 		if string(phase) != reported && phase != "" {
