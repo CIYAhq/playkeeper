@@ -352,7 +352,11 @@ func (s *Server) hWhopSellerPrices(w http.ResponseWriter, r *http.Request, store
 // hWhopSellerSetPrice is a seller setting a hosting plan's monthly price, at
 // or above the floor, which Whop then charges first and at each renewal.
 // Once the store has Playkeeper's share, the share follows the new price at
-// once, as the store's pass would have it follow.
+// once, as the store's pass would have it follow. A lower price, which
+// needs a higher share, has that share set first, with force, and is
+// refused when it can't be (syncWhopSharesAt), so no payment at it pays
+// less than Playkeeper's share; a higher one is set first, as the share it
+// had pays at least Playkeeper's meanwhile.
 func (s *Server) hWhopSellerSetPrice(w http.ResponseWriter, r *http.Request, store string) {
 	st, user, c, ok := s.sellerStore(w, r, store)
 	if !ok {
@@ -404,6 +408,27 @@ func (s *Server) hWhopSellerSetPrice(w http.ResponseWriter, r *http.Request, sto
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: msg, Code: api.CodeInvalid, Field: "price"})
 		return
 	}
+	set, err := s.whopSharesSet(ctx, st.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	// Whatever this changes on Whop, the store's next read comes now: it
+	// takes up the new price, or puts back a share raised for one that
+	// didn't come.
+	defer s.readWhopStoreSoon(ctx, st.ID)
+	shareFirst := len(set) > 0 && price < sp.Price
+	if shareFirst {
+		problem, err := s.syncWhopSharesAt(ctx, c, st, true, map[string]float64{sp.ID: float64(price) / 100})
+		switch {
+		case err != nil:
+			s.sellerRefusal(w, err)
+			return
+		case problem != "":
+			writeErr(w, http.StatusConflict, api.CodeConflict, "The price stays as it was, since Playkeeper's share couldn't be set for it first: "+problem, "")
+			return
+		}
+	}
 	updated, err := c.SetPlanPrice(ctx, sp.ID, float64(price)/100)
 	if err != nil {
 		s.sellerRefusal(w, err)
@@ -417,11 +442,7 @@ func (s *Server) hWhopSellerSetPrice(w http.ResponseWriter, r *http.Request, sto
 	}
 	s.audit("whop:"+user, "whop.plan_price", st.ID, "succeeded", fmt.Sprintf("%s charges %s a month", sp.ID, dollarsOf(price)))
 	v := sellerPricesFrom(st, plans)
-	set, err := s.whopSharesSet(ctx, st.ID)
-	switch {
-	case err != nil:
-		s.log.Error("could not read a store's shares", "store", st.ID, "err", err)
-	case len(set) > 0:
+	if len(set) > 0 && !shareFirst {
 		problem, err := s.syncWhopShares(ctx, c, st, false)
 		if err != nil {
 			s.log.Warn("could not have Playkeeper's share follow a new price", "store", st.ID, "err", err)
@@ -429,7 +450,6 @@ func (s *Server) hWhopSellerSetPrice(w http.ResponseWriter, r *http.Request, sto
 		}
 		v.Problem = problem
 	}
-	s.readWhopStoreSoon(ctx, st.ID)
 	writeJSON(w, http.StatusOK, v)
 }
 
