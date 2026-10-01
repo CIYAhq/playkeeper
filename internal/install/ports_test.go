@@ -146,7 +146,7 @@ func TestUpgradeAllowsPort80InAnActiveUFWOnce(t *testing.T) {
 		return o.Out.(*bytes.Buffer).String()
 	}
 	out := upgrade("0.4.0")
-	if !strings.Contains(out, "Firewall:  ufw allow 80/tcp once 0.4.0 is running.") || !strings.Contains(out, "Firewall:  allow 443/tcp in ufw once 0.4.0 is running.") {
+	if !strings.Contains(out, "Firewall:  ufw allow 80/tcp once 0.4.0 is running.") || !strings.Contains(out, "Firewall:  allow 443/tcp in ufw, once 0.4.0 is running.") {
 		t.Fatalf("the plan must say ports 80 and 443 are allowed:\n%s", out)
 	}
 	started := slices.Index(h.cmds, "systemctl start playkeeper-agent.service playkeeper-panel.service")

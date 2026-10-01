@@ -394,7 +394,18 @@ func writeUpgradeSummary(w io.Writer, res *install.Result) {
 	if res.Fingerprint != "" {
 		fmt.Fprintf(w, " (certificate fingerprint %s)", res.Fingerprint)
 	}
-	fmt.Fprintf(w, ".\nFrom now on, Playkeeper shows new versions in the dashboard (Settings) and installs them from there.\n")
+	fmt.Fprintf(w, ".\n")
+	writePrivateHost(w, res)
+	fmt.Fprintf(w, "From now on, Playkeeper shows new versions in the dashboard (Settings) and installs them from there.\n")
+}
+
+// writePrivateHost says when the link has the machine's private address,
+// because the installer couldn't find its public one, and where that is.
+func writePrivateHost(w io.Writer, res *install.Result) {
+	if res.PrivateHost {
+		host, _, _ := strings.Cut(strings.TrimPrefix(res.URL, "https://"), ":")
+		fmt.Fprintf(w, "%s is this VPS's private address: if the link won't open, use the public IP from your provider's console in its place.\n", host)
+	}
 }
 
 // runSelfUpdate is the updater that playkeeper-update.service starts.
@@ -456,7 +467,7 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 	} else {
 		fmt.Fprintf(w, "  3. Your worlds and backups were kept; the server starts again if it was running before.\n\n")
 	}
-	fmt.Fprintf(w, "If %s is not your public address, use your VPS's public IP instead.\n", strings.TrimPrefix(res.URL, "https://"))
+	writePrivateHost(w, res)
 	if res.Dashboard443 {
 		fmt.Fprintf(w, "Once you give it an address, the dashboard opens there without a port: allow TCP 443 in your provider's firewall too.\n")
 	}

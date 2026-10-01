@@ -101,6 +101,30 @@ func TestInstallSummarySaysWhatToClickAtTheBrowsersWarning(t *testing.T) {
 	}
 }
 
+// A setup link with a private address, which the installer couldn't swap for
+// the public one, says so and where the public one is, after an install and
+// after an upgrade; a public one needs no line.
+func TestInstallSummarySaysWhenTheAddressIsPrivate(t *testing.T) {
+	var private, public, upgraded, upgradedPublic bytes.Buffer
+	writeInstallSummary(&private, &install.Result{URL: "https://10.0.0.5:8443", PrivateHost: true, SetupCode: "abc123", Fingerprint: "AA:BB"})
+	writeInstallSummary(&public, &install.Result{URL: "https://203.0.113.7:8443", SetupCode: "abc123", Fingerprint: "AA:BB"})
+	writeUpgradeSummary(&upgraded, &install.Result{URL: "https://10.0.0.5:8443", PrivateHost: true, Upgraded: true, FromVersion: "0.4.15", Fingerprint: "AA:BB"})
+	writeUpgradeSummary(&upgradedPublic, &install.Result{URL: "https://203.0.113.7:8443", Upgraded: true, FromVersion: "0.4.15", Fingerprint: "AA:BB"})
+	want := "\n10.0.0.5 is this VPS's private address: if the link won't open, use the public IP from your provider's console in its place.\n"
+	for _, out := range []string{private.String(), upgraded.String()} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, out)
+		}
+	}
+	for _, out := range []string{public.String(), upgradedPublic.String()} {
+		for _, bad := range []string{"private address", "is not your public address"} {
+			if strings.Contains(out, bad) {
+				t.Errorf("a public address's summary says %q:\n%s", bad, out)
+			}
+		}
+	}
+}
+
 // Right under the link, the summary says what to do when it won't open: the
 // provider's firewall steps, for the provider the installer told, with the
 // install's own ports.
