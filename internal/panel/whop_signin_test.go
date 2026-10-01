@@ -342,6 +342,28 @@ func TestASignInWithWhopFinishesOnlyInTheBrowserThatStartedIt(t *testing.T) {
 	}
 }
 
+// A browser keeps one sign-in cookie: that of the tab that left for Whop
+// last. Coming back in an older tab, or through a link back from another
+// browser's sign-in, as one made to end someone's sign-in would be, finds no
+// sign-in and leaves the cookie, so the newest tab still finishes.
+func TestASignInWithWhopThatMatchesNoneLeavesTheCookie(t *testing.T) {
+	f, e, _, _, _ := sellingWithSignIn(t)
+	b := newBrowser(t, e)
+	_, older := b.visit(whopSignInPath)
+	_, newer := b.visit(whopSignInPath)
+	olderBack, newerBack := f.approve(t, older, "user_alex"), f.approve(t, newer, "user_alex")
+	if res, to := b.visit(olderBack); to != "/login?whop=expired" || len(res.Cookies()) != 0 {
+		t.Fatalf("coming back in the older tab: to %q, setting %q", to, res.Header.Values("Set-Cookie"))
+	}
+	_, theirs := newBrowser(t, e).visit(whopSignInPath)
+	if res, to := b.visit(f.approve(t, theirs, "user_alex")); to != "/login?whop=expired" || len(res.Cookies()) != 0 {
+		t.Fatalf("a link back from another browser's sign-in: to %q, setting %q", to, res.Header.Values("Set-Cookie"))
+	}
+	if _, to := b.visit(newerBack); to != "/" || b.signedInAs() != "alex" {
+		t.Fatalf("coming back in the newer tab after both: to %q, signed in as %q", to, b.signedInAs())
+	}
+}
+
 // signInCookie is the cookie a sign-in with Whop leaves with, or nil.
 func signInCookie(res *http.Response) *http.Cookie {
 	for _, c := range res.Cookies() {
