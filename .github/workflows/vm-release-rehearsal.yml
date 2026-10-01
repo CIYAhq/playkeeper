@@ -34,7 +34,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
+      # The workflow's own commit first, for its package cache: the commit to
+      # rehearse may be older than .github/actions/package-cache.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/package-cache
+        with:
+          set: vm-lab
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.ref != ''
         with:
           ref: ${{ inputs.ref }}
       - name: Switch on KVM for the runner's user (the udev rule used for Android emulators)

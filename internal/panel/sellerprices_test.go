@@ -78,6 +78,27 @@ func (f *fakeWhop) otherProduct(id string) whop.Metadata {
 	return maps.Clone(f.installed["biz_other"].products[id])
 }
 
+// setOtherProductVisibility has one of Other Hosting's products show on its
+// page on Whop as visibility says, such as hidden, as a copy's products
+// arrive or as its seller might set it there.
+func (f *fakeWhop) setOtherProductVisibility(id, visibility string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b := f.installed["biz_other"]
+	if b.visibility == nil {
+		b.visibility = map[string]string{}
+	}
+	b.visibility[id] = visibility
+}
+
+// otherProductVisibility is how one of Other Hosting's products shows on its
+// page on Whop.
+func (f *fakeWhop) otherProductVisibility(id string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return cmpOr(f.installed["biz_other"].visibility[id], "visible")
+}
+
 // setOtherPlan changes one of Other Hosting's plans on Whop, as its seller
 // might there.
 func (f *fakeWhop) setOtherPlan(id string, changes map[string]any) {
@@ -223,17 +244,25 @@ func TestASellerPricesTheirPlansAtOrAboveTheFloor(t *testing.T) {
 // price, marks each hosting product as this dashboard's for the store's
 // business, which the store site needs to show its plans, makes the hosting
 // plans visible, since a copy's plans arrive hidden and the store site
-// lists only visible ones, and only then opens the store, which then
-// sells. A product that isn't for hosting keeps its metadata, and its plan
-// stays hidden. Once the store is open, a new price takes the share along
-// at once.
+// lists only visible ones, shows the hosting products on the store's page
+// on Whop, which lists only visible products, since a copy's arrive hidden
+// too, and only then opens the store, which then sells. A product that
+// isn't for hosting keeps its metadata, and it and its plan stay hidden; a
+// hosting product the seller archived stays archived. Once the store is
+// open, a new price takes the share along at once.
 func TestOpenTheStoreSetsPlaykeepersShareThenOpensIt(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
 	f.setOtherProduct("prod_other", whop.Metadata{"color": "blue"})
 	f.setOtherProduct("prod_merch", whop.Metadata{"color": "green"})
+	f.setOtherProduct("prod_retired", whop.Metadata{})
 	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
 	f.addOtherPlan(map[string]any{"id": "plan_merch", "title": "Merch", "visibility": "hidden", "renewal_price": 5, "product": map[string]any{"id": "prod_merch", "title": "Merch"}})
+	f.addOtherPlan(map[string]any{"id": "plan_retired", "title": "Retired", "renewal_price": 12, "product": map[string]any{"id": "prod_retired", "title": "Retired server"},
+		"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	for p, vis := range map[string]string{"prod_other": "hidden", "prod_merch": "hidden", "prod_retired": "archived"} {
+		f.setOtherProductVisibility(p, vis)
+	}
 	r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil)
 	if r.status != http.StatusOK || r.body["open"] != true {
 		t.Fatalf("Open the store: %d %v", r.status, r.body)
@@ -252,6 +281,9 @@ func TestOpenTheStoreSetsPlaykeepersShareThenOpensIt(t *testing.T) {
 	}
 	if vis := f.otherPlanVisibility("plan_merch"); vis != "hidden" {
 		t.Fatalf("Other's merch plan shows as %v on Whop", vis)
+	}
+	if other, merch, old := f.otherProductVisibility("prod_other"), f.otherProductVisibility("prod_merch"), f.otherProductVisibility("prod_retired"); other != "visible" || merch != "hidden" || old != "archived" {
+		t.Fatalf("on the store's page on Whop, Other's hosting product is %s, its merch %s and its archived hosting product %s", other, merch, old)
 	}
 	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != "" {
 		t.Fatalf("the store is still closed: %q", st.ClosedWhy)
@@ -295,12 +327,14 @@ func TestOpenTheStorePutsRightAShareThatPaysTooLittle(t *testing.T) {
 // Open the store leaves the store closed while anything is wrong: nobody
 // named to receive Playkeeper's share, a plan under the floor, one that
 // doesn't renew monthly or that has a free trial, no hosting plan at all,
-// Whop refusing the products' marks or the plans' visibility, no address,
-// or the store suspended or gone. A plan's problem leaves the shares alone,
-// and the plans stay hidden until the shares and marks are done.
+// Whop refusing the products' marks or the plans' or the products'
+// visibility, no address, or the store suspended or gone. A plan's problem
+// leaves the shares alone, and the plans and products stay hidden until
+// the shares and marks are done.
 func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
+	f.setOtherProductVisibility("prod_other", "hidden")
 	sell := func(name string, status int, says string) {
 		t.Helper()
 		r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil)
@@ -343,9 +377,19 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	if vis := f.otherPlanVisibility("plan_other"); vis != "hidden" {
 		t.Fatalf("a store that didn't open showed its plan: %v", vis)
 	}
+	if vis := f.otherProductVisibility("prod_other"); vis != "hidden" {
+		t.Fatalf("a store that didn't open showed its product: %v", vis)
+	}
 	f.showDown = true
 	sell("Whop refusing to show the plans", http.StatusBadGateway, "plan:update")
 	f.showDown = false
+	f.mu.Lock()
+	f.installed["biz_other"].showRefused = "prod_other"
+	f.mu.Unlock()
+	sell("Whop refusing to show the products", http.StatusBadGateway, "access_pass:update")
+	f.mu.Lock()
+	f.installed["biz_other"].showRefused = ""
+	f.mu.Unlock()
 	writes := len(f.shareWrites)
 	if _, err := e.srv.suspendWhopStore(t.Context(), "biz_other", "admin", "griefing"); err != nil {
 		t.Fatal(err)
@@ -582,10 +626,11 @@ func TestOnlyTheBusinesssTeamPricesAndOpensItsStore(t *testing.T) {
 // Once the store is open, the seller's prices offer Update the store
 // instead of Open the store: the same call, by the same rules, which sets
 // Playkeeper's share on a hosting product the seller added since, marks it
-// for the store site and shows its plan, as a copy's plans need. The audit
-// log says it was an update. One refused for a plan that breaks the rules
-// writes nothing to Whop and leaves the store open, since only the store's
-// pass closes an open store. A suspended store is offered neither.
+// for the store site and shows it and its plan on Whop, as a copy's need.
+// The audit log says it was an update. One refused for a plan that breaks
+// the rules writes nothing to Whop and leaves the store open, since only
+// the store's pass closes an open store. A suspended store is offered
+// neither.
 func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
@@ -606,6 +651,7 @@ func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
 	}
 	offered("an open store", false, true)
 	f.setOtherProduct("prod_big", whop.Metadata{})
+	f.setOtherProductVisibility("prod_big", "hidden")
 	f.addOtherPlan(map[string]any{"id": "plan_big", "title": "Big", "visibility": "hidden", "renewal_price": 24,
 		"product": map[string]any{"id": "prod_big", "title": "Big server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "8"}})
 	f.addOtherPlan(map[string]any{"id": "plan_cheap", "title": "Cheap", "visibility": "hidden", "renewal_price": 9,
@@ -617,8 +663,8 @@ func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
 	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != "" {
 		t.Fatalf("a refused update closed the store: %q", st.ClosedWhy)
 	}
-	if vis := f.otherPlanVisibility("plan_big"); vis != "hidden" || f.share("biz_other", "prod_big") != nil {
-		t.Fatalf("a refused update reached Whop: Big %v, its share %v", vis, f.share("biz_other", "prod_big"))
+	if vis := f.otherPlanVisibility("plan_big"); vis != "hidden" || f.otherProductVisibility("prod_big") != "hidden" || f.share("biz_other", "prod_big") != nil {
+		t.Fatalf("a refused update reached Whop: Big %v, its product %s, its share %v", vis, f.otherProductVisibility("prod_big"), f.share("biz_other", "prod_big"))
 	}
 	f.setOtherPlan("plan_cheap", map[string]any{"visibility": "archived"})
 	if r := sell(); r.status != http.StatusOK || r.body["open"] != true {
@@ -630,8 +676,8 @@ func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
 	if meta := f.otherProduct("prod_big"); meta[whop.MetaDashboard] != whopDashboard || meta[whop.MetaBusiness] != "biz_other" {
 		t.Fatalf("Big's product: %v", meta)
 	}
-	if vis := f.otherPlanVisibility("plan_big"); vis != "visible" {
-		t.Fatalf("Big shows as %v on Whop", vis)
+	if vis := f.otherPlanVisibility("plan_big"); vis != "visible" || f.otherProductVisibility("prod_big") != "visible" {
+		t.Fatalf("Big shows as %v on Whop, and its product as %s", vis, f.otherProductVisibility("prod_big"))
 	}
 	if rows := e.auditRows(t, "whop.store_sell"); len(rows) != 2 || !strings.HasPrefix(rows[0], "whop:user_otherowner biz_other succeeded Open the store: ") ||
 		!strings.HasPrefix(rows[1], "whop:user_otherowner biz_other succeeded Update the store: ") {

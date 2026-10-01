@@ -267,3 +267,9 @@ func (c *Client) HideProduct(ctx context.Context, productID string) error {
 func (c *Client) ShowPlan(ctx context.Context, planID string) error {
 	return c.do(ctx, http.MethodPatch, "/variants/"+url.PathEscape(planID), nil, map[string]any{"visibility": "visible"}, nil)
 }
+
+// ShowProduct shows a hidden product on the store's page on Whop, which
+// lists only visible products.
+func (c *Client) ShowProduct(ctx context.Context, productID string) error {
+	return c.do(ctx, http.MethodPatch, "/products/"+url.PathEscape(productID), nil, map[string]any{"visibility": "visible"}, nil)
+}

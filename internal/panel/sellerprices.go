@@ -23,7 +23,8 @@ import (
 // the seller sets any at or above the floor, $12 a month for each 4 GB.
 // Open the store sets Playkeeper's share on each hosting product
 // (syncWhopShares, with force) and only when that leaves nothing wrong
-// opens the store for its seller's reason, "Not open yet".
+// puts the hosting products and their plans on sale on Whop and opens the
+// store for its seller's reason, "Not open yet".
 
 // whopFloorPer4GB is the least a hosted plan may charge a month for each
 // 4 GB it allows, in cents.
@@ -395,6 +396,18 @@ func allowanceIssue(title string, servers, memoryMB int) (string, planIssue) {
 		planIssue{rule: ruleAllowance, says: "allows " + gigabytes(memoryMB), blocked: fmt.Sprintf("%s allows %s. %s", title, gigabytes(memoryMB), fix)}
 }
 
+// hostingProducts are the store's hosting products, the ones with a hosting
+// plan among plans, by id.
+func hostingProducts(plans []whop.Plan) map[string]bool {
+	hosting := map[string]bool{}
+	for _, p := range plans {
+		if _, ok := sellerPriceOf(p); ok {
+			hosting[p.Product.ID] = true
+		}
+	}
+	return hosting
+}
+
 // markHostedProducts marks each of the store's hosting products, the ones
 // with a hosting plan among plans, as sold by this dashboard for the
 // store's business (whop.WithSeller): the store site shows a product's
@@ -408,12 +421,7 @@ func (s *Server) markHostedProducts(ctx context.Context, c *whop.Client, st whop
 	if dash == "" {
 		return errNoDashboardAddress
 	}
-	hosting := map[string]bool{}
-	for _, p := range plans {
-		if _, ok := sellerPriceOf(p); ok {
-			hosting[p.Product.ID] = true
-		}
-	}
+	hosting := hostingProducts(plans)
 	products, err := c.Products(ctx, st.ID)
 	if err != nil {
 		return err
@@ -443,6 +451,34 @@ func showHostedPlans(ctx context.Context, c *whop.Client, plans []whop.Plan) err
 		}
 		if err := c.ShowPlan(ctx, p.ID); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// showHostedProducts shows each of the store's hosting products among plans
+// on its page on Whop, whop.com/<the store>, which lists only visible
+// products, where a copy's arrive hidden. A product already visible, or
+// archived, is left alone. The store's pass forgets each one shown, if it
+// hid it while the store sold nothing, so it hides it again if the store
+// stays closed, and still shows one Whop refused here once the store sells
+// (listWhopProducts). It's errDB when that can't be forgotten.
+func (s *Server) showHostedProducts(ctx context.Context, c *whop.Client, st whopStore, plans []whop.Plan) error {
+	hosting := hostingProducts(plans)
+	products, err := c.Products(ctx, st.ID)
+	if err != nil {
+		return err
+	}
+	for _, p := range products {
+		if !hosting[p.ID] || p.Visibility == "visible" || p.Visibility == "archived" {
+			continue
+		}
+		if err := c.ShowProduct(ctx, p.ID); err != nil {
+			return err
+		}
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM whop_unlisted_products WHERE store_id = ? AND product_id = ?`, st.ID, p.ID); err != nil {
+			s.log.Error("could not forget a product the store's pass hid", "store", st.ID, "product", p.ID, "err", err)
+			return errDB
 		}
 	}
 	return nil
@@ -727,7 +763,8 @@ type sellerOpened struct {
 // Then Playkeeper's share is set on each hosting product, putting right any
 // share the seller changed (syncWhopShares, with force), and only when that
 // leaves nothing wrong are the hosting products marked for the store site,
-// the hosting plans made visible there and the website's free product
+// the hosting plans made visible there, the hosting products shown on the
+// store's page on Whop (showHostedProducts) and the website's free product
 // hidden (hideWebsiteProduct), and the store opens, for its seller's reason
 // alone. A refusal leaves an open store open: only its pass closes it. One
 // for plans gives each a line with its problems, and says once how to meet
@@ -803,6 +840,14 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		s.sellerRefusal(w, err)
 		return
 	}
+	switch err := s.showHostedProducts(ctx, c, st, plans); {
+	case errors.Is(err, errDB):
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	case err != nil:
+		s.sellerRefusal(w, err)
+		return
+	}
 	if err := hideWebsiteProduct(ctx, c, st, plans); err != nil {
 		s.sellerRefusal(w, err)
 		return
@@ -816,7 +861,7 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 	if updating {
 		pressed = "Update the store"
 	}
-	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", pressed+": Playkeeper's share is set on each hosting product, the products are marked for the store site, and their plans are visible")
+	s.audit("whop:"+user, "whop.store_sell", st.ID, "succeeded", pressed+": Playkeeper's share is set on each hosting product, the products are marked for the store site and shown on Whop, and their plans are visible")
 	s.readWhopStoreSoon(ctx, st.ID)
 	out := sellerOpened{Open: open}
 	if !open {

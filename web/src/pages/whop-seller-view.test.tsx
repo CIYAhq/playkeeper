@@ -89,7 +89,13 @@ describe('a seller’s open store', () => {
     expect(text).toContain('CustomersNo customers yet.')
     expect(text).not.toContain('0 customers')
     expect(text).toContain('Starter and Plus are on the same product.')
-    expect(document.querySelector('a')).toBeNull()
+  })
+
+  it('links to the store by its business on Whop before it has a route of its own', async () => {
+    await render(viewWith())
+    const visit = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes('Visit your store'))
+    expect(visit?.getAttribute('href')).toBe('https://whop.com/biz_other')
+    expect(visit?.getAttribute('target')).toBe('_blank')
   })
 
   it('updates the store for a plan added since, and says so or why not', async () => {

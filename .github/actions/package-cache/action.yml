@@ -1,0 +1,46 @@
+name: Package cache
+description: >-
+  Restores the newest packages the Package cache workflow (package-cache.yml)
+  saved for a set, for this runner's Ubuntu and CPU, and has apt keep its
+  packages with them, so the job's own apt installs read them from the
+  Actions cache and fetch from Ubuntu's mirror only what changed since. That
+  mirror sometimes sends packages at a fiftieth of its usual speed (47 kB/s
+  on 1 Oct 2026). With nothing saved, apt fetches everything, as it would
+  without this.
+
+inputs:
+  set:
+    description: >-
+      The packages the job installs, as package-cache.yml names its sets:
+      chromium (Playwright's for Chromium), chromium-webkit (for Chromium and
+      WebKit) or vm-lab (the KVM lab's tools and Chromium's)
+    required: true
+
+outputs:
+  prefix:
+    description: The start of the set's cache keys, which end with a name for the packages in it
+    value: ${{ steps.key.outputs.prefix }}
+
+runs:
+  using: composite
+  steps:
+    - name: The set's cache key
+      id: key
+      shell: bash
+      env:
+        SET: ${{ inputs.set }}
+      run: |
+        prefix=$(scripts/package-cache.sh prefix "$SET")
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+    - name: The newest packages saved for the set
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: /tmp/apt-packages
+        key: ${{ steps.key.outputs.prefix }}none
+        restore-keys: ${{ steps.key.outputs.prefix }}
+    - name: apt keeps its packages with them
+      shell: bash
+      run: |
+        sudo mkdir -p /tmp/apt-packages/partial
+        echo 'Dir::Cache::Archives "/tmp/apt-packages/";' | sudo tee /etc/apt/apt.conf.d/90package-cache >/dev/null
+        echo "$(find /tmp/apt-packages -maxdepth 1 -name '*.deb' | wc -l) packages from the cache"
