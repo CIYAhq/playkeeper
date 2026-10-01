@@ -7129,8 +7129,8 @@ control "joined page: the zone answers ahead of a copy a move left on the dashbo
 	return s.zoneName(host)' \
   ./internal/panel '^TestTheZoneAnswersAheadOfACopyAMoveLeft$'
 control "joined page: the keeper holds the ports while a joined server is on the page" internal/panel/pageports.go \
-  'st.On = st.On || s.anyJoinedPageOn(ctx)' \
-  'st.On = st.On || false && s.anyJoinedPageOn(ctx)' \
+  '		on, known = s.anyJoinedPageOn(jctx)' \
+  '		_, known = s.anyJoinedPageOn(jctx)' \
   ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
 control "joined page: the keeper gives the ports back once the joined server is off" internal/panel/joinedpage.go \
   '				if _, ok := s.joinedPage(ctx, j); ok {' \
@@ -7138,10 +7138,27 @@ control "joined page: the keeper gives the ports back once the joined server is 
   ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
 control "joined page: the keeper's asks end with its look's deadline" internal/panel/joinedpage.go \
   '		case <-ctx.Done():
-			return false' \
+			return false, false' \
   '		case <-make(chan struct{}):
-			return false' \
+			return false, false' \
   ./internal/panel '^TestTheKeepersAsksEndWithItsDeadline$'
+control "joined page: a look the joined machines don't all answer in time keeps what the page holds" internal/panel/pageports.go \
+  '	if known {
+		p.on = on
+	}' \
+  '	if known || true {
+		p.on = on
+	}' \
+  ./internal/panel '^TestALookCutShortKeepsThePorts$'
+control "joined page: Settings offer HTTPS for a joined server only with a certificate for its name" internal/panel/serverpage.go \
+  'if ports.HTTPS.State == api.PortOpen && !s.pageCertified(v.Host) {' \
+  'if false && ports.HTTPS.State == api.PortOpen && !s.pageCertified(v.Host) {' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
+control "joined page: a change to a joined server's Settings never answers with an address its machine has" internal/panel/serverpage.go \
+  '	s.pageChanged()
+	s.pageView(m, id, &v)' \
+  '	s.pageChanged()' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
 control "joined page: a changed zone forgets the page and asks the keeper to look again" internal/panel/fleetdns.go \
   '	if changed {
 		s.pageChanged()' \
