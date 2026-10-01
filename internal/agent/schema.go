@@ -460,4 +460,13 @@ CREATE TABLE kept_backups (
 	`
 ALTER TABLE servers ADD COLUMN account TEXT NOT NULL DEFAULT '';
 `,
+	// The dashboard's Discord webhook, which a joined machine the dashboard
+	// confirmed keeps for its watch on the dashboard (see dashboardwatch.go).
+	`
+CREATE TABLE dashboard_watch (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  webhook_url TEXT NOT NULL,
+  set_at      INTEGER NOT NULL
+);
+`,
 }

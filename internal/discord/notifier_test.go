@@ -655,6 +655,36 @@ func TestFleetAlertsArePostedWhateverTheSwitches(t *testing.T) {
 	}
 }
 
+func TestAJoinedMachinesWatchOnItsDashboardPostsWhateverTheSwitches(t *testing.T) {
+	h := newHarness(t, Settings{Webhook: testWebhook(t, ""), Alerts: Alerts{}})
+	h.Notify(DashboardDown("m2", 5))
+	h.Notify(DashboardBack("m2", 23))
+	h.Notify(DashboardDown("*m3*", 6))
+	h.Notify(DashboardBack("*m3*", 1))
+	h.sendDue()
+	var got []string
+	for _, r := range h.fake.take() {
+		for _, e := range r.Msg.Embeds {
+			got = append(got, e.Title+": "+strings.TrimSuffix(e.Description, dashboardLine))
+		}
+	}
+	const away = " Its servers keep running, out of the dashboard's reach until the two connect again."
+	want := []string{
+		`Dashboard can't be reached: **m2** hasn't reached the dashboard for 5 minutes.` + away,
+		`Dashboard reachable again: **m2** reaches the dashboard again, after 23 minutes.`,
+		`Dashboard can't be reached: **\*m3\*** hasn't reached the dashboard for 6 minutes.` + away,
+		`Dashboard reachable again: **\*m3\*** reaches the dashboard again, after 1 minute.`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("with every switch off, the watch's alerts still go out, each one:\n%q\nwant\n%q", got, want)
+	}
+	for _, k := range []Kind{KindDashboardDown, KindDashboardBack} {
+		if k.Valid() || ParseAlerts(string(k)).Has(k) {
+			t.Errorf("%s must not be a switch: the dashboard confirming the machine is", k)
+		}
+	}
+}
+
 func TestSendTestPostsAConfirmation(t *testing.T) {
 	f := newFakeDiscord(t)
 	ctx := context.Background()
