@@ -521,11 +521,12 @@ func (s *server) pregenAfterRestart(ctx context.Context, p pregen.Platform, task
 
 // pregenMemoryKills is how many times the server ran out of memory since
 // task started, or since someone last resumed it, as after giving the
-// server more memory.
+// server more memory. A crash in the millisecond the start or the resume
+// was recorded counts: each is recorded once Chunky runs the task.
 func (s *server) pregenMemoryKills(task *pregenTask) int {
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE server_id = ? AND kind = 'server_crashed' AND (detail LIKE ? OR detail LIKE ?)
-		AND ts > MAX(?, COALESCE((SELECT MAX(ts) FROM audit WHERE server_id = ? AND action = ? AND actor != 'playkeeper'), 0))`,
+		AND ts >= MAX(?, COALESCE((SELECT MAX(ts) FROM audit WHERE server_id = ? AND action = ? AND actor != 'playkeeper'), 0))`,
 		s.id, oomCrash+"%", heapCrash+"%", task.StartedAt.UnixMilli(), s.id, pregenAudits["continue"]).Scan(&n); err != nil {
 		s.log.Warn("could not count the server's crashes", "server", s.id, "err", err)
 	}

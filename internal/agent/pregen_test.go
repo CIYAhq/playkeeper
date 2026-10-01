@@ -747,6 +747,33 @@ func TestPregenATaskACrashDroppedIsStartedAgain(t *testing.T) {
 	}
 }
 
+// A task counts the crashes since it started, or since someone resumed it,
+// the millisecond the start or the resume was recorded included: each is
+// recorded once Chunky runs the task. Killed just after the start, as the
+// test above does, the server can crash in that very millisecond.
+func TestACrashInTheMillisecondATaskStartedCountsForIt(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	start := time.UnixMilli(time.Now().UnixMilli()).UTC()
+	task := &pregenTask{StartedAt: start}
+	crash := func(at time.Time) { s.recordEvent(at, "server_crashed", "", "docker", oomCrash) }
+	crash(start.Add(-time.Millisecond))
+	crash(start)
+	if n := s.pregenMemoryKills(task); n != 1 {
+		t.Fatalf("%d crashes counted for the task, want the one in the millisecond it started", n)
+	}
+	resumed := start.Add(time.Second)
+	if _, err := e.a.db.Exec(`INSERT INTO audit(ts, actor, action, target, result, detail, server_id) VALUES(?, 'admin', ?, 'world', 'succeeded', '', ?)`,
+		resumed.UnixMilli(), pregenAudits["continue"], e.sid); err != nil {
+		t.Fatal(err)
+	}
+	crash(resumed)
+	if n := s.pregenMemoryKills(task); n != 1 {
+		t.Fatalf("%d crashes counted after the resume, want the one in the millisecond it was resumed", n)
+	}
+}
+
 // A task finishes when Chunky logs so, although it saved the task short of
 // the area a moment before. A task cancelled from the console that close to
 // its end, which Chunky never logs as finished, ends as cancelled.
