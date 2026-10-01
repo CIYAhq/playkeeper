@@ -8931,8 +8931,8 @@ control "deleting customers: buying again cancels a deletion that waits for a mo
   'if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan && false {' \
   ./internal/panel '^TestBuyingAgainCancelsADeletionWaitingForAMove$'
 control "deleting customers: a renewal Whop's API hasn't confirmed counts as a plan" internal/panel/erasure.go \
-  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.status IN' \
-  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.stale = 0 AND m.status IN' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND ' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.stale = 0 AND ' \
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
 control "deleting customers: a store that left holds no plan" internal/panel/erasure.go \
   'WHERE st.store_id = m.store_id AND st.left_at != 0)' \
