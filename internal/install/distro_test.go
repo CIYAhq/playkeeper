@@ -152,6 +152,9 @@ func (h *fakeHost) runEL(name string, args []string) (string, error) {
 	case name == "uname":
 		return "6.12.0-211.47.1.el10_2.x86_64\n", nil
 	case name == "dnf" && slices.Contains(args, "install"):
+		if out, err := nextFailure(&h.dnfFails, "dnf "+strings.Join(args, " "), 1); err != nil {
+			return out, err
+		}
 		for _, p := range h.dnfDocker {
 			h.packages[p] = true
 		}

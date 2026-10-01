@@ -57,17 +57,28 @@ func (apt) installed(sys System) (map[string]bool, error) { return installedPack
 
 // install asks about optional only after apt-get update: a new server's
 // package lists are empty until then, so apt has no candidate for anything.
+// Each try updates the lists, so one after a mirror failure reads them afresh.
 func (apt) install(sys System, out io.Writer, pkgs, optional []string) error {
-	if _, err := aptGet(sys, out, "update"); err != nil {
-		return err
-	}
-	for _, p := range optional {
-		if aptCandidate(sys, p) {
-			pkgs = append(slices.Clone(pkgs), p)
+	return mirrorRetry(sys, out, aptMirrorFailed, func(bool) (string, error) {
+		if o, err := aptGet(sys, out, "update"); err != nil {
+			return o, err
 		}
-	}
-	_, err := aptGet(sys, out, append([]string{"install", "-y", "--no-install-recommends"}, pkgs...)...)
-	return err
+		want := slices.Clone(pkgs)
+		for _, p := range optional {
+			if aptCandidate(sys, p) {
+				want = append(want, p)
+			}
+		}
+		return aptGet(sys, out, append([]string{"install", "-y", "--no-install-recommends"}, want...)...)
+	})
+}
+
+// aptMirrorFailed reports whether apt-get failed because the mirror didn't
+// have a package list its Release file named ("File has unexpected size (…).
+// Mirror sync in progress?", or a hash sum mismatch), or a package the lists
+// name. A mirror it can't reach at all is only a warning to apt-get update.
+func aptMirrorFailed(out string) bool {
+	return strings.Contains(out, "E: Some index files failed to download") || strings.Contains(out, "E: Unable to fetch some archives")
 }
 
 func (apt) removable(_ System, pkgs []string) ([]string, []string, string) { return pkgs, nil, "" }
@@ -115,13 +126,26 @@ func (dnf) installed(sys System) (map[string]bool, error) {
 }
 
 // install waits for another dnf or rpm first; dnf also waits for them
-// itself, but silently.
+// itself, but silently. A try after a mirror failure reads the repositories'
+// metadata afresh.
 func (dnf) install(sys System, out io.Writer, pkgs, _ []string) error {
 	if err := waitForPackageLock(sys, out, dnf{}, sys.Now().Add(lockWait)); err != nil {
 		return err
 	}
-	_, err := sys.Run("dnf", append([]string{"-y", "--setopt=install_weak_deps=False", "install"}, pkgs...)...)
-	return err
+	return mirrorRetry(sys, out, dnfMirrorFailed, func(again bool) (string, error) {
+		args := []string{"-y"}
+		if again {
+			args = append(args, "--refresh")
+		}
+		return sys.Run("dnf", append(append(args, "--setopt=install_weak_deps=False", "install"), pkgs...)...)
+	})
+}
+
+// dnfMirrorFailed reports whether dnf gave up because no mirror had a
+// repository's metadata or a package. A "[MIRROR]" line only says dnf moved
+// on to the next mirror, and comes before other failures too.
+func dnfMirrorFailed(out string) bool {
+	return strings.Contains(out, "Failed to download metadata") || strings.Contains(out, "Error downloading packages")
 }
 
 // removable asks rpm what removing pkgs would break, and keeps each package
@@ -268,6 +292,36 @@ func aptGet(sys System, out io.Writer, args ...string) (string, error) {
 			return o, err
 		}
 		sys.Sleep(5 * time.Second)
+	}
+}
+
+// mirrorTries bounds how often install runs the package manager when no
+// mirror had what it needed; mirrorWait is the first wait between tries,
+// doubled after each.
+const (
+	mirrorTries = 4
+	mirrorWait  = 15 * time.Second
+)
+
+// mirrorRetry runs try until it works or fails for a reason other than a
+// mirror's, as mirrorFailed tells from its output, at most mirrorTries times;
+// again tells try that a mirror failed the try before. A mirror part-way
+// through a sync can list files it doesn't have yet, as AlmaLinux 9's extras
+// repository did on 1 Oct 2026 ("Cannot download, all mirrors were already
+// tried without success"), and has them a little later. It says once that it
+// tries again.
+func mirrorRetry(sys System, out io.Writer, mirrorFailed func(output string) bool, try func(again bool) (string, error)) error {
+	wait := mirrorWait
+	for n := 1; ; n++ {
+		o, err := try(n > 1)
+		if err == nil || n == mirrorTries || !mirrorFailed(o+"\n"+err.Error()) {
+			return err
+		}
+		if n == 1 {
+			fmt.Fprintln(out, "    a package mirror wasn't ready; trying again...")
+		}
+		sys.Sleep(wait)
+		wait *= 2
 	}
 }
 

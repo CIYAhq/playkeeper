@@ -56,6 +56,10 @@ type fakeHost struct {
 	lockForever   bool // the package lock is never released
 	lockFreedAt   int  // len(cmds) when a held lock was released
 	aptLockErrors int  // apt-get fails this many more times with a lock error
+	// dnfFails, aptUpdateFails and aptInstallFails are what dnf install,
+	// apt-get update and apt-get install print as they fail, one run each in
+	// turn, before a run that works.
+	dnfFails, aptUpdateFails, aptInstallFails []string
 	// unhealthy makes the health check for a version fail; healthChecks
 	// records the versions checked, and panelPorts the panel ports.
 	unhealthy    map[string]error
@@ -172,6 +176,9 @@ func (h *fakeHost) system(t *testing.T) System {
 				}
 				return h.aptPolicy[args[1]], nil
 			case name == "apt-get" && len(apt) > 0 && apt[0] == "update":
+				if out, err := nextFailure(&h.aptUpdateFails, line, 100); err != nil {
+					return out, err
+				}
 				h.aptUpdated = true
 			case name == "iptables":
 				return h.fw4.run(args)
@@ -194,6 +201,9 @@ func (h *fakeHost) system(t *testing.T) System {
 					return "", errors.New("exit status 1: Job for docker.service failed because the control process exited with error code.")
 				}
 			case name == "apt-get" && len(apt) > 0 && apt[0] == "install":
+				if out, err := nextFailure(&h.aptInstallFails, line, 100); err != nil {
+					return out, err
+				}
 				for _, p := range append([]string{"containerd", "runc", "pigz"}, apt[1:]...) {
 					if !strings.HasPrefix(p, "-") {
 						h.packages[p] = true
@@ -300,6 +310,17 @@ func (h *fakeHost) system(t *testing.T) System {
 			return ParseVersionLine(string(b))
 		},
 	}
+}
+
+// nextFailure takes the next of a command's failures off q: what the command
+// prints, and the error Real's Run gives for it.
+func nextFailure(q *[]string, line string, status int) (string, error) {
+	if len(*q) == 0 {
+		return "", nil
+	}
+	out := (*q)[0]
+	*q = (*q)[1:]
+	return out, fmt.Errorf("%s: exit status %d: %s", line, status, lastLines(out, 5))
 }
 
 func appendLine(path, line string) {
