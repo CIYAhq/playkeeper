@@ -12,8 +12,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -81,27 +83,51 @@ func writePaper(path string, f minecraft.Fill, now time.Time) error {
 // writeSoftware writes each other type's list to path, keeping a type's
 // list there when its upstream can't be read.
 func writeSoftware(path string, s software.Sources, now time.Time) error {
+	return writeLists(path, func(ctx context.Context, typ string) (software.BuiltInType, error) {
+		return s.RecordBuiltIn(ctx, typ, now)
+	})
+}
+
+// writeLists writes the list record makes of each type to path, keeping a
+// type's list there when record fails. When the lists there can't be read,
+// a type that fails can't be kept, so nothing is written rather than a file
+// without it.
+func writeLists(path string, record func(ctx context.Context, typ string) (software.BuiltInType, error)) error {
 	var kept software.BuiltInLists
+	var unreadable error
 	if b, err := os.ReadFile(path); err == nil {
-		kept, _ = software.ParseBuiltInLists(b)
+		kept, unreadable = software.ParseBuiltInLists(b)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		unreadable = err
 	}
 	out := software.BuiltInLists{Types: map[string]software.BuiltInType{}}
 	var failed []string
+	lost := false
 	for _, typ := range []string{software.Vanilla, software.Purpur, software.Fabric, software.Quilt, software.NeoForge, software.Forge} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		t, err := s.RecordBuiltIn(ctx, typ, now)
+		t, err := record(ctx, typ)
 		cancel()
-		if err != nil {
-			failed = append(failed, fmt.Sprintf("%s's list was kept as it was: %v", typ, err))
-			if k, ok := kept.Types[typ]; ok {
-				out.Types[typ] = k
-			}
+		if err == nil {
+			out.Types[typ] = t
+			fmt.Printf("%s: %d versions, as its upstream listed them at %s\n", typ, len(t.Releases), t.MadeAt.Format(time.RFC3339))
 			continue
 		}
-		out.Types[typ] = t
-		fmt.Printf("%s: %d versions, as its upstream listed them at %s\n", typ, len(t.Releases), t.MadeAt.Format(time.RFC3339))
+		k, ok := kept.Types[typ]
+		switch {
+		case ok:
+			out.Types[typ] = k
+			failed = append(failed, fmt.Sprintf("%s's list was kept as it was: %v", typ, err))
+		case unreadable != nil:
+			lost = true
+			failed = append(failed, fmt.Sprintf("%s's list couldn't be made: %v", typ, err))
+		default:
+			failed = append(failed, fmt.Sprintf("%s has no list yet: %v", typ, err))
+		}
 	}
-	if len(out.Types) > 0 {
+	switch {
+	case lost:
+		failed = append(failed, fmt.Sprintf("the lists in %s can't be read (%v), so none was written", path, unreadable))
+	case len(out.Types) > 0:
 		if err := writeJSON(path, out); err != nil {
 			return err
 		}
