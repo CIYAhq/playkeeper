@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/api"
 )
 
 // The list built into this build offers what a machine with no list of its
-// own needs to create a server while PaperMC's API is down: stable
-// versions, newest first and the newest recommended, each with a jar
-// checksum and an address on PaperMC's download host.
-func TestTheBuiltInPaperListOffersStableVersionsToDownloadByChecksum(t *testing.T) {
+// own needs to create a server while PaperMC's API is down: versions newest
+// first, the newest stable one recommended and any newer one experimental,
+// each with a jar checksum and an address on PaperMC's download host.
+func TestTheBuiltInPaperListOffersVersionsToDownloadByChecksum(t *testing.T) {
 	entries, madeAt, err := BuiltInCatalog()
 	if err != nil {
 		t.Fatal(err)
@@ -22,8 +25,9 @@ func TestTheBuiltInPaperListOffersStableVersionsToDownloadByChecksum(t *testing.
 	if madeAt.IsZero() || madeAt.After(time.Now()) {
 		t.Fatalf("the list says when it was made, in the past: %v", madeAt)
 	}
-	if len(entries) < 2 || !entries[0].Recommended {
-		t.Fatalf("the newest stable version comes first, recommended: %+v", entries)
+	rec := slices.IndexFunc(entries, func(e api.CatalogEntry) bool { return e.Recommended })
+	if rec < 0 || len(entries) < rec+2 || slices.ContainsFunc(entries[:rec], func(e api.CatalogEntry) bool { return !e.Experimental }) || entries[rec].Experimental {
+		t.Fatalf("the newest stable version is recommended, after only experimental ones: %+v", entries)
 	}
 	for i, e := range entries {
 		if CompareMinecraft(e.MinecraftVersion, OldestRelease) < 0 || e.Java > ImageJava || e.Java == 0 {
