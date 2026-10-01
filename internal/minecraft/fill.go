@@ -49,14 +49,17 @@ type fillVersion struct {
 }
 
 type fillBuild struct {
-	ID        int    `json:"id"`
-	Channel   string `json:"channel"`
-	Downloads map[string]struct {
-		Name      string `json:"name"`
-		Checksums struct {
-			SHA256 string `json:"sha256"`
-		} `json:"checksums"`
-	} `json:"downloads"`
+	ID        int                     `json:"id"`
+	Channel   string                  `json:"channel"`
+	Downloads map[string]fillDownload `json:"downloads"`
+}
+
+type fillDownload struct {
+	Name      string `json:"name"`
+	Checksums struct {
+		SHA256 string `json:"sha256"`
+	} `json:"checksums"`
+	URL string `json:"url"`
 }
 
 var (
@@ -66,6 +69,34 @@ var (
 
 // errNoVersion means PaperMC has no such Minecraft version.
 var errNoVersion = errors.New("PaperMC has no such version")
+
+// paperSource is where Paper's versions and builds are read: PaperMC's Fill
+// API, or the list built into Playkeeper.
+type paperSource interface {
+	versions(ctx context.Context) ([]fillVersion, error)
+	version(ctx context.Context, id string) (fillVersion, error)
+	builds(ctx context.Context, id string) ([]fillBuild, error)
+}
+
+func (f Fill) versions(ctx context.Context) ([]fillVersion, error) {
+	var list struct {
+		Versions []fillVersion `json:"versions"`
+	}
+	err := f.get(ctx, "/v3/projects/paper/versions", &list)
+	return list.Versions, err
+}
+
+func (f Fill) version(ctx context.Context, id string) (fillVersion, error) {
+	var v fillVersion
+	err := f.get(ctx, "/v3/projects/paper/versions/"+id, &v)
+	return v, err
+}
+
+func (f Fill) builds(ctx context.Context, id string) ([]fillBuild, error) {
+	var builds []fillBuild
+	err := f.get(ctx, "/v3/projects/paper/versions/"+id+"/builds", &builds)
+	return builds, err
+}
 
 func (f Fill) get(ctx context.Context, path string, v any) error {
 	u, err := url.JoinPath(f.BaseURL, path)
@@ -103,15 +134,15 @@ func (f Fill) get(ctx context.Context, path string, v any) error {
 // latest stable build. A version PaperMC supports but has no stable build of
 // yet is offered as experimental, with its latest build. The newest version
 // with a stable build is recommended.
-func (f Fill) Catalog(ctx context.Context) ([]api.CatalogEntry, error) {
-	var list struct {
-		Versions []fillVersion `json:"versions"`
-	}
-	if err := f.get(ctx, "/v3/projects/paper/versions", &list); err != nil {
+func (f Fill) Catalog(ctx context.Context) ([]api.CatalogEntry, error) { return catalogFrom(ctx, f) }
+
+func catalogFrom(ctx context.Context, src paperSource) ([]api.CatalogEntry, error) {
+	list, err := src.versions(ctx)
+	if err != nil {
 		return nil, err
 	}
 	var releases []fillVersion
-	for _, v := range list.Versions {
+	for _, v := range list {
 		if reRelease.MatchString(v.Version.ID) {
 			releases = append(releases, v)
 		}
@@ -127,8 +158,8 @@ func (f Fill) Catalog(ctx context.Context) ([]api.CatalogEntry, error) {
 			continue
 		}
 		supported := v.Version.Support.Status == "SUPPORTED"
-		var builds []fillBuild
-		if err := f.get(ctx, "/v3/projects/paper/versions/"+id+"/builds", &builds); err != nil {
+		builds, err := src.builds(ctx, id)
+		if err != nil {
 			return nil, err
 		}
 		e, ok := entryFor(id, supported, v.Version.Java.Version.Minimum, builds)
@@ -159,25 +190,38 @@ func (f Fill) Catalog(ctx context.Context) ([]api.CatalogEntry, error) {
 // mcVersion on Paper build `build`: the version's latest stable build if it
 // is not older than the backup's, otherwise the backup's own build.
 func (f Fill) RestoreBuild(ctx context.Context, mcVersion string, build int) (api.CatalogEntry, error) {
+	return restoreBuildFrom(ctx, f, mcVersion, build)
+}
+
+// ErrNoPaperBuild matches a restore that has no build to run whoever is
+// asked, as opposed to one PaperMC could not be asked about.
+var ErrNoPaperBuild = errors.New("no Paper build to restore with")
+
+type noPaperBuild string
+
+func (e noPaperBuild) Error() string      { return string(e) }
+func (noPaperBuild) Is(target error) bool { return target == ErrNoPaperBuild }
+
+func restoreBuildFrom(ctx context.Context, src paperSource, mcVersion string, build int) (api.CatalogEntry, error) {
 	if !reRelease.MatchString(mcVersion) {
-		return api.CatalogEntry{}, fmt.Errorf("%q is not a Minecraft release version", mcVersion)
+		return api.CatalogEntry{}, noPaperBuild(fmt.Sprintf("%q is not a Minecraft release version", mcVersion))
 	}
 	if CompareMinecraft(mcVersion, OldestRelease) < 0 {
-		return api.CatalogEntry{}, fmt.Errorf("Playkeeper runs Minecraft %s and newer, not %s", OldestRelease, mcVersion)
+		return api.CatalogEntry{}, noPaperBuild(fmt.Sprintf("Playkeeper runs Minecraft %s and newer, not %s", OldestRelease, mcVersion))
 	}
-	var v fillVersion
-	if err := f.get(ctx, "/v3/projects/paper/versions/"+mcVersion, &v); err != nil {
+	v, err := src.version(ctx, mcVersion)
+	if err != nil {
 		if errors.Is(err, errNoVersion) {
-			return api.CatalogEntry{}, fmt.Errorf("PaperMC has no Paper build of Minecraft %s", mcVersion)
+			return api.CatalogEntry{}, noPaperBuild(fmt.Sprintf("PaperMC has no Paper build of Minecraft %s", mcVersion))
 		}
 		return api.CatalogEntry{}, err
 	}
 	java := v.Version.Java.Version.Minimum
 	if java > ImageJava {
-		return api.CatalogEntry{}, fmt.Errorf("Paper for Minecraft %s needs Java %d; this Playkeeper runs Java %d", mcVersion, java, ImageJava)
+		return api.CatalogEntry{}, noPaperBuild(fmt.Sprintf("Paper for Minecraft %s needs Java %d; this Playkeeper runs Java %d", mcVersion, java, ImageJava))
 	}
-	var builds []fillBuild
-	if err := f.get(ctx, "/v3/projects/paper/versions/"+mcVersion+"/builds", &builds); err != nil {
+	builds, err := src.builds(ctx, mcVersion)
+	if err != nil {
 		return api.CatalogEntry{}, err
 	}
 	supported := v.Version.Support.Status == "SUPPORTED"
@@ -193,7 +237,7 @@ func (f Fill) RestoreBuild(ctx context.Context, mcVersion string, build int) (ap
 			}
 		}
 	}
-	return api.CatalogEntry{}, fmt.Errorf("PaperMC has no usable build of Minecraft %s for this backup (it was made with build %d)", mcVersion, build)
+	return api.CatalogEntry{}, noPaperBuild(fmt.Sprintf("PaperMC has no usable build of Minecraft %s for this backup (it was made with build %d)", mcVersion, build))
 }
 
 func stableChannel(c string) bool { return c == "STABLE" || c == "RECOMMENDED" }

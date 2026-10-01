@@ -31,7 +31,20 @@ type fakeFill struct {
 	sum      string
 	hold     bool // requests wait until the caller gives up
 	fails    int  // this many requests answer 503 first, as when PaperMC has trouble
+	down     bool // every request answers 503, as on 1 Oct 2026
 	requests int
+}
+
+func (ff *fakeFill) setDown(down bool) {
+	ff.mu.Lock()
+	defer ff.mu.Unlock()
+	ff.down = down
+}
+
+func (ff *fakeFill) asked() int {
+	ff.mu.Lock()
+	defer ff.mu.Unlock()
+	return ff.requests
 }
 
 // defaultFill mirrors PaperMC's list closely enough for the tests: 26.3 has
@@ -65,8 +78,8 @@ func (ff *fakeFill) set(sum string, versions []fillVersionSpec) {
 
 func (ff *fakeFill) serve(w http.ResponseWriter, r *http.Request) {
 	ff.mu.Lock()
-	versions, sum, hold, failing := ff.versions, ff.sum, ff.hold, ff.fails > 0
-	if failing {
+	versions, sum, hold, failing := ff.versions, ff.sum, ff.hold, ff.fails > 0 || ff.down
+	if ff.fails > 0 {
 		ff.fails--
 	}
 	ff.requests++
@@ -102,8 +115,9 @@ func (ff *fakeFill) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		var out []any
 		for _, b := range v.builds {
+			name := fmt.Sprintf("paper-%s-%d.jar", v.id, b.id)
 			out = append(out, map[string]any{"id": b.id, "channel": b.channel, "downloads": map[string]any{"server:default": map[string]any{
-				"name": fmt.Sprintf("paper-%s-%d.jar", v.id, b.id), "checksums": map[string]any{"sha256": sum}}}})
+				"name": name, "checksums": map[string]any{"sha256": sum}, "url": "https://fill-data.papermc.io/v1/objects/" + sum + "/" + name}}})
 		}
 		json.NewEncoder(w).Encode(out)
 		return

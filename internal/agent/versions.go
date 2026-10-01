@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +18,11 @@ import (
 // catalogTTL is how long PaperMC's version list is reused.
 const catalogTTL = 30 * time.Minute
 
+// upstreamRetry is how long a list an upstream didn't give is served from
+// what the machine has before the upstream is asked again, so an upstream
+// that doesn't answer holds up one request a minute, not every one.
+const upstreamRetry = time.Minute
+
 type cachedBuild struct {
 	entry api.CatalogEntry
 	err   error
@@ -26,6 +33,9 @@ type catalogCache struct {
 	mu      sync.Mutex
 	entries []api.CatalogEntry
 	at      time.Time
+	// retryAt is set while entries are from before PaperMC last failed:
+	// until then they're served without asking it.
+	retryAt time.Time
 	builds  map[string]cachedBuild
 }
 
@@ -33,28 +43,49 @@ func (a *Agent) fill() minecraft.Fill {
 	return minecraft.Fill{BaseURL: a.opts.FillURL, Client: a.opts.HTTPClient}
 }
 
-// versionCatalog is the live list of Paper versions from PaperMC and when it
-// was fetched, reused for catalogTTL. If PaperMC cannot be reached, the last
-// list is used if there is one.
+// Tests replace the lists built into Playkeeper, and where Paper's jars
+// download from.
+var (
+	builtInPaperCatalog = minecraft.BuiltInCatalog
+	builtInPaperRestore = minecraft.BuiltInRestoreBuild
+	paperJarURL         = minecraft.PaperJarURL
+)
+
+// versionCatalog is the list of Paper versions and when PaperMC listed it,
+// reused for catalogTTL. While PaperMC can't be reached it is the last
+// list PaperMC gave, kept in memory and on disk, or else the list built
+// into Playkeeper.
 func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Time, error) {
 	c := &a.catalog
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.entries != nil && a.now().Sub(c.at) < catalogTTL {
+	now := a.now()
+	if c.entries != nil && (now.Before(c.retryAt) || c.retryAt.IsZero() && now.Sub(c.at) < catalogTTL) {
 		return c.entries, c.at, nil
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	entries, err := a.fill().Catalog(cctx)
-	if err != nil {
-		a.log.Warn("could not load the Paper version list", "err", err)
-		if c.entries != nil {
-			return c.entries, c.at, nil
-		}
-		return nil, time.Time{}, err
+	if err == nil {
+		c.entries, c.at, c.retryAt = entries, a.now(), time.Time{}
+		a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: c.at, Entries: entries})
+		return entries, c.at, nil
 	}
-	c.entries, c.at = entries, a.now()
-	return entries, c.at, nil
+	a.log.Warn("could not load the Paper version list", "err", err)
+	if c.entries == nil {
+		var saved savedCatalog
+		if a.savedSoftwareList(api.TypePaper, "", &saved) && len(saved.Entries) > 0 {
+			c.entries, c.at = saved.Entries, saved.At
+		} else if built, at, berr := builtInPaperCatalog(); berr == nil {
+			a.log.Info("offering the Paper version list built into Playkeeper", "madeAt", at)
+			c.entries, c.at = built, at
+		} else {
+			a.log.Warn("the Paper version list built into Playkeeper can't be used", "err", berr)
+			return nil, time.Time{}, err
+		}
+	}
+	c.retryAt = a.now().Add(upstreamRetry)
+	return c.entries, c.at, nil
 }
 
 // catalogEntry finds a version to create or update a server with.
@@ -94,6 +125,45 @@ func (a *Agent) restoreBuild(ctx context.Context, mc string, build int) (api.Cat
 	return e, err
 }
 
+// restoreBuildOrKnown is restoreBuild, or while PaperMC can't be asked, a
+// stable build of mc not older than build from the last list PaperMC gave
+// or else the list built into Playkeeper. Settling a restore Playkeeper
+// 0.3.0 left needs the build PaperMC itself picks, so it uses restoreBuild.
+func (a *Agent) restoreBuildOrKnown(ctx context.Context, mc string, build int) (api.CatalogEntry, error) {
+	e, err := a.restoreBuild(ctx, mc, build)
+	if err == nil || errors.Is(err, minecraft.ErrNoPaperBuild) {
+		return e, err
+	}
+	for _, k := range a.keptPaperCatalog() {
+		if k.MinecraftVersion == mc && !k.Experimental && k.PaperBuild >= build {
+			a.log.Info("restoring with a Paper build from the version list this machine has", "minecraft", mc, "build", k.PaperBuild, "err", err)
+			return k, nil
+		}
+	}
+	if be, at, berr := builtInPaperRestore(mc, build); berr == nil {
+		a.log.Info("restoring with a Paper build from the list built into Playkeeper", "minecraft", mc, "build", be.PaperBuild, "madeAt", at, "err", err)
+		return be, nil
+	}
+	return e, err
+}
+
+// keptPaperCatalog is the Paper list this machine has, in memory or on
+// disk, without asking PaperMC.
+func (a *Agent) keptPaperCatalog() []api.CatalogEntry {
+	c := &a.catalog
+	c.mu.Lock()
+	entries := c.entries
+	c.mu.Unlock()
+	if entries != nil {
+		return entries
+	}
+	var saved savedCatalog
+	if a.savedSoftwareList(api.TypePaper, "", &saved) {
+		return saved.Entries
+	}
+	return nil
+}
+
 // forgetFailedBuild drops a failed restoreBuild lookup from the cache, so
 // the next one asks PaperMC again instead of repeating the failure.
 func (a *Agent) forgetFailedBuild(mc string, build int) {
@@ -117,6 +187,24 @@ func jarChecksum(sc api.ServerConfig) (string, error) {
 	}
 	return "", fmt.Errorf("no checksum is known for Paper %s build %d, so it is not run", sc.MinecraftVersion, sc.PaperBuild)
 }
+
+// paperDownloadEnv points Paper's setup container at the pinned jar on
+// PaperMC's download host, which serves it by its checksum while PaperMC's
+// API is down. Without a checksum to point at, the image asks the API.
+func paperDownloadEnv(sc api.ServerConfig) []string {
+	sum, err := jarChecksum(sc)
+	if err != nil {
+		return nil
+	}
+	if u, ok := paperJarURL(sc.MinecraftVersion, sc.PaperBuild, sum); ok {
+		return []string{paperDownloadURL + u}
+	}
+	return nil
+}
+
+const paperDownloadURL = "PAPER_DOWNLOAD_URL="
+
+func isPaperDownloadURL(env string) bool { return strings.HasPrefix(env, paperDownloadURL) }
 
 // withBuild returns sc running the catalog entry's build.
 func withBuild(sc api.ServerConfig, e api.CatalogEntry) api.ServerConfig {

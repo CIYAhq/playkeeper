@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -313,10 +314,12 @@ func (s *server) levelName(sc api.ServerConfig) string {
 // container. Its hash is stored as a label so any drift forces a recreate. A
 // v1 server's definition is exactly 0.2.0's while its settings are unchanged.
 //
-// Only the setup-only container downloads Paper. The server container runs
-// the jar that was verified against the pinned checksum, so a start never
-// re-downloads Paper. Other types run the files their verified install
-// recorded, the way its manifest says.
+// Only the setup-only container downloads Paper, straight from PaperMC's
+// download host by the pinned checksum (paperDownloadEnv), so it doesn't
+// need PaperMC's API. The server container runs the jar that was verified
+// against the pinned checksum, so a start never re-downloads Paper. Other
+// types run the files their verified install recorded, the way its
+// manifest says.
 //
 // current is the environment of the server's existing container, if any: a
 // stored resource pack offer whose settings can't be built keeps the pack
@@ -328,7 +331,7 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []st
 	case sc.Software != nil:
 		typeEnv = s.runEnv()
 	case setupOnly:
-		typeEnv = []string{"TYPE=PAPER", "PAPER_BUILD=" + strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE"}
+		typeEnv = append([]string{"TYPE=PAPER", "PAPER_BUILD=" + strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE"}, paperDownloadEnv(sc)...)
 	default:
 		typeEnv = []string{"TYPE=CUSTOM", "CUSTOM_SERVER=/data/" + filepath.Base(s.jarPath(sc))}
 	}
@@ -709,9 +712,21 @@ func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.
 	if err != nil {
 		return err
 	}
+	if code != 0 && slices.ContainsFunc(spec.Env, isPaperDownloadURL) {
+		// PaperMC's API knows where its downloads are, should they move.
+		s.log.Warn("Paper's download host didn't give the jar; asking PaperMC's API", "server", s.id, "output", lastNonEmpty(tail))
+		spec.Env = slices.DeleteFunc(slices.Clone(spec.Env), isPaperDownloadURL)
+		var viaAPI int
+		if _, viaAPI, err = s.runSetupContainer(ctx, h, spec); err != nil {
+			return err
+		}
+		if viaAPI == 0 {
+			code = 0
+		}
+	}
 	if code != 0 {
 		return &apiError{Msg: "Downloading the Minecraft server software failed (exit code " + strconv.Itoa(code) + "): " + lastNonEmpty(tail),
-			Hint: "Check that this host can reach fill.papermc.io and piston-data.mojang.com, then press Start again."}
+			Hint: "Check that this host can reach fill-data.papermc.io and piston-data.mojang.com, then press Start again."}
 	}
 	h.phase("verifying_download")
 	sum, err = s.jarSHA256(ctx, *sc)

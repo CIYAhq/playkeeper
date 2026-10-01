@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/sizing"
@@ -52,8 +53,14 @@ func TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent(t *testing.T) {
 
 	down := newAgentEnv(t)
 	down.fill.set("", []fillVersionSpec{})
+	down.useBuiltInPaper(time.Time{})
 	if cat := down.a.catalogInfo(t.Context(), ""); cat.VersionsError == "" || len(cat.Versions) != 0 {
-		t.Fatalf("an empty list from PaperMC must be reported: %+v", cat)
+		t.Fatalf("an empty list from PaperMC, with no list to fall back on, must be reported: %+v", cat)
+	}
+	down.useBuiltInPaper(time.Now(), down.builtInVersion("26.2", "SUPPORTED", 129))
+	down.skew.Add(int64(upstreamRetry + time.Second))
+	if cat := down.a.catalogInfo(t.Context(), ""); cat.VersionsError != "" || len(cat.Versions) != 1 {
+		t.Fatalf("with the built-in list, PaperMC listing nothing still leaves a version: %+v", cat)
 	}
 }
 

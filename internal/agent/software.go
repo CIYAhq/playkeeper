@@ -57,9 +57,9 @@ type cachedBuilds struct {
 const maxCachedBuilds = 64
 
 // The last version list and build lists each type's upstream sent are also
-// kept on disk, so a Maven hiccup right after the agent restarts, or after
-// the build lists in memory were dropped, still finds the list the lists
-// in memory would have offered.
+// kept on disk, Paper's version list too, so an upstream outage or a Maven
+// hiccup right after the agent restarts, or after the build lists in memory
+// were dropped, still finds the list the lists in memory would have offered.
 type savedCatalog struct {
 	At      time.Time          `json:"at"`
 	Entries []api.CatalogEntry `json:"entries"`
@@ -74,11 +74,11 @@ type savedBuilds struct {
 var reListedRelease = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)
 
 // softwareListPath is where list, typ's version list or its build list for
-// the release mc, is kept. Only a supported type and a release name a file,
-// so no request can name another path, and no build list is taken for the
-// version list.
+// the release mc, is kept: Paper has a version list only. Only a known type
+// and a release name a file, so no request can name another path, and no
+// build list is taken for the version list.
 func (a *Agent) softwareListPath(typ, mc string, list any) (string, bool) {
-	if !software.Supported(typ) {
+	if !software.Supported(typ) && typ != api.TypePaper {
 		return "", false
 	}
 	var name string
@@ -86,7 +86,7 @@ func (a *Agent) softwareListPath(typ, mc string, list any) (string, bool) {
 	case savedCatalog, *savedCatalog:
 		name = "catalog-" + typ
 	case savedBuilds, *savedBuilds:
-		if !reListedRelease.MatchString(mc) {
+		if typ == api.TypePaper || !reListedRelease.MatchString(mc) {
 			return "", false
 		}
 		name = "builds-" + typ + "-" + mc
@@ -463,7 +463,7 @@ type restoreTarget struct {
 func (a *Agent) restoreTargetFor(ctx context.Context, m backup.Manifest) (restoreTarget, error) {
 	typ := m.Type
 	if typ == "" || typ == api.TypePaper {
-		e, err := a.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+		e, err := a.restoreBuildOrKnown(ctx, m.MinecraftVersion, m.PaperBuild)
 		return restoreTarget{typ: api.TypePaper, entry: e}, err
 	}
 	if !typeAvailable(typ) {
