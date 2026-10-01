@@ -11905,6 +11905,7 @@ control "dashboard watch: a machine that left its dashboard forgets the webhook"
   'if false {
 		if err := a.clearDashboardWatch(' \
   ./internal/agent '^TestAMachineForgetsTheDashboardsWebhookWhenItLeaves$'
+# shellcheck disable=SC2016
 control "dashboard watch: the dashboard clears its webhook" internal/agent/dashboardwatch.go \
   'res, err := a.db.Exec(`DELETE FROM dashboard_watch WHERE id = 1`)' \
   'res, err := a.db.Exec(`DELETE FROM dashboard_watch WHERE id = 0`)' \
