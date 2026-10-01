@@ -866,18 +866,14 @@ func (e *addressEnv) settled() {
 // this one.
 func (e *addressEnv) checkOwn() (*api.AddressCheck, error) {
 	e.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		release, err := e.a.holdAddress(e.t.Context(), 20*time.Second)
-		if err == nil {
-			defer release()
-			return e.a.checkOwn(e.t.Context())
-		}
-		if time.Now().After(deadline) {
-			e.t.Fatalf("the address stayed taken: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	var release func()
+	e.waitFor("the address to be free for a look", func() bool {
+		r, err := e.a.holdAddress(e.t.Context(), 0)
+		release = r
+		return err == nil
+	})
+	defer release()
+	return e.a.checkOwn(e.t.Context())
 }
 
 // loopSawServers waits until the address loop has taken the change that
