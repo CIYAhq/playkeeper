@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ArrowUpRightIcon } from 'lucide-react'
 import { api, get, post } from '@/api/client'
-import type { PublicBoard, PublicPageView, ServerStatus } from '@/api/types'
+import type { PagePort, PublicBoard, PublicPageView, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { useNow } from '@/components/app/bits'
 import { SettingRow } from '@/components/app/controls'
@@ -219,7 +219,7 @@ function Reach({ view, server: s, onRetry }: { view: PublicPageView; server: Ser
         <>
           {t('publicPage.liveHint')} <PageLink url={r.url} />
           <span className="mt-1 block">
-            {portProblem(r.https)} <Retry server={s} onRetry={onRetry} />
+            <PortLine port={r.https} server={s} onRetry={onRetry} />
           </span>
         </>
       )
@@ -228,16 +228,38 @@ function Reach({ view, server: s, onRetry }: { view: PublicPageView; server: Ser
     case 'waiting':
       return <>{t('publicPage.waiting')}</>
     case 'blocked':
-      return (
-        <>
-          {portProblem(r.port)} {r.port.state !== 'denied' && <Retry server={s} onRetry={onRetry} />}
-        </>
-      )
+      return <PortLine port={r.port} server={s} onRetry={onRetry} />
     default: {
       const unreachable: never = r
       return unreachable
     }
   }
+}
+
+/**
+ * Why a port can't serve the page, and what to do: try again once another program let it go, or, for a server on a
+ * joined machine without a certificate for its address, the dashboard machine's setting that gives every server one.
+ */
+function PortLine({ port, server: s, onRetry }: { port: PagePort; server: ServerStatus; onRetry: () => Promise<void> }) {
+  const ws = useWorkspace()
+  if (port.state === 'no_certificate') {
+    const at = ws.machines.find((m) => m.kind === 'local')
+    return (
+      <>
+        {portProblem(port)}{' '}
+        {at && can(ws.me, 'machines.view') && (
+          <a {...linkPath(`/machines/${at.id}/settings`)} className="font-medium text-success-strong hover:underline">
+            {t('publicPage.certificateLink')}
+          </a>
+        )}
+      </>
+    )
+  }
+  return (
+    <>
+      {portProblem(port)} {port.state !== 'denied' && <Retry server={s} onRetry={onRetry} />}
+    </>
+  )
 }
 
 function PageLink({ url }: { url: string }) {

@@ -65,40 +65,52 @@ func (s *Server) pageAnswers(ctx context.Context, host string) bool {
 }
 
 // anyJoinedPageOn reports whether a server on a joined machine is on the
-// page at its name. Each machine is asked about its servers in turn, the
-// machines side by side, and only until ctx ends, so a machine slow to
-// answer holds up no look of the port keeper past its deadline.
-func (s *Server) anyJoinedPageOn(ctx context.Context) bool {
+// page at its name, and known false when ctx ended before every machine
+// had answered and none said one was. Each machine is asked about its
+// servers in turn, the machines side by side, and only until ctx ends, so
+// a machine slow to answer holds up no look of the port keeper past its
+// deadline.
+func (s *Server) anyJoinedPageOn(ctx context.Context) (on, known bool) {
 	byMachine := map[string][]joinedName{}
 	for _, j := range s.zoneNames() {
 		byMachine[j.machineID] = append(byMachine[j.machineID], j)
 	}
-	on := make(chan bool, len(byMachine))
+	const (
+		answeredOff = iota
+		answeredOn
+		cutShort
+	)
+	answers := make(chan int, len(byMachine))
 	for _, names := range byMachine {
 		go func() {
 			for _, j := range names {
 				if ctx.Err() != nil {
-					break
+					answers <- cutShort
+					return
 				}
 				if _, ok := s.joinedPage(ctx, j); ok {
-					on <- true
+					answers <- answeredOn
 					return
 				}
 			}
-			on <- false
+			answers <- answeredOff
 		}()
 	}
+	known = true
 	for range byMachine {
 		select {
-		case yes := <-on:
-			if yes {
-				return true
+		case a := <-answers:
+			switch a {
+			case answeredOn:
+				return true, true
+			case cutShort:
+				known = false
 			}
 		case <-ctx.Done():
-			return false
+			return false, false
 		}
 	}
-	return false
+	return false, known
 }
 
 // joinedAnswers are the page's answers from the joined machine id. Each

@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -240,10 +242,40 @@ func TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn(t *testing.T) {
 func TestAJoinedServersSettingsGiveItsPageAtItsName(t *testing.T) {
 	j := newJoinedPage(t)
 	j.ra.reply("GET /v1/servers/"+cobblemonID+"/public-page", `{"enabled":true,"players":false,"about":"","stream":"","host":"home-server.example.com"}`)
+	j.ra.reply("POST /v1/servers/"+cobblemonID+"/public-page", `{"enabled":true,"players":true,"about":"","stream":"","host":"home-server.example.com"}`)
 	path := "/api/servers/" + cobblemonID + "/public-page"
 	r := j.e.do(t, "GET", path, "", auth(j.cookie, j.csrf))
 	if r.status != 200 || r.body["host"] != cobblemonName || r.body["ports"] == nil {
 		t.Fatalf("the page's Settings: %d %v", r.status, r.body)
+	}
+	if r := j.e.do(t, "POST", path, `{"players":true}`, auth(j.cookie, j.csrf)); r.status != 200 || r.body["host"] != cobblemonName {
+		t.Fatalf("a change to the page's Settings: %d %v", r.status, r.body)
+	}
+
+	// Port 443 serves a joined server's page only with a certificate for its
+	// name, which only the domain's wildcard gives; until then Settings say
+	// so, and the page is on port 80.
+	j.e.srv.page.mu.Lock()
+	j.e.srv.page.ports.HTTPS = api.PagePort{Port: 443, State: api.PortOpen}
+	j.e.srv.page.mu.Unlock()
+	https := func() any {
+		t.Helper()
+		r := j.e.do(t, "GET", path, "", auth(j.cookie, j.csrf))
+		ports, _ := r.body["ports"].(map[string]any)
+		h, _ := ports["https"].(map[string]any)
+		return h["state"]
+	}
+	if got := https(); got != api.PortNoCertificate {
+		t.Fatalf("port 443 for a joined server's name without a certificate: %v", got)
+	}
+	now, dir := j.e.clock.now(), j.e.cfg.CertsDir()
+	writeBundle(t, dir, "*.beta.playkeeper.me", now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	if err := os.Rename(filepath.Join(dir, "*.beta.playkeeper.me.pem"), filepath.Join(dir, "_.beta.playkeeper.me.pem")); err != nil {
+		t.Fatal(err)
+	}
+	j.e.srv.pageCerts = j.e.srv.pageCertStore()
+	if got := https(); got != api.PortOpen {
+		t.Fatalf("port 443 for a joined server's name with the wildcard: %v", got)
 	}
 	j.e.srv.setZoneAddresses(nil, "", false)
 	r = j.e.do(t, "GET", path, "", auth(j.cookie, j.csrf))
@@ -483,8 +515,8 @@ func TestTheKeepersAsksEndWithItsDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	if j.e.srv.anyJoinedPageOn(ctx) {
-		t.Fatal("a joined page is on")
+	if on, known := j.e.srv.anyJoinedPageOn(ctx); on || known {
+		t.Fatalf("a look cut short by its deadline says on %v, known %v", on, known)
 	}
 	if took := time.Since(start); took > 700*time.Millisecond {
 		t.Fatalf("a look with a 300 ms deadline waited %v on a slow machine's three servers", took)
@@ -495,5 +527,37 @@ func TestTheKeepersAsksEndWithItsDeadline(t *testing.T) {
 	j.e.srv.anyJoinedPageOn(over)
 	if took := time.Since(start); took > 500*time.Millisecond {
 		t.Fatalf("a look past its deadline waited %v", took)
+	}
+}
+
+// A look whose joined machines haven't all answered by its deadline keeps
+// what the page holds, as one the dashboard's own agent doesn't answer
+// does: a slow machine never takes ports 443 and 80 from the pages on them.
+func TestALookCutShortKeepsThePorts(t *testing.T) {
+	j := newJoinedPage(t)
+	j.e.reply("GET", "/v1/public-page/state", `{"host":"beta.playkeeper.me","on":false}`)
+	ctx := context.Background()
+	j.e.srv.lookAtPage(ctx)
+	j.e.srv.page.mu.Lock()
+	on := j.e.srv.page.on
+	j.e.srv.page.ports.HTTPS = api.PagePort{Port: 443, State: api.PortOpen}
+	j.e.srv.page.mu.Unlock()
+	if !on {
+		t.Fatal("with a joined server on the page, the page isn't on")
+	}
+	was := pageJoinedWait
+	pageJoinedWait = 200 * time.Millisecond
+	t.Cleanup(func() { pageJoinedWait = was })
+	j.ra.handle("GET /v1/servers/"+cobblemonID+"/public-page/shown", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(time.Second)
+		writeJSON(w, http.StatusOK, j.shown.Load())
+	})
+	j.e.clock.add(pageCacheFor + time.Second)
+	j.e.srv.lookAtPage(ctx)
+	j.e.srv.page.mu.Lock()
+	on, https := j.e.srv.page.on, j.e.srv.page.ports.HTTPS
+	j.e.srv.page.mu.Unlock()
+	if !on || https.State != api.PortOpen {
+		t.Fatalf("after a look the joined machine didn't answer in time: on %v, port 443 %+v", on, https)
 	}
 }

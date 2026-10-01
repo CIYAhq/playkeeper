@@ -64,6 +64,12 @@ describe('whether browsers reach the page, for Settings', () => {
     expect(portProblem({ port: 443, state: 'busy' })).toBe('Another program uses port 443, so Playkeeper leaves it alone.')
     expect(portProblem({ port: 80, state: 'denied' })).toBe('This machine doesn’t let Playkeeper use port 80.')
   })
+
+  it('links plain HTTP while port 443 has no certificate for a joined server’s address, and says so', () => {
+    const https: PagePort = { port: 443, state: 'no_certificate' }
+    expect(pageReach(view({ host: 'steve.beta.playkeeper.me', ports: { https, http: open(80) } }))).toEqual({ kind: 'plainOnly', url: 'http://steve.beta.playkeeper.me', https })
+    expect(portProblem(https)).toBe('Port 443 has no certificate for this address yet, so browsers get the page over HTTP.')
+  })
 })
 
 describe('the owner’s stream and its countdown', () => {

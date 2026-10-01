@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"html"
@@ -664,14 +665,28 @@ func (s *Server) hPublicPageSet(w http.ResponseWriter, r *http.Request, sess *se
 // it: on the dashboard's ports, which serve every server's page. A server on
 // a joined machine has its page at the name the zone gives it, never at an
 // address its machine has of its own, and is on it only while the
-// dashboard's record says so too (pageRecordOr).
+// dashboard's record says so too (pageRecordOr). Its name has no
+// certificate but the domain's wildcard, so without it port 443 can't serve
+// its page.
 func (s *Server) pageView(m machine, id string, v *api.PublicPageView) {
+	ports := s.page.portsNow()
 	if m.Kind != localKind {
 		v.Host = s.zoneAddress(id)
 		v.Enabled = s.pageRecordOr(id, v.Enabled) && v.Enabled
+		if ports.HTTPS.State == api.PortOpen && !s.pageCertified(v.Host) {
+			ports.HTTPS.State = api.PortNoCertificate
+		}
 	}
-	ports := s.page.portsNow()
 	v.Ports = &ports
+}
+
+// pageCertified reports whether port 443 has a certificate for host.
+func (s *Server) pageCertified(host string) bool {
+	if s.pageCerts == nil || host == "" {
+		return false
+	}
+	_, err := s.pageCerts.GetCertificate(&tls.ClientHelloInfo{ServerName: host})
+	return err == nil
 }
 
 // hPublicPagePortsRetry tries the ports found busy again, once the owner

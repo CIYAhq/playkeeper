@@ -77,6 +77,8 @@ export function portProblem(p: PagePort): string {
       return t('publicPage.claimed', { holder: p.holder ?? t('publicPage.anotherProgram'), port: p.port })
     case 'denied':
       return t('publicPage.denied', { port: p.port })
+    case 'no_certificate':
+      return t('publicPage.noCertificate', { port: p.port })
     case 'waiting':
       return t('publicPage.waiting')
     case 'open':

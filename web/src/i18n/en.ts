@@ -3479,6 +3479,8 @@ export const en = {
   'publicPage.claimed': '{holder} is set to use port {port}, so Playkeeper leaves it alone.',
   'publicPage.anotherProgram': 'Another program',
   'publicPage.denied': 'This machine doesn’t let Playkeeper use port {port}.',
+  'publicPage.noCertificate': 'Port {port} has no certificate for this address yet, so browsers get the page over HTTP.',
+  'publicPage.certificateLink': 'Turn on an address for each server',
   'publicPage.retry': 'Try again',
   'publicPage.show': 'Show this server',
   'publicPage.players': 'Show who’s playing',

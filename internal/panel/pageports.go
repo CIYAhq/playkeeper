@@ -38,6 +38,10 @@ const (
 	maxPageConns = 1024
 )
 
+// pageJoinedWait is how long a look waits for joined machines to say
+// whether any of their servers is on the page: two of their answers' time.
+var pageJoinedWait = 10 * time.Second
+
 // pageListener is one of the page's ports being served.
 type pageListener struct {
 	srv  *http.Server
@@ -85,13 +89,22 @@ func (s *Server) lookAtPage(ctx context.Context) {
 		return
 	}
 	// The dashboard's machine's names are kept before joined machines are
-	// asked, which takes until the look's deadline at most.
+	// asked, for pageJoinedWait at most. A look they don't all answer in time
+	// keeps what the page holds, as one the agent doesn't answer does.
 	p.mu.Lock()
 	p.host, p.hosts = st.Host, st.Hosts
 	p.mu.Unlock()
-	st.On = st.On || s.anyJoinedPageOn(ctx)
+	on, known := st.On, true
+	if !on {
+		jctx, cancel := context.WithTimeout(ctx, pageJoinedWait)
+		on, known = s.anyJoinedPageOn(jctx)
+		cancel()
+	}
 	p.mu.Lock()
-	p.on = st.On
+	if known {
+		p.on = on
+	}
+	on = p.on
 	current := p.gen == gen
 	if current {
 		p.dashboard, p.reached = st.Dashboard, st.Dashboard && st.Reached
@@ -103,7 +116,7 @@ func (s *Server) lookAtPage(ctx context.Context) {
 		// being asked: another look reads what the agent says since.
 		s.kickPage()
 	}
-	if !st.On && !dashboard {
+	if !on && !dashboard {
 		s.closePagePorts(api.PortOff)
 		return
 	}
