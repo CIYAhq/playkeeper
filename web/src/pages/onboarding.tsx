@@ -6,6 +6,7 @@ import type { LogsResponse, Me, Operation, Preflight, PreflightCheck, ServerStat
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
+import { serverAction } from '@/components/app/server-action'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
 import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
@@ -20,6 +21,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatMB, serverJoinAddress } from '@/lib/format'
+import { failureLine } from '@/lib/crash'
 import { createStepOf, isSettingUp } from '@/lib/phase'
 import { useAppearAtOnce } from '@/lib/presence'
 import { navigate } from '@/lib/router'
@@ -623,9 +625,15 @@ function CreatingStage({ server: s }: { server: ServerStatus }) {
       window.clearInterval(id)
     }
   }, [s.id])
+  const [retrying, setRetrying] = useState(false)
   const op = s.operation ?? s.lastOperation
   const failed = !s.operation && op?.status === 'failed'
   const at = createStepOf(failed ? (op?.phase ?? '') : s.phase)
+  const retry = async () => {
+    setRetrying(true)
+    if (await serverAction(s, 'start')) await ws.refresh()
+    setRetrying(false)
+  }
   const state = (i: number): StepState => (i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : 'todo')
   const pct = /(\d{1,3})\s*%/.exec(s.phaseDetail ?? '')?.[1]
   const type = typeName(s.type)
@@ -636,7 +644,7 @@ function CreatingStage({ server: s }: { server: ServerStatus }) {
         <Pip pose={failed ? 'hurt' : 'hardhat'} size={64} />
         <div className="pt-1">
           <h1 className="text-lg font-bold">{failed ? t('creating.failedTitle', { server: s.name }) : t('creating.title', { server: s.name })}</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">{failed ? op?.error : t('creating.lead')}</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">{failed && op ? failureLine(op, s, ws.machineName) : t('creating.lead')}</p>
         </div>
       </div>
       <div className="mt-5 border-t border-border pt-5">
@@ -655,11 +663,17 @@ function CreatingStage({ server: s }: { server: ServerStatus }) {
           <ConsoleTail lines={tail} className="mt-2" />
         </div>
       )}
-      <div className="mt-5 flex justify-end">
-        <Button variant={failed ? 'default' : 'outline'} onClick={() => navigate({ name: 'server', slug: s.slug, tab: 'overview' })}>
+      <div className="mt-5 flex flex-wrap justify-end gap-3 max-sm:flex-col-reverse">
+        <Button variant="outline" onClick={() => navigate({ name: 'server', slug: s.slug, tab: 'overview' })}>
           {t('onboarding.toDashboard')}
           <ArrowRightIcon />
         </Button>
+        {failed && (
+          <Button loading={retrying} onClick={() => void retry()}>
+            <RefreshCwIcon />
+            {t('common.tryAgain')}
+          </Button>
+        )}
       </div>
     </FrameCard>
   )

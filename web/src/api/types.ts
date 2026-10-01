@@ -330,6 +330,7 @@ export type CrashKind =
   | 'world_locked'
   | 'disk_full'
   | 'eula'
+  | 'download_failed'
   | 'permission_denied'
   | 'killed'
   | 'unknown'

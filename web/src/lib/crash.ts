@@ -91,6 +91,8 @@ export function crashSummary(c: Crash, server: string, machine: string, lookups:
     }
     case 'eula':
       return t('crash.eula')
+    case 'download_failed':
+      return str(p, 'reason') === 'http' ? t('crash.downloadOutage') : t('crash.download')
     case 'permission_denied':
       return t('crash.permission')
     case 'killed':

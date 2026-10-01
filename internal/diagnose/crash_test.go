@@ -460,6 +460,38 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			name: "EULA not accepted", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "eula.txt")),
 			kind: CrashEULA, certain: true, fixes: "accept_eula*",
 		},
+		// The fresh-install walkthrough of 1 Oct 2026: the lab's network
+		// mangled Java's TLS, so Paperclip couldn't download Mojang's server.
+		{
+			name: "Paperclip couldn't download Minecraft over a tampered connection", in: moddedCrash("paper", "26.2", crashConsole(t, "paper_mojang_download.txt")),
+			kind: CrashDownloadFailed, certain: true, params: map[string]any{"reason": "tls", "file": "mojang_26.2.jar"}, fixes: "restart*",
+			explanation: []string{"Paper downloads Minecraft from Mojang before it starts", "such as a proxy or a firewall", "Check this VPS's internet"},
+			evidence:    []string{"Failed to download mojang_26.2.jar", "Unsupported or unrecognized SSL message", "exited with code 1"},
+		},
+		{
+			name: "Paperclip couldn't look up Mojang's download server",
+			in:   moddedCrash("purpur", "26.2", []string{"Downloading mojang_26.2.jar", "Failed to download mojang_26.2.jar", "java.net.UnknownHostException: piston-data.mojang.com", "\tat java.base/java.net.URL.openStream(URL.java:1325)"}),
+			kind: CrashDownloadFailed, certain: true, params: map[string]any{"reason": "dns", "host": "piston-data.mojang.com"}, fixes: "restart*",
+			explanation: []string{"Purpur downloads Minecraft", "couldn't look up piston-data.mojang.com"},
+		},
+		{
+			name: "Mojang's download server answered with an error",
+			in:   moddedCrash("paper", "26.2", []string{"Failed to download mojang_26.2.jar", "java.io.IOException: Server returned HTTP response code: 503 for URL: https://piston-data.mojang.com/v1/objects/0a1b2c/server.jar"}),
+			kind: CrashDownloadFailed, certain: true, params: map[string]any{"reason": "http", "status": 503}, fixes: "restart*",
+			explanation: []string{"answered with an error (HTTP 503)", "in a few minutes"},
+		},
+		{
+			name: "Paperclip couldn't connect to Mojang",
+			in:   moddedCrash("paper", "26.2", []string{"Failed to download mojang_26.2.jar", "java.net.ConnectException: Connection timed out"}),
+			kind: CrashDownloadFailed, certain: true, params: map[string]any{"reason": "network"}, fixes: "restart*",
+			explanation: []string{"couldn't connect to Mojang's download server"},
+		},
+		{
+			name: "Mojang's server arrived damaged",
+			in:   moddedCrash("paper", "26.2", []string{"Downloading mojang_26.2.jar", "java.lang.reflect.InvocationTargetException", "Caused by: java.lang.IllegalStateException: Hash check failed for downloaded file mojang_26.2.jar", "\tat io.papermc.paperclip.DownloadContext.download(DownloadContext.java:66)"}),
+			kind: CrashDownloadFailed, certain: true, params: map[string]any{"reason": "hash", "file": "mojang_26.2.jar"}, fixes: "restart*",
+			explanation: []string{"didn't match Mojang's checksum"},
+		},
 		{
 			name: "permission denied in the error it stopped with", in: paperCrash(crashConsole(t, "permission.txt")),
 			kind: CrashPermissionDenied, certain: true, params: map[string]any{"path": "./world/session.lock"}, fixes: "fix_permissions*",
