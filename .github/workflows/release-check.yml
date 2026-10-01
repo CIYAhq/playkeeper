@@ -13,15 +13,16 @@ name: Release check
 # bots, backup and uninstall, the restore on a second runner, every page's
 # accessibility and width, the core flows, the upgrade from the current
 # release with its rollback, the site and names service images, Pebble's
-# certificates and the faked-panel browser checks. It also installs, plays
-# on, backs up, restores, updates and uninstalls this commit on every
-# supported release of Ubuntu, Debian, the RHEL family and Amazon Linux
-# (os-matrix.yml). This is the full suite, and it runs once per release: pull
-# requests run the fast checks, a crawl of the pages they change and the
-# end-to-end parts whose own files they change (ci.yml), and the OS matrix
-# and ARM64 only when they change installer or OS code. Run this on the
-# commit you are about to tag (CONTRIBUTING.md, Releases): the tag publishes
-# these assets, byte for byte, once this and CI have passed on its commit.
+# certificates, the faked-panel browser checks and playkeeper.io's pages in a
+# browser. It also installs, plays on, backs up, restores, updates and
+# uninstalls this commit on every supported release of Ubuntu, Debian, the
+# RHEL family and Amazon Linux (os-matrix.yml). This is the full suite, and
+# it runs once per release: pull requests run the fast checks, a crawl of the
+# pages they change and the end-to-end parts whose own files they change
+# (ci.yml), and the OS matrix and ARM64 only when they change installer or OS
+# code. Run this on the commit you are about to tag (CONTRIBUTING.md,
+# Releases): the tag publishes these assets, byte for byte, once this and CI
+# have passed on its commit.
 
 on:
   workflow_dispatch:
