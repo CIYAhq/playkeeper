@@ -198,8 +198,10 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 			p["visibility"] = vis
 		}
 		if _, ok := body["billing_period"]; ok {
-			for _, k := range []string{"currency", "billing_period", "trial_period_days"} {
-				p[k] = body[k]
+			for _, k := range []string{"currency", "billing_period", "trial_period_days", "initial_price"} {
+				if v, ok := body[k]; ok {
+					p[k] = v
+				}
 			}
 			f.termSets = append(f.termSets, id)
 		}

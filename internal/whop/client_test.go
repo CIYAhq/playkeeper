@@ -197,12 +197,14 @@ func TestSetPlanPriceChargesItOnceAtCheckoutAndOnEachRenewal(t *testing.T) {
 }
 
 // Fix my plans has a plan renew every month, in US dollars, with no free
-// trial, and leaves its price as it is.
+// trial and no initial price, which Whop would charge on top of the first
+// renewal, and leaves its renewal price as it is.
 func TestMakePlanMonthlyAsksForMonthlyInDollarsWithNoTrial(t *testing.T) {
 	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
 		"PATCH /variants/plan_a": func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"currency": "usd", "billing_period": 30.0, "trial_period_days": 0.0}) {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil ||
+				!reflect.DeepEqual(body, map[string]any{"currency": "usd", "billing_period": 30.0, "trial_period_days": 0.0, "initial_price": 0.0}) {
 				t.Errorf("body %v, %v", body, err)
 			}
 			answer(map[string]any{"id": "plan_a", "plan_type": "renewal", "currency": "usd", "renewal_price": 120, "billing_period": 30})(w, r)

@@ -14,6 +14,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
 
 let root: Root | undefined
 const onPrices = vi.fn()
+const onSaved = vi.fn()
 const onDone = vi.fn()
 const onBack = vi.fn()
 
@@ -22,7 +23,9 @@ async function render(prices: SellerPrices, more: { notice?: string; edit?: bool
   document.body.innerHTML = ''
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
-  await act(async () => r.render(<PricesStep store="biz_other" prices={prices} onPrices={onPrices} onDone={onDone} onBack={more.edit ? onBack : undefined} {...more} />))
+  await act(async () =>
+    r.render(<PricesStep store="biz_other" prices={prices} onPrices={onPrices} onSaved={onSaved} onDone={onDone} onBack={more.edit ? onBack : undefined} {...more} />),
+  )
   return document.body.textContent ?? ''
 }
 
@@ -60,6 +63,7 @@ beforeEach(() => {
   vi.mocked(client.get).mockReset()
   vi.mocked(client.post).mockReset()
   onPrices.mockReset()
+  onSaved.mockReset()
   onDone.mockReset()
   onBack.mockReset()
 })
@@ -111,6 +115,20 @@ describe('checking a seller’s prices', () => {
     expect(onDone).not.toHaveBeenCalled()
   })
 
+  it('keeps the prices it saved when a later one fails, without starting the step again', async () => {
+    await render(pricesWith())
+    await type(field('Plus'), '28')
+    const saved = pricesWith({ plans: [{ ...starter, price: 1500 }, plus] })
+    vi.mocked(client.post)
+      .mockResolvedValueOnce(saved)
+      .mockRejectedValueOnce(new client.ApiError(502, { code: 'retry_later', error: 'Whop didn’t answer. Try again in a moment.' }))
+    await click(button('Looks good'))
+    expect(onSaved).toHaveBeenCalledWith(saved)
+    expect(onPrices).not.toHaveBeenCalled()
+    expect(onDone).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('Whop didn’t answer. Try again in a moment.')
+  })
+
   it('offers Fix my plans alone while a plan needs one, and tells the page what it changed', async () => {
     const text = await render(pricesWith({ fixable: true }))
     expect(text).toContain('Some plans need a quick fix first.')
@@ -144,6 +162,20 @@ describe('checking a seller’s prices', () => {
   it('says when there’s no hosting plan yet', async () => {
     expect(await render(pricesWith({ plans: [] }))).toContain('Your store has no hosting plans yet.')
     expect(button('Check again')).toBeTruthy()
+  })
+
+  it('lists an open store’s prices to change even while a plan needs a fix, and goes back from no plans too', async () => {
+    const line = 'Starter and Plus are on the same product. Give each its own product in Whop.'
+    const text = await render(pricesWith({ canOpen: false, canUpdate: true, fixable: true, blocked: [line] }), { edit: true })
+    expect(field('Starter').value).toBe('15.00')
+    expect(button('Save prices')).toBeTruthy()
+    expect(text).not.toContain('Fix my plans')
+    expect(text).not.toContain(line)
+    await click(button('Back'))
+    expect(onBack).toHaveBeenCalledTimes(1)
+    await render(pricesWith({ plans: [], canOpen: false, canUpdate: true }), { edit: true })
+    await click(button('Back'))
+    expect(onBack).toHaveBeenCalledTimes(2)
   })
 
   it('changes an open store’s prices with Save prices, and goes back', async () => {

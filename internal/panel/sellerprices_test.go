@@ -754,10 +754,13 @@ func TestTheSellersPricesSayWhatFixMyPlansCanChange(t *testing.T) {
 
 // Fix my plans, before the store opens, has each plan that renews do so
 // every month, in US dollars, with no free trial, keeping its price, and
-// says in a line what it changed. A plan that's right already is left
-// alone, and so is one that isn't for hosting, and pressing it again
-// changes nothing. Whop refusing leaves the plans as they were. Once the
-// store is open, its plans stay as they are.
+// says in a line what it changed. A plan it changes loses any setup fee
+// too, which Whop would charge on top of the first payment, once the plan
+// no longer renews yearly or starts with a trial. A plan that's right
+// already is left alone, setup fee and all, and so is one that isn't for
+// hosting, and pressing it again changes nothing. Whop refusing leaves the
+// plans as they were. Once the store is open, its plans stay as they are,
+// and its prices no longer offer Fix my plans.
 func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
@@ -771,9 +774,11 @@ func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 		defer f.mu.Unlock()
 		return maps.Clone(f.installed["biz_other"].plan("plan_other"))
 	}
-	f.setOtherPlan("plan_other", map[string]any{"billing_period": 365, "currency": "eur", "trial_period_days": 7})
-	f.addOtherPlan(map[string]any{"id": "plan_big", "title": "Big", "renewal_price": 30, "metadata": map[string]any{whop.MetaServers: "2", whop.MetaMemoryGB: "8"},
+	f.setOtherPlan("plan_other", map[string]any{"billing_period": 365, "currency": "eur", "trial_period_days": 7, "initial_price": 12})
+	f.addOtherPlan(map[string]any{"id": "plan_big", "title": "Big", "renewal_price": 30, "initial_price": 5, "metadata": map[string]any{whop.MetaServers: "2", whop.MetaMemoryGB: "8"},
 		"product": map[string]any{"id": "prod_big", "title": "Big server"}})
+	f.addOtherPlan(map[string]any{"id": "plan_week", "title": "Week", "renewal_price": 12, "trial_period_days": 7, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"},
+		"product": map[string]any{"id": "prod_week", "title": "Week server"}})
 	f.addOtherPlan(map[string]any{"id": "plan_once", "title": "Once", "plan_type": "one_time", "initial_price": 12, "currency": "eur", "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"},
 		"product": map[string]any{"id": "prod_once", "title": "Once server"}})
 	f.addOtherPlan(map[string]any{"id": "plan_guide", "title": "Guide", "renewal_price": 50, "billing_period": 365, "currency": "eur", "trial_period_days": 7,
@@ -784,19 +789,20 @@ func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 	}
 	f.termsDown = false
 	r := fix()
-	if r.status != http.StatusOK || r.body["changed"] != "Other now renews every month, is in US dollars and has no free trial." || !slices.Equal(f.termSets, []string{"plan_other"}) {
+	if r.status != http.StatusOK || r.body["changed"] != "Other now renews every month, is in US dollars, has no free trial and has no setup fee. Week now has no free trial." ||
+		!slices.Equal(f.termSets, []string{"plan_other", "plan_week"}) {
 		t.Fatalf("Fix my plans: %d %v, plans changed %v", r.status, r.body, f.termSets)
 	}
-	if p := other(); p["billing_period"] != 30.0 || p["currency"] != "usd" || p["trial_period_days"] != 0.0 || p["renewal_price"] != 12 {
+	if p := other(); p["billing_period"] != 30.0 || p["currency"] != "usd" || p["trial_period_days"] != 0.0 || p["initial_price"] != 0.0 || p["renewal_price"] != 12 {
 		t.Fatalf("Other once fixed: %v", p)
 	}
-	if v := pricesOf(t, resp{status: r.status, body: r.body["prices"].(map[string]any)}); v.Fixable || len(v.Plans) != 3 || !slices.Equal(v.Blocked, []string{"Once is charged only once. Replace it with a monthly plan in Whop."}) {
+	if v := pricesOf(t, resp{status: r.status, body: r.body["prices"].(map[string]any)}); v.Fixable || len(v.Plans) != 4 || !slices.Equal(v.Blocked, []string{"Once is charged only once. Replace it with a monthly plan in Whop."}) {
 		t.Fatalf("the prices once fixed: %+v", v)
 	}
 	if rows := e.auditRows(t, "whop.plan_fix"); len(rows) != 1 || !strings.HasPrefix(rows[0], "whop:user_otherowner biz_other succeeded Other now renews every month") {
 		t.Fatalf("the audit log: %v", rows)
 	}
-	if r := fix(); r.status != http.StatusOK || r.body["changed"] != nil || len(f.termSets) != 1 {
+	if r := fix(); r.status != http.StatusOK || r.body["changed"] != nil || len(f.termSets) != 2 {
 		t.Fatalf("Fix my plans again: %d %v, plans changed %v", r.status, r.body, f.termSets)
 	}
 	f.setOtherPlan("plan_once", map[string]any{"visibility": "archived"})
@@ -804,7 +810,10 @@ func TestFixMyPlansPutsRightWhatItCan(t *testing.T) {
 		t.Fatalf("Open the store: %d %v", r.status, r.body)
 	}
 	f.setOtherPlan("plan_other", map[string]any{"trial_period_days": 3})
-	if r := fix(); r.status != http.StatusConflict || len(f.termSets) != 1 {
+	if v := pricesOf(t, e.asSeller(t, "GET", "biz_other/prices", "", token, nil)); v.Fixable {
+		t.Fatalf("an open store's prices offer Fix my plans: %+v", v)
+	}
+	if r := fix(); r.status != http.StatusConflict || len(f.termSets) != 2 {
 		t.Fatalf("Fix my plans on an open store: %d %v, plans changed %v", r.status, r.body, f.termSets)
 	}
 }

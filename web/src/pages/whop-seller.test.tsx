@@ -120,6 +120,25 @@ describe('a seller’s page inside Whop', () => {
     expect(document.body.textContent).toContain('No customers yet.')
   })
 
+  it('keeps a price Whop refused on screen, with why, after an earlier one saved', async () => {
+    reads(
+      () => closed,
+      () => view('closed'),
+    )
+    let saves = 0
+    vi.mocked(client.post).mockImplementation((path: string) => {
+      if (path.endsWith('/open')) return Promise.resolve({ store: { id: 'biz_other', title: 'Other Hosting', route: 'other-hosting' }, new: false })
+      saves++
+      if (saves === 1) return Promise.resolve({ ...closed, plans: [{ ...starter, price: 1500 }, plus] })
+      return Promise.reject(new client.ApiError(502, { code: 'retry_later', error: 'Whop didn’t answer. Try again in a moment.' }))
+    })
+    await render('biz_other')
+    await click(button('Looks good'))
+    expect(saves).toBe(2)
+    expect(heading()).toBe('Check your prices')
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('Whop didn’t answer. Try again in a moment.')
+  })
+
   it('shows an open store live straight away, with no steps, and says what it needs', async () => {
     reads(
       () => open,
