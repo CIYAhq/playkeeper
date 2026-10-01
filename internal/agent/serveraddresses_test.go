@@ -108,7 +108,7 @@ func TestEveryServerGetsAnAddressUnderTheWildcard(t *testing.T) {
 			t.Fatalf("a certificate request: %+v", r)
 		}
 	}
-	if st := e.a.publicPageState(); len(st.Hosts) != 3 {
+	if st := e.a.publicPageState(nil); len(st.Hosts) != 3 {
 		t.Fatalf("the page answers %v", st.Hosts)
 	}
 	if code, page, _ := e.page("creative.play.example.com"); code != 200 || len(page.Servers) != 1 || page.Servers[0].Name != "Creative" {

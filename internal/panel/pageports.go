@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"sync"
@@ -82,8 +83,12 @@ func (s *Server) lookAtPage(ctx context.Context) {
 	p.mu.Lock()
 	gen := p.gen
 	p.mu.Unlock()
+	hidden, err := s.pageHidden(ctx)
+	if err != nil {
+		return
+	}
 	var st api.PublicPageState
-	if _, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page/state", nil, nil, &st); err != nil {
+	if _, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page/state", url.Values{"hidden": hidden}, nil, &st); err != nil {
 		// Without the agent the page can't show anything new, but what it
 		// holds stays: the agent is back in a moment after an update.
 		return

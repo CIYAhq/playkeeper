@@ -491,6 +491,75 @@ func TestTheZoneAnswersAheadOfACopyAMoveLeft(t *testing.T) {
 	}
 }
 
+// A copy a move left on the dashboard's machine keeps the server's name
+// there until it's deleted. Once the zone no longer gives that name, as
+// while the machine the server moved to is away and resolvers still send
+// it here, the dashboard's machine's page leaves the copy out, and with it
+// a server there the dashboard's record has off: its agent is told them on
+// the port keeper's looks and the page's reads, and Settings say so.
+func TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff(t *testing.T) {
+	j := newJoinedPage(t)
+	ctx := context.Background()
+	local, err := j.e.srv.localMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := j.e.srv.machineByID(j.machineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for len(j.e.srv.page.kick) > 0 {
+		<-j.e.srv.page.kick
+	}
+	if err := j.e.srv.switchServer(ctx, serverMove{serverID: cobblemonID, userID: 1, from: local.ID, to: joined.ID}, joined, "cobblemon"); err != nil {
+		t.Fatal(err)
+	}
+	if len(j.e.srv.page.kick) != 1 {
+		t.Fatal("a move that left a copy on the dashboard's machine didn't have the page look again")
+	}
+
+	j.e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","slug":"survival","phase":"online","gamePort":25565}]`)
+	j.e.reply("GET", "/v1/servers/abcdefghjk/public-page", `{"enabled":true,"players":false,"about":"","stream":"","host":"beta.playkeeper.me"}`)
+	var servers []map[string]any
+	j.e.get(t, "/api/servers", j.cookie, &servers)
+	var v api.PublicPageView
+	if j.e.get(t, "/api/servers/abcdefghjk/public-page", j.cookie, &v); !v.Enabled {
+		t.Fatalf("Survival's page before the dashboard turned it off: %+v", v)
+	}
+	j.e.srv.setPageRecord("abcdefghjk", false)
+	if j.e.get(t, "/api/servers/abcdefghjk/public-page", j.cookie, &v); v.Enabled {
+		t.Fatalf("Settings show Survival on the page while the dashboard's record has it off: %+v", v)
+	}
+
+	j.e.reply("GET", "/v1/public-page/state", `{"host":"beta.playkeeper.me","on":true,"hosts":["`+cobblemonName+`"]}`)
+	j.e.reply("GET", "/v1/public-page", `{"address":"`+cobblemonName+`","servers":[]}`)
+	j.e.srv.setZoneAddresses(nil, "beta.playkeeper.me", true)
+	hidden := func(path string) []string { return j.e.agentRequest(t, "GET", path).query["hidden"] }
+	want := []string{"abcdefghjk", cobblemonID}
+	j.e.srv.lookAtPage(ctx)
+	if got := hidden("/v1/public-page/state"); !slices.Equal(got, want) {
+		t.Fatalf("the keeper's look hid %v, want %v", got, want)
+	}
+	h := j.e.srv.pageHandler(true)
+	pageGet(t, h, "GET", cobblemonName, pageDataPrefix)
+	if got := hidden("/v1/public-page"); !slices.Equal(got, want) {
+		t.Fatalf("the page's read hid %v, want %v", got, want)
+	}
+	pageGet(t, h, "GET", cobblemonName, pageDataPrefix+"/icons/cobblemon")
+	if got := hidden("/v1/public-page/icons/cobblemon"); !slices.Equal(got, want) {
+		t.Fatalf("the icon's read hid %v, want %v", got, want)
+	}
+
+	if _, err := j.e.srv.db.Exec(`DELETE FROM left_copies`); err != nil {
+		t.Fatal(err)
+	}
+	j.e.srv.setPageRecord("abcdefghjk", true)
+	j.e.srv.lookAtPage(ctx)
+	if got := hidden("/v1/public-page/state"); len(got) != 0 {
+		t.Fatalf("with the copy gone and Survival back on, the keeper's look hid %v", got)
+	}
+}
+
 // The port keeper asks a joined machine about its servers only until the
 // look's deadline: a machine slow to answer holds it up no longer.
 func TestTheKeepersAsksEndWithItsDeadline(t *testing.T) {

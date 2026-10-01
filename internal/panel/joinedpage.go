@@ -46,9 +46,10 @@ const pageLineMax = 100
 
 // joinedAt is the server on a joined machine whose page the Host header
 // host asks for: the one the zone gives that name. It comes before the
-// dashboard's machine's own names, which can still hold a copy a move is
-// making or left (see hiddenCopies), as the zone gives no name another
-// server on the dashboard's machine has.
+// dashboard's machine's own names, as the zone gives no name another server
+// on the dashboard's machine has. Those leave out a copy a move is making
+// or left there, whose name stays with the server even once the zone no
+// longer gives it (see pageHidden).
 func (s *Server) joinedAt(host string) (joinedName, bool) {
 	return s.zoneName(host)
 }

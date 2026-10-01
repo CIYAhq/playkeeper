@@ -412,7 +412,11 @@ func (s *Server) hPageData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a, ok := s.pageCached(r.Context(), "icon "+slug+" "+r.Host, func(ctx context.Context) (pageAnswer, bool) {
-			return pagePNG(ctx, s.agent, "/v1/public-page/icons/"+url.PathEscape(slug), url.Values{"host": {r.Host}})
+			hidden, err := s.pageHidden(ctx)
+			if err != nil {
+				return pageAnswer{}, false
+			}
+			return pagePNG(ctx, s.agent, "/v1/public-page/icons/"+url.PathEscape(slug), url.Values{"host": {r.Host}, "hidden": hidden})
 		})
 		if !ok {
 			http.NotFound(w, r)
@@ -538,8 +542,12 @@ func (s *Server) pageData(ctx context.Context, host string) (api.PublicPage, boo
 		return s.joinedPage(ctx, j)
 	}
 	a, ok := s.pageCached(ctx, "page "+host, func(ctx context.Context) (pageAnswer, bool) {
+		hidden, err := s.pageHidden(ctx)
+		if err != nil {
+			return pageAnswer{}, false
+		}
 		var page api.PublicPage
-		status, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page", url.Values{"host": {host}}, nil, &page)
+		status, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page", url.Values{"host": {host}, "hidden": hidden}, nil, &page)
 		if err != nil || status != http.StatusOK || len(page.Servers) == 0 {
 			return pageAnswer{}, false
 		}
@@ -551,6 +559,46 @@ func (s *Server) pageData(ctx context.Context, host string) (api.PublicPage, boo
 		return api.PublicPage{}, false
 	}
 	return page, true
+}
+
+// pageHidden are the servers the dashboard's machine's page leaves out,
+// which its agent can't tell apart and is told on each read: the copies a
+// move is making or left there, whose names answer for the servers where
+// they are (see hiddenCopies), and the servers the dashboard's own record
+// has off the page, as for a server on a joined machine.
+func (s *Server) pageHidden(ctx context.Context) ([]string, error) {
+	local, err := s.localMachine()
+	if err != nil {
+		return nil, err
+	}
+	copies, err := hiddenCopies(ctx, s.db, local.ID)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	var out []string
+	for id := range copies {
+		if copyHidden(copies, id, now) {
+			out = append(out, id)
+		}
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT server_id FROM public_pages WHERE enabled = 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
 }
 
 // pagePNG is a PNG the agent c serves at path for the page.
@@ -676,7 +724,8 @@ func (s *Server) hPublicPageSet(w http.ResponseWriter, r *http.Request, sess *se
 // address its machine has of its own, and is on it only while the
 // dashboard's record says so too (pageRecordOr). Its name has no
 // certificate but the domain's wildcard, so without it port 443 can't serve
-// its page.
+// its page. A server on the dashboard's machine is off it while the record
+// has it off (see pageHidden).
 func (s *Server) pageView(m machine, id string, v *api.PublicPageView) {
 	ports := s.page.portsNow()
 	if m.Kind != localKind {
@@ -685,6 +734,8 @@ func (s *Server) pageView(m machine, id string, v *api.PublicPageView) {
 		if ports.HTTPS.State == api.PortOpen && !s.pageCertified(v.Host) {
 			ports.HTTPS.State = api.PortNoCertificate
 		}
+	} else if on, known := s.pageRecord(id); known && !on {
+		v.Enabled = false
 	}
 	v.Ports = &ports
 }

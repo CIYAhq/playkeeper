@@ -1077,6 +1077,9 @@ func (s *Server) switchServer(ctx context.Context, mv serverMove, to machine, sl
 	if err != nil {
 		return errDB
 	}
+	// The copy it left goes off the dashboard's machine's page now, not at
+	// the port keeper's next look.
+	s.pageChanged()
 	return nil
 }
 

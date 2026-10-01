@@ -106,7 +106,7 @@ func TestAPublicPageThatIsOffAnswersLikeAnUnknownAddress(t *testing.T) {
 	if code != 404 || body != unknownBody {
 		t.Fatalf("a page that is off answers %d %s, an unknown address %d %s", code, body, unknown, unknownBody)
 	}
-	if st := e.a.publicPageState(); st.On || st.Host != pageTestHost {
+	if st := e.a.publicPageState(nil); st.On || st.Host != pageTestHost {
 		t.Fatalf("with every server off the page the state is %+v", st)
 	}
 	slug := e.status().Slug
@@ -123,7 +123,7 @@ func TestAPublicPageThatIsOffAnswersLikeAnUnknownAddress(t *testing.T) {
 func TestAMachineWithoutAnAddressHasNoPublicPage(t *testing.T) {
 	e := newAgentEnvWith(t, func(e *agentEnv) { e.cfg.Dev = false })
 	e.create()
-	if st := e.a.publicPageState(); st.On || st.Host != "" {
+	if st := e.a.publicPageState(nil); st.On || st.Host != "" {
 		t.Fatalf("the state without an address is %+v", st)
 	}
 	if code, _, _ := e.page("localhost"); code != 404 {
