@@ -10534,6 +10534,10 @@ webcontrol "seller terms: the seller page's Help goes to the #sellers channel" w
   '<Frame help={sellersHelpURL}>' \
   '<Frame>' \
   src/pages/whop-seller.test.tsx 'links Help in the sellers'
+control "seller terms: the dashboard links only playkeeper.io pages the site builds" web/src/pages/whop-seller-step.tsx \
+  "export const privacyURL = 'https://playkeeper.io/privacy'" \
+  "export const privacyURL = 'https://playkeeper.io/no-such-page'" \
+  ./internal/site '^TestTheDashboardLinksOnlyPagesTheSiteHas$'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
