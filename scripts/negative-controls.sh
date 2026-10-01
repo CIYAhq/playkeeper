@@ -9973,15 +9973,14 @@ control "seller view: the dashboard's own store has none" internal/panel/sellerv
   'case !ok || st.Via != whopViaApp:' \
   'case !ok:' \
   ./internal/panel '^TestASellersViewSaysHowTheStoreStands$'
-# shellcheck disable=SC2016
-webcontrol "seller view: the page reads its store through a relative address, which carries Whop's token" web/src/pages/whop-seller-view.tsx \
-  '`/api/public/whop/seller/${store}`' \
-  '`https://playkeeper.invalid/api/public/whop/seller/${store}`' \
-  src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
-webcontrol "seller view: earnings are counted in the currency's smallest unit" web/src/pages/whop-seller-view.tsx \
+webcontrol "seller view: the page reads its store through a relative address, which carries Whop's token" web/src/pages/whop-seller.tsx \
+  'get<SellerView>(' \
+  "get<SellerView>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller view: earnings are counted in the currency's smallest unit" web/src/pages/whop-seller-step.tsx \
   'return f.format(amount / 10 ** (f.resolvedOptions().maximumFractionDigits ?? 2))' \
   'return f.format(amount)' \
-  src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
+  src/pages/whop-seller-view.test.tsx 'shows what it earned, newest first'
 control "seller view: the view is read from the seller's page itself" internal/panel/sellerview.go \
   'if !fromSellerPage(r) {' \
   'if false {' \
@@ -10006,10 +10005,10 @@ control "seller view: nothing under the view's own address answers" internal/pan
   '!reWhopID.MatchString(store) || !known || sub && action == "" {' \
   '!reWhopID.MatchString(store) || !known || sub && len(action) < 0 {' \
   ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
-webcontrol "seller view: the seller's page shows the view once the store is open" web/src/pages/whop-seller.tsx \
-  '<SellerStoreView key={viewed} store={store} />' \
-  '' \
-  src/pages/whop-seller.test.tsx 'read through relative addresses'
+webcontrol "seller view: the seller's page shows an open store live straight away" web/src/pages/whop-seller.tsx \
+  "setScreen(next ?? (p.canUpdate ? 'live' : 'prices'))" \
+  "setScreen(next ?? 'prices')" \
+  src/pages/whop-seller.test.tsx 'shows an open store live straight away'
 
 # A seller's prices and Open the store (internal/panel/sellerprices.go, the
 # hosted blueprint's 2.3): only the business's team, from its page, prices
@@ -10017,10 +10016,14 @@ webcontrol "seller view: the seller's page shows the view once the store is open
 # least $12 a month for each 4 GB, set on a plan renewing monthly in US
 # dollars, and an open store's share follows it. Open the store needs every
 # hosting plan to sell as it is, within what the fleet runs, before any
-# other problem, on a product that sells it alone, sets Playkeeper's share
-# first, putting
-# right one that pays too little, marks the hosting products for the store
-# site, and only then opens the store, for its seller's reason alone.
+# other problem, on a product that sells it alone, and says so in a line
+# for each plan, then once how to meet the rules. It sets Playkeeper's
+# share first, putting right one that pays too little, marks the hosting
+# products for the store site, hides the website's free product, and only
+# then opens the store, for its seller's reason alone. Fix my plans puts
+# right a closed store's renewals, currencies and free trials, and the
+# prices say plainly what it can't. The seller's page walks through it all
+# one step at a time, through relative addresses.
 control "seller prices: a call comes from the seller's page itself" internal/panel/sellerprices.go \
   'if !fromSellerPage(r) {' \
   'if false {' \
@@ -10044,6 +10047,10 @@ control "seller prices: a price change looks at the store again once it holds th
 control "seller prices: Open the store looks at the store again once it holds the lock" internal/panel/sellerprices.go \
   'if st, ok = s.sellerStoreToChange(r.Context(), w, store); !ok {' \
   'if false {' \
+  ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
+control "seller prices: Fix my plans looks at the store again once it holds the lock" internal/panel/sellerprices.go \
+  'switch st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); {' \
+  'switch {' \
   ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
 control "seller prices: the floor is twelve dollars a month for each 4 GB" internal/panel/sellerprices.go \
   'const whopFloorPer4GB = 1200' \
@@ -10114,8 +10121,8 @@ control "seller prices: a plan the fleet doesn't run doesn't sell" internal/pane
   'case true || (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:' \
   ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
 control "seller prices: a plan's bounds come before its floor" internal/panel/sellerprices.go \
-  'if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {' \
-  'if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" && sp.Problem == "" {' \
+  'if problem, issue := allowanceIssue(sp.Title, sp.Servers, sp.MemoryMB); problem != "" {' \
+  'if problem, issue := allowanceIssue(sp.Title, sp.Servers, sp.MemoryMB); problem != "" && sp.Problem == "" {' \
   ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
 control "seller prices: a plan with too many servers says so" internal/panel/sellerprices.go \
   'case servers < 1 || servers > invites.MaxAllowanceServers:' \
@@ -10134,15 +10141,15 @@ control "seller prices: an archived plan doesn't share its product" internal/pan
   'return false' \
   ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
 control "seller prices: a shared product comes on top of a plan's other problem" internal/panel/sellerprices.go \
-  'sp.Problem = strings.TrimSpace(sp.Problem + " " + shared[p.ID])' \
-  'sp.Problem = shared[p.ID]' \
+  'sp.Problem = strings.TrimSpace(sp.Problem + " " + sh.problem())' \
+  'sp.Problem = sh.problem()' \
   ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
 control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
   'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
   'CanOpen: st.ClosedWhy != ""' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: Open the store needs every hosting plan to sell as it is" internal/panel/sellerprices.go \
-  'case len(problems) > 0:' \
+  'case len(lines) > 0:' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: Open the store sets Playkeeper's share" internal/panel/sellerprices.go \
@@ -10213,34 +10220,254 @@ control "seller prices: the audit log tells an update from an opening" internal/
   'pressed = "Update the store"' \
   'pressed = "Open the store"' \
   ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: a refusal gives each plan a line of its own" internal/panel/sellerprices.go \
+  'strings.Join(lines, "\n")' \
+  'strings.Join(lines, " ")' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a plan's line has each of its problems" internal/panel/sellerprices.go \
+  'sp.issues = append(sp.issues, sh.issue())' \
+  'sp.issues = []planIssue{sh.issue()}' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a plan the fleet doesn't run has that in its line" internal/panel/sellerprices.go \
+  'sp.Problem, sp.issues = problem, []planIssue{issue}' \
+  'sp.Problem, sp.issues = problem, nil; _ = issue' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a refusal says how to meet only the rules its plans break" internal/panel/sellerprices.go \
+  'if broken[planRule(rule)] {' \
+  'if broken[planRule(rule)] || true {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a refused update says it's an update" internal/panel/sellerprices.go \
+  'to = "update"' \
+  'to = "open"' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: the page suggests fifteen dollars a month for each 4 GB" internal/panel/sellerprices.go \
+  'const whopSuggestedPer4GB = 1500' \
+  'const whopSuggestedPer4GB = 1200' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: Fix my plans is offered for a plan that doesn't renew monthly" internal/panel/sellerprices.go \
+  'return r == ruleDollars || r == ruleMonthly || r == ruleNoTrial' \
+  'return r == ruleDollars || r == ruleNoTrial' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: Fix my plans is offered for a plan priced in another currency" internal/panel/sellerprices.go \
+  'return r == ruleDollars || r == ruleMonthly || r == ruleNoTrial' \
+  'return r == ruleMonthly || r == ruleNoTrial' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: Fix my plans is offered for a plan with a free trial" internal/panel/sellerprices.go \
+  'return r == ruleDollars || r == ruleMonthly || r == ruleNoTrial' \
+  'return r == ruleDollars || r == ruleMonthly' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: a plan charged only once isn't Fix my plans' to change" internal/panel/sellerprices.go \
+  'case p.PlanType != "renewal":' \
+  'case false:' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: plans sharing a product are the seller's to change" internal/panel/sellerprices.go \
+  'blocked: andList(sh.all) + " are on the same product. Give each its own product in Whop."}' \
+  '}' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: the prices say what Fix my plans can't change" internal/panel/sellerprices.go \
+  'v.Blocked = append(v.Blocked, is.blocked)' \
+  'v.Blocked = nil' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: what Fix my plans can't change is said once" internal/panel/sellerprices.go \
+  'case is.blocked != "" && !seen[is.blocked]:' \
+  'case is.blocked != "":' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: Fix my plans leaves an open store's plans as they are" internal/panel/sellerprices.go \
+  'case st.ClosedWhy == "":' \
+  'case false:' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans leaves a plan charged only once alone" internal/panel/sellerprices.go \
+  'if _, hosting := sellerPriceOf(p); !hosting || p.PlanType != "renewal" {' \
+  'if _, hosting := sellerPriceOf(p); !hosting {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans leaves a plan that isn't for hosting alone" internal/panel/sellerprices.go \
+  'if _, hosting := sellerPriceOf(p); !hosting || p.PlanType != "renewal" {' \
+  'if _, hosting := sellerPriceOf(p); !hosting && false || p.PlanType != "renewal" {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans leaves a plan that's right already alone" internal/panel/sellerprices.go \
+  'if len(now) == 0 {' \
+  'if false {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans says all it changed" internal/panel/sellerprices.go \
+  '" now "+andList(now)+"."' \
+  '" now "+now[0]+"."' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Whop refusing a plan's fix is Fix my plans' answer" internal/panel/sellerprices.go \
+  'updated, err := c.MakePlanMonthly(ctx, p.ID)' \
+  'updated, err := c.MakePlanMonthly(ctx, p.ID); err = nil' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans answers with the plans as Whop has them now" internal/panel/sellerprices.go \
+  'if updated.ID == p.ID {' \
+  'if false {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: what Fix my plans changed is in the audit log" internal/panel/sellerprices.go \
+  's.audit("whop:"+user, "whop.plan_fix", st.ID, "succeeded", line)' \
+  '_ = user' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans asks Whop for no free trial" internal/whop/store.go \
+  '"trial_period_days": 0, "initial_price": 0}' \
+  '"initial_price": 0}' \
+  ./internal/whop '^TestMakePlanMonthlyAsksForMonthlyInDollarsWithNoTrial$'
+control "seller prices: Fix my plans asks Whop for no initial price on top of the first payment" internal/whop/store.go \
+  '"trial_period_days": 0, "initial_price": 0}' \
+  '"trial_period_days": 0}' \
+  ./internal/whop '^TestMakePlanMonthlyAsksForMonthlyInDollarsWithNoTrial$'
+control "seller prices: Fix my plans says it took a setup fee off" internal/panel/sellerprices.go \
+  'if len(now) > 0 && p.InitialPrice != 0 {' \
+  'if false {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: a setup fee alone isn't Fix my plans' to change" internal/panel/sellerprices.go \
+  'if len(now) > 0 && p.InitialPrice != 0 {' \
+  'if p.InitialPrice != 0 {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: an open store's prices don't offer Fix my plans" internal/panel/sellerprices.go \
+  'v.Fixable = v.CanOpen' \
+  'v.Fixable = true' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Open the store hides the website's free product" internal/panel/sellerprices.go \
+  'if err := hideWebsiteProduct(ctx, c, st, plans); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: the store opens only once the website's product is hidden" internal/panel/sellerprices.go \
+  'if err := hideWebsiteProduct(ctx, c, st, plans); err != nil {' \
+  'if err := hideWebsiteProduct(ctx, c, st, plans); false && err != nil {' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: only a product titled Playkeeper Hosting is hidden" internal/panel/sellerprices.go \
+  'if !strings.EqualFold(strings.TrimSpace(p.Title), whopWebsiteProduct) || sells[p.ID] ||' \
+  'if sells[p.ID] ||' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: a Playkeeper Hosting product that sells stays" internal/panel/sellerprices.go \
+  'whopWebsiteProduct) || sells[p.ID] || p.Visibility' \
+  'whopWebsiteProduct) || p.Visibility' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: a product that charges for anything sells" internal/panel/sellerprices.go \
+  '(hosting || !p.Free())' \
+  '(hosting)' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: a hidden website product isn't hidden again" internal/panel/sellerprices.go \
+  'sells[p.ID] || p.Visibility == "hidden" || p.Visibility == "archived" {' \
+  'sells[p.ID] || p.Visibility == "archived" {' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: Whop is asked to hide the website's product" internal/whop/store.go \
+  'map[string]any{"visibility": "hidden"}' \
+  'map[string]any{"visibility": "visible"}' \
+  ./internal/whop '^TestHideProductAsksForHidden$'
+webcontrol "seller flow: a plan under the floor is offered at the price the page suggests" web/src/pages/whop-seller-prices.tsx \
+  'const offered = (p: SellerPrice) => (p.price >= p.floor ? p.price : p.suggested)' \
+  'const offered = (p: SellerPrice) => p.price' \
+  src/pages/whop-seller-prices.test.tsx 'at the price it suggests'
 webcontrol "seller prices: the page sends the price the seller typed" web/src/pages/whop-seller-prices.tsx \
-  '{ plan: p.id, price: value.trim() }' \
+  '{ plan: p.id, price: typed(cents) }' \
   '{ plan: p.id, price: typed(p.price) }' \
-  src/pages/whop-seller-prices.test.tsx 'saves a new price'
-webcontrol "seller prices: the page offers Open the store only while the store can open" web/src/pages/whop-seller-prices.tsx \
-  '{prices.canOpen && (' \
-  '{(' \
-  src/pages/whop-seller-prices.test.tsx 'offers no Open the store'
-webcontrol "seller prices: Open the store goes once the store opened" web/src/pages/whop-seller-prices.tsx \
-  'setPrices((v) => v && { ...v, canOpen: !done.open, canUpdate: done.open })' \
-  'setPrices((v) => v)' \
-  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
-webcontrol "seller prices: Update the store comes once the store opened" web/src/pages/whop-seller-prices.tsx \
-  'canOpen: !done.open, canUpdate: done.open })' \
-  'canOpen: !done.open })' \
-  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
-webcontrol "seller prices: the page offers Update the store once the store is open" web/src/pages/whop-seller-prices.tsx \
-  '{prices.canUpdate && (' \
-  '{false && (' \
-  src/pages/whop-seller-prices.test.tsx 'updates an open store'
-webcontrol "seller prices: the page offers Update the store only once the store is open" web/src/pages/whop-seller-prices.tsx \
-  '{prices.canUpdate && (' \
-  '{(' \
-  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
-webcontrol "seller prices: the page says an update is done" web/src/pages/whop-seller-prices.tsx \
-  "t(update ? 'sellerPrices.updated' : 'sellerPrices.opened')" \
-  "t('sellerPrices.opened')" \
-  src/pages/whop-seller-prices.test.tsx 'updates an open store'
+  src/pages/whop-seller-prices.test.tsx 'saves only the prices that changed'
+webcontrol "seller flow: only the prices that changed are saved" web/src/pages/whop-seller-prices.tsx \
+  'if (cents === p.price) continue' \
+  '' \
+  src/pages/whop-seller-prices.test.tsx 'saves only the prices that changed'
+webcontrol "seller flow: prices are saved through a relative address, which carries Whop's token" web/src/pages/whop-seller-prices.tsx \
+  'latest = await post<SellerPrices>(' \
+  "latest = await post<SellerPrices>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller-prices.test.tsx 'saves only the prices that changed'
+webcontrol "seller flow: a price under the floor is refused on the page" web/src/pages/whop-seller-prices.tsx \
+  "else if (cents < p.floor) wrong[p.id] = t('sellerFlow.prices.atLeast', { floor: money(p.floor, 'usd') })" \
+  '' \
+  src/pages/whop-seller-prices.test.tsx 'and saves nothing'
+webcontrol "seller flow: a wrong price saves nothing" web/src/pages/whop-seller-prices.tsx \
+  'if (Object.keys(wrong).length > 0) return' \
+  '' \
+  src/pages/whop-seller-prices.test.tsx 'and saves nothing'
+webcontrol "seller flow: Fix my plans is offered while a plan needs it" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.fixable) {' \
+  'if (false) {' \
+  src/pages/whop-seller-prices.test.tsx 'offers Fix my plans alone'
+webcontrol "seller flow: Change prices offers no Fix my plans, which an open store can't use" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.fixable) {' \
+  'if (prices.fixable) {' \
+  src/pages/whop-seller-prices.test.tsx 'even while a plan needs a fix'
+webcontrol "seller flow: Change prices isn't stopped by what to change in Whop" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.blocked?.length) {' \
+  'if (prices.blocked?.length) {' \
+  src/pages/whop-seller-prices.test.tsx 'even while a plan needs a fix'
+webcontrol "seller flow: the page lists and saves only the plans whose price it can set" web/src/pages/whop-seller-prices.tsx \
+  'const settable = prices.plans.filter((p) => p.settable)' \
+  'const settable = prices.plans' \
+  src/pages/whop-seller-prices.test.tsx 'lists only the plans whose price it can set'
+webcontrol "seller flow: Change prices can always go back" web/src/pages/whop-seller-prices.tsx \
+  'const back = onBack && (' \
+  'const back = false && (' \
+  src/pages/whop-seller-prices.test.tsx 'goes back from no plans too'
+webcontrol "seller flow: a price Whop refuses after one saved stays on screen with why" web/src/pages/whop-seller-prices.tsx \
+  'if (latest !== prices) onSaved(latest)' \
+  'if (latest !== prices) onPrices(latest)' \
+  src/pages/whop-seller.test.tsx 'keeps a price Whop refused on screen'
+webcontrol "seller flow: Fix my plans goes through a relative address, which carries Whop's token" web/src/pages/whop-seller-prices.tsx \
+  'const done = await post<SellerFixed>(' \
+  "const done = await post<SellerFixed>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller-prices.test.tsx 'offers Fix my plans alone'
+webcontrol "seller flow: the page says what Fix my plans changed" web/src/pages/whop-seller-prices.tsx \
+  'const told = notice && (' \
+  'const told = false && (' \
+  src/pages/whop-seller-prices.test.tsx 'says in a line what Fix my plans changed'
+webcontrol "seller flow: what Fix my plans can't change is said plainly" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.blocked?.length) {' \
+  'if (false) {' \
+  src/pages/whop-seller-prices.test.tsx 'says plainly what to change in Whop'
+webcontrol "seller flow: Check again reads through a relative address, which carries Whop's token" web/src/pages/whop-seller-prices.tsx \
+  'onPrices(await get<SellerPrices>(' \
+  "onPrices(await get<SellerPrices>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller-prices.test.tsx 'says plainly what to change in Whop'
+webcontrol "seller flow: each step's heading takes the focus, so a screen reader reads it" web/src/pages/whop-seller-step.tsx \
+  'heading.current?.focus()' \
+  '' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: the steps say where the seller is" web/src/pages/whop-seller-step.tsx \
+  'current={step}' \
+  'current={0}' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: each line of a refusal stands alone" web/src/pages/whop-seller-step.tsx \
+  "lines: errorText(err).split('\\n')" \
+  'lines: [errorText(err)]' \
+  src/pages/whop-seller-view.test.tsx 'says so or why not'
+webcontrol "seller flow: Looks good goes on to Open your store" web/src/pages/whop-seller.tsx \
+  "setScreen('open')" \
+  "setScreen('prices')" \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: Open the store goes through a relative address, which carries Whop's token" web/src/pages/whop-seller.tsx \
+  'const done = await post<SellerOpened>(' \
+  "const done = await post<SellerOpened>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: the store goes live once it opened" web/src/pages/whop-seller.tsx \
+  'if (done.open) onOpened()' \
+  'if (false) onOpened()' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: an open store says what it needs" web/src/pages/whop-seller.tsx \
+  '{open.store.problem && <p' \
+  '{false && <p' \
+  src/pages/whop-seller.test.tsx 'says what it needs'
+webcontrol "seller flow: a store Playkeeper suspended has nothing to press" web/src/pages/whop-seller.tsx \
+  "if (view.store.state === 'suspended')" \
+  'if (false)' \
+  src/pages/whop-seller.test.tsx 'with nothing to press'
+webcontrol "seller flow: a store that left has nothing to press" web/src/pages/whop-seller.tsx \
+  "if (view.store.state === 'left')" \
+  'if (false)' \
+  src/pages/whop-seller.test.tsx 'with nothing to press'
+webcontrol "seller flow: the live store links to its page on Whop" web/src/pages/whop-seller-view.tsx \
+  'https://whop.com/' \
+  'https://whop.invalid/' \
+  src/pages/whop-seller-view.test.tsx 'links to the store'
+webcontrol "seller flow: earnings show newest first" web/src/pages/whop-seller-view.tsx \
+  '[...view.earnings].sort((a, b) => b.month.localeCompare(a.month)).slice(0, monthsShown)' \
+  'view.earnings.slice(0, monthsShown)' \
+  src/pages/whop-seller-view.test.tsx 'newest first'
+webcontrol "seller flow: the page names a few customers and counts the rest" web/src/pages/whop-seller-view.tsx \
+  'view.customers.slice(0, customersShown).map(' \
+  'view.customers.map(' \
+  src/pages/whop-seller-view.test.tsx 'its customers, briefly'
+webcontrol "seller flow: Update the store goes through a relative address, which carries Whop's token" web/src/pages/whop-seller-view.tsx \
+  'await post<SellerOpened>(' \
+  "await post<SellerOpened>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller-view.test.tsx 'says so or why not'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \

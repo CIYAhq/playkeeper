@@ -245,6 +245,23 @@ func (c *Client) SetPlanPrice(ctx context.Context, planID string, price float64)
 	return p, err
 }
 
+// MakePlanMonthly has a plan that renews do so every month, in US dollars,
+// with no free trial and no initial price, which Whop would charge on top
+// of the first renewal (as SetPlanPrice), keeping its renewal price, and
+// returns the plan as Whop has it then. Whop can't make a one-time plan
+// renew.
+func (c *Client) MakePlanMonthly(ctx context.Context, planID string) (Plan, error) {
+	var p Plan
+	err := c.do(ctx, http.MethodPatch, "/variants/"+url.PathEscape(planID), nil, map[string]any{"currency": "usd", "billing_period": 30, "trial_period_days": 0, "initial_price": 0}, &p)
+	return p, err
+}
+
+// HideProduct hides a product from the store's page on Whop. Whoever has it
+// keeps it.
+func (c *Client) HideProduct(ctx context.Context, productID string) error {
+	return c.do(ctx, http.MethodPatch, "/products/"+url.PathEscape(productID), nil, map[string]any{"visibility": "hidden"}, nil)
+}
+
 // ShowPlan makes a plan visible on the store's page. A hidden plan sells
 // only through its own link, and the store site lists only visible ones.
 func (c *Client) ShowPlan(ctx context.Context, planID string) error {
