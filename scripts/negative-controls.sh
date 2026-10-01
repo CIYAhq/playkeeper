@@ -8473,10 +8473,14 @@ control "share: at least the 1% Whop takes" internal/whop/revshare.go \
   'max((d*10000+p-1)/p, 100)' \
   '(d*10000+p-1)/p' \
   ./internal/whop '^TestSharePercentPaysAtLeastTheFee$'
-control "share: from the least a plan charges" internal/panel/whop_share.go \
-  'if price > 0 && (least == 0 || price < least) {' \
-  'if price > 0 && (least == 0 || price > least) {' \
-  ./internal/panel '^TestAProductsShareCoversEachOfItsPlans$'
+control "share: from the least one payment charges, a renewal's initial price on top of its first" internal/panel/whop_share.go \
+  'if p.TrialDays > 0 && p.InitialPrice > 0 {' \
+  'if p.InitialPrice > 0 {' \
+  ./internal/panel '^(TestAPlansLeastChargeIsWhatOnePaymentCharges|TestPlaykeepersShareIsSetOnEachHostingProductFromItsPrice)$'
+control "share: a one-time plan charges its initial price" internal/panel/whop_share.go \
+  'if p.PlanType != "renewal" {' \
+  'if false {' \
+  ./internal/panel '^TestAPlansLeastChargeIsWhatOnePaymentCharges$'
 control "share: a product's covers its neediest plan" internal/panel/whop_share.go \
   'w.BasisPoints = max(w.BasisPoints, int64(math.Round(pct*100)))' \
   'w.BasisPoints = int64(math.Round(pct*100))' \

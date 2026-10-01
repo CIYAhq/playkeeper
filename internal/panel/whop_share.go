@@ -144,16 +144,19 @@ type whopShareWant struct {
 	BasisPoints    int64
 }
 
-// whopLeastCharge is the least a plan charges a buyer, 0 for a free plan: a
-// plan that renews may charge its first payment apart.
+// whopLeastCharge is the least one payment of a plan charges its buyer, 0
+// for a free plan. Whop charges a renewing plan's initial price on top of
+// its first renewal price (its initial_price_due), so the least is the
+// renewal price; during a free trial the first payment is the initial
+// price alone. A one-time plan charges its initial price.
 func whopLeastCharge(p whop.Plan) float64 {
-	least := 0.0
-	for _, price := range []float64{p.InitialPrice, p.RenewalPrice} {
-		if price > 0 && (least == 0 || price < least) {
-			least = price
-		}
+	if p.PlanType != "renewal" {
+		return p.InitialPrice
 	}
-	return least
+	if p.TrialDays > 0 && p.InitialPrice > 0 {
+		return min(p.InitialPrice, p.RenewalPrice)
+	}
+	return p.RenewalPrice
 }
 
 // whopShareWants works out each hosting product's share from its plans,
