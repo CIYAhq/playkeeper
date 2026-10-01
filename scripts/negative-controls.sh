@@ -9362,25 +9362,9 @@ control "seller prices: a plan with too many servers says so" internal/panel/sel
   'case servers < 1:' \
   ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
 control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
-  'here := st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
-  'here := true' \
+  'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'CanOpen: st.ClosedWhy != ""' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
-control "seller prices: Update the store isn't offered to a suspended store" internal/panel/sellerprices.go \
-  'here := st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
-  'here := st.LeftAt.IsZero()' \
-  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
-control "seller prices: an open store offers Update the store" internal/panel/sellerprices.go \
-  'CanUpdate: st.ClosedWhy == "" && here}' \
-  'CanUpdate: false && here}' \
-  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
-control "seller prices: Update the store is offered only once the store is open" internal/panel/sellerprices.go \
-  'CanUpdate: st.ClosedWhy == "" && here}' \
-  'CanUpdate: here}' \
-  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
-control "seller prices: the audit log tells an update from an opening" internal/panel/sellerprices.go \
-  'pressed = "Update the store"' \
-  'pressed = "Open the store"' \
-  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
 control "seller prices: Open the store needs every hosting plan to sell as it is" internal/panel/sellerprices.go \
   'case len(problems) > 0:' \
   'case false:' \
@@ -9437,6 +9421,22 @@ control "seller prices: Open the store opens its seller's reason alone" internal
   's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
   's.openWhopStore(ctx, st.ID, "share")' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: an open store offers Update the store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = false && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store is offered only once the store is open" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store isn't offered to a suspended store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.ClosedWhy == "" && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: the audit log tells an update from an opening" internal/panel/sellerprices.go \
+  'pressed = "Update the store"' \
+  'pressed = "Open the store"' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
 webcontrol "seller prices: the page sends the price the seller typed" web/src/pages/whop-seller-prices.tsx \
   '{ plan: p.id, price: value.trim() }' \
   '{ plan: p.id, price: typed(p.price) }' \

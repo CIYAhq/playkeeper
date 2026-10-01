@@ -183,8 +183,7 @@ func (s *Server) sellerPricesOf(ctx context.Context, c *whop.Client, st whopStor
 // as its problem, before any other: the store's pass would start none of
 // its buyers, and the floor follows from what it allows.
 func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
-	here := st.SuspendedAt.IsZero() && st.LeftAt.IsZero()
-	v := sellerPrices{Plans: []sellerPrice{}, CanOpen: st.ClosedWhy != "" && here, CanUpdate: st.ClosedWhy == "" && here}
+	v := sellerPrices{Plans: []sellerPrice{}, CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()}
 	for _, p := range plans {
 		if sp, ok := sellerPriceOf(p); ok {
 			if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {
@@ -193,6 +192,7 @@ func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 			v.Plans = append(v.Plans, sp)
 		}
 	}
+	v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()
 	return v
 }
 
