@@ -36,6 +36,8 @@ type catalogCache struct {
 	// then it's served without asking PaperMC.
 	retryAt time.Time
 	builds  map[string]cachedBuild
+	// The list being fetched, which callers wait for without the lock.
+	flights map[string]*flight[[]api.CatalogEntry]
 }
 
 // versionList is a type's versions and when its upstream listed them:
@@ -82,22 +84,42 @@ func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Ti
 func (a *Agent) paperList(ctx context.Context) (versionList, error) {
 	c := &a.catalog
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	now := a.now()
 	if c.list.entries != nil && (now.Before(c.retryAt) || c.retryAt.IsZero() && now.Sub(c.list.at) < catalogTTL) {
-		return c.list, nil
+		l := c.list
+		c.mu.Unlock()
+		return l, nil
 	}
-	// The fetch outlives a caller that leaves, so its failure is PaperMC's.
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
-	entries, err := a.fill().Catalog(cctx)
+	c.mu.Unlock()
+	entries, at, err := fetchOnce(ctx, &c.mu, &c.flights, api.TypePaper, func() ([]api.CatalogEntry, time.Time, error) {
+		// The fetch outlives a caller that leaves, so its failure is
+		// PaperMC's, and holds no lock, so it holds up only its callers.
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		entries, err := a.fill().Catalog(cctx)
+		if err != nil {
+			return nil, time.Time{}, err
+		}
+		now := a.now()
+		c.mu.Lock()
+		c.list, c.retryAt = versionList{entries: entries, at: now}, time.Time{}
+		c.mu.Unlock()
+		a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: now, Entries: entries})
+		return entries, now, nil
+	})
 	if err == nil {
-		c.list, c.retryAt = versionList{entries: entries, at: a.now()}, time.Time{}
-		a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: c.list.at, Entries: entries})
-		return c.list, nil
+		return versionList{entries: entries, at: at}, nil
+	}
+	if ctx.Err() != nil {
+		return versionList{}, err
 	}
 	a.log.Warn("could not load the Paper version list", "err", err)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	switch {
+	case c.list.entries != nil && c.list.from == fromUpstream && c.retryAt.IsZero() && a.now().Sub(c.list.at) < catalogTTL:
+		// A fetch that ended meanwhile got PaperMC's list.
+		return c.list, nil
 	case c.list.entries != nil:
 		if c.list.from == fromUpstream {
 			c.list.from = fromKept

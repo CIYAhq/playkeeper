@@ -29,9 +29,10 @@ type fakeFill struct {
 	mu       sync.Mutex
 	versions []fillVersionSpec
 	sum      string
-	hold     bool // requests wait until the caller gives up
-	fails    int  // this many requests answer 503 first, as when PaperMC has trouble
-	down     bool // every request answers 503, as on 1 Oct 2026
+	hold     bool          // requests wait until the caller gives up
+	holdList chan struct{} // the version list waits until it's closed
+	fails    int           // this many requests answer 503 first, as when PaperMC has trouble
+	down     bool          // every request answers 503, as on 1 Oct 2026
 	requests int
 }
 
@@ -78,7 +79,7 @@ func (ff *fakeFill) set(sum string, versions []fillVersionSpec) {
 
 func (ff *fakeFill) serve(w http.ResponseWriter, r *http.Request) {
 	ff.mu.Lock()
-	versions, sum, hold, failing := ff.versions, ff.sum, ff.hold, ff.fails > 0 || ff.down
+	versions, sum, hold, holdList, failing := ff.versions, ff.sum, ff.hold, ff.holdList, ff.fails > 0 || ff.down
 	if ff.fails > 0 {
 		ff.fails--
 	}
@@ -96,6 +97,9 @@ func (ff *fakeFill) serve(w http.ResponseWriter, r *http.Request) {
 		return map[string]any{"id": v.id, "support": map[string]any{"status": v.support}, "java": map[string]any{"version": map[string]any{"minimum": 25}}}
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/v3/projects/paper/versions")
+	if rest == "" && holdList != nil {
+		<-holdList
+	}
 	if rest == "" {
 		var list []any
 		for _, v := range versions {

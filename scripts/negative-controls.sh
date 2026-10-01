@@ -13103,7 +13103,7 @@ control "Paper downloads from PaperMC's download host by its checksum" internal/
   'if u, ok := paperJarURL(sc.MinecraftVersion, sc.PaperBuild, sum); false && ok {' \
   ./internal/agent '^TestWhilePaperMCAnswers503TheFirstServerIsStillCreated$'
 control "the last Paper list PaperMC gave is kept for the next outage" internal/agent/versions.go \
-  'a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: c.list.at, Entries: entries})' \
+  'a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: now, Entries: entries})' \
   '' \
   ./internal/agent '^TestPaperMCsLastListIsKeptOnDiskForTheNextOutage$'
 control "a Paper backup restores from the list the machine has while PaperMC is down" internal/agent/versions.go \
