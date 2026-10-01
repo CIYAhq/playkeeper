@@ -178,6 +178,17 @@ describe('checking a seller’s prices', () => {
     expect(onBack).toHaveBeenCalledTimes(2)
   })
 
+  it('lists only the plans whose price it can set, and saves only those', async () => {
+    const yearly = { ...starter, id: 'plan_yearly', title: 'Yearly', settable: false }
+    await render(pricesWith({ plans: [yearly, { ...starter, price: 1500 }, plus], canOpen: false, canUpdate: true }), { edit: true })
+    expect(document.querySelectorAll('input')).toHaveLength(2)
+    await type(field('Plus'), '28')
+    vi.mocked(client.post).mockResolvedValueOnce(pricesWith())
+    await click(button('Save prices'))
+    expect(vi.mocked(client.post)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/prices', { plan: 'plan_plus', price: '28.00' })
+  })
+
   it('changes an open store’s prices with Save prices, and goes back', async () => {
     await render(pricesWith({ plans: [{ ...starter, price: 1500 }, plus], canOpen: false, canUpdate: true }), { edit: true })
     expect(document.querySelector('h1')?.textContent).toBe('Your prices')
