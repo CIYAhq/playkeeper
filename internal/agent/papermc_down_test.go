@@ -301,3 +301,26 @@ func TestTheMachineCheckWarnsWhileAServiceIsDownAndFailsOnlyWhenNoneAnswers(t *t
 		}
 	}
 }
+
+// A caller that leaves, as a closed browser tab does, says nothing about
+// PaperMC: its list is still fetched and offered, and a restore lookup that
+// was cancelled isn't kept as PaperMC's answer.
+func TestACallerThatLeavesDoesNotMakePaperMCLookDown(t *testing.T) {
+	e := newAgentEnv(t)
+	gone, leave := context.WithCancel(t.Context())
+	leave()
+	e.a.versionCatalog(gone)
+	if e.fill.asked() == 0 {
+		t.Fatal("the list is fetched for a caller that left")
+	}
+	asked := e.fill.asked()
+	if _, _, err := e.a.versionCatalog(t.Context()); err != nil || e.fill.asked() != asked {
+		t.Fatalf("the list fetched then is PaperMC's own, kept for the next caller: %v, asked %d more times", err, e.fill.asked()-asked)
+	}
+	if _, err := e.a.restoreBuildOrKnown(gone, "26.1.2", 74); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a restore lookup whose caller left: %v", err)
+	}
+	if got, err := e.a.restoreBuild(t.Context(), "26.1.2", 74); err != nil || got.PaperBuild != 74 {
+		t.Fatalf("the next lookup asks PaperMC: %+v %v", got, err)
+	}
+}

@@ -63,7 +63,8 @@ func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Ti
 	if c.entries != nil && (now.Before(c.retryAt) || c.retryAt.IsZero() && now.Sub(c.at) < catalogTTL) {
 		return c.entries, c.at, nil
 	}
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// The fetch outlives a caller that leaves, so its failure is PaperMC's.
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	entries, err := a.fill().Catalog(cctx)
 	if err == nil {
@@ -118,6 +119,9 @@ func (a *Agent) restoreBuild(ctx context.Context, mc string, build int) (api.Cat
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	e, err := a.fill().RestoreBuild(cctx, mc, build)
+	if ctx.Err() != nil {
+		return e, err
+	}
 	if c.builds == nil {
 		c.builds = map[string]cachedBuild{}
 	}
@@ -131,7 +135,7 @@ func (a *Agent) restoreBuild(ctx context.Context, mc string, build int) (api.Cat
 // 0.3.0 left needs the build PaperMC itself picks, so it uses restoreBuild.
 func (a *Agent) restoreBuildOrKnown(ctx context.Context, mc string, build int) (api.CatalogEntry, error) {
 	e, err := a.restoreBuild(ctx, mc, build)
-	if err == nil || errors.Is(err, minecraft.ErrNoPaperBuild) {
+	if err == nil || errors.Is(err, minecraft.ErrNoPaperBuild) || ctx.Err() != nil {
 		return e, err
 	}
 	for _, k := range a.keptPaperCatalog() {
