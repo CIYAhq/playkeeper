@@ -306,6 +306,7 @@ func TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid(t *testing.T) {
 	given := map[string]string{
 		"user_kim": "plan_other|1|4096|0", "user_dee": "plan_big+plan_other|3|12288|0", "user_alex": "plan_other|1|4096|0", "user_sam": "plan_small|1|4096|0",
 		"user_ray": "plan_other|1|4096|0", "user_lee": "plan_big+plan_other|3|12288|0", "user_pat": "plan_other|1|4096|0",
+		"user_max": strings.Repeat("plan_big+", 5) + "plan_big|10|49152|0",
 	}
 	for user, applied := range given {
 		exec(`INSERT INTO whop_customers(store_id, whop_user_id, applied, paused, updated_at) VALUES('biz_app', ?, ?, ?, 1)`, user, applied, user == "user_pat")
@@ -316,6 +317,8 @@ func TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid(t *testing.T) {
 		{"mem_alex", "user_alex", "plan_other"}, {"mem_alex2", "user_alex", "plan_big"}, {"mem_sam", "user_sam", "plan_big"},
 		{"mem_ray1", "user_ray", "plan_other"}, {"mem_ray2", "user_ray", "plan_other"},
 		{"mem_lee1", "user_lee", "plan_big"}, {"mem_lee2", "user_lee", "plan_other"}, {"mem_lee3", "user_lee", "plan_other"}, {"mem_pat", "user_pat", "plan_other"},
+		{"mem_max1", "user_max", "plan_big"}, {"mem_max2", "user_max", "plan_big"}, {"mem_max3", "user_max", "plan_big"},
+		{"mem_max4", "user_max", "plan_big"}, {"mem_max5", "user_max", "plan_big"}, {"mem_max6", "user_max", "plan_big"},
 	} {
 		exec(`INSERT INTO whop_memberships(store_id, membership_id, whop_user_id, plan_id, status, updated_at) VALUES('biz_app', ?, ?, ?, 'active', 1)`, m[0], m[1], m[2])
 	}
@@ -325,7 +328,7 @@ func TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb FROM whop_membership_checks`)
+	rows, err := db.Query(`SELECT membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb FROM whop_membership_checks WHERE answered = 1`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,8 +346,91 @@ func TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid(t *testing.T) {
 		"mem_kim": "plan_other Other 1/4096/0", "mem_dee1": "plan_big Big 2/8192/0", "mem_dee2": "plan_other Other 1/4096/0",
 		"mem_alex": "plan_other Other 1/4096/0", "mem_sam": "plan_small plan_small 1/4096/0",
 	}
+	for i := 1; i <= 6; i++ {
+		want[fmt.Sprintf("mem_max%d", i)] = "plan_big Big 2/8192/0"
+	}
 	if !maps.Equal(got, want) {
 		t.Fatalf("kept as paid: %v, want %v", got, want)
+	}
+}
+
+// A customer already started, one of whose memberships the payment check
+// has no answer for yet, as when the upgrade couldn't match what they hold
+// with what they were given, isn't paused while that answer can't be had:
+// while their store is closed, or while Whop fails the check. Once Whop
+// answers that it was paid, they go on as they were.
+func TestAStartedCustomerIsntPausedWhileTheirPaymentCantBeChecked(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	pass := func() []string {
+		n := len(core.got())
+		e.clock.add(2 * whopPollEvery)
+		e.reconcile()
+		return core.got()[n:]
+	}
+	if calls := pass(); !calledFor(calls, "start ", "user_kim") {
+		t.Fatalf("kim didn't start: %q", calls)
+	}
+	if _, err := e.srv.db.Exec(`DELETE FROM whop_membership_checks WHERE membership_id = 'mem_kim'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.closeWhopStore(t.Context(), "biz_other", "test", "Closed for the test."); err != nil {
+		t.Fatal(err)
+	}
+	if calls := pass(); len(calls) > 0 {
+		t.Fatalf("with the store closed and kim's payment unchecked: the core's calls %q", calls)
+	}
+	if _, err := e.srv.openWhopStore(t.Context(), "biz_other", "test"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	b.paymentsDown = true
+	f.mu.Unlock()
+	if calls := pass(); len(calls) > 0 {
+		t.Fatalf("while Whop fails kim's payment check: the core's calls %q", calls)
+	}
+	f.mu.Lock()
+	b.paymentsDown = false
+	f.mu.Unlock()
+	if calls := pass(); len(calls) > 0 {
+		t.Fatalf("once Whop answers that kim's membership was paid: the core's calls %q", calls)
+	}
+	var paid int
+	if err := e.srv.db.QueryRow(`SELECT paid_mb FROM whop_membership_checks WHERE membership_id = 'mem_kim' AND answered = 1`).Scan(&paid); err != nil || paid != 4096 {
+		t.Fatalf("kim's membership as checked: %d, %v", paid, err)
+	}
+}
+
+// A payment check waiting for its next try is tried at once when the
+// dashboard starts again (retryWhopNow), as a customer's call is, so a
+// release or the end of a Whop outage needs no wait.
+func TestAPaymentCheckWaitingIsTriedAtOnceOnStartingAgain(t *testing.T) {
+	f, e, _ := twoStores(t)
+	core := useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	b.paymentsDown = true
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	if calledFor(core.got(), "start ", "user_kim") {
+		t.Fatal("kim started while Whop failed their payment check")
+	}
+	f.mu.Lock()
+	b.paymentsDown = false
+	f.mu.Unlock()
+	e.clock.add(time.Second)
+	e.srv.retryWhopNow()
+	e.reconcile()
+	if !calledFor(core.got(), "start ", "user_kim") {
+		t.Fatalf("starting again didn't try kim's payment check at once: %q", core.got())
 	}
 }
 

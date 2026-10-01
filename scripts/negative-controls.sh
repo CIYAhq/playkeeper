@@ -8714,6 +8714,22 @@ control "payment check: the migration keeps one membership of the plan a custome
   'AND (a.of_given = 1 AND h.plan_id = a.ids OR a.of_given = 0 AND a.n = 1);' \
   ';' \
   ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
+control "payment check: a started customer isn't given less while a membership of theirs has no answer" internal/panel/whop_customers.go \
+  'if unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied) {' \
+  'if false && unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied) {' \
+  ./internal/panel '^TestAStartedCustomerIsntPausedWhileTheirPaymentCantBeChecked$'
+control "payment check: Whop's answer that a membership wasn't paid counts as an answer" internal/panel/whop_share_hooks.go \
+  'case errors.As(err, &np):' \
+  'case false && errors.As(err, &np):' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: starting again tries a waiting payment check at once" internal/panel/whop_customers.go \
+  'UPDATE whop_membership_checks SET next_check_at = 0 WHERE next_check_at > 0' \
+  'UPDATE whop_membership_checks SET next_check_at = 0 WHERE 0' \
+  ./internal/panel '^TestAPaymentCheckWaitingIsTriedAtOnceOnStartingAgain$'
+control "payment check: the migration compares within an allowance's bounds" internal/panel/auth.go \
+  'min(sum(servers), 10) AS servers, min(sum(mb), 65536) AS mb' \
+  'sum(servers) AS servers, sum(mb) AS mb' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
 control "payment check: the migration keeps a moved membership as paid for what was given" internal/panel/auth.go \
   'COALESCE((SELECT q.title FROM whop_plans q WHERE q.store_id = a.store_id AND q.plan_id = a.ids), a.ids), a.servers, a.mb, a.disk' \
   'h.title, h.servers, h.mb, h.disk' \

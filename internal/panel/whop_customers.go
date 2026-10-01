@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -251,8 +252,8 @@ func (s *Server) runWhop(ctx context.Context) {
 	}
 }
 
-// retryWhopNow drops the waits of the calls and messages that failed, so
-// they're tried at once, and has the next pass read the store and every
+// retryWhopNow drops the waits of the calls, messages and payment checks
+// that failed, so they're tried at once, and has the next pass read the store and every
 // membership again. Starting again does it, so a release that brings what
 // was missing, such as the hosting core or a webhook Whop now takes, needs
 // no wait, and a purchase made while the webhook was missing is caught
@@ -263,6 +264,9 @@ func (s *Server) retryWhopNow() {
 	}
 	if _, err := s.db.Exec(`UPDATE whop_messages SET next_try_at = 0 WHERE sent_at = 0`); err != nil {
 		s.log.Error("could not retry Whop messages", "err", err)
+	}
+	if _, err := s.db.Exec(`UPDATE whop_membership_checks SET next_check_at = 0 WHERE next_check_at > 0`); err != nil {
+		s.log.Error("could not retry Whop payment checks", "err", err)
 	}
 	if _, err := s.db.Exec(`UPDATE whop_stores SET polled_at = 0, synced_at = 0`); err != nil {
 		s.log.Error("could not have Whop read again", "err", err)
@@ -607,13 +611,15 @@ type whopCustomer struct {
 // its plan gives now, and what the payment check found, Paid, what it gave
 // when a payment of it last carried Playkeeper's share (zero for never),
 // and while it isn't paid for Part, the Problem it found, its Attempts and
-// when it looks again.
+// when it looks again. Answered is whether the check ever had Whop's
+// answer for it, paid or not, rather than Whop failing to give one.
 type whopHosting struct {
 	ID          string
 	Part, Paid  planPart
 	Problem     string
 	Attempts    int
 	NextCheckAt int64
+	Answered    bool
 }
 
 // paidFor says whether a payment of the membership carried the share for
@@ -659,6 +665,18 @@ func planKey(p CustomerPlan) string {
 	return fmt.Sprintf("%s|%d|%d|%d", p.ID, p.Servers, p.MemoryMB, p.DiskGB)
 }
 
+// whopGivesLess says whether p allows fewer servers or less memory than
+// the plan the core was given, applied (planKey).
+func whopGivesLess(p CustomerPlan, applied string) bool {
+	f := strings.Split(applied, "|")
+	if len(f) != 4 {
+		return false
+	}
+	servers, err1 := strconv.Atoi(f[1])
+	memoryMB, err2 := strconv.Atoi(f[2])
+	return err1 == nil && err2 == nil && (p.Servers < servers || p.MemoryMB < memoryMB)
+}
+
 // capAllowance keeps what several plans allow together within an
 // allowance's bounds.
 func capAllowance(al invites.Allowance) invites.Allowance {
@@ -702,7 +720,7 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 	rows, err = s.db.QueryContext(ctx, `SELECT m.whop_user_id, m.membership_id, m.plan_id, m.status, m.stale, m.updated_at,
 		COALESCE(p.title, ''), COALESCE(p.allowance_servers, 0), COALESCE(p.allowance_memory_mb, 0), COALESCE(p.disk_gb, 0), COALESCE(p.allowance_from, ''),
 		COALESCE(k.paid_plan_id, ''), COALESCE(k.paid_title, ''), COALESCE(k.paid_servers, 0), COALESCE(k.paid_mb, 0), COALESCE(k.paid_disk_gb, 0),
-		COALESCE(k.problem, ''), COALESCE(k.attempts, 0), COALESCE(k.next_check_at, 0)
+		COALESCE(k.problem, ''), COALESCE(k.attempts, 0), COALESCE(k.next_check_at, 0), COALESCE(k.answered, 0)
 		FROM whop_memberships m LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id
 		LEFT JOIN whop_membership_checks k ON k.store_id = m.store_id AND k.membership_id = m.membership_id
 		WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id`, storeID)
@@ -718,7 +736,7 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 		var stale bool
 		var updated int64
 		if err := rows.Scan(&id, &h.ID, &pt.id, &status, &stale, &updated, &pt.name, &pt.servers, &pt.memoryMB, &pt.diskGB, &from,
-			&h.Paid.id, &h.Paid.name, &h.Paid.servers, &h.Paid.memoryMB, &h.Paid.diskGB, &h.Problem, &h.Attempts, &h.NextCheckAt); err != nil {
+			&h.Paid.id, &h.Paid.name, &h.Paid.servers, &h.Paid.memoryMB, &h.Paid.diskGB, &h.Problem, &h.Attempts, &h.NextCheckAt, &h.Answered); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -755,7 +773,10 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 // confirmed is left as they are until it does, and one whose call failed
 // waits for their next try. While the store is closed, nobody starts. In an
 // app store, only memberships whose payment carried Playkeeper's share
-// count (whopPaidPlan). Each is the core's customer of the store.
+// count (whopPaidPlan), but a customer already started isn't paused or
+// given less while one of theirs has no answer from Whop yet, as while the
+// store is closed or Whop fails the check. Each is the core's customer of
+// the store.
 func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopStore) {
 	custs, err := s.whopCustomers(ctx, st.ID)
 	if err != nil {
@@ -769,7 +790,12 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopS
 		}
 		waits := ""
 		if st.Via == whopViaApp {
-			wc.Plan, waits = s.whopPaidPlan(ctx, c, st, wc)
+			var unsure bool
+			wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)
+			if unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied) {
+				s.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)
+				continue
+			}
 		}
 		if err := s.stepWhopCustomer(ctx, c, st, wc); err != nil {
 			s.whopCustomerFailed(st.ID, wc, err)

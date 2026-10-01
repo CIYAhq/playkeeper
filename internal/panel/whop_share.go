@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -426,22 +425,30 @@ func (s *Server) syncWhopSharesAt(ctx context.Context, c *whop.Client, st whopSt
 	return strings.Join(problems, "; ") + ".", nil
 }
 
+// whopNotPaid is the payment check's answer that a membership wasn't paid
+// with Playkeeper's share, as against Whop failing to say.
+type whopNotPaid struct{ why string }
+
+func (e *whopNotPaid) Error() string { return e.why }
+
 // whopSharePaid checks that a membership's latest paid payment carried
 // Playkeeper's share for a plan that allows memoryMB, before its buyer,
 // whopUserID, starts. Every fee line it reads is kept, and the payment for
-// the seller's view (keepCheckedPayment). The error says why not: no paid
-// payment yet, or no line of Playkeeper's share (whopSharePaidIn).
+// the seller's view (keepCheckedPayment). The error says why not: a
+// *whopNotPaid when Whop's answer is that there's no paid payment yet, or
+// one with no line of Playkeeper's share (whopSharePaidIn), or anything
+// else when Whop or the dashboard failed.
 func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore, whopUserID, membershipID string, memoryMB int) error {
 	pays, err := c.PaidPayments(ctx, st.ID, membershipID)
 	if err != nil {
 		return err
 	}
 	if len(pays) == 0 {
-		return errors.New("Whop has no paid payment for this membership yet, so its server waits")
+		return &whopNotPaid{"Whop has no paid payment for this membership yet, so its server waits"}
 	}
 	pay := pays[0]
 	if whopRefundedInFull(pay) {
-		return fmt.Errorf("its payment on Whop (%s) was refunded, so its server waits", pay.ID)
+		return &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) was refunded, so its server waits", pay.ID)}
 	}
 	lines, err := c.PaymentFees(ctx, pay.ID)
 	if err != nil {
@@ -452,7 +459,7 @@ func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore
 	}
 	s.keepCheckedPayment(ctx, st, pay, lines, whopUserID)
 	if want := whopShareFor(memoryMB); !whopSharePaidIn(lines, want) {
-		return fmt.Errorf("its payment on Whop (%s) didn't carry Playkeeper's share of %s, so its server waits", pay.ID, dollarsOf(want))
+		return &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) didn't carry Playkeeper's share of %s, so its server waits", pay.ID, dollarsOf(want))}
 	}
 	return nil
 }
