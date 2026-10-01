@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -26,7 +25,7 @@ const (
 	whopSignInPrefix   = "/api/public/whop/signin/"
 	whopSignInPath     = whopSignInPrefix + "start"
 	whopSignInCallback = whopSignInPrefix + "callback"
-	whopSignInCookie   = "pk_whop_signin"
+	whopSignInCookie   = "__Host-playkeeper-whop"
 	// whopSignInFor is how long someone may take on Whop's side.
 	whopSignInFor = 10 * time.Minute
 	// whopCallsFor bounds the calls to Whop when someone comes back: the
@@ -194,36 +193,44 @@ func (s *Server) startWhopSignIn(w http.ResponseWriter, r *http.Request) {
 		backToSignIn(w, r, "failed", store)
 		return
 	}
-	state := randomToken(32)
+	state, secret := randomToken(32), randomToken(32)
 	now := s.now()
 	if _, err := s.db.Exec(`DELETE FROM whop_signins WHERE created_at < ?`, now.Add(-whopSignInFor).UnixMilli()); err != nil {
 		s.log.Error("could not forget old Whop sign-ins", "err", err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO whop_signins(state_hash, verifier, created_at, store_id, redirect_uri) VALUES(?,?,?,?,?)`, tokenHash(state), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO whop_signins(state_hash, verifier, created_at, store_id, redirect_uri) VALUES(?,?,?,?,?)`, signInKey(state, secret), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {
 		backToSignIn(w, r, "failed", store)
 		return
 	}
-	// Lax, since Whop sends the browser back from its own site; only the
-	// callback beside this path ever gets it.
-	http.SetCookie(w, &http.Cookie{Name: whopSignInCookie, Value: state, Path: whopSignInPrefix, MaxAge: int(whopSignInFor.Seconds()),
-		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	// Lax, since Whop sends the browser back from its own site.
+	setHostCookie(w, whopSignInCookie, secret, int(whopSignInFor.Seconds()), http.SameSiteLaxMode)
 	http.Redirect(w, r, o.AuthorizeURL(state, randomToken(16), verifier), http.StatusSeeOther)
+}
+
+// signInKey is what a sign-in on its way through Whop is kept by: the hash
+// of its state, which goes to Whop and comes back in the link, with the
+// secret in the cookie of the browser that left, which never leaves it. So
+// the link back finishes a sign-in only in that browser, never in one that
+// has the link alone, as when it leaks.
+func signInKey(state, secret string) string {
+	return tokenHash(state + "." + secret)
 }
 
 func (s *Server) finishWhopSignIn(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
-	http.SetCookie(w, &http.Cookie{Name: whopSignInCookie, Value: "", Path: whopSignInPrefix, MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
-	// The state must be the one this browser left with, and is used once.
+	setHostCookie(w, whopSignInCookie, "", -1, http.SameSiteLaxMode)
+	// The state must be one this browser left with, by the secret in its
+	// cookie, and is used once.
 	state := q.Get("state")
 	c, err := r.Cookie(whopSignInCookie)
-	if err != nil || state == "" || subtle.ConstantTimeCompare([]byte(c.Value), []byte(state)) != 1 {
+	if err != nil || state == "" || c.Value == "" || len(c.Value) > 128 {
 		backToSignIn(w, r, "expired", "")
 		return
 	}
 	var verifier, store, redirect string
 	var created int64
-	err = s.db.QueryRowContext(ctx, `DELETE FROM whop_signins WHERE state_hash = ? RETURNING verifier, created_at, store_id, redirect_uri`, tokenHash(state)).Scan(&verifier, &created, &store, &redirect)
+	err = s.db.QueryRowContext(ctx, `DELETE FROM whop_signins WHERE state_hash = ? RETURNING verifier, created_at, store_id, redirect_uri`, signInKey(state, c.Value)).Scan(&verifier, &created, &store, &redirect)
 	if err != nil || s.now().Sub(time.UnixMilli(created)) > whopSignInFor {
 		backToSignIn(w, r, "expired", "")
 		return

@@ -46,6 +46,9 @@ const (
 	KindDiskFilling Kind = "disk_filling"
 	KindBusyCPU     Kind = "busy_cpu"
 	KindSlowTicks   Kind = "slow_ticks"
+	// KindOverbooked is a machine whose customers' plans set aside more
+	// memory than it has, as when a plan grew past what it can hold.
+	KindOverbooked Kind = "overbooked"
 )
 
 // kindInfo is what Playkeeper knows about each kind, in the order the
@@ -96,7 +99,7 @@ func (k Kind) DefaultOn() bool {
 // say.
 func (k Kind) always() bool {
 	switch k {
-	case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks:
+	case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked:
 		return true
 	}
 	return false
@@ -271,6 +274,12 @@ func BusyCPU(machine string, percent, days int) Event {
 // average for minutes while players played.
 func SlowTicks(server, machine string, mspt, players, minutes int) Event {
 	return Event{Kind: KindSlowTicks, ServerName: server, Machine: machine, MSPT: mspt, Players: players, Minutes: minutes}
+}
+
+// Overbooked is machine's customers' plans setting aside memoryMB more
+// memory than it has.
+func Overbooked(machine string, memoryMB int) Event {
+	return Event{Kind: KindOverbooked, Machine: machine, MemoryMB: memoryMB}
 }
 
 // JoinRequested is a player asking to join through an invite link that needs
@@ -503,6 +512,8 @@ func (e Event) embed(info ServerInfo) embed {
 			server = "**" + s + "**"
 		}
 		title, text = "Server lagging", server+" on "+machineName(e.Machine)+fmt.Sprintf(" took %d ms a tick on average for %s, with %d playing. At 50 ms it keeps full speed, so its machine may be too busy.", e.MSPT, count(e.Minutes, "minute"), e.Players)
+	case KindOverbooked:
+		title, text = "Machine overbooked", "The customers on "+machineName(e.Machine)+" have plans that set aside "+memorySize(e.MemoryMB)+" more memory than it has. A plan grew past what it can hold: move a customer to another machine on its page in Settings › Machines."
 	default:
 		title, text = "Server alert", name+"."
 	}

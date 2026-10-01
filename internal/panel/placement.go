@@ -50,6 +50,9 @@ type machineRoom struct {
 	Guarded bool
 	// DiskFree is what its disk has free, when it says.
 	DiskFree *int64
+	// Answered says whether the machine said what it has; one that didn't
+	// has no FreeMB to go by.
+	Answered bool
 }
 
 // homeRow is a customer_homes row: the machine, or "" while they wait.
@@ -177,6 +180,7 @@ func (s *Server) machineRoom(ctx context.Context, m machine, local string, excep
 		r.Why = "The machine isn't answering."
 		return r
 	}
+	r.Answered = true
 	used := map[int64]int{}
 	for _, sv := range servers {
 		if uid, ok := owners[sv.ID]; ok && sv.Config != nil {

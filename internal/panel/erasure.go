@@ -79,14 +79,16 @@ func (s *Server) erasableCustomer(ctx context.Context, userID int64) (erasable, 
 
 // hasPlan says whether the customer still has a plan at their store: they
 // run as active, or a membership of theirs there gives access, even one
-// Whop's API hasn't confirmed yet, which may be a renewal.
+// Whop's API hasn't confirmed yet, which may be a renewal. A store that
+// left holds none: nothing reads its memberships any more, and nothing
+// starts its customers again until it's back and open.
 func (s *Server) hasPlan(ctx context.Context, q querier, c erasable) (bool, error) {
 	if c.state == CustomerActive {
 		return true, nil
 	}
 	var n int
-	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND status IN `+whopAccess,
-		c.store, c.subject).Scan(&n)
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.status IN `+whopAccess+`
+		AND NOT EXISTS (SELECT 1 FROM whop_stores st WHERE st.store_id = m.store_id AND st.left_at != 0)`, c.store, c.subject).Scan(&n)
 	if err != nil {
 		return false, errDB
 	}
@@ -363,10 +365,11 @@ func (s *Server) whileNoPlan(ctx context.Context, userID int64, start func() err
 }
 
 // leftCopiesPending says whether a copy a move of the customer's left is
-// still on its old machine, to be deleted there.
+// still on its old machine, to be deleted there. One on a machine removed
+// since is out of reach, as their servers there are (see eraseServers).
 func (s *Server) leftCopiesPending(ctx context.Context, userID int64) bool {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM left_copies WHERE user_id = ? AND left_at = 0`, userID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM left_copies WHERE user_id = ? AND left_at = 0 AND machine_id IN (SELECT id FROM machines WHERE revoked_at = 0)`, userID).Scan(&n)
 	return err != nil || n > 0
 }
 

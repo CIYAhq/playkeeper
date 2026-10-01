@@ -2,11 +2,15 @@ package panel
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
@@ -81,6 +85,21 @@ func (f *fakeWhop) setOtherPlan(id string, changes map[string]any) {
 	}
 }
 
+// otherCheckoutCharge is what Whop charges at checkout for one of Other
+// Hosting's plans: its initial price, plus its first renewal price for a
+// plan that renews.
+func (f *fakeWhop) otherCheckoutCharge(id string) float64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.installed["biz_other"].plan(id)
+	charge, _ := p["initial_price"].(float64)
+	if p["plan_type"] == "renewal" {
+		renewal, _ := strconv.ParseFloat(fmt.Sprint(p["renewal_price"]), 64)
+		charge += renewal
+	}
+	return charge
+}
+
 // otherPlanVisibility is how one of Other Hosting's plans shows on Whop.
 func (f *fakeWhop) otherPlanVisibility(id string) any {
 	f.mu.Lock()
@@ -117,9 +136,9 @@ func priceOf(t *testing.T, v sellerPrices, plan string) sellerPrice {
 // A seller's page lists the store's hosting plans at their prices, with
 // the floor, $12 a month for each 4 GB, and Playkeeper's share of each
 // payment. The seller sets a price at or above the floor, which Whop then
-// charges first and on each renewal, and the dashboard shows at once. A
-// price under the floor, a plan of another store and a plan priced in
-// another currency are refused.
+// charges once at checkout and on each renewal, and the dashboard shows at
+// once. A price under the floor, a plan of another store and a plan priced
+// in another currency are refused.
 func TestASellerPricesTheirPlansAtOrAboveTheFloor(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	f.addOtherPlan(map[string]any{"id": "plan_plus", "title": "Plus", "renewal_price": 20, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "8"}})
@@ -152,6 +171,9 @@ func TestASellerPricesTheirPlansAtOrAboveTheFloor(t *testing.T) {
 	r = set("plan_other", "15")
 	if r.status != http.StatusOK || priceOf(t, pricesOf(t, r), "plan_other").Price != 1500 || !slices.Equal(f.priceSets, []string{"plan_other=15"}) {
 		t.Fatalf("setting Other to $15: %d %v, prices set %v", r.status, r.body, f.priceSets)
+	}
+	if charge := f.otherCheckoutCharge("plan_other"); charge != 15 {
+		t.Fatalf("Whop charges $%v at checkout for Other at $15 a month", charge)
 	}
 	var shown string
 	e.srv.db.QueryRow(`SELECT price FROM whop_plans WHERE store_id = 'biz_other' AND plan_id = 'plan_other'`).Scan(&shown)
@@ -344,6 +366,98 @@ func TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong(t *testing.T) {
 	}
 	if len(f.shareWrites) != writes {
 		t.Fatalf("a suspended store, or one that left, set shares: %v", f.shareWrites)
+	}
+}
+
+// Open the store refuses a hosting plan that allows more servers, or more
+// or less memory, than the fleet runs, since the store's pass would start
+// none of its buyers. The seller's prices say why first, before a price
+// under the floor, which follows from what the plan allows. Nothing
+// reaches Whop until the plan is within the bounds, at whose edges it
+// opens.
+func TestOpenTheStoreRefusesAPlanTheFleetDoesntRun(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	f.setOtherPlan("plan_other", map[string]any{"visibility": "hidden"})
+	for _, c := range []struct{ servers, gb, says string }{
+		{"11", "4", "Other: It allows 11 servers, and hosted plans allow 1 to 10."},
+		{"1", "0.5", "Other: It allows 0.5 GB, and hosted plans allow 1 GB to 64 GB."},
+		{"1", "96", "Other: It allows 96 GB, and hosted plans allow 1 GB to 64 GB."},
+	} {
+		f.setOtherPlan("plan_other", map[string]any{"metadata": map[string]any{whop.MetaServers: c.servers, whop.MetaMemoryGB: c.gb}})
+		if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusConflict || r.body["error"] != c.says {
+			t.Fatalf("Open the store with %s servers and %s GB: %d %v", c.servers, c.gb, r.status, r.body)
+		}
+		if p := priceOf(t, pricesOf(t, e.asSeller(t, "GET", "biz_other/prices", "", token, nil)), "plan_other"); "Other: "+p.Problem != c.says {
+			t.Fatalf("the prices with %s servers and %s GB: %+v", c.servers, c.gb, p)
+		}
+	}
+	if vis := f.otherPlanVisibility("plan_other"); len(f.shareWrites) != 0 || vis != "hidden" {
+		t.Fatalf("a plan the fleet doesn't run reached Whop: shares %v, the plan %v", f.shareWrites, vis)
+	}
+	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != whopNotOpenYetWhy {
+		t.Fatalf("a plan the fleet doesn't run opened the store: %q", st.ClosedWhy)
+	}
+	f.setOtherPlan("plan_other", map[string]any{"renewal_price": 192, "metadata": map[string]any{whop.MetaServers: "10", whop.MetaMemoryGB: "64"}})
+	if r := e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil); r.status != http.StatusOK || r.body["open"] != true {
+		t.Fatalf("Open the store with 10 servers and 64 GB: %d %v", r.status, r.body)
+	}
+}
+
+// waitForLock waits until a call in the function named fn waits for a
+// mutex, as a seller's change does for whopMu while the store's pass holds
+// it.
+func waitForLock(t *testing.T, fn string) {
+	t.Helper()
+	buf := make([]byte, 1<<20)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		n := runtime.Stack(buf, true)
+		for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+			if strings.Contains(g, "(*Mutex).lockSlow") && strings.Contains(g, fn) {
+				return
+			}
+		}
+	}
+	t.Fatalf("no call in %s waited for a lock", fn)
+}
+
+// A seller's change that waits while the owner suspends the store, or while
+// it leaves, doesn't change it: the change looks at the store once it holds
+// the lock the suspension and the store's pass hold.
+func TestASellersChangeThatWaitsSeesASuspensionOrLeaving(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	waiting := func(path, body, fn string, meanwhile string) resp {
+		t.Helper()
+		e.srv.whopMu.Lock()
+		done := make(chan resp, 1)
+		go func() { done <- e.asSeller(t, "POST", path, body, token, nil) }()
+		waitForLock(t, fn)
+		if _, err := e.srv.db.Exec(meanwhile, e.clock.now().UnixMilli()); err != nil {
+			t.Error(err)
+		}
+		e.srv.whopMu.Unlock()
+		select {
+		case r := <-done:
+			return r
+		case <-time.After(30 * time.Second):
+			t.Fatal("the seller's change didn't answer")
+			return resp{}
+		}
+	}
+	r := waiting("biz_other/sell", `{}`, "hWhopSellerSell", `UPDATE whop_stores SET suspended_at = ?, suspend_reason = 'griefing' WHERE store_id = 'biz_other'`)
+	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "suspended") {
+		t.Fatalf("Open the store for a store suspended while it waited: %d %v", r.status, r.body)
+	}
+	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != whopNotOpenYetWhy || len(f.shareWrites) != 0 {
+		t.Fatalf("a store suspended while Open the store waited: closed %q, shares set %v", st.ClosedWhy, f.shareWrites)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE whop_stores SET suspended_at = 0, suspend_reason = '' WHERE store_id = 'biz_other'`); err != nil {
+		t.Fatal(err)
+	}
+	r = waiting("biz_other/prices", `{"plan":"plan_other","price":"15"}`, "hWhopSellerSetPrice", `UPDATE whop_stores SET left_at = ?, left_why = 'uninstalled' WHERE store_id = 'biz_other'`)
+	if r.status != http.StatusConflict || !strings.Contains(r.body["error"].(string), "left") || len(f.priceSets) != 0 {
+		t.Fatalf("pricing a store that left while it waited: %d %v, prices set %v", r.status, r.body, f.priceSets)
 	}
 }
 

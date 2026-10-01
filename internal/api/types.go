@@ -2516,8 +2516,9 @@ type DiscordNotifyRequest struct {
 	// shows it. Minutes it's been off, was off, or a server lagged; Percent
 	// its disk's share full or its CPU at its busiest hour, Days running;
 	// Room more servers of MemoryMB each across every store, and Waiting
-	// customers waiting for room; MSPT the milliseconds a tick of ServerName
-	// took, with Players playing.
+	// customers waiting for room; MemoryMB also how much more memory than
+	// its machine has an overbooked machine's customers' plans set aside;
+	// MSPT the milliseconds a tick of ServerName took, with Players playing.
 	Machine  string `json:"machine,omitempty"`
 	Minutes  int    `json:"minutes,omitempty"`
 	Percent  int    `json:"percent,omitempty"`
@@ -2542,6 +2543,7 @@ const (
 	DiscordDiskFilling      = "disk_filling"
 	DiscordBusyCPU          = "busy_cpu"
 	DiscordSlowTicks        = "slow_ticks"
+	DiscordOverbooked       = "overbooked"
 )
 
 // CodeAdminUnconfirmed refuses an admin action to an admin who turned on

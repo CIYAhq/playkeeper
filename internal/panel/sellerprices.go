@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
@@ -122,10 +123,11 @@ func hostedPlan(p whop.Plan) (sellerPrice, bool) {
 
 // sellerStore lets through a call the seller's page makes about the store
 // it names: from the page itself, by the business's team with Whop's token
-// (sellerAuth), for an app store of this dashboard, and for a change, one
-// neither suspended nor gone. It answers a refusal itself, and returns the
-// store, who's asking and a client acting on the store.
-func (s *Server) sellerStore(w http.ResponseWriter, r *http.Request, store string, change bool) (whopStore, string, *whop.Client, bool) {
+// (sellerAuth), for an app store of this dashboard. It answers a refusal
+// itself, and returns the store, who's asking and a client acting on the
+// store. A change then holds whopMu and looks at the store again
+// (sellerStoreToChange).
+func (s *Server) sellerStore(w http.ResponseWriter, r *http.Request, store string) (whopStore, string, *whop.Client, bool) {
 	if !fromSellerPage(r) {
 		writeErr(w, http.StatusForbidden, api.CodeForbidden, "Open this page inside your Whop dashboard.", "")
 		return whopStore{}, "", nil, false
@@ -143,12 +145,6 @@ func (s *Server) sellerStore(w http.ResponseWriter, r *http.Request, store strin
 	case !ok || st.Via != whopViaApp:
 		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Playkeeper Cloud doesn't sell for this business from this dashboard.", "")
 		return whopStore{}, "", nil, false
-	case change && !st.SuspendedAt.IsZero():
-		writeErr(w, http.StatusConflict, api.CodeConflict, "Playkeeper has suspended your store, so it can't change here. Ask Playkeeper why.", "")
-		return whopStore{}, "", nil, false
-	case change && !st.LeftAt.IsZero():
-		writeErr(w, http.StatusConflict, api.CodeConflict, "Your store left Playkeeper Cloud. Open this page again to connect it.", "")
-		return whopStore{}, "", nil, false
 	}
 	c, err := s.whopClientFor(r.Context(), st)
 	if err != nil {
@@ -156,6 +152,29 @@ func (s *Server) sellerStore(w http.ResponseWriter, r *http.Request, store strin
 		return whopStore{}, "", nil, false
 	}
 	return st, user, c, true
+}
+
+// sellerStoreToChange reads the store again for a change, once the change
+// holds whopMu, and lets it through while it's neither suspended nor gone:
+// the owner may have suspended it, or it may have left, while the change
+// waited for the lock. It answers a refusal itself.
+func (s *Server) sellerStoreToChange(ctx context.Context, w http.ResponseWriter, id string) (whopStore, bool) {
+	st, ok, err := s.whopStoreByID(ctx, id)
+	switch {
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return whopStore{}, false
+	case !ok:
+		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Playkeeper Cloud doesn't sell for this business from this dashboard.", "")
+		return whopStore{}, false
+	case !st.SuspendedAt.IsZero():
+		writeErr(w, http.StatusConflict, api.CodeConflict, "Playkeeper has suspended your store, so it can't change here. Ask Playkeeper why.", "")
+		return whopStore{}, false
+	case !st.LeftAt.IsZero():
+		writeErr(w, http.StatusConflict, api.CodeConflict, "Your store left Playkeeper Cloud. Open this page again to connect it.", "")
+		return whopStore{}, false
+	}
+	return st, true
 }
 
 // sellerPricesOf reads the store's hosting plans from Whop, as its seller
@@ -169,15 +188,33 @@ func (s *Server) sellerPricesOf(ctx context.Context, c *whop.Client, st whopStor
 }
 
 // sellerPricesFrom is the store's hosting plans among plans, as its seller
-// prices them.
+// prices them. A plan that allows more or less than the fleet runs has that
+// as its problem, before any other: the store's pass would start none of
+// its buyers, and the floor follows from what it allows.
 func sellerPricesFrom(st whopStore, plans []whop.Plan) sellerPrices {
 	v := sellerPrices{Plans: []sellerPrice{}, CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()}
 	for _, p := range plans {
 		if sp, ok := sellerPriceOf(p); ok {
+			if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {
+				sp.Problem = problem
+			}
 			v.Plans = append(v.Plans, sp)
 		}
 	}
 	return v
+}
+
+// allowanceProblem is what keeps a hosting plan that allows servers with
+// memoryMB between them from selling, when that's outside the bounds the
+// store's pass runs (invites.Allowance.Check), or "".
+func allowanceProblem(servers, memoryMB int) string {
+	switch {
+	case (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:
+		return ""
+	case servers < 1 || servers > invites.MaxAllowanceServers:
+		return fmt.Sprintf("It allows %d servers, and hosted plans allow 1 to %d.", servers, invites.MaxAllowanceServers)
+	}
+	return fmt.Sprintf("It allows %s, and hosted plans allow %s to %s.", gigabytes(memoryMB), gigabytes(invites.MinAllowanceMemoryMB), gigabytes(invites.MaxAllowanceMemoryMB))
 }
 
 // markHostedProducts marks each of the store's hosting products, the ones
@@ -245,7 +282,7 @@ func (s *Server) readWhopStoreSoon(ctx context.Context, id string) {
 // hWhopSellerPrices is a seller's page reading the store's hosting plans as
 // the seller prices them, from Whop.
 func (s *Server) hWhopSellerPrices(w http.ResponseWriter, r *http.Request, store string) {
-	st, _, c, ok := s.sellerStore(w, r, store, false)
+	st, _, c, ok := s.sellerStore(w, r, store)
 	if !ok {
 		return
 	}
@@ -264,7 +301,7 @@ func (s *Server) hWhopSellerPrices(w http.ResponseWriter, r *http.Request, store
 // Once the store has Playkeeper's share, the share follows the new price at
 // once, as the store's pass would have it follow.
 func (s *Server) hWhopSellerSetPrice(w http.ResponseWriter, r *http.Request, store string) {
-	st, user, c, ok := s.sellerStore(w, r, store, true)
+	st, user, c, ok := s.sellerStore(w, r, store)
 	if !ok {
 		return
 	}
@@ -283,6 +320,9 @@ func (s *Server) hWhopSellerSetPrice(w http.ResponseWriter, r *http.Request, sto
 	}
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
+	if st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); !ok {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), whopCallsFor)
 	defer cancel()
 	plans, err := c.Plans(ctx, st.ID)
@@ -348,19 +388,23 @@ type sellerOpened struct {
 }
 
 // hWhopSellerSell is a seller pressing Open the store. Every hosting plan
-// must renew monthly in US dollars, without a trial, at or above the floor.
+// must renew monthly in US dollars, without a trial, at or above the floor,
+// and allow what the fleet runs (sellerPricesFrom).
 // Then Playkeeper's share is set on each hosting product, putting right any
 // share the seller changed (syncWhopShares, with force), and only when that
 // leaves nothing wrong are the hosting products marked for the store site
 // and the hosting plans made visible there, and the store opens, for its
 // seller's reason alone.
 func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store string) {
-	st, user, c, ok := s.sellerStore(w, r, store, true)
+	st, user, c, ok := s.sellerStore(w, r, store)
 	if !ok {
 		return
 	}
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
+	if st, ok = s.sellerStoreToChange(r.Context(), w, store); !ok {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), whopCallsFor)
 	defer cancel()
 	plans, err := c.Plans(ctx, st.ID)

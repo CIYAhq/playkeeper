@@ -818,11 +818,11 @@ func (s *Server) sessionFrom(r *http.Request) (session, error) {
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(s.opts.AbsoluteTimeout.Seconds())})
+	setHostCookie(w, cookieName, token, int(s.opts.AbsoluteTimeout.Seconds()), http.SameSiteStrictMode)
 }
 
 func clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	setHostCookie(w, cookieName, "", -1, http.SameSiteStrictMode)
 }
 
 // whopSellerCSP is a seller's page's Content-Security-Policy, which Whop
