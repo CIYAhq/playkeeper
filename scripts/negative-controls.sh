@@ -3085,6 +3085,16 @@ shcontrol "only a network error is tried again" scripts/net-retry.sh \
   '; then' \
   scripts/net-retry_test.sh
 # shellcheck disable=SC2016
+shcontrol "the package cache keeps only the versions installed" scripts/package-cache.sh \
+  '  grep -qxF "$what" <<<"$installed" || rm -f "$deb"' \
+  '  true' \
+  scripts/package-cache_test.sh
+# shellcheck disable=SC2016
+shcontrol "the package cache names no empty set" scripts/package-cache.sh \
+  'if [ -z "$names" ]; then' \
+  'if false; then' \
+  scripts/package-cache_test.sh
+# shellcheck disable=SC2016
 shcontrol "setup.sh tries the module download again after a network error" scripts/setup.sh \
   '"$root/scripts/net-retry.sh" go mod download' \
   'go mod download' \
