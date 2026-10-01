@@ -87,7 +87,7 @@ func (a *Agent) usageID() (string, error) {
 // tests' offline harness, marked in the agent's environment, or on a
 // machine running a GitHub Actions job.
 func (a *Agent) usageTest() bool {
-	return a.cfg.UsageTest || a.offline() || usage.TestFromEnv(a.opts.Getenv) || usage.ActionsJob(a.opts.Processes())
+	return a.cfg.UsageTest || a.offline() || a.opts.BuiltInListsTest || usage.TestFromEnv(a.opts.Getenv) || usage.ActionsJob(a.opts.Processes())
 }
 
 // usageReport is the heartbeat as the agent would send it now.

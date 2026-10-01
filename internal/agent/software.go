@@ -232,7 +232,23 @@ func fetchOnce[T any](ctx context.Context, mu *sync.Mutex, flights *map[string]*
 }
 
 func (a *Agent) sources() software.Sources {
-	return software.Sources{Client: a.opts.UpstreamClient}
+	return software.Sources{Client: a.metadataClient(a.opts.UpstreamClient)}
+}
+
+// metadataClient is hc, which reads the server software's lists and install
+// plans; with BuiltInListsTest, a client that asks no upstream, so they come
+// from what the machine has, as during an outage. Downloads don't use it.
+func (a *Agent) metadataClient(hc *http.Client) *http.Client {
+	if !a.opts.BuiltInListsTest {
+		return hc
+	}
+	return &http.Client{Transport: noUpstream{}}
+}
+
+type noUpstream struct{}
+
+func (noUpstream) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("the test harness has Playkeeper use the lists built into it (%s), so it didn't ask %s", BuiltInListsEnv, r.URL.Host)
 }
 
 // typeCheck is how a type's downloads are verified, for the dashboard's
