@@ -146,9 +146,10 @@ func TestAPlanSomeoneHasThatsGoneFromWhopIsAProblem(t *testing.T) {
 }
 
 // A hosting plan the seller adds after Open the store is held to its rules
-// at the next share check: one that's one-time, yearly, under the floor or
-// on a free trial closes the store for its share, naming the plan, and its
-// buyer doesn't start, though their payment carried the share.
+// at the next share check: one that's one-time, yearly, under the floor,
+// on a free trial or past the fleet's limits closes the store for its
+// share, naming the plan, and its buyer doesn't start, though their
+// payment carried the share.
 func TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules(t *testing.T) {
 	for _, c := range []struct {
 		name, status, says string
@@ -158,6 +159,8 @@ func TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules(t *testing.T) {
 		{"yearly", "active", "New: It doesn't renew every month", map[string]any{"plan_type": "renewal", "billing_period": 365, "renewal_price": 12}},
 		{"under the floor", "active", "New: It charges $9.00, under the $12.00 floor for 4 GB", map[string]any{"plan_type": "renewal", "billing_period": 30, "renewal_price": 9}},
 		{"on a free trial", "active", "New: It has a free trial", map[string]any{"plan_type": "renewal", "billing_period": 30, "renewal_price": 12, "trial_period_days": 3}},
+		{"past the fleet's limits", "active", "New: It allows 20 servers, and hosted plans allow 1 to 10", map[string]any{"plan_type": "renewal", "billing_period": 30, "renewal_price": 12,
+			"metadata": map[string]any{whop.MetaServers: "20", whop.MetaMemoryGB: "4"}}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f, e, _ := twoStores(t)
@@ -197,8 +200,42 @@ func TestAOneTimePurchaseGivesNoServersInAnAppStore(t *testing.T) {
 	if st := e.otherStore(t); st.ClosedWhy != "" || calledFor(core.got(), "start ", "user_bob") {
 		t.Fatalf("a one-time purchase in an app store: closed %q, the core's calls %q", st.ClosedWhy, core.got())
 	}
+	if got := e.srv.whopSignInWithoutAccount(t.Context(), "biz_other", "user_bob"); got != "no_account" {
+		t.Errorf("signing in on a one-time purchase in an app store: %q", got)
+	}
+	if has, err := e.srv.hasPlan(t.Context(), e.srv.db, erasable{store: "biz_other", subject: "user_bob"}); err != nil || has {
+		t.Errorf("a one-time purchase in an app store holds a deletion: %v, %v", has, err)
+	}
 	if !whopHosts(whopViaKey, "completed") || whopHosts(whopViaApp, "completed") || !whopHosts(whopViaApp, "past_due") || whopHosts(whopViaApp, "expired") {
 		t.Error("the statuses that give servers in the key store and in an app store")
+	}
+}
+
+// A customer of an app store who cancels their monthly plan is reminded to
+// download their world, though they also have a one-time purchase there,
+// since that keeps none of their servers running.
+func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
+	f, e, _ := twoStores(t)
+	useFakeCore(e)
+	f.mu.Lock()
+	f.users["user_kim"] = "kimbuilds"
+	b := f.installed["biz_other"]
+	b.plans = append(b.plans, map[string]any{"id": "plan_once", "title": "Once", "visibility": "archived",
+		"plan_type": "one_time", "initial_price": 12, "currency": "usd", "unlimited_stock": true,
+		"product": map[string]any{"id": "prod_other", "title": "Minecraft server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	f.mu.Unlock()
+	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
+	f.buyAt("biz_other", "mem_once", "user_kim", "plan_once", "completed")
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	f.mu.Lock()
+	b.memberships["mem_kim"]["status"], b.memberships["mem_kim"]["cancel_at_period_end"] = "canceling", true
+	f.mu.Unlock()
+	e.clock.add(2 * whopPollEvery)
+	e.reconcile()
+	e.reconcile()
+	if msgs := f.sentIn("biz_other", "user_kim"); !slices.ContainsFunc(msgs, func(m string) bool { return strings.Contains(m, "You cancelled your Other Hosting plan") }) {
+		t.Fatalf("kim's chat at Other Hosting: %q", msgs)
 	}
 }
 

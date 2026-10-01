@@ -166,10 +166,11 @@ func whopLeastCharge(p whop.Plan) float64 {
 // its plans needs, from the plan's memory and the least it charges. Every
 // plan it's given counts, archived or not, since an archived plan's
 // members go on renewing (whopSharePlans gives it those someone has). A
-// plan Open the store wouldn't sell, being one-time, yearly, in another
-// currency, on a free trial or under the floor, is a problem naming it, as
-// is one that can't carry Playkeeper's share, and neither sets its
-// product's share.
+// plan Open the store wouldn't sell, allowing more or less than the fleet
+// runs (allowanceProblem), or being one-time, yearly, in another currency,
+// on a free trial or under the floor, is a problem naming it, as is one
+// that can't carry Playkeeper's share, and neither sets its product's
+// share.
 func whopShareWants(plans []whop.Plan) ([]whopShareWant, []string) {
 	wants := map[string]*whopShareWant{}
 	var problems []string
@@ -177,6 +178,9 @@ func whopShareWants(plans []whop.Plan) ([]whopShareWant, []string) {
 		sp, ok := hostedPlan(p)
 		if !ok {
 			continue
+		}
+		if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {
+			sp.Problem = out
 		}
 		if sp.Problem != "" {
 			problems = append(problems, sp.Title+": "+strings.TrimSuffix(sp.Problem, "."))

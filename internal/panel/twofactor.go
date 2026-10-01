@@ -352,11 +352,11 @@ func (s *Server) endPendingLogin(idHash string) {
 }
 
 func setPendingCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{Name: pendingCookieName, Value: token, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(pendingTTL.Seconds())})
+	setHostCookie(w, pendingCookieName, token, int(pendingTTL.Seconds()), http.SameSiteStrictMode)
 }
 
 func clearPendingCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: pendingCookieName, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	setHostCookie(w, pendingCookieName, "", -1, http.SameSiteStrictMode)
 }
 
 // secondFactorNeeded starts the second step after a correct password, or

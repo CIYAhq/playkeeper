@@ -8146,8 +8146,8 @@ control "customers per store: a lapsed customer's message names their store" int
   'Scan(&info.customer.Provider, new(string), &info.customer.Subject' \
   ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
 control "customers per store: a sign-in keeps the store it's for" internal/panel/whop_signin.go \
-  'tokenHash(state), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
-  'tokenHash(state), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
+  'signInKey(state, secret), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
+  'signInKey(state, secret), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
   ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
 control "customers per store: coming back from Whop opens the store's account" internal/panel/whop_signin.go \
   'acct, ok, err := s.signInAccount(ctx, store, who.Subject)' \
@@ -8529,9 +8529,32 @@ control "share: each hosting plan is held to Open the store's rules" internal/pa
   'if sp.Problem != "" {' \
   'if sp.Problem != "" && false {' \
   ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "share: a plan past the fleet's limits is a problem" internal/panel/whop_share.go \
+  'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {' \
+  'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" && false {' \
+  ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
 control "hosting: a one-time purchase gives no servers in an app store" internal/panel/whop_customers.go \
   'if via == whopViaApp && status == "completed" {' \
   'if false && via == whopViaApp && status == "completed" {' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+control "hosting: an app store's one-time purchase gives no servers, in a query" internal/panel/whop_customers.go \
+  "OR m.status = 'completed' AND NOT EXISTS (SELECT 1 FROM whop_stores hv WHERE hv.store_id = m.store_id AND hv.via = 'app'))" \
+  "OR m.status = 'completed')" \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+# shellcheck disable=SC2016
+control "hosting: a one-time purchase keeps no servers running past a cancelled plan" internal/panel/whop_customers.go \
+  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)' \
+  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0)' \
+  ./internal/panel '^TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn$'
+# shellcheck disable=SC2016
+control "hosting: signing in on a one-time purchase in an app store makes no account" internal/panel/whop_signin.go \
+  'AND m.stale = 0 AND `+whopHostingSQL, store, store, whopUserID)' \
+  'AND m.stale = 0 AND m.status IN `+whopAccess, store, store, whopUserID)' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+# shellcheck disable=SC2016
+control "hosting: a one-time purchase in an app store holds no deletion" internal/panel/erasure.go \
+  'AND m.whop_user_id = ? AND `+whopHostingSQL+`' \
+  'AND m.whop_user_id = ? AND m.status IN `+whopAccess+`' \
   ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
 control "share paid: only Playkeeper's share line counts" internal/panel/whop_share.go \
   'if l.Origin != whopShareOrigin || l.Settled.Currency != "usd" {' \
@@ -8927,9 +8950,13 @@ control "deleting customers: buying again cancels a deletion that waits for a mo
   'if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan && false {' \
   ./internal/panel '^TestBuyingAgainCancelsADeletionWaitingForAMove$'
 control "deleting customers: a renewal Whop's API hasn't confirmed counts as a plan" internal/panel/erasure.go \
-  'FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND status IN' \
-  'FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND stale = 0 AND status IN' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND ' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.stale = 0 AND ' \
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: a store that left holds no plan" internal/panel/erasure.go \
+  'WHERE st.store_id = m.store_id AND st.left_at != 0)' \
+  'WHERE st.store_id = m.store_id AND st.left_at != 0 AND 0)' \
+  ./internal/panel '^(TestACustomerOfAStoreThatLeftIsDeletedOnRequest|TestACustomerOfAStoreThatLeftIsDeletedDaysAfterTheirServers)$'
 control "deleting customers: buying again cancels the request" internal/panel/erasure.go \
   "SET erase_requested_at = 0, erase_actor = ''" \
   'SET erase_actor = erase_actor' \
@@ -9062,6 +9089,14 @@ control "deleting customers: a move that stopped on an error doesn't hold a dele
   'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
   'if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
   ./internal/panel '^TestAMoveThatStoppedOnAnErrorDoesntHoldADeletion$'
+control "deleting customers: a copy left on a removed machine doesn't hold a deletion" internal/panel/erasure.go \
+  'AND left_at = 0 AND machine_id IN (SELECT id FROM machines WHERE revoked_at = 0)' \
+  'AND left_at = 0 AND (machine_id IN (SELECT id FROM machines WHERE revoked_at = 0) OR 1)' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineDoesntHoldADeletion$'
+control "deleting customers: a membership of theirs stored since takes its end" internal/panel/whop_customers.go \
+  'OR EXISTS(SELECT 1 FROM whop_memberships WHERE membership_id = ?)' \
+  'OR 0 AND EXISTS(SELECT 1 FROM whop_memberships WHERE membership_id = ?)' \
+  ./internal/panel '^TestADeletedCustomerWhoBuysAgainAfterAFailedPaymentStarts$'
 control "deleting customers: a customer is deleted the owner's days after their servers" internal/panel/erasure.go \
   'cutoff := s.now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()' \
   'cutoff := s.now().Add(-time.Duration(days) * 0).UnixMilli()' \
@@ -9304,7 +9339,9 @@ webcontrol "seller view: the seller's page shows the view once the store is open
 # and opens its store, and not while it's suspended or gone. A price is at
 # least $12 a month for each 4 GB, set on a plan renewing monthly in US
 # dollars, and an open store's share follows it. Open the store needs every
-# hosting plan to sell as it is, sets Playkeeper's share first, putting
+# hosting plan to sell as it is, within what the fleet runs, before any
+# other problem, on a product that sells it alone, sets Playkeeper's share
+# first, putting
 # right one that pays too little, marks the hosting products for the store
 # site, and only then opens the store, for its seller's reason alone.
 control "seller prices: a call comes from the seller's page itself" internal/panel/sellerprices.go \
@@ -9316,13 +9353,21 @@ control "seller prices: only the business's team calls, with Whop's token" inter
   'user, err := "user_otherowner", error(nil)' \
   ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
 control "seller prices: a suspended store doesn't change" internal/panel/sellerprices.go \
-  'case change && !st.SuspendedAt.IsZero():' \
+  'case !st.SuspendedAt.IsZero():' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: a store that left doesn't change" internal/panel/sellerprices.go \
-  'case change && !st.LeftAt.IsZero():' \
+  'case !st.LeftAt.IsZero():' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a price change looks at the store again once it holds the lock" internal/panel/sellerprices.go \
+  'if st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); !ok {' \
+  'if false {' \
+  ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
+control "seller prices: Open the store looks at the store again once it holds the lock" internal/panel/sellerprices.go \
+  'if st, ok = s.sellerStoreToChange(r.Context(), w, store); !ok {' \
+  'if false {' \
+  ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
 control "seller prices: the floor is twelve dollars a month for each 4 GB" internal/panel/sellerprices.go \
   'const whopFloorPer4GB = 1200' \
   'const whopFloorPer4GB = 1100' \
@@ -9343,6 +9388,14 @@ control "seller prices: the price the seller set reaches Whop" internal/panel/se
   'c.SetPlanPrice(ctx, sp.ID, float64(price)/100)' \
   'c.SetPlanPrice(ctx, sp.ID, float64(sp.Price)/100)' \
   ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a buyer pays the price once at checkout" internal/whop/store.go \
+  'map[string]any{"initial_price": 0, "renewal_price": price}' \
+  'map[string]any{"initial_price": price, "renewal_price": price}' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: Whop is asked for no initial price" internal/whop/store.go \
+  'map[string]any{"initial_price": 0, "renewal_price": price}' \
+  'map[string]any{"initial_price": price, "renewal_price": price}' \
+  ./internal/whop '^TestSetPlanPriceChargesItOnceAtCheckoutAndOnEachRenewal$'
 control "seller prices: an open store's share follows a new price at once" internal/panel/sellerprices.go \
   'case len(set) > 0:' \
   'case len(set) < 0:' \
@@ -9363,6 +9416,34 @@ control "seller prices: a plan under the floor doesn't sell" internal/panel/sell
   'case least < sp.Floor:' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a plan the fleet doesn't run doesn't sell" internal/panel/sellerprices.go \
+  'case (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:' \
+  'case true || (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a plan's bounds come before its floor" internal/panel/sellerprices.go \
+  'if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" {' \
+  'if problem := allowanceProblem(sp.Servers, sp.MemoryMB); problem != "" && sp.Problem == "" {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a plan with too many servers says so" internal/panel/sellerprices.go \
+  'case servers < 1 || servers > invites.MaxAllowanceServers:' \
+  'case servers < 1:' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a hosting product sells one plan" internal/panel/sellerprices.go \
+  'if len(same) < 2 {' \
+  'if len(same) < 2 || true {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a product's plan that isn't for hosting counts too" internal/panel/sellerprices.go \
+  'if p.Product.ID != "" {' \
+  'if _, _, hosting := whop.PlanAllowance(p.Metadata); hosting && p.Product.ID != "" {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: an archived plan doesn't share its product" internal/panel/sellerprices.go \
+  'return p.Visibility == "archived"' \
+  'return false' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a shared product comes on top of a plan's other problem" internal/panel/sellerprices.go \
+  'sp.Problem = strings.TrimSpace(sp.Problem + " " + shared[p.ID])' \
+  'sp.Problem = shared[p.ID]' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
 control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
   'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
   'CanOpen: st.ClosedWhy != ""' \
@@ -9423,6 +9504,22 @@ control "seller prices: Open the store opens its seller's reason alone" internal
   's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
   's.openWhopStore(ctx, st.ID, "share")' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: an open store offers Update the store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = false && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store is offered only once the store is open" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store isn't offered to a suspended store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.ClosedWhy == "" && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: the audit log tells an update from an opening" internal/panel/sellerprices.go \
+  'pressed = "Update the store"' \
+  'pressed = "Open the store"' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
 webcontrol "seller prices: the page sends the price the seller typed" web/src/pages/whop-seller-prices.tsx \
   '{ plan: p.id, price: value.trim() }' \
   '{ plan: p.id, price: typed(p.price) }' \
@@ -9432,9 +9529,25 @@ webcontrol "seller prices: the page offers Open the store only while the store c
   '{(' \
   src/pages/whop-seller-prices.test.tsx 'offers no Open the store'
 webcontrol "seller prices: Open the store goes once the store opened" web/src/pages/whop-seller-prices.tsx \
-  'setPrices((v) => v && { ...v, canOpen: !done.open })' \
+  'setPrices((v) => v && { ...v, canOpen: !done.open, canUpdate: done.open })' \
   'setPrices((v) => v)' \
   src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: Update the store comes once the store opened" web/src/pages/whop-seller-prices.tsx \
+  'canOpen: !done.open, canUpdate: done.open })' \
+  'canOpen: !done.open })' \
+  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: the page offers Update the store once the store is open" web/src/pages/whop-seller-prices.tsx \
+  '{prices.canUpdate && (' \
+  '{false && (' \
+  src/pages/whop-seller-prices.test.tsx 'updates an open store'
+webcontrol "seller prices: the page offers Update the store only once the store is open" web/src/pages/whop-seller-prices.tsx \
+  '{prices.canUpdate && (' \
+  '{(' \
+  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: the page says an update is done" web/src/pages/whop-seller-prices.tsx \
+  "t(update ? 'sellerPrices.updated' : 'sellerPrices.opened')" \
+  "t('sellerPrices.opened')" \
+  src/pages/whop-seller-prices.test.tsx 'updates an open store'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
@@ -10979,8 +11092,47 @@ control "fleet watch: little room is posted again only after there was room for 
   '	case false:
 		f.low = false' \
   ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: an overbooked machine is posted" internal/panel/fleetwatch.go \
+  'case r.FreeMB < 0 && !f.over[r.ID]:' \
+  'case r.FreeMB < -4096 && !f.over[r.ID]:' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: an overbooked machine is posted once" internal/panel/fleetwatch.go \
+  'case r.FreeMB < 0 && !f.over[r.ID]:' \
+  'case r.FreeMB < 0:' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: an overbooked machine is posted again only after it had room" internal/panel/fleetwatch.go \
+  '		case r.FreeMB >= 0:
+			delete(f.over, r.ID)' \
+  '		case false:
+			delete(f.over, r.ID)' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: a machine that didn't answer says nothing about its room" internal/panel/fleetwatch.go \
+  '		case !r.Answered:
+		case r.FreeMB < 0' \
+  '		case false:
+		case r.FreeMB < 0' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: a machine that answered says so" internal/panel/placement.go \
+  '	r.Answered = true
+' \
+  '' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: the machines' room has the time the watch gives a machine" internal/panel/fleetwatch.go \
+  'rctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)' \
+  'rctx, cancel := context.WithCancel(ctx)' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerHoldsUpNoLook$'
+control "fleet watch: a machine that spends its time leaves the waiting customers to read" internal/panel/fleetwatch.go \
+  '	waiting, err := s.waitingMemory(ctx)
+	return rooms, waiting, err' \
+  '	waiting, err := s.waitingMemory(rctx)
+	return rooms, waiting, err' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesTheOthersRoomWatched$'
+control "fleet watch: an overbooked machine is short of some memory" internal/agent/discord.go \
+  'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 1, maxFleetMemory)' \
+  'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 0, maxFleetMemory)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
 control "fleet watch: the fleet's alerts go out whatever the switches say" internal/discord/alerts.go \
-  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks:' \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked:' \
   'case KindTwoFactor, KindAdminConfirmed, KindInStock:' \
   ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
 control "fleet watch: a machine's name can't format the alert" internal/discord/alerts.go \
@@ -11814,6 +11966,43 @@ control "a key saved while the container lacks the mount waits for a restart" in
   'out.Pending = set && s.secretsPending(ctx)' \
   'out.Pending = false' \
   ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
+
+# Host-only cookies: a joined machine owns a name under the dashboard's
+# domain, so every cookie the dashboard sets is one no other name of the
+# domain can set, and Sign in with Whop finishes only in its own browser.
+control "Sign in with Whop's cookie is one no other name of the domain can set" internal/panel/whop_signin.go \
+  'whopSignInCookie   = "__Host-playkeeper-whop"' \
+  'whopSignInCookie   = "pk_whop_signin"' \
+  ./internal/panel '^TestASignInWithWhopCantBePlantedFromAnotherNameOfTheDomain$'
+control "a sign-in with Whop finishes only in the browser that left for Whop" internal/panel/whop_signin.go \
+  'return tokenHash(state + "." + secret)' \
+  'return tokenHash(state)' \
+  ./internal/panel '^TestASignInWithWhopFinishesOnlyInTheBrowserThatStartedIt$'
+control "Sign in with Whop's cookie never holds the state" internal/panel/whop_signin.go \
+  'setHostCookie(w, whopSignInCookie, secret, ' \
+  'setHostCookie(w, whopSignInCookie, state, ' \
+  ./internal/panel '^TestSignInWithWhopOpensTheCustomersAccount$'
+control "a link back from Whop that matches no sign-in leaves the cookie, which may be another tab's" internal/panel/whop_signin.go \
+  '	state := q.Get("state")' \
+  '	setHostCookie(w, whopSignInCookie, "", -1, http.SameSiteLaxMode)
+	state := q.Get("state")' \
+  ./internal/panel '^TestASignInWithWhopThatMatchesNoneLeavesTheCookie$'
+control "every cookie the dashboard sets is for every path" internal/panel/cookies.go \
+  'Path: "/", ' \
+  'Path: "/api/", ' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "every cookie the dashboard sets is Secure" internal/panel/cookies.go \
+  'Secure: true, ' \
+  '' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "the dashboard sets cookies only through setHostCookie" internal/panel/server.go \
+  'setHostCookie(w, cookieName, "", -1, http.SameSiteStrictMode)' \
+  'http.SetCookie(w, &http.Cookie{Name: "playkeeper_signed_out", Value: "1", Path: "/"})' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "every cookie setHostCookie sets has a __Host- name" internal/panel/twofactor.go \
+  'pendingCookieName = "__Host-playkeeper-2fa"' \
+  'pendingCookieName = "playkeeper-2fa"' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
 
 if [ "$bad" != 0 ]; then
   echo

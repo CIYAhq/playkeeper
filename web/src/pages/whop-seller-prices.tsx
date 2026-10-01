@@ -16,9 +16,9 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message : t('err
 /**
  * A seller's prices and Open the store, on their page inside Whop: each
  * hosting plan's monthly price, which they set at or above the floor, and
- * Open the store while the store is closed. onChange tells the page the
- * store changed, so its view reads it again. Its calls go to relative
- * addresses, which carry Whop's token.
+ * Open the store while the store is closed, or Update the store once it's
+ * open. onChange tells the page the store changed, so its view reads it
+ * again. Its calls go to relative addresses, which carry Whop's token.
  */
 export function SellerPricesCard({ store, onChange }: { store: string; onChange: () => void }) {
   const [prices, setPrices] = useState<SellerPrices>()
@@ -37,13 +37,14 @@ export function SellerPricesCard({ store, onChange }: { store: string; onChange:
     }
   }, [store])
 
-  async function open() {
+  /** Open the store, or Update the store once it's open: the same call. */
+  async function open(update: boolean) {
     setOpening(true)
     setOpenError(undefined)
     try {
       const done = await post<SellerOpened>(`/api/public/whop/seller/${store}/sell`)
-      setOpened(done.open ? t('sellerPrices.opened') : t('sellerPrices.stillClosed', { why: done.why ?? '' }))
-      setPrices((v) => v && { ...v, canOpen: !done.open })
+      setOpened(done.open ? t(update ? 'sellerPrices.updated' : 'sellerPrices.opened') : t('sellerPrices.stillClosed', { why: done.why ?? '' }))
+      setPrices((v) => v && { ...v, canOpen: !done.open, canUpdate: done.open })
       onChange()
     } catch (err) {
       setOpenError(errorText(err))
@@ -85,10 +86,18 @@ export function SellerPricesCard({ store, onChange }: { store: string; onChange:
       {prices.problem && <p className="mt-2 text-sm font-medium text-warning-foreground">{prices.problem}</p>}
       {prices.canOpen && (
         <div className="mt-3 flex flex-col items-start gap-1.5">
-          <Button loading={opening} onClick={() => void open()}>
+          <Button loading={opening} onClick={() => void open(false)}>
             {t('sellerPrices.open')}
           </Button>
           <p className="text-xs text-muted-foreground">{t('sellerPrices.openAbout')}</p>
+        </div>
+      )}
+      {prices.canUpdate && (
+        <div className="mt-3 flex flex-col items-start gap-1.5">
+          <Button variant="outline" loading={opening} onClick={() => void open(true)}>
+            {t('sellerPrices.update')}
+          </Button>
+          <p className="text-xs text-muted-foreground">{t('sellerPrices.updateAbout')}</p>
         </div>
       )}
       {openError && <p className="mt-2 text-sm text-destructive-foreground">{openError}</p>}
