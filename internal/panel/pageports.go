@@ -46,8 +46,13 @@ var pageJoinedWait = 10 * time.Second
 // pageListener is one of the page's ports being served.
 type pageListener struct {
 	srv  *http.Server
+	ln   net.Listener
 	port int
 }
+
+// pageServing runs as a page's server starts, before it serves; a test holds
+// it there to turn the page off first.
+var pageServing = func() {}
 
 // runPage keeps the page's ports until ctx ends.
 func (s *Server) runPage(ctx context.Context) {
@@ -225,11 +230,12 @@ func (s *Server) servePagePort(f *os.File, port int, secure bool) (*pageListener
 		serve = func() error { return srv.ServeTLS(ln, "", "") }
 	}
 	go func() {
+		pageServing()
 		if err := serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.log.Warn("the public page stopped answering", "port", port, "err", err)
 		}
 	}()
-	return &pageListener{srv: srv, port: port}, nil
+	return &pageListener{srv: srv, ln: ln, port: port}, nil
 }
 
 // pageCertificate serves only a publicly trusted certificate the agent got
@@ -281,6 +287,11 @@ func (s *Server) closePagePorts(state string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		l.srv.Shutdown(ctx)
 		cancel()
+		// Shutdown closes only the listeners its server serves on already: one
+		// whose server hasn't started yet would keep the port until it does.
+		// Closed before Shutdown, a listener its server serves on would end
+		// that server with an error rather than as shut down.
+		l.ln.Close()
 		s.log.Info("the public page stopped answering", "port", l.port)
 	}
 }

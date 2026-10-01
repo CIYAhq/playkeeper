@@ -6877,6 +6877,18 @@ control "turning the page off gives the ports back" internal/panel/pageports.go 
 		return
 	}' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
+control "turning the page off gives back a port its server hasn't served on yet" internal/panel/pageports.go \
+  '		l.ln.Close()
+		s.log.Info("the public page stopped answering", "port", l.port)' \
+  '		s.log.Info("the public page stopped answering", "port", l.port)' \
+  ./internal/panel '^TestAPortIsGivenBackBeforeItsServerStarts$'
+control "turning the page off shuts its server down before closing the listener" internal/panel/pageports.go \
+  '		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		l.srv.Shutdown(ctx)' \
+  '		l.ln.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		l.srv.Shutdown(ctx)' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
 control "the keeper never asks for a port it holds" internal/panel/pageports.go \
   'return p.held[i] == nil && !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
