@@ -102,7 +102,7 @@ describe('a seller’s prices', () => {
   })
 
   it('opens the store through a relative address, then tells the page', async () => {
-    await render(pricesWith())
+    expect(await render(pricesWith())).not.toContain('Update the store')
     vi.mocked(client.post).mockResolvedValueOnce({ open: true })
     await click(button('Open the store'))
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell')
