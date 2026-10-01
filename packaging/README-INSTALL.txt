@@ -15,8 +15,9 @@ of them: its name ends in amd64 or arm64), with systemd and 3 GB RAM or more
 
      sudo ./install.sh
 
-   When it finishes it prints an https:// link with a one-time setup code
-   and the certificate fingerprint to compare in your browser.
+   When it finishes it prints an https:// link with a one-time setup code.
+   Your browser warns that the connection isn't private: click Advanced,
+   then Proceed. That warning is expected on a new server.
 
 3. Open the link, create your admin account, accept the Minecraft EULA and
    start your server. Everything after this happens in the browser.

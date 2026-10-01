@@ -56,7 +56,7 @@ Outbound, Playkeeper needs your system's package repositories if it installs Doc
 The installer checks the server first (changing nothing), lists every change it will make and how to undo it, and asks before continuing. It never takes over an existing Minecraft, Crafty or panel install. When it finishes it prints:
 
 - an `https://<your-ip>:8443/setup#code=…` link with a **one-time setup code** (24 hours), and
-- the **SHA-256 fingerprint** of the dashboard's self-signed certificate. Your browser will warn about the certificate; continue only if the fingerprint it shows matches. A name with a real certificate (below) makes the warning go away, and the dashboard then opens at the name without a port, like `https://alex.playkeeper.me`.
+- what to do about the browser's warning. The dashboard starts with a self-signed certificate, so the browser says the connection isn't private: click **Advanced**, then **Proceed** (in Safari, **Show Details**, then **visit this website**). The installer's last line gives the certificate's **SHA-256 fingerprint**, for anyone who wants to compare it with the one the browser shows. A name with a real certificate (below) makes the warning go away, and the dashboard then opens at the name without a port, like `https://alex.playkeeper.me`.
 
 Everything else happens in the browser: create the admin account, pass the check of the VPS, then create your first server or skip it for now. The first server gets the newest stable Paper and a memory size for how you'll play; **Change** picks others. The **Get started** card in the sidebar and **First steps** on each server's Overview walk you through inviting a friend and making and downloading your first backup.
 

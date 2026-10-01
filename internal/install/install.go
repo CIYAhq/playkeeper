@@ -340,7 +340,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	if o.Join != "" {
 		add("join", "Dashboard", "info", "Once installed, this machine joins the dashboard at "+o.Join+". It dials out to it, so no port opens for it here.", "")
 	} else {
-		add("tls", "HTTPS", "info", "A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.", "")
+		add("tls", "HTTPS", "info", "The dashboard starts with a certificate of its own, so your browser warns that the connection isn't private: click Advanced, then Proceed. A free name in Machine settings ends the warning.", "")
 	}
 	return f
 }

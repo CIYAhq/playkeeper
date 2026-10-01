@@ -461,7 +461,7 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 		fmt.Fprintf(w, "  1. Open %s and sign in with your existing admin account.\n", res.URL)
 		fmt.Fprintf(w, "     %s\n", wontOpen(res))
 	}
-	fmt.Fprintf(w, "  2. Your browser will warn that the certificate is self-signed. Continue only if it shows\n     this SHA-256 fingerprint:\n       %s\n", res.Fingerprint)
+	fmt.Fprintf(w, "  2. Your browser warns that the connection isn't private. Click Advanced, then Proceed:\n     this warning is expected. (Safari: Show Details, then visit this website.)\n")
 	if res.SetupCode != "" {
 		fmt.Fprintf(w, "  3. Create your admin account, accept the Minecraft EULA and start your server.\n\n")
 	} else {
@@ -477,6 +477,9 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 		fmt.Fprintf(w, "Forgot the password? sudo playkeeper reset-password <username>\n")
 	}
 	fmt.Fprintf(w, "Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)\n")
+	if res.Fingerprint != "" {
+		fmt.Fprintf(w, "To check the certificate in your browser, its SHA-256 fingerprint is %s\n", res.Fingerprint)
+	}
 	if res.UsageOn {
 		fmt.Fprintf(w, "Anonymous usage stats are on; Settings › Playkeeper turns them off.\n")
 	}
