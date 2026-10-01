@@ -566,6 +566,63 @@ func TestAFinishedOperationIsAlreadyAudited(t *testing.T) {
 	}
 }
 
+// Whoever sees no operation running finds how the last one ended: an
+// operation is stored as ended before it stops showing. The test holds the
+// database's write lock as each kind of operation ends, so its end can't be
+// stored yet, and the operation must still show.
+func TestAnOperationShowsUntilItsEndIsStored(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	type opFunc = func(context.Context, *opHandle) error
+	cases := []struct {
+		name    string
+		begin   func(fn opFunc) (*api.Operation, error)
+		current func() *api.Operation
+	}{
+		{"a server's", func(fn opFunc) (*api.Operation, error) { return s.beginOp("test", "admin", fn) }, s.currentOp},
+		{"the machine's", func(fn opFunc) (*api.Operation, error) { return e.a.beginMachineOp("test", "admin", fn) }, e.a.machineOp},
+		{"a staging", func(fn opFunc) (*api.Operation, error) { return e.a.beginStagingOp("test", "admin", fn) }, e.a.stagingOp},
+		{"the address's", func(fn opFunc) (*api.Operation, error) {
+			select {
+			case e.a.addr.lock <- struct{}{}:
+			case <-time.After(10 * time.Second):
+				return nil, errors.New("the address lock is held")
+			}
+			return e.a.startAddressOp("test", "admin", fn), nil
+		}, e.a.addressOp},
+	}
+	ctx := context.Background()
+	for _, c := range cases {
+		end := make(chan struct{})
+		op, err := c.begin(func(context.Context, *opHandle) error { <-end; return nil })
+		if err != nil {
+			t.Fatalf("%s operation: %v", c.name, err)
+		}
+		conn, err := e.a.db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+			t.Fatal(err)
+		}
+		close(end)
+		time.Sleep(300 * time.Millisecond)
+		cur := c.current()
+		if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+			t.Fatal(err)
+		}
+		conn.Close()
+		if cur == nil || cur.ID != op.ID {
+			t.Errorf("%s operation stopped showing before its end was stored", c.name)
+		}
+		e.waitFor(c.name+" operation to end", func() bool { return c.current() == nil })
+		if stored, err := e.a.loadOperation(op.ID); err != nil || stored.Status != api.OpSucceeded {
+			t.Errorf("%s operation is stored as %+v (%v), want it succeeded", c.name, stored, err)
+		}
+	}
+}
+
 func TestEULAGateRefusesAndDownloadsNothing(t *testing.T) {
 	e := newAgentEnv(t)
 	code, out := e.call("POST", "/v1/servers", map[string]any{"acceptEula": false, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})

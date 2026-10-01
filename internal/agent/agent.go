@@ -798,11 +798,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 		ctx, cancel := opContext(a.ctx, kind)
 		defer cancel()
 		err := runOp(ctx, h, fn)
-		a.mopMu.Lock()
-		done := finishOp(op, h, err, a.now().UTC())
-		a.mop = nil
-		a.mopMu.Unlock()
-		a.finishOperation("", "machine", &done)
+		a.endOp("", "machine", &a.mopMu, op, h, err, func() { a.mop = nil })
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}
@@ -840,11 +836,7 @@ func (a *Agent) beginStagingOp(kind, actor string, fn func(ctx context.Context, 
 		ctx, cancel := opContext(a.ctx, kind)
 		defer cancel()
 		err := runOp(ctx, h, fn)
-		a.mopMu.Lock()
-		done := finishOp(op, h, err, a.now().UTC())
-		a.sop = nil
-		a.mopMu.Unlock()
-		a.finishOperation("", "machine", &done)
+		a.endOp("", "machine", &a.mopMu, op, h, err, func() { a.sop = nil })
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}
