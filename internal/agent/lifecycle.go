@@ -808,6 +808,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.keepDefaultProperties(sc); err != nil {
 		return err
 	}
+	if err := s.keepSpawnOpen(sc); err != nil {
+		return err
+	}
 	if takesPlugins(sc) {
 		if err := s.ensureTelemetryOff(); err != nil {
 			return err
@@ -884,6 +887,31 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		actor = h.op.Actor
 	}
 	s.admitPendingOperators(actor)
+	return nil
+}
+
+// keepSpawnOpen turns spawn protection off on a server whose create asked
+// for operators while it has none yet, before each start until they're
+// added. Minecraft protects the land around spawn only while a server has an
+// operator, so making its owner the first would otherwise stop their friends
+// building there. It's where the server starts, not a setting Playkeeper
+// keeps: once the operators are added it isn't written again, so spawn
+// protection can be turned back on.
+func (s *server) keepSpawnOpen(sc api.ServerConfig) error {
+	if sc.PendingOperators == "" {
+		return nil
+	}
+	if ops, err := s.operators(); err != nil || len(ops) > 0 {
+		return nil
+	}
+	d, err := s.gameFiles()
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if err := setProperties(d, map[string]string{"spawn-protection": "0"}); err != nil {
+		return gameFileError(err, "The server's spawn protection could not be turned off, so the server was not started.")
+	}
 	return nil
 }
 

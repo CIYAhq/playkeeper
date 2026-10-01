@@ -10,7 +10,9 @@ import (
 // allowlist on, and nobody asked for the owner's own name, so their first
 // join was refused. The players a create names go on the allowlist and are
 // made operators once the server runs, after a first start that failed too,
-// each once, and are then forgotten.
+// each once, and are then forgotten. Spawn protection, which Minecraft
+// turns on with the first operator, starts off, so friends can still build
+// at spawn, and stays as the owner sets it after that.
 func TestACreatesOperatorsGoOnTheAllowlistOnceTheServerRuns(t *testing.T) {
 	e := newAgentEnv(t)
 	e.fd.mu.Lock()
@@ -32,6 +34,9 @@ func TestACreatesOperatorsGoOnTheAllowlistOnceTheServerRuns(t *testing.T) {
 	}
 	if sc := e.status().Config; sc == nil || sc.PendingOperators != "Steve_Builds" {
 		t.Fatalf("after a first start that failed: %+v", sc)
+	}
+	if p := readProperties(e.dataDir()); p["spawn-protection"] != "0" {
+		t.Fatalf("spawn protection before the first start: %q", p["spawn-protection"])
 	}
 
 	code, out = e.call("POST", e.sp("/start"), map[string]any{"actor": "siya"})
@@ -55,6 +60,8 @@ func TestACreatesOperatorsGoOnTheAllowlistOnceTheServerRuns(t *testing.T) {
 		t.Fatalf("the players were kept after they were added: %+v", sc)
 	}
 
+	// The owner turns spawn protection back on.
+	e.putData("server.properties", "spawn-protection=16\n")
 	code, out = e.callWhenFree("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("restart: %d %v", code, out)
@@ -66,6 +73,58 @@ func TestACreatesOperatorsGoOnTheAllowlistOnceTheServerRuns(t *testing.T) {
 		if n := e.rcon.count(cmd); n != 1 {
 			t.Fatalf("a restart sent %q again: %d", cmd, n)
 		}
+	}
+	if p := readProperties(e.dataDir()); p["spawn-protection"] != "16" {
+		t.Fatalf("a restart changed the owner's spawn protection to %q", p["spawn-protection"])
+	}
+}
+
+// A server that has an operator already protects spawn from everyone else,
+// as a restore can bring one, so making the owner an operator too leaves
+// spawn protection as it is.
+func TestOperatorsJoiningAnotherLeaveSpawnProtectionAlone(t *testing.T) {
+	e := newAgentEnv(t)
+	e.fd.mu.Lock()
+	e.fd.failBoots = 1
+	e.fd.mu.Unlock()
+	code, out := e.startCreate(map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin", "operators": []string{"Steve_Builds"}})
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	e.sid = out["serverId"].(string)
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed {
+		t.Fatalf("the first start: %+v", op)
+	}
+	e.putData("ops.json", `[{"uuid":"00000000-0000-0000-0000-0000000000c5","name":"Oscar","level":4}]`)
+	e.putData("server.properties", "spawn-protection=16\n")
+	code, out = e.call("POST", e.sp("/start"), map[string]any{"actor": "siya"})
+	if code != 202 {
+		t.Fatalf("start: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("the start: %+v", op)
+	}
+	if n := e.rcon.count("op Steve_Builds"); n != 1 {
+		t.Fatalf("op Steve_Builds ran %d times", n)
+	}
+	if p := readProperties(e.dataDir()); p["spawn-protection"] != "16" {
+		t.Fatalf("spawn protection on a server with an operator became %q", p["spawn-protection"])
+	}
+}
+
+// A create without operators leaves spawn protection as Minecraft has it.
+func TestACreateWithoutOperatorsLeavesSpawnProtectionAlone(t *testing.T) {
+	e := newAgentEnv(t)
+	code, out := e.startCreate(map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	e.sid = out["serverId"].(string)
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("the first start: %+v", op)
+	}
+	if p, ok := readProperties(e.dataDir())["spawn-protection"]; ok {
+		t.Fatalf("spawn protection was set to %q", p)
 	}
 }
 
