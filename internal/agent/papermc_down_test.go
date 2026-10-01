@@ -46,7 +46,7 @@ func (e *agentEnv) forgetPaperLists() {
 	e.t.Helper()
 	e.useBuiltInPaper(time.Time{})
 	e.a.catalog.mu.Lock()
-	e.a.catalog.entries, e.a.catalog.at, e.a.catalog.retryAt = nil, time.Time{}, time.Time{}
+	e.a.catalog.list, e.a.catalog.retryAt = versionList{}, time.Time{}
 	e.a.catalog.mu.Unlock()
 	if err := os.Remove(filepath.Join(e.cfg.AgentDir(), "software-lists", "catalog-paper.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		e.t.Fatal(err)
@@ -94,8 +94,9 @@ func TestWhilePaperMCAnswers503TheFirstServerIsStillCreated(t *testing.T) {
 	}
 
 	cat := e.a.catalogInfo(t.Context(), "")
-	if cat.VersionsError != "" || len(cat.Versions) != 2 || !cat.Versions[0].Recommended || cat.Versions[0].ID != "paper-26.2" || cat.VersionsCheckedAt == nil || !cat.VersionsCheckedAt.Equal(made) {
-		t.Fatalf("the first server's versions come from the list built into Playkeeper, dated when it was made: %+v", cat)
+	if cat.VersionsError != "" || len(cat.Versions) != 2 || !cat.Versions[0].Recommended || cat.Versions[0].ID != "paper-26.2" || cat.VersionsCheckedAt == nil || !cat.VersionsCheckedAt.Equal(made) ||
+		cat.VersionsFrom != "builtin" || cat.VersionsUpstream != "PaperMC" {
+		t.Fatalf("the first server's versions come from the list built into Playkeeper, dated when it was made, and say so: %+v", cat)
 	}
 
 	e.createWith(map[string]any{"versionId": "paper-26.2"})
@@ -170,8 +171,8 @@ func TestPaperMCsLastListIsKeptOnDiskForTheNextOutage(t *testing.T) {
 	e.fill.setDown(true)
 	e.start()
 	cat := e.a.catalogInfo(t.Context(), "")
-	if cat.VersionsError != "" || len(cat.Versions) != 3 || !cat.VersionsCheckedAt.Equal(*live.VersionsCheckedAt) {
-		t.Fatalf("after a restart during the outage the kept list is offered, dated when PaperMC gave it: %+v", cat)
+	if cat.VersionsError != "" || len(cat.Versions) != 3 || !cat.VersionsCheckedAt.Equal(*live.VersionsCheckedAt) || cat.VersionsFrom != "kept" || live.VersionsFrom != "" {
+		t.Fatalf("after a restart during the outage the kept list is offered, dated when PaperMC gave it, and says so: %+v", cat)
 	}
 	asked := e.fill.asked()
 	if again := e.a.catalogInfo(t.Context(), ""); len(again.Versions) != 3 || e.fill.asked() != asked {

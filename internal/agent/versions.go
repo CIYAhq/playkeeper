@@ -30,16 +30,34 @@ type cachedBuild struct {
 }
 
 type catalogCache struct {
-	mu      sync.Mutex
-	entries []api.CatalogEntry
-	at      time.Time
-	// retryAt is set while entries are from before PaperMC last failed:
-	// until then they're served without asking it.
+	mu   sync.Mutex
+	list versionList
+	// retryAt is set while list is from before PaperMC last failed: until
+	// then it's served without asking PaperMC.
 	retryAt time.Time
 	builds  map[string]cachedBuild
 	// The list being fetched, which callers wait for without the lock.
 	flights map[string]*flight[[]api.CatalogEntry]
 }
+
+// versionList is a type's versions and when its upstream listed them:
+// just now, or while the upstream can't be reached, the last list it gave,
+// kept on this machine, or else the list built into Playkeeper.
+type versionList struct {
+	entries []api.CatalogEntry
+	at      time.Time
+	from    listFrom
+	// upstream names the upstream that couldn't be reached.
+	upstream string
+}
+
+type listFrom string
+
+const (
+	fromUpstream listFrom = ""
+	fromKept     listFrom = "kept"
+	fromBuiltIn  listFrom = "builtin"
+)
 
 func (a *Agent) fill() minecraft.Fill {
 	return minecraft.Fill{BaseURL: a.opts.FillURL, Client: a.opts.HTTPClient}
@@ -53,18 +71,24 @@ var (
 	paperJarURL         = minecraft.PaperJarURL
 )
 
-// versionCatalog is the list of Paper versions and when PaperMC listed it,
-// reused for catalogTTL. While PaperMC can't be reached it is the last
-// list PaperMC gave, kept in memory and on disk, or else the list built
-// into Playkeeper.
+// versionCatalog is the list of Paper versions and when PaperMC listed it
+// (paperList).
 func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Time, error) {
+	l, err := a.paperList(ctx)
+	return l.entries, l.at, err
+}
+
+// paperList is the list of Paper versions, reused for catalogTTL. While
+// PaperMC can't be reached it is the last list PaperMC gave, kept in memory
+// and on disk, or else the list built into Playkeeper.
+func (a *Agent) paperList(ctx context.Context) (versionList, error) {
 	c := &a.catalog
 	c.mu.Lock()
 	now := a.now()
-	if c.entries != nil && (now.Before(c.retryAt) || c.retryAt.IsZero() && now.Sub(c.at) < catalogTTL) {
-		entries, at := c.entries, c.at
+	if c.list.entries != nil && (now.Before(c.retryAt) || c.retryAt.IsZero() && now.Sub(c.list.at) < catalogTTL) {
+		l := c.list
 		c.mu.Unlock()
-		return entries, at, nil
+		return l, nil
 	}
 	c.mu.Unlock()
 	entries, at, err := fetchOnce(ctx, &c.mu, &c.flights, api.TypePaper, func() ([]api.CatalogEntry, time.Time, error) {
@@ -78,34 +102,43 @@ func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Ti
 		}
 		now := a.now()
 		c.mu.Lock()
-		c.entries, c.at, c.retryAt = entries, now, time.Time{}
+		c.list, c.retryAt = versionList{entries: entries, at: now}, time.Time{}
 		c.mu.Unlock()
 		a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: now, Entries: entries})
 		return entries, now, nil
 	})
-	if err == nil || ctx.Err() != nil {
-		return entries, at, err
+	if err == nil {
+		return versionList{entries: entries, at: at}, nil
+	}
+	if ctx.Err() != nil {
+		return versionList{}, err
 	}
 	a.log.Warn("could not load the Paper version list", "err", err)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.entries == nil {
+	switch {
+	case c.list.entries != nil && c.list.from == fromUpstream && c.retryAt.IsZero() && a.now().Sub(c.list.at) < catalogTTL:
+		// A fetch that ended meanwhile got PaperMC's list.
+		return c.list, nil
+	case c.list.entries != nil:
+		if c.list.from == fromUpstream {
+			c.list.from = fromKept
+		}
+	default:
 		var saved savedCatalog
 		if a.savedSoftwareList(api.TypePaper, "", &saved) && len(saved.Entries) > 0 {
-			c.entries, c.at = saved.Entries, saved.At
+			c.list = versionList{entries: saved.Entries, at: saved.At, from: fromKept}
 		} else if built, at, berr := builtInPaperCatalog(); berr == nil {
 			a.log.Info("offering the Paper version list built into Playkeeper", "madeAt", at)
-			c.entries, c.at = built, at
+			c.list = versionList{entries: built, at: at, from: fromBuiltIn}
 		} else {
 			a.log.Warn("the Paper version list built into Playkeeper can't be used", "err", berr)
-			return nil, time.Time{}, err
+			return versionList{}, err
 		}
-	} else if c.retryAt.IsZero() && a.now().Sub(c.at) < catalogTTL {
-		// A fetch that ended meanwhile got PaperMC's list.
-		return c.entries, c.at, nil
 	}
+	c.list.upstream = "PaperMC"
 	c.retryAt = a.now().Add(upstreamRetry)
-	return c.entries, c.at, nil
+	return c.list, nil
 }
 
 // catalogEntry finds a version to create or update a server with.
@@ -177,7 +210,7 @@ func (a *Agent) restoreBuildOrKnown(ctx context.Context, mc string, build int) (
 func (a *Agent) keptPaperCatalog() []api.CatalogEntry {
 	c := &a.catalog
 	c.mu.Lock()
-	entries := c.entries
+	entries := c.list.entries
 	c.mu.Unlock()
 	if entries != nil {
 		return entries

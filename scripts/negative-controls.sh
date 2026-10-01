@@ -13088,6 +13088,98 @@ webcontrol "a phone's select points at its list while it's open" web/src/compone
   'aria-controls={open ? listId : undefined}' \
   'aria-controls={undefined}' \
   web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
+# After PaperMC's API answered 503 on 1 Oct 2026: onboarding and server
+# creation don't depend on any upstream's list answering.
+control "the machine check warns, not fails, while one service is down" internal/agent/preflight.go \
+  'case errors.As(err, &trouble):' \
+  'case false && errors.As(err, &trouble):' \
+  ./internal/agent '^TestTheMachineCheckWarnsWhileAServiceIsDownAndFailsOnlyWhenNoneAnswers$'
+control "a machine with no Paper list of its own offers the one built into the release" internal/agent/versions.go \
+  '} else if built, at, berr := builtInPaperCatalog(); berr == nil {' \
+  '} else if built, at, berr := builtInPaperCatalog(); false && berr == nil {' \
+  ./internal/agent '^TestWhilePaperMCAnswers503TheFirstServerIsStillCreated$'
+control "Paper downloads from PaperMC's download host by its checksum" internal/agent/versions.go \
+  'if u, ok := paperJarURL(sc.MinecraftVersion, sc.PaperBuild, sum); ok {' \
+  'if u, ok := paperJarURL(sc.MinecraftVersion, sc.PaperBuild, sum); false && ok {' \
+  ./internal/agent '^TestWhilePaperMCAnswers503TheFirstServerIsStillCreated$'
+control "the last Paper list PaperMC gave is kept for the next outage" internal/agent/versions.go \
+  'a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: now, Entries: entries})' \
+  '' \
+  ./internal/agent '^TestPaperMCsLastListIsKeptOnDiskForTheNextOutage$'
+control "a Paper backup restores from the list the machine has while PaperMC is down" internal/agent/versions.go \
+  'for _, k := range a.keptPaperCatalog() {' \
+  'for _, k := range []api.CatalogEntry(nil) {' \
+  ./internal/agent '^TestAPaperBackupIsRestoredWhilePaperMCIsDown$'
+# After Bugbot's finding on df3638d2: the kept list picks as PaperMC does.
+control "a backup of an experimental Paper build restores from the kept list" internal/agent/versions.go \
+  '(!k.Experimental && k.PaperBuild >= build || k.PaperBuild == build)' \
+  '(!k.Experimental && k.PaperBuild >= build)' \
+  ./internal/agent '^TestAPaperBackupIsRestoredWhilePaperMCIsDown$'
+control "the other types offer the list built into the release" internal/agent/software.go \
+  'rels, at, berr := builtInTypeCatalog(typ)' \
+  'rels, at, berr := []software.Release(nil), time.Time{}, software.ErrNoBuiltInList' \
+  ./internal/agent '^TestWhileMojangsVersionListIsDownAVanillaServerIsStillCreated$'
+control "an install uses the built-in plan while the metadata is down" internal/agent/software.go \
+  'if built, at, ok := builtInTypeResolved(pin); ok {' \
+  'if built, at, ok := builtInTypeResolved(pin); false && ok {' \
+  ./internal/agent '^TestWhileMojangsVersionListIsDownAVanillaServerIsStillCreated$'
+control "what an install looked up is kept for the next outage" internal/agent/software.go \
+  'a.keepList(path, savedResolved{At: a.now(), Resolved: res})' \
+  '_ = path' \
+  ./internal/agent '^TestAVersionResolvedBeforeInstallsAgainWhileItsUpstreamIsDown$'
+control "a version list whose upstream failed is asked for again only after a minute" internal/agent/software.go \
+  'c.catalogs[typ] = cachedCatalog{list: l, retryAt: a.now().Add(upstreamRetry)}' \
+  'c.catalogs[typ] = cachedCatalog{list: l}' \
+  ./internal/agent '^TestWhileMojangsVersionListIsDownAVanillaServerIsStillCreated$'
+# After Bugbot's findings on cb4f6c4d: build lists remember the failure too,
+# and a build a backup or a pack names survives an outage.
+control "a build list whose upstream failed is asked for again only after a minute" internal/agent/software.go \
+  'c.builds[key] = cachedBuilds{list: l, retryAt: a.now().Add(upstreamRetry)}' \
+  'c.builds[key] = cachedBuilds{list: l}' \
+  ./internal/agent '^TestABuildListUpstreamThatFailedIsAskedAgainOnlyAfterAMinute$'
+control "a build a backup or a pack names survives an outage" internal/agent/software.go \
+  'offline := err != nil && upstreamTrouble(err) || err == nil && l.from != fromUpstream' \
+  'offline := err != nil && upstreamTrouble(err)' \
+  ./internal/agent '^TestARestoreAndAPackKeepTheBuildTheyNameWhileTheUpstreamIsDown$'
+# After Bugbot's finding on 69980f58: make version-lists never writes the
+# lists without a type it couldn't keep.
+control "make version-lists never drops a type it couldn't keep" cmd/version-lists/main.go \
+  'case unreadable != nil:' \
+  'case false:' \
+  ./cmd/version-lists '^TestAFailedTypeIsNeverDroppedFromTheLists$'
+# After Bugbot's findings on aec0ac7e and 54eba81a: a caller that leaves
+# doesn't make an upstream look down, and the fetch holds no lock.
+control "Paper's list is fetched without holding the catalog's lock" internal/agent/versions.go \
+  '	c.mu.Unlock()
+	entries, at, err := fetchOnce(ctx, &c.mu, &c.flights, api.TypePaper, func() ([]api.CatalogEntry, time.Time, error) {' \
+  '	defer c.mu.Lock()
+	entries, at, err := fetchOnce(ctx, &sync.Mutex{}, &c.flights, api.TypePaper, func() ([]api.CatalogEntry, time.Time, error) {' \
+  ./internal/agent '^TestASlowPaperListHoldsUpOnlyItsOwnCallers$'
+control "a Paper list fetch outlives a caller that leaves" internal/agent/versions.go \
+  'cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)' \
+  'cctx, cancel := context.WithTimeout(ctx, 30*time.Second)' \
+  ./internal/agent '^TestACallerThatLeavesDoesNotMakePaperMCLookDown$'
+control "a waiter that leaves records no failure of the upstream" internal/agent/software.go \
+  'if ctx.Err() != nil {
+		// The caller left; the fetch, if it goes on, says how it went.' \
+  'if false {
+		// The caller left; the fetch, if it goes on, says how it went.' \
+  ./internal/agent '^TestACallerThatLeavesDoesNotMakeAnUpstreamLookDown$'
+control "a cancelled restore lookup isn't kept as PaperMC's answer" internal/agent/versions.go \
+  'e, err := a.fill().RestoreBuild(cctx, mc, build)
+	if ctx.Err() != nil {' \
+  'e, err := a.fill().RestoreBuild(cctx, mc, build)
+	if false {' \
+  ./internal/agent '^TestACallerThatLeavesDoesNotMakeAnUpstreamLookDown$'
+control "a built-in list with a download on a foreign host is refused" internal/minecraft/software/builtin.go \
+  'if !servesFrom(a.Upstream, a.Hosts) {' \
+  'if false && !servesFrom(a.Upstream, a.Hosts) {' \
+  ./internal/minecraft/software '^TestABuiltInListAMachineCouldNotInstallFromIsRefused$'
+webcontrol "the dashboard says when the versions aren't the upstream's own list" web/src/components/app/create.tsx \
+  "const text = catalog.versionsFrom === 'kept'" \
+  "if (catalog) return null
+  const text = catalog.versionsFrom === 'kept'" \
+  web/src/components/app/versions-from.test.tsx 'names the list built into the release and its date'
 
 if [ "$bad" != 0 ]; then
   echo

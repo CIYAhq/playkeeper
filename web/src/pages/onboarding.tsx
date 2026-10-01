@@ -7,7 +7,7 @@ import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, type CreateChoices } from '@/components/app/create'
+import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
 import { PasswordField } from '@/components/app/password-field'
 import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
@@ -478,6 +478,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
         />
         <MoreOptions hardcore={c.hardcore} onHardcore={(hardcore) => update({ hardcore })} level={c.levelType} onLevel={(levelType) => update({ levelType })} phone={phone} />
         <EulaCheck checked={c.eula} onChange={(eula) => update({ eula })} short={phone} className={cn(phone ? 'min-h-14 rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')} />
+        <VersionsFrom catalog={catalog} className="px-1" />
         {createError && (
           <p className="text-[13px] text-destructive-foreground" role="alert">
             {createError}
@@ -497,6 +498,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           <label className="flex flex-col gap-1.5 text-[13px] font-medium">
             {t('onboarding.changeVersion')}
             <ChoiceSelect value={c.versionId} onChange={(versionId) => update({ versionId, acceptExperimental: false })} options={versionChoices} label={t('onboarding.changeVersion')} className="w-full" />
+            <VersionsFrom catalog={catalog} className="font-normal" />
           </label>
           {version?.experimental && <ExperimentalConsent checked={c.acceptExperimental} onChange={(acceptExperimental) => update({ acceptExperimental })} version={version.minecraftVersion} />}
           <label className="flex flex-col gap-1.5 text-[13px] font-medium">

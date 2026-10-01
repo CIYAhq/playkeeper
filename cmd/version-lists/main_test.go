@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +13,76 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
+
+// A release made while the other types' upstreams are down still ships the
+// lists that were last made, as they were.
+func TestTheOtherTypesListsAreKeptWhileTheirUpstreamsAreDown(t *testing.T) {
+	built, err := os.ReadFile("../../internal/minecraft/software/builtin/lists.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "lists.json")
+	if err := os.WriteFile(path, built, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	down := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("no network here") })}
+	err = writeSoftware(path, software.Sources{Client: down}, time.Now())
+	if err == nil || strings.Count(err.Error(), "kept as it was") != 6 {
+		t.Fatalf("every type's list must be kept, and say so: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != string(built) {
+		t.Fatal("the lists changed while their upstreams were down")
+	}
+}
+
+// When the lists already there can't be read, a type whose upstream fails
+// can't be kept, so nothing is written: a file without that type, while the
+// error says it was kept, would ship a release without it. With the lists
+// readable, the type is kept and the others are refreshed.
+func TestAFailedTypeIsNeverDroppedFromTheLists(t *testing.T) {
+	built, err := os.ReadFile("../../internal/minecraft/software/builtin/lists.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lists, err := software.ParseBuiltInLists(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onlyVanilla := func(_ context.Context, typ string) (software.BuiltInType, error) {
+		if typ == software.Vanilla {
+			return lists.Types[typ], nil
+		}
+		return software.BuiltInType{}, errors.New("no network here")
+	}
+	path := filepath.Join(t.TempDir(), "lists.json")
+	if err := os.WriteFile(path, []byte("{not the lists"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = writeLists(path, onlyVanilla)
+	if err == nil || !strings.Contains(err.Error(), "can't be read") || strings.Contains(err.Error(), "kept as it was") {
+		t.Fatalf("an unreadable file and a failed type write nothing, and say so: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "{not the lists" {
+		t.Fatalf("the file was rewritten without the failed types: %.200s", b)
+	}
+
+	if err := os.WriteFile(path, built, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLists(path, onlyVanilla); err == nil || strings.Count(err.Error(), "kept as it was") != 5 {
+		t.Fatalf("with readable lists the five failed types are kept: %v", err)
+	}
+	b, _ := os.ReadFile(path)
+	if got, err := software.ParseBuiltInLists(b); err != nil || len(got.Types) != 6 {
+		t.Fatalf("every type is still in the lists: %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // A release made while PaperMC's API is down still ships the last list
 // that was made; once it answers, the list is replaced with what it lists.

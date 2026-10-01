@@ -199,11 +199,15 @@ var neoforgeBetasOnly = []byte(`<metadata><versioning><versions>
 
 // When NeoForge's version list has lost its stable versions, a machine with
 // no list of its own offers the one built into Playkeeper, and says when
-// that was made.
+// that was made and that it isn't NeoForge's own.
 func TestAFreshInstallOffersTheBuiltInListWhileNeoForgesHasLostItsStableVersions(t *testing.T) {
 	e := newAgentEnv(t)
 	e.up.serveMojang()
 	e.up.serve(neoforgeMetadata, neoforgeBetasOnly)
+	_, listAt, err := software.Sources{}.BuiltInCatalog("neoforge")
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, builtAt, err := software.Sources{}.BuiltInBuilds("neoforge", "26.2")
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +215,7 @@ func TestAFreshInstallOffersTheBuiltInListWhileNeoForgesHasLostItsStableVersions
 	made := builtAt.Format(time.RFC3339)
 
 	code, out := e.call("GET", "/v1/catalog?type=neoforge", nil)
-	if code != 200 || out["versionsCheckedAt"] != made {
+	if code != 200 || out["versionsCheckedAt"] != listAt.Format(time.RFC3339) || out["versionsFrom"] != "builtin" || out["versionsUpstream"] != "NeoForge" {
 		t.Fatalf("catalog: %d %v", code, out)
 	}
 	found := false

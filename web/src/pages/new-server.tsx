@@ -10,7 +10,7 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, Segmented, Stepper, useIsPhone } from '@/components/app/controls'
-import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, versionBlocked, type CreateChoices } from '@/components/app/create'
+import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, VersionsFrom, versionBlocked, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
 import { ModpackPicker, packVoicePort, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
@@ -588,6 +588,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
             ) : (
               <CardsSkeleton count={4} className="flex flex-col gap-2.5" card="h-[62px]" />
             )}
+            <VersionsFrom catalog={typeCatalog} className="-mt-1 px-0.5" />
             {notListed && <p className="-mt-1 px-0.5 text-xs text-muted-foreground max-sm:text-[13px]">{t('new.notListed', { version: latest, type: typeName(c.type) })}</p>}
             {hasBuilds(c.type) && version && <BuildSelect type={c.type} builds={builds.builds?.builds} loading={builds.loading} error={builds.error} onRetry={builds.reload} value={c.build} onChange={(build) => update({ build })} />}
             {weakCheck && (

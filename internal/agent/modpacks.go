@@ -315,10 +315,21 @@ func (a *Agent) packTarget(ctx context.Context, typ, mc, loader string) (restore
 	rt := restoreTarget{typ: typ, pin: software.Pin{Type: typ, MinecraftVersion: mc}}
 	channel := software.Stable
 	if typ != software.Vanilla {
-		bs, _, err := a.typeBuilds(ctx, typ, mc)
+		l, err := a.typeBuildList(ctx, typ, mc)
+		l, err = a.withNamedBuild(l, err, software.PinOf(typ, mc, loader), loader)
+		if err != nil && upstreamTrouble(err) && loader == "" {
+			if vl, lerr := a.typeList(ctx, typ); lerr == nil {
+				if i := slices.IndexFunc(vl.entries, func(e api.CatalogEntry) bool { return e.MinecraftVersion == mc && e.Software != nil }); i >= 0 {
+					a.log.Info("using the build the version list has, as its upstream can't be asked", "type", typ, "minecraft", mc, "err", err)
+					e := vl.entries[i]
+					l, err = buildList{builds: []software.Build{{Version: e.Build, Channel: software.Channel(e.Channel), Recommended: true, Pin: software.Pin(*e.Software)}}}, nil
+				}
+			}
+		}
 		if err != nil {
 			return restoreTarget{}, softwareError(err)
 		}
+		bs := l.builds
 		i := -1
 		if loader != "" {
 			i = slices.IndexFunc(bs, func(b software.Build) bool { return b.Version == loader })

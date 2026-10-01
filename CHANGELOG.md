@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.15
 
 - **Onboarding and new Paper servers while PaperMC is down:** on 1 Oct PaperMC's version list answered 503 for hours, and onboarding stopped at the machine check. A service that answers with an error, or not at all, is now a warning there, not a stop. Paper's versions come from the last list PaperMC gave, which the machine now keeps, or else from the list built into the release, and Paper downloads straight from PaperMC's download host by its checksum, without the version list. A Paper backup restores the same way.
+- **Every server type while its upstream is down:** Vanilla, Purpur, Fabric, Quilt, NeoForge and Forge offer the last list their upstream gave, which the machine keeps, or else the list built into the release, Mojang's part included. Vanilla, Fabric and Quilt servers still install from their download hosts while the lists can't be read, and any version the machine installed before installs again. Backups and modpacks use the build they name. A list that isn't fresh says so in one line: "PaperMC isn't answering right now, so these are the versions it listed 2 hours ago." An upstream that doesn't answer is asked again a minute later, not on every page.
 
 ## 0.4.14
 

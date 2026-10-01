@@ -675,10 +675,16 @@ type Catalog struct {
 	Type     string         `json:"type"`
 	Types    []ServerType   `json:"types"`
 	Versions []CatalogEntry `json:"versions"`
-	// VersionsError says why the version list could not be loaded from PaperMC.
+	// VersionsError says why the type's version list could not be loaded.
 	VersionsError string `json:"versionsError,omitempty"`
-	// VersionsCheckedAt is when the version list was fetched from PaperMC.
-	VersionsCheckedAt   *time.Time     `json:"versionsCheckedAt,omitempty"`
+	// VersionsCheckedAt is when the type's upstream listed the versions.
+	VersionsCheckedAt *time.Time `json:"versionsCheckedAt,omitempty"`
+	// VersionsFrom says where the versions came from while their upstream,
+	// VersionsUpstream, can't be reached: "kept", the last list it gave,
+	// which this machine kept, or "builtin", the list built into this
+	// Playkeeper. Both are empty when the upstream just gave the list.
+	VersionsFrom        string         `json:"versionsFrom,omitempty"`
+	VersionsUpstream    string         `json:"versionsUpstream,omitempty"`
 	MemoryOptionsMB     []int          `json:"memoryOptionsMB"`
 	RecommendedMemoryMB int            `json:"recommendedMemoryMB"`
 	HostMemoryMB        int            `json:"hostMemoryMB"`
