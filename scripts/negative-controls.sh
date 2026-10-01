@@ -1507,6 +1507,10 @@ control "friends' pack links favour no letter" internal/modpacks/share/token.go 
   'if b < 248 && len(out) < TokenLen {' \
   'if len(out) < TokenLen {' \
   ./internal/modpacks/share '^TestNewToken(IsUniform|SkipsBiasedBytes)$'
+control "the uniformity bound still catches letters favoured by an unskipped byte" internal/modpacks/share/token.go \
+  'if b < 248 && len(out) < TokenLen {' \
+  'if len(out) < TokenLen {' \
+  ./internal/modpacks/share '^TestNewTokenIsUniform$'
 control "stopping sharing forgets the friends' pack link" internal/agent/packshare.go \
   "UPDATE servers SET packs_public = 0, packs_token = '' WHERE id = ?" \
   'UPDATE servers SET packs_public = 0 WHERE id = ?' \
