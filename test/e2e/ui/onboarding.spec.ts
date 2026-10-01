@@ -71,6 +71,9 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await expect(dialog).toBeHidden()
   await expect(page.getByText(/Paper 26\.1\.2 · /)).toBeVisible()
 
+  // The owner's own name goes on the allowlist once the server runs.
+  await tabTo(page, page.getByLabel('Your Minecraft name'))
+  await page.keyboard.type('PkBotOwner')
   // Create pressed before the EULA is accepted says so at the box, and moves there.
   await tabTo(page, create)
   await page.keyboard.press('Enter')
@@ -90,6 +93,7 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await shot(page, 'onboarding-5-setting-up-desktop')
   await expect(page.getByRole('heading', { name: 'Survival is online!' })).toBeVisible({ timeout: 20 * 60_000 })
   screens++
+  await expect(page.getByText('PkBotOwner is on the allowlist.')).toBeVisible()
   await shot(page, 'onboarding-5-online-desktop')
   expect(screens, 'screens from first sign-in to joinable').toBeLessThanOrEqual(5)
 

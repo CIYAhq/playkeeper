@@ -2977,6 +2977,55 @@ describe('Onboarding', () => {
     })
   })
 
+  // The walkthrough of 1 Oct 2026: the allowlist is on, and nobody asked for
+  // the owner's own Minecraft name, so their first join was refused.
+  it('asks for your own Minecraft name, puts it on the server, and says so once it runs', async () => {
+    const catalog: Catalog = {
+      type: 'paper',
+      types: [{ id: 'paper', name: 'Paper', available: true }],
+      versions: [{ id: 'paper-26.2-12', label: '26.2', minecraftVersion: '26.2', paperBuild: 12, jarSha256: 'cd'.repeat(32), java: 25, recommended: true, notes: '', channel: 'STABLE', experimental: false, supported: true }],
+      memoryOptionsMB: [2048, 3072],
+      recommendedMemoryMB: 3072,
+      hostMemoryMB: 16384,
+      maxMemoryMB: 3072,
+      systemReserveMB: 1536,
+      memoryFreeMB: 10752,
+      servers: [],
+      image: '',
+    }
+    const setPrefs = vi.fn(async () => {})
+    const ws = workspace({ servers: [], setPrefs })
+    answer({ '/preflight': preflight, '/catalog': catalog })
+    answerPosts({ '/servers': { id: 'op1', kind: 'create', status: 'running', serverId: 'abcdefghjk', phase: '', actor: 'siya', startedAt: new Date().toISOString() } })
+    await render(<Onboarding />, ws)
+    await press('Looks good, continue')
+    await press('Create a server')
+    const label = [...document.querySelectorAll('label')].find((l) => l.textContent === 'Your Minecraft name')
+    const input = document.getElementById(label?.htmlFor ?? '') as HTMLInputElement | null
+    expect(input?.placeholder).toBe('Optional')
+    const typeName = async (v: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, v)
+        input?.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    await act(async () => [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith('I accept the Minecraft'))?.click())
+    const create = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Create my server'))
+    await typeName('bad name')
+    expect(create()?.title).toBe('Minecraft usernames are 3–16 letters, numbers or underscores.')
+    await typeName('Steve_Builds')
+    expect(create()?.title).toBe('')
+    await press('Create my server')
+    expect(vi.mocked(client.post).mock.calls.at(-1)).toEqual(['/api/machines/m2345abcde/servers', expect.objectContaining({ acceptEula: true, players: ['Steve_Builds'] })])
+    expect(setPrefs).toHaveBeenCalledWith({ 'minecraft.name': 'Steve_Builds' })
+
+    // It runs: the online stage reads the allowlist the agent added the name to.
+    answer({ '/whitelist': [{ name: 'Steve_Builds', uuid: '00000000-0000-0000-0000-0000000000a1' }], '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
+    await act(async () => root?.render(<WorkspaceContext.Provider value={{ ...ws, servers: [server()] }}>{<Onboarding />}</WorkspaceContext.Provider>))
+    await act(async () => {})
+    expect(document.body.textContent).toContain('Survival is online!')
+    expect(document.body.textContent).toContain('Steve_Builds is on the allowlist.')
+  })
+
   it('says the checks ran again, but not when they could not be run', async () => {
     answer({ '/preflight': preflight })
     await render(<Onboarding />, workspace({ servers: [] }))

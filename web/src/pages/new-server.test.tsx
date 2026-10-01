@@ -415,6 +415,27 @@ describe('New server on a joined machine', () => {
     vi.mocked(client.post).mockImplementation((() => Promise.resolve({ id: 'op1', kind: 'create', status: 'running', serverId: 's2345abcde' } as Operation)) as typeof client.post)
   })
 
+  // The walkthrough of 1 Oct 2026: the owner's own name goes on every new
+  // server's allowlist, but an agent before 0.4.16 refuses the field.
+  it('puts your own Minecraft name on the new server, where its agent takes it', async () => {
+    const created = async (agentVersion: string) => {
+      vi.mocked(client.post).mockClear()
+      const ws = on('connected')
+      await renderOn({ ...ws, prefs: { 'minecraft.name': 'Steve_Builds' }, me: { ...ws.me, version: '0.4.16' }, machines: ws.machines.map((m) => (m.id === remote.id ? { ...m, live: { ...m.live, agentVersion } as MachineView['live'] } : m)) })
+      await next(4)
+      await acceptEula()
+      await next()
+      return vi.mocked(client.post).mock.calls.find(([path]) => path === '/api/machines/r2345abcde/servers')?.[1] as { players?: string[] } | undefined
+    }
+    expect((await created('0.4.16'))?.players).toEqual(['Steve_Builds'])
+    act(() => root?.unmount())
+    root = undefined
+    document.body.innerHTML = ''
+    const old = await created('0.4.15')
+    expect(old).toBeDefined()
+    expect(old?.players).toBeUndefined()
+  })
+
   for (const tc of [
     {
       name: 'makes the server there while it’s connected, and keeps the machine once the flow starts',

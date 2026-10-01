@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, InfoIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
-import type { LogsResponse, Me, Operation, Preflight, PreflightCheck, ServerStatus } from '@/api/types'
+import type { LogsResponse, Me, Operation, Preflight, PreflightCheck, ServerStatus, WhitelistEntry } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { serverAction } from '@/components/app/server-action'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
+import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, OwnNameField, ownNameKey, ownNameProblem, ownPlayers, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
 import { PasswordField } from '@/components/app/password-field'
 import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
@@ -138,6 +138,7 @@ export function Onboarding() {
   const ws = useWorkspace()
   const [stage, setStage] = useState<Stage>('check')
   const [serverId, setServerId] = useState<string>()
+  const [owner, setOwner] = useState<string>()
   const server = ws.servers?.find((s) => s.id === serverId)
 
   useEffect(() => {
@@ -163,14 +164,15 @@ export function Onboarding() {
         {stage === 'style' && (
           <StyleStage
             onBack={() => setStage('first')}
-            onCreated={(op) => {
+            onCreated={(op, ownName) => {
               setServerId(op.serverId)
+              setOwner(ownName)
               setStage('creating')
             }}
           />
         )}
         {stage === 'creating' && server && <CreatingStage server={server} />}
-        {stage === 'online' && server && <OnlineStage server={server} />}
+        {stage === 'online' && server && <OnlineStage server={server} owner={owner} />}
       </div>
     </Frame>
   )
@@ -399,7 +401,7 @@ function FirstStage({ onCreate }: { onCreate: () => void }) {
   )
 }
 
-function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op: Operation) => void }) {
+function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op: Operation, ownName?: string) => void }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const { catalog, error, reload } = useCatalog(ws.machine?.id, { fresh: true })
@@ -411,6 +413,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
   // Pressing Create before it can say why next to what's missing.
   const [explained, setExplained] = useState(false)
   const eulaBox = useRef<HTMLElement>(null)
+  const [ownName, setOwnName] = useState(() => ws.prefs[ownNameKey] ?? '')
 
   useEffect(() => {
     if (!catalog || c) return
@@ -425,9 +428,12 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
     setBusy(true)
     setCreateError(undefined)
     try {
-      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), createRequest(c))
+      const own = ownName.trim()
+      const players = ownPlayers(own, ws.machine, ws.me.version)
+      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), { ...createRequest(c), ...players })
+      if (own !== (ws.prefs[ownNameKey] ?? '')) await ws.setPrefs({ [ownNameKey]: own }).catch(() => undefined)
       await ws.refresh()
-      onCreated(op)
+      onCreated(op, players.players ? own : undefined)
     } catch (e) {
       setCreateError(errorText(e))
     } finally {
@@ -473,7 +479,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
   const summary = phone
     ? t('onboarding.summaryPhone', { type: typeName(c.type), version: version?.minecraftVersion ?? '', world: t(`style.world.${c.levelType}`).toLowerCase(), memory: formatMB(c.memoryMB) })
     : t('style.summary', { type: typeName(c.type), version: version?.minecraftVersion ?? '', memory: formatMB(c.memoryMB), total: formatMB(catalog.hostMemoryMB), name: c.name })
-  const blocked = createBlocked(c, version)
+  const blocked = createBlocked(c, version) ?? ownNameProblem(ownName)
   const eulaMissing = !!blocked && !versionBlocked(c, version) && !!c.name.trim() && !c.eula
   const explain = () => {
     setExplained(true)
@@ -498,6 +504,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           phone={phone}
         />
         <MoreOptions hardcore={c.hardcore} onHardcore={(hardcore) => update({ hardcore })} level={c.levelType} onLevel={(levelType) => update({ levelType })} phone={phone} />
+        <OwnNameField value={ownName} onChange={setOwnName} className={cn(phone ? 'rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')} />
         <EulaCheck
           checked={c.eula}
           onChange={(eula) => {
@@ -704,13 +711,32 @@ function Confetti() {
   )
 }
 
-function OnlineStage({ server: s }: { server: ServerStatus }) {
+function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: string }) {
   const phone = useIsPhone()
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [added, setAdded] = useState<string[]>([])
+  // Whether the owner's own name made it onto the allowlist; one Minecraft doesn't know is offered to add again.
+  const [listed, setListed] = useState<boolean>()
   const address = serverJoinAddress(s)
   const dashboard = () => navigate({ name: 'server', slug: s.slug, tab: 'overview' }, true)
+
+  useEffect(() => {
+    if (!owner) return
+    let stopped = false
+    get<WhitelistEntry[]>(serverApi(s.id, '/whitelist')).then(
+      (list) => {
+        if (stopped) return
+        const found = list.some((e) => e.name.toLowerCase() === owner.toLowerCase())
+        setListed(found)
+        if (!found) setName(owner)
+      },
+      () => undefined,
+    )
+    return () => {
+      stopped = true
+    }
+  }, [owner, s.id])
 
   async function invite(e: FormEvent) {
     e.preventDefault()
@@ -748,6 +774,12 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint')}</p>
       </div>
+      {owner && listed !== undefined && (
+        <p className={cn('mt-4 flex items-start justify-center gap-1.5 text-[13px]', !listed && 'text-destructive-foreground')} role="status">
+          {listed ? <CircleCheckIcon className="mt-px size-4 shrink-0 text-success-foreground" aria-hidden="true" /> : <CircleAlertIcon className="mt-px size-4 shrink-0" aria-hidden="true" />}
+          {t(listed ? 'onboarding.ownerListed' : 'onboarding.ownerMissing', { name: owner })}
+        </p>
+      )}
       <form onSubmit={invite} className="mt-5 text-left">
         <label htmlFor="invite" className="text-[13px] font-semibold">
           {t('onboarding.inviteFirst')}
