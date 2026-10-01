@@ -27,12 +27,14 @@ Customers can't sign in with Whop at the new address? Until the Whop app lists i
 - Friends on Minecraft: Bedrock Edition (phones, tablets, consoles and Windows) can join a Paper or Purpur server with **Bedrock players** on in its Settings. They add the server with the address and port on its Join card, not the server's own address, which Bedrock can't follow. Xbox, PlayStation and Switch players need a workaround such as [BedrockConnect](https://geysermc.org/wiki/geyser/using-geyser-with-consoles/). When Bedrock updates, update Geyser on the Plugins tab: an older Geyser turns newer Bedrock versions away. Add Bedrock friends to the allowlist while the server runs, as `.` then their Xbox gamertag, like `.Steve`.
 - They must be on the server's allowlist: send them an invite link from the Players tab, or add their Minecraft name there.
 - Copy the join address from the server's Overview. With a free name, each server gets its own address without a port three days after the claim; until then, friends use `yourname.playkeeper.me` with the server's port.
+- A server on a machine joined to your dashboard joins at its address without a port, under the dashboard's domain, once **Addresses without a port** works. Friends type it as it is: with a port added, or in Bedrock, the name reaches the dashboard's machine instead. Bedrock players use the address and port on the Join card, which is the joined machine's.
 - Free names now end in `.playkeeper.me`. If the dashboard says so when you refresh or change your name, update Playkeeper: it moves your name by itself, and the old `.playkeeper.io` address keeps working for two months.
 - On a modded server, everyone needs the same loader, version and mods: **Share with friends** on the Mods tab gives them one link with everything.
 
 ## The address doesn't open in a browser
 
 - The page lives at the machine's name, so it needs one first: **Machine settings › Address**. The IP address doesn't show it.
+- A server on a machine joined to your dashboard has its page at its address without a port, served by the dashboard's machine, once **Addresses without a port** works and the joined machine runs 0.4.13. It opens over HTTPS only with **An address for each server** on, which gives the dashboard a certificate for every server's name; without it, browsers get the page over plain HTTP.
 - Each server's **Settings › Public page** says whether browsers reach it, and what holds a port back:
   - Another program listens on port 443 or 80, a Docker container publishes one, or a web server such as nginx or Caddy is set to start with the machine. Playkeeper never takes a port from them. To see what listens: `sudo ss -ltnp 'sport = :443'`. Once it's gone, select **Try again**.
   - For a few minutes after the VPS starts, the ports are left to whatever starts with it.
