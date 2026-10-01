@@ -4,11 +4,13 @@ import { ApiError, get, post } from '@/api/client'
 import type { SellerOpened, SellerPrices, SellerView, WhopSellerOpen } from '@/api/types'
 import { Frame, FrameCard } from '@/components/app/frame'
 import { buttonVariants, Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
+import { rich } from '@/i18n/rich'
 import { cn } from '@/lib/utils'
 import { PricesStep } from './whop-seller-prices'
-import { errorText, refusalOf, RefusalText, StepHeader, type Refusal } from './whop-seller-step'
+import { errorText, refusalOf, RefusalText, SellerLinks, sellersHelpURL, sellerTermsURL, StepHeader, type Refusal } from './whop-seller-step'
 import { LiveView } from './whop-seller-view'
 
 type State =
@@ -45,7 +47,7 @@ export function WhopSellerPage({ store }: { store: string }) {
   }, [store])
 
   return (
-    <Frame>
+    <Frame help={sellersHelpURL}>
       <FrameCard>
         {state.kind === 'opening' && <Waiting />}
         {state.kind === 'open' && <SellerFlow store={store} open={state.open} />}
@@ -72,6 +74,7 @@ export function WhopSellerPage({ store }: { store: string }) {
             <p className="mt-2 text-[15px] text-destructive-foreground">{state.text}</p>
           </>
         )}
+        <SellerLinks />
       </FrameCard>
     </Frame>
   )
@@ -193,8 +196,9 @@ function SellerFlow({ store, open }: { store: string; open: WhopSellerOpen }) {
   )
 }
 
-/** The step that opens the store, with one button, and a way back to the prices. */
+/** The step that opens the store, once the seller ticks that they accept the seller terms, with one button and a way back to the prices. */
 function OpenStep({ store, onOpened, onBack }: { store: string; onOpened: () => void; onBack: () => void }) {
+  const [accepted, setAccepted] = useState(false)
   const [opening, setOpening] = useState(false)
   const [refusal, setRefusal] = useState<Refusal>()
 
@@ -202,7 +206,7 @@ function OpenStep({ store, onOpened, onBack }: { store: string; onOpened: () => 
     setOpening(true)
     setRefusal(undefined)
     try {
-      const done = await post<SellerOpened>(`/api/public/whop/seller/${store}/sell`)
+      const done = await post<SellerOpened>(`/api/public/whop/seller/${store}/sell`, { acceptTerms: accepted })
       if (done.open) onOpened()
       else setRefusal({ lines: [t('sellerFlow.open.almost', { why: done.why ?? '' })] })
     } catch (err) {
@@ -215,8 +219,20 @@ function OpenStep({ store, onOpened, onBack }: { store: string; onOpened: () => 
   return (
     <>
       <StepHeader step={1} title={t('sellerFlow.open.title')} lead={t('sellerFlow.open.lead')} />
+      <label className="mt-5 flex items-start gap-3 text-[15px]">
+        <Checkbox checked={accepted} onCheckedChange={(c) => setAccepted(c === true)} className="mt-0.5" />
+        <span>
+          {rich('sellerFlow.open.terms', {
+            link: (chunk) => (
+              <a href={sellerTermsURL} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2" onClick={(e) => e.stopPropagation()}>
+                {chunk}
+              </a>
+            ),
+          })}
+        </span>
+      </label>
       <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Button size="lg" className="max-sm:w-full" loading={opening} onClick={() => void openStore()}>
+        <Button size="lg" className="max-sm:w-full" disabled={!accepted} loading={opening} onClick={() => void openStore()}>
           {t('sellerFlow.open.button')}
         </Button>
         <Button variant="ghost" className="max-sm:w-full" onClick={onBack}>

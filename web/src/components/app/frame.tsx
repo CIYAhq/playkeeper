@@ -8,8 +8,9 @@ import { cn } from '@/lib/utils'
 /**
  * The full-screen page for signing in and first-run setup: the brand, the
  * setup steps when there are some, Help, and the legal line at the bottom.
+ * help is where Help goes, Playkeeper's own help unless a page has its own.
  */
-export function Frame({ step, version, children, className }: { step?: number; version?: string; children: ReactNode; className?: string }) {
+export function Frame({ step, version, help, children, className }: { step?: number; version?: string; help?: string; children: ReactNode; className?: string }) {
   const phone = useIsPhone()
   const steps = [t('onboarding.step.account'), t('onboarding.step.check'), t('onboarding.step.first')]
   return (
@@ -25,7 +26,7 @@ export function Frame({ step, version, children, className }: { step?: number; v
         {step !== undefined && phone && <span className="text-[13px] text-muted-foreground">{t('onboarding.stepOf', { n: step + 1, total: steps.length })}</span>}
         {step !== undefined && !phone && <Stepper steps={steps} current={step} label={t('onboarding.steps')} className="mx-auto w-full max-w-[400px]" />}
         <a
-          href={t('onboarding.helpUrl')}
+          href={help ?? t('onboarding.helpUrl')}
           target="_blank"
           rel="noreferrer"
           aria-label={t('common.external', { label: t('common.help') })}

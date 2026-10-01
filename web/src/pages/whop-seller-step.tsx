@@ -37,6 +37,28 @@ export function StepHeader({ title, lead, step }: { title: string; lead?: string
   )
 }
 
+/** Playkeeper Cloud's seller terms and privacy policy, on playkeeper.io. */
+export const sellerTermsURL = 'https://playkeeper.io/cloud/seller-terms'
+export const privacyURL = 'https://playkeeper.io/privacy'
+
+/** Where sellers ask Playkeeper for help: the Playkeeper Discord's #sellers channel, through its permanent invite. */
+export const sellersHelpURL = 'https://discord.gg/XexFT2pu8t'
+
+/** The seller terms and the privacy policy, linked small at the foot of every screen and opened beside Whop. */
+export function SellerLinks() {
+  const link = (href: string, label: string) => (
+    <a href={href} target="_blank" rel="noreferrer" aria-label={t('common.external', { label })} className="underline underline-offset-2 hover:text-foreground">
+      {label}
+    </a>
+  )
+  return (
+    <p className="mt-8 flex gap-4 text-xs text-muted-foreground">
+      {link(sellerTermsURL, t('sellerFlow.links.terms'))}
+      {link(privacyURL, t('sellerFlow.links.privacy'))}
+    </p>
+  )
+}
+
 export const errorText = (err: unknown) => (err instanceof Error ? err.message : t('error.network'))
 
 /** Why a store didn't open or update: its lines, and what to do, when there's something. */

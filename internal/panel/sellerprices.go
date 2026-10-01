@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"regexp"
@@ -718,6 +719,9 @@ type sellerOpened struct {
 
 // hWhopSellerSell is a seller pressing Open the store, or Update the store
 // once it's open, which puts a hosting plan added since on the store site.
+// Opening needs the box "I accept the seller terms" ticked, and keeps who
+// ticked it, when and which version (acceptSellerTerms) before anything
+// reaches Whop; updating doesn't ask again.
 // Every hosting plan must renew monthly in US dollars, without a trial, at
 // or above the floor, and allow what the fleet runs (sellerPricesFrom).
 // Then Playkeeper's share is set on each hosting product, putting right any
@@ -733,10 +737,28 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 	if !ok {
 		return
 	}
+	var req struct {
+		AcceptTerms bool `json:"acceptTerms"`
+	}
+	if err := decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
+		return
+	}
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
 	if st, ok = s.sellerStoreToChange(r.Context(), w, store); !ok {
 		return
+	}
+	updating := st.ClosedWhy == ""
+	if !updating {
+		if !req.AcceptTerms {
+			writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Tick the box to accept the seller terms first.", "")
+			return
+		}
+		if err := s.acceptSellerTerms(r.Context(), st.ID, user); err != nil {
+			writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+			return
+		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), whopCallsFor)
 	defer cancel()
@@ -746,7 +768,6 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		return
 	}
 	v := sellerPricesFrom(st, plans)
-	updating := st.ClosedWhy == ""
 	lines, fix := refusedPlans(v.Plans)
 	switch {
 	case len(v.Plans) == 0:

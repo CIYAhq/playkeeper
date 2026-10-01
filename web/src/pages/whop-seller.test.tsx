@@ -110,14 +110,46 @@ describe('a seller’s page inside Whop', () => {
     await click(button('Back'))
     expect(heading()).toBe('Check your prices')
     await click(button('Looks good'))
+    expect(button('Open the store')?.disabled).toBe(true)
+    const terms = [...document.querySelectorAll('a')].find((a) => a.textContent === 'seller terms')
+    expect(terms?.getAttribute('href')).toBe('https://playkeeper.io/cloud/seller-terms')
+    expect(terms?.getAttribute('target')).toBe('_blank')
+    await click(document.querySelector<HTMLElement>('input[type="checkbox"]') ?? undefined)
+    expect(button('Open the store')?.disabled).toBe(false)
     await click(button('Open the store'))
-    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/public/whop/seller/biz_other/sell', { acceptTerms: true })
     expect(heading()).toBe('You’re live')
     const visit = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes('Visit your store'))
     expect(visit?.getAttribute('href')).toBe('https://whop.com/other-hosting')
     expect(visit?.getAttribute('target')).toBe('_blank')
     expect(document.body.textContent).toContain('No sales yet.')
     expect(document.body.textContent).toContain('No customers yet.')
+  })
+
+  it('links Help in the sellers’ Discord channel, the seller terms and the privacy policy from every screen, beside Whop', async () => {
+    const legal = () =>
+      Object.fromEntries(
+        [...document.querySelectorAll('a')]
+          .filter((a) => ['Help', 'Seller terms', 'Privacy'].includes(a.textContent ?? ''))
+          .map((a) => [a.textContent, `${a.getAttribute('href')} ${a.getAttribute('target')}`]),
+      )
+    const want = {
+      Help: 'https://discord.gg/XexFT2pu8t _blank',
+      'Seller terms': 'https://playkeeper.io/cloud/seller-terms _blank',
+      Privacy: 'https://playkeeper.io/privacy _blank',
+    }
+    reads(
+      () => closed,
+      () => view('closed'),
+    )
+    vi.mocked(client.post).mockResolvedValueOnce({ store: { id: 'biz_other', title: 'Other Hosting', route: 'other-hosting' }, new: true })
+    await render('biz_other')
+    expect(heading()).toBe('Check your prices')
+    expect(legal()).toEqual(want)
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(409, { code: 'whop_not_approved', error: 'Not approved.', params: { installUrl: 'https://whop.com/apps/app_x/install' } }))
+    await render('biz_other')
+    expect(heading()).toBe('Approve Playkeeper Cloud')
+    expect(legal()).toEqual(want)
   })
 
   it('keeps a price Whop refused on screen, with why, after an earlier one saved', async () => {

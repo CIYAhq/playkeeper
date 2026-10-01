@@ -142,6 +142,9 @@ async function serve(page: Page, s: Store) {
       return route.fulfill({ json: { changed, prices: pricesOf(s) } })
     }
     if (req.method() === 'POST' && path === `${base}/sell`) {
+      if (!s.open && !(req.postDataJSON() as { acceptTerms?: boolean }).acceptTerms) {
+        return route.fulfill({ status: 400, json: { error: 'Tick the box to accept the seller terms first.', code: 'invalid' } })
+      }
       s.open = true
       return route.fulfill({ json: { open: true } })
     }
@@ -192,6 +195,9 @@ for (const [size, device] of Object.entries(sizes)) {
     await expect(page.getByLabel('Plus')).toHaveValue('30.00')
     await page.getByRole('button', { name: 'Looks good' }).click()
     await check(page, 'Open your store', `open at ${size}`, `4-open-the-store-${size}`)
+    await expect(page.getByRole('button', { name: 'Open the store' })).toBeDisabled()
+    await expect(page.getByRole('link', { name: 'seller terms', exact: true })).toHaveAttribute('href', 'https://playkeeper.io/cloud/seller-terms')
+    await page.getByRole('checkbox', { name: 'I accept the seller terms' }).check()
     await page.getByRole('button', { name: 'Open the store' }).click()
     await check(page, 'You’re live', `live at ${size}`, `5-youre-live-${size}`)
     await expect(page.getByRole('link', { name: /Visit your store/ })).toHaveAttribute('href', 'https://whop.com/joes-hosting')
