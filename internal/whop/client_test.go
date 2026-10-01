@@ -251,6 +251,24 @@ func TestShowPlanMakesItVisible(t *testing.T) {
 	}
 }
 
+// Open the store shows each hosting product on the store's page.
+func TestShowProductAsksForVisible(t *testing.T) {
+	asked := false
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"PATCH /products/prod_a": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"visibility": "visible"}) {
+				t.Errorf("body %v, %v", body, err)
+			}
+			asked = true
+			answer(map[string]any{"id": "prod_a", "visibility": "visible"})(w, r)
+		},
+	})
+	if err := c.ShowProduct(context.Background(), "prod_a"); err != nil || !asked {
+		t.Fatalf("showing the product: asked %v, %v", asked, err)
+	}
+}
+
 func TestPlanMembershipsAreThePlansAlone(t *testing.T) {
 	all := []map[string]any{
 		{"id": "mem_1", "status": "active", "plan_id": "plan_a", "user_id": "user_alex"},
