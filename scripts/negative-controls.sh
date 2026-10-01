@@ -10286,9 +10286,25 @@ control "seller prices: what Fix my plans changed is in the audit log" internal/
   '_ = user' \
   ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
 control "seller prices: Fix my plans asks Whop for no free trial" internal/whop/store.go \
-  '"billing_period": 30, "trial_period_days": 0}' \
-  '"billing_period": 30}' \
+  '"trial_period_days": 0, "initial_price": 0}' \
+  '"initial_price": 0}' \
   ./internal/whop '^TestMakePlanMonthlyAsksForMonthlyInDollarsWithNoTrial$'
+control "seller prices: Fix my plans asks Whop for no initial price on top of the first payment" internal/whop/store.go \
+  '"trial_period_days": 0, "initial_price": 0}' \
+  '"trial_period_days": 0}' \
+  ./internal/whop '^TestMakePlanMonthlyAsksForMonthlyInDollarsWithNoTrial$'
+control "seller prices: Fix my plans says it took a setup fee off" internal/panel/sellerprices.go \
+  'if len(now) > 0 && p.InitialPrice != 0 {' \
+  'if false {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: a setup fee alone isn't Fix my plans' to change" internal/panel/sellerprices.go \
+  'if len(now) > 0 && p.InitialPrice != 0 {' \
+  'if p.InitialPrice != 0 {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: an open store's prices don't offer Fix my plans" internal/panel/sellerprices.go \
+  'v.Fixable = v.CanOpen' \
+  'v.Fixable = true' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
 control "seller prices: Open the store hides the website's free product" internal/panel/sellerprices.go \
   'if err := hideWebsiteProduct(ctx, c, st, plans); err != nil {' \
   'if err := error(nil); err != nil {' \
@@ -10342,9 +10358,25 @@ webcontrol "seller flow: a wrong price saves nothing" web/src/pages/whop-seller-
   '' \
   src/pages/whop-seller-prices.test.tsx 'and saves nothing'
 webcontrol "seller flow: Fix my plans is offered while a plan needs it" web/src/pages/whop-seller-prices.tsx \
-  'if (prices.fixable) {' \
+  'if (!edit && prices.fixable) {' \
   'if (false) {' \
   src/pages/whop-seller-prices.test.tsx 'offers Fix my plans alone'
+webcontrol "seller flow: Change prices offers no Fix my plans, which an open store can't use" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.fixable) {' \
+  'if (prices.fixable) {' \
+  src/pages/whop-seller-prices.test.tsx 'even while a plan needs a fix'
+webcontrol "seller flow: Change prices isn't stopped by what to change in Whop" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.blocked?.length) {' \
+  'if (prices.blocked?.length) {' \
+  src/pages/whop-seller-prices.test.tsx 'even while a plan needs a fix'
+webcontrol "seller flow: Change prices can always go back" web/src/pages/whop-seller-prices.tsx \
+  'const back = onBack && (' \
+  'const back = false && (' \
+  src/pages/whop-seller-prices.test.tsx 'goes back from no plans too'
+webcontrol "seller flow: a price Whop refuses after one saved stays on screen with why" web/src/pages/whop-seller-prices.tsx \
+  'if (latest !== prices) onSaved(latest)' \
+  'if (latest !== prices) onPrices(latest)' \
+  src/pages/whop-seller.test.tsx 'keeps a price Whop refused on screen'
 webcontrol "seller flow: Fix my plans goes through a relative address, which carries Whop's token" web/src/pages/whop-seller-prices.tsx \
   'const done = await post<SellerFixed>(' \
   "const done = await post<SellerFixed>('https://playkeeper.invalid' + " \
@@ -10354,7 +10386,7 @@ webcontrol "seller flow: the page says what Fix my plans changed" web/src/pages/
   'const told = false && (' \
   src/pages/whop-seller-prices.test.tsx 'says in a line what Fix my plans changed'
 webcontrol "seller flow: what Fix my plans can't change is said plainly" web/src/pages/whop-seller-prices.tsx \
-  'if (prices.blocked?.length) {' \
+  'if (!edit && prices.blocked?.length) {' \
   'if (false) {' \
   src/pages/whop-seller-prices.test.tsx 'says plainly what to change in Whop'
 webcontrol "seller flow: Check again reads through a relative address, which carries Whop's token" web/src/pages/whop-seller-prices.tsx \
