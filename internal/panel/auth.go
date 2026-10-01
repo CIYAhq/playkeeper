@@ -398,7 +398,8 @@ CREATE INDEX whop_deliveries_received ON whop_deliveries(received_at);
 `,
 	// Sign in with Whop: the Whop app customers sign in through, with its
 	// secret when it has one, and each sign-in on its way through Whop, by
-	// the hash of its state, with its PKCE verifier.
+	// the hash of its state with its browser's secret (signInKey), with its
+	// PKCE verifier.
 	`
 ALTER TABLE whop_account ADD COLUMN oauth_client_id     TEXT NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN oauth_client_secret TEXT NOT NULL DEFAULT '';

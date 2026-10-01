@@ -240,6 +240,7 @@ func (e *env) do(t *testing.T, method, path, body string, hdr map[string]string)
 	out := resp{status: r.StatusCode, body: map[string]any{}, header: r.Header}
 	b, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(b, &out.body)
+	checkHostOnly(t, r)
 	for _, c := range r.Cookies() {
 		switch c.Name {
 		case cookieName:
@@ -249,8 +250,8 @@ func (e *env) do(t *testing.T, method, path, body string, hdr map[string]string)
 		default:
 			continue
 		}
-		if !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" {
-			t.Fatalf("cookie %s is missing Secure/HttpOnly/SameSite=Strict/Path=/: %+v", c.Name, c)
+		if c.SameSite != http.SameSiteStrictMode {
+			t.Fatalf("cookie %s isn't SameSite=Strict: %+v", c.Name, c)
 		}
 	}
 	return out

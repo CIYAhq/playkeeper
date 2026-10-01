@@ -11819,6 +11819,38 @@ control "a key saved while the container lacks the mount waits for a restart" in
   'out.Pending = false' \
   ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
 
+# Host-only cookies: a joined machine owns a name under the dashboard's
+# domain, so every cookie the dashboard sets is one no other name of the
+# domain can set, and Sign in with Whop finishes only in its own browser.
+control "Sign in with Whop's cookie is one no other name of the domain can set" internal/panel/whop_signin.go \
+  'whopSignInCookie   = "__Host-playkeeper-whop"' \
+  'whopSignInCookie   = "pk_whop_signin"' \
+  ./internal/panel '^TestASignInWithWhopCantBePlantedFromAnotherNameOfTheDomain$'
+control "a sign-in with Whop finishes only in the browser that left for Whop" internal/panel/whop_signin.go \
+  'return tokenHash(state + "." + secret)' \
+  'return tokenHash(state)' \
+  ./internal/panel '^TestASignInWithWhopFinishesOnlyInTheBrowserThatStartedIt$'
+control "Sign in with Whop's cookie never holds the state" internal/panel/whop_signin.go \
+  'setHostCookie(w, whopSignInCookie, secret, ' \
+  'setHostCookie(w, whopSignInCookie, state, ' \
+  ./internal/panel '^TestSignInWithWhopOpensTheCustomersAccount$'
+control "every cookie the dashboard sets is for every path" internal/panel/cookies.go \
+  'Path: "/", ' \
+  'Path: "/api/", ' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "every cookie the dashboard sets is Secure" internal/panel/cookies.go \
+  'Secure: true, ' \
+  '' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "the dashboard sets cookies only through setHostCookie" internal/panel/server.go \
+  'setHostCookie(w, cookieName, "", -1, http.SameSiteStrictMode)' \
+  'http.SetCookie(w, &http.Cookie{Name: "playkeeper_signed_out", Value: "1", Path: "/"})' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "every cookie setHostCookie sets has a __Host- name" internal/panel/twofactor.go \
+  'pendingCookieName = "__Host-playkeeper-2fa"' \
+  'pendingCookieName = "playkeeper-2fa"' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+
 if [ "$bad" != 0 ]; then
   echo
   echo "problems: ${#problems[@]} (a STALE control's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run)"
