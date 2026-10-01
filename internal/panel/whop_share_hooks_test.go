@@ -216,7 +216,8 @@ func TestAOneTimePurchaseGivesNoServersInAnAppStore(t *testing.T) {
 
 // A customer of an app store who cancels their monthly plan is reminded to
 // download their world, though they also have a one-time purchase there,
-// since that keeps none of their servers running.
+// since that keeps none of their servers running, even one the payment
+// check found paid.
 func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
 	f, e, _ := twoStores(t)
 	useFakeCore(e)
@@ -229,6 +230,10 @@ func TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn(t *testing.T) {
 	f.mu.Unlock()
 	f.buyAt("biz_other", "mem_kim", "user_kim", "plan_other", "active")
 	f.buyAt("biz_other", "mem_once", "user_kim", "plan_once", "completed")
+	if _, err := e.srv.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_title, paid_servers, paid_mb)
+		VALUES('biz_other', 'mem_once', 'plan_once', 'Once', 1, 4096)`); err != nil {
+		t.Fatal(err)
+	}
 	e.clock.add(2 * whopPollEvery)
 	e.reconcile()
 	f.mu.Lock()
