@@ -603,8 +603,9 @@ func TestTheKeepersAsksEndWithItsDeadline(t *testing.T) {
 }
 
 // A look whose joined machines haven't all answered by its deadline keeps
-// what the page holds, as one the dashboard's own agent doesn't answer
-// does: a slow machine never takes ports 443 and 80 from the pages on them.
+// what the page holds while one of their servers is on the dashboard's
+// record, as one the dashboard's own agent doesn't answer does: a slow
+// machine never takes ports 443 and 80 from the pages on them.
 func TestALookCutShortKeepsThePorts(t *testing.T) {
 	j := newJoinedPage(t)
 	j.e.reply("GET", "/v1/public-page/state", `{"host":"beta.playkeeper.me","on":false}`)
@@ -668,10 +669,10 @@ func TestAMachineThatRefusesTheOwnersOffLosesItsPage(t *testing.T) {
 	}
 }
 
-// A joined machine that doesn't answer, or answers with an error, says
-// nothing about its servers' pages: a look keeps what the page holds, and
-// only a page off on the dashboard's record or the machine's word gives
-// the ports back.
+// A joined machine that doesn't answer, or answers with an error, about a
+// server the dashboard's record has on says nothing about its page: a look
+// keeps what the page holds, and only a page off on the dashboard's record
+// or the machine's word gives the ports back.
 func TestAMachineThatDoesntAnswerLeavesThePortsHeld(t *testing.T) {
 	j := newJoinedPage(t)
 	j.e.reply("GET", "/v1/public-page/state", `{"host":"beta.playkeeper.me","on":false}`)
@@ -696,5 +697,59 @@ func TestAMachineThatDoesntAnswerLeavesThePortsHeld(t *testing.T) {
 	j.e.srv.lookAtPage(ctx)
 	if st := j.e.srv.page.portsNow(); st.HTTPS.State != api.PortOff {
 		t.Fatalf("with the page off on the dashboard's record: %+v", st)
+	}
+}
+
+// A server the dashboard's record doesn't have on, whose machine never
+// answers about it, is off the page, as its page can't be served without
+// that answer: once the owner turns off the last page the record has on,
+// the ports go, whether the machine is slower than the look or answers
+// with an error, rather than staying open for the page's 404.
+func TestAServerTheRecordDoesntHaveOnWhoseMachineNeverAnswersLetsThePortsGo(t *testing.T) {
+	for name, answer := range map[string]http.HandlerFunc{
+		"slower than the look": func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(time.Second)
+			writeErr(w, http.StatusNotFound, api.CodeNotFound, "No such server.", "")
+		},
+		"with an error": func(w http.ResponseWriter, r *http.Request) {
+			writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Something went wrong.", "")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			j := newJoinedPage(t)
+			const survivalID = "abcdefghjk"
+			j.ra.reply("GET /v1/servers", `[{"id":"`+cobblemonID+`","name":"Cobblemon","slug":"cobblemon","phase":"online","gamePort":25566},{"id":"`+survivalID+`","name":"Survival","slug":"survival","phase":"online","gamePort":25567}]`)
+			var servers []map[string]any
+			j.e.get(t, "/api/servers", j.cookie, &servers)
+			j.e.srv.setZoneAddresses([]zoneServer{{id: cobblemonID, label: "cobblemon", machineID: j.machineID}, {id: survivalID, label: "survival", machineID: j.machineID}}, "beta.playkeeper.me", true)
+			j.ra.handle("GET /v1/servers/"+survivalID+"/public-page", answer)
+			j.e.reply("GET", "/v1/public-page/state", `{"host":"beta.playkeeper.me","on":false}`)
+			ctx := context.Background()
+			j.e.srv.lookAtPage(ctx)
+			j.e.srv.page.mu.Lock()
+			on := j.e.srv.page.on
+			j.e.srv.page.ports.HTTPS = api.PagePort{Port: 443, State: api.PortOpen}
+			j.e.srv.page.mu.Unlock()
+			if !on {
+				t.Fatal("with Cobblemon on the page, the page isn't on")
+			}
+			j.ra.handle("POST /v1/servers/"+cobblemonID+"/public-page", func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, http.StatusOK, api.PublicPageView{})
+			})
+			if r := j.e.do(t, "POST", "/api/servers/"+cobblemonID+"/public-page", `{"enabled":false}`, auth(j.cookie, j.csrf)); r.status != 200 {
+				t.Fatalf("turning Cobblemon's page off: %d %v", r.status, r.body)
+			}
+			was := pageJoinedWait
+			pageJoinedWait = 200 * time.Millisecond
+			t.Cleanup(func() { pageJoinedWait = was })
+			j.e.clock.add(pageCacheFor + time.Second)
+			j.e.srv.lookAtPage(ctx)
+			j.e.srv.page.mu.Lock()
+			on, https := j.e.srv.page.on, j.e.srv.page.ports.HTTPS
+			j.e.srv.page.mu.Unlock()
+			if on || https.State != api.PortOff {
+				t.Fatalf("with the last page off and Survival's machine not answering: on %v, port 443 %+v", on, https)
+			}
+		})
 	}
 }

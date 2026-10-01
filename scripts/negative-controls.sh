@@ -7230,16 +7230,16 @@ control "joined page: the keeper holds the ports while a joined server is on the
   '		_, known = s.anyJoinedPageOn(jctx)' \
   ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
 control "joined page: the keeper gives the ports back once the joined server is off" internal/panel/joinedpage.go \
-  '				case on:
-					answers <- someOn' \
-  '				case on || true:
-					answers <- someOn' \
+  '					case on:
+						answers <- someOn' \
+  '					case on || true:
+						answers <- someOn' \
   ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
 control "joined page: the keeper's asks end with its look's deadline" internal/panel/joinedpage.go \
-  '		case <-ctx.Done():
-			return false, false' \
-  '		case <-make(chan struct{}):
-			return false, false' \
+  '				case <-ctx.Done():
+					answers <- ended(names[i:])' \
+  '				case <-make(chan struct{}):
+					answers <- ended(names[i:])' \
   ./internal/panel '^TestTheKeepersAsksEndWithItsDeadline$'
 control "joined page: a look the joined machines don't all answer in time keeps what the page holds" internal/panel/pageports.go \
   '	if known {
@@ -7362,6 +7362,30 @@ control "joined page: the keeper tells the agent a joined server's page is on" i
   '	want.Joined = on && !st.On' \
   '	want.Joined = on && !st.On && false' \
   ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: a server the record has on leaves a look its machine doesn't answer unknown" internal/panel/joinedpage.go \
+  '	return false, !s.pageHeldOn(j.id)' \
+  '	return false, true' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesThePortsHeld$'
+control "joined page: a server the record doesn't have on is off while its machine doesn't answer" internal/panel/joinedpage.go \
+  '	return false, !s.pageHeldOn(j.id)' \
+  '	return false, false' \
+  ./internal/panel '^TestAServerTheRecordDoesntHaveOnWhoseMachineNeverAnswersLetsThePortsGo$'
+control "joined page: at the look's end, a server the record has on that wasn't answered leaves it unknown" internal/panel/joinedpage.go \
+  '				if slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
+  '				if false && slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
+  ./internal/panel '^TestALookCutShortKeepsThePorts$'
+control "joined page: at the look's end, servers the record doesn't have on that weren't answered are off" internal/panel/joinedpage.go \
+  '				if slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
+  '				if true || slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
+  ./internal/panel '^TestAServerTheRecordDoesntHaveOnWhoseMachineNeverAnswersLetsThePortsGo$'
+control "joined page: the agent logs the ports it hands over for a joined server's page" internal/agent/pageports.go \
+  '	if len(files) > 0 && !st.On && !st.Dashboard {' \
+  '	if false && len(files) > 0 && !st.On && !st.Dashboard {' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "joined page: the agent logs only the hand-overs for a joined server's page alone" internal/agent/pageports.go \
+  '	if len(files) > 0 && !st.On && !st.Dashboard {' \
+  '	if len(files) > 0 {' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
 control "the share card cuts a line too long at once" internal/sharecard/card.go \
   '	keep := max(0, (w/scale+1)/advance-len("..."))
 	r := []rune(s)

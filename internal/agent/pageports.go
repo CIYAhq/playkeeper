@@ -95,6 +95,11 @@ func (a *Agent) takePagePorts(ctx context.Context, want api.PagePortsRequest) (a
 			files = append(files, f)
 		}
 	}
+	// A joined server's page changes no setting here and leaves no audit
+	// entry, so the ports going to the panel for it alone are logged.
+	if len(files) > 0 && !st.On && !st.Dashboard {
+		a.log.Info("the public page's ports go to the panel for a server on a joined machine", "https", out[0].State, "http", out[1].State)
+	}
 	return result(), files
 }
 

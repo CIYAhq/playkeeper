@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -66,11 +67,14 @@ func (s *Server) pageAnswers(ctx context.Context, host string) bool {
 }
 
 // anyJoinedPageOn reports whether a server on a joined machine is on the
-// page at its name, and known false when one was left unanswered and none
-// said it was on: its machine didn't answer, or not before ctx ended. Each
-// machine is asked about its servers in turn, the machines side by side,
-// and only until ctx ends, so a machine slow to answer holds up no look of
-// the port keeper past its deadline.
+// page at its name, and known false when one the dashboard's record has on
+// was left unanswered and none said it was on: its machine didn't answer,
+// or not before ctx ended. One the record doesn't have on is off then, as
+// its page can't be served without that answer anyway, so a machine that
+// never answers can't keep the ports open for the page's 404. Each machine
+// is asked about its servers in turn, the machines side by side, and only
+// until ctx ends, so a machine slow to answer holds up no look of the port
+// keeper past its deadline.
 func (s *Server) anyJoinedPageOn(ctx context.Context) (on, known bool) {
 	byMachine := map[string][]joinedName{}
 	for _, j := range s.zoneNames() {
@@ -85,17 +89,36 @@ func (s *Server) anyJoinedPageOn(ctx context.Context) (on, known bool) {
 	for _, names := range byMachine {
 		go func() {
 			answer := allOff
-			for _, j := range names {
+			// When the look ends, the servers not answered about yet leave
+			// it unknown only while the record has one on.
+			ended := func(left []joinedName) int {
+				if slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {
+					return unanswered
+				}
+				return answer
+			}
+			for i, j := range names {
 				if ctx.Err() != nil {
-					answers <- unanswered
+					answers <- ended(names[i:])
 					return
 				}
-				switch on, known := s.joinedPageState(ctx, j); {
-				case on:
-					answers <- someOn
+				state := make(chan [2]bool, 1)
+				go func() {
+					on, known := s.joinedPageState(ctx, j)
+					state <- [2]bool{on, known}
+				}()
+				select {
+				case st := <-state:
+					switch on, known := st[0], st[1]; {
+					case on:
+						answers <- someOn
+						return
+					case !known:
+						answer = unanswered
+					}
+				case <-ctx.Done():
+					answers <- ended(names[i:])
 					return
-				case !known:
-					answer = unanswered
 				}
 			}
 			answers <- answer
@@ -103,16 +126,11 @@ func (s *Server) anyJoinedPageOn(ctx context.Context) (on, known bool) {
 	}
 	known = true
 	for range byMachine {
-		select {
-		case a := <-answers:
-			switch a {
-			case someOn:
-				return true, true
-			case unanswered:
-				known = false
-			}
-		case <-ctx.Done():
-			return false, false
+		switch <-answers {
+		case someOn:
+			return true, true
+		case unanswered:
+			known = false
 		}
 	}
 	return false, known
@@ -146,11 +164,15 @@ func (s *Server) joinedPage(ctx context.Context, j joinedName) (api.PublicPage, 
 }
 
 // joinedPageState reports whether j is on the page at its name, and known
-// false when that's unknown: its machine didn't answer, or doesn't run it
-// as far as the dashboard knows, as during a move.
+// false when that's unknown while the dashboard's record has it on: its
+// machine didn't answer, or doesn't run it as far as the dashboard knows,
+// as during a move. One the record doesn't have on is off then.
 func (s *Server) joinedPageState(ctx context.Context, j joinedName) (on, known bool) {
 	a, ok := s.joinedAnswer(ctx, j)
-	return ok, a.answered
+	if a.answered {
+		return ok, true
+	}
+	return false, !s.pageHeldOn(j.id)
 }
 
 // joinedAnswer is the page's answer about j: answered when the dashboard's
@@ -218,6 +240,13 @@ func (s *Server) joinedPublic(ctx context.Context, m machine, id string) (public
 		return false, false
 	}
 	return s.pageRecordOr(id, v.Enabled), true
+}
+
+// pageHeldOn reports whether the dashboard's record has server id on the
+// page.
+func (s *Server) pageHeldOn(id string) bool {
+	on, known := s.pageRecord(id)
+	return on && known
 }
 
 // pageRecord is whether the dashboard's record has server id on the page,
