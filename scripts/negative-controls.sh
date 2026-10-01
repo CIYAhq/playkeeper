@@ -10493,7 +10493,7 @@ control "seller terms: a person's first acceptance of a version is the one kept"
   ./internal/panel '^TestOpenTheStoreNeedsTheSellerTermsAccepted$'
 control "seller terms: an acceptance is audited once" internal/panel/sellerterms.go \
   'if n, _ := res.RowsAffected(); n > 0 {' \
-  'if true {' \
+  'if _, _ = res.RowsAffected(); true {' \
   ./internal/panel '^TestOpenTheStoreNeedsTheSellerTermsAccepted$'
 control "seller terms: the version kept is the one the terms' page gives" internal/panel/sellerterms.go \
   'const sellerTermsVersion = "2026-10-01"' \
