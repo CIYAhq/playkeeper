@@ -378,7 +378,7 @@ func (e *agentEnv) waitOp(id string) *api.Operation {
 	e.t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		if cur := e.a.currentOp(); cur == nil || cur.ID != id {
+		if !e.showsOp(id) {
 			op, err := e.a.loadOperation(id)
 			if err == nil && op.Status != api.OpRunning {
 				return op
@@ -388,6 +388,22 @@ func (e *agentEnv) waitOp(id string) *api.Operation {
 	}
 	e.t.Fatalf("operation %s did not finish", id)
 	return nil
+}
+
+// showsOp reports whether operation id still shows as running: a server's,
+// the machine's, a staging one or the address's. Its end is stored a moment
+// before it stops showing, and a request in between finds Playkeeper busy.
+func (e *agentEnv) showsOp(id string) bool {
+	ops := []*api.Operation{e.a.machineOp(), e.a.stagingOp(), e.a.addressOp()}
+	for _, s := range e.a.serverList() {
+		ops = append(ops, s.currentOp())
+	}
+	for _, op := range ops {
+		if op != nil && op.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *agentEnv) waitFor(what string, cond func() bool) {

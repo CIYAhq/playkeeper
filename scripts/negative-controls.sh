@@ -6602,12 +6602,12 @@ control "a replaced area carries on as it was when the new one doesn't start" in
   '			_ = paused' \
   ./internal/agent '^TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts$'
 control "a replacement that can't be recorded ends the old area" internal/agent/pregen.go \
-  '			if eerr := s.endPregen(old, pregenCancelled, nil, nil); eerr != nil {' \
+  '			if eerr := s.endPregen(old, pregenCancelled, nil, nil, pregenEntry{actor, "pregen.cancelled", "failed", "replaced by " + preset + ", which could not be recorded"}); eerr != nil {' \
   '			if eerr := error(nil); eerr != nil {' \
   ./internal/agent '^TestAReplacementThatCantBeRecordedEndsTheOldArea$'
 control "a finished area stays done after a bigger one is stopped" internal/agent/pregen.go \
-  '	if err == nil && how == pregenFinished {' \
-  '	if false && err == nil && how == pregenFinished {' \
+  '	if how == pregenFinished {' \
+  '	if false && how == pregenFinished {' \
   ./internal/agent '^TestTheLargestFinishedAreaStaysDone$'
 control "the largest finished area is done, not the latest" internal/agent/pregen.go \
   'done_radius = MAX(done_radius, radius),' \
