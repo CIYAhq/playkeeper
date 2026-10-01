@@ -216,6 +216,12 @@ func TestAPaperBackupIsRestoredWhilePaperMCIsDown(t *testing.T) {
 	if _, err := e.a.restoreBuildOrKnown(t.Context(), "26.1.2", 90); err == nil || !strings.Contains(err.Error(), "HTTP 503") {
 		t.Fatalf("a build newer than every list can't be restored, and says why: %v", err)
 	}
+	if got, err := e.a.restoreBuildOrKnown(t.Context(), "26.3", 41); err != nil || got.PaperBuild != 41 || !got.Experimental {
+		t.Fatalf("a backup of an alpha build the kept list has restores on it, as PaperMC would pick it: %+v %v", got, err)
+	}
+	if _, err := e.a.restoreBuildOrKnown(t.Context(), "26.3", 40); err == nil {
+		t.Fatal("another alpha build isn't picked for it, as PaperMC wouldn't")
+	}
 
 	e.stop()
 	if err := os.Remove(filepath.Join(e.cfg.AgentDir(), "software-lists", "catalog-paper.json")); err != nil {

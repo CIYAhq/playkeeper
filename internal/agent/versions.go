@@ -165,7 +165,9 @@ func (a *Agent) restoreBuildOrKnown(ctx context.Context, mc string, build int) (
 		return e, err
 	}
 	for _, k := range a.keptPaperCatalog() {
-		if k.MinecraftVersion == mc && !k.Experimental && k.PaperBuild >= build {
+		// As PaperMC picks: a stable build at least as new, or the
+		// backup's own build whatever its channel.
+		if k.MinecraftVersion == mc && (!k.Experimental && k.PaperBuild >= build || k.PaperBuild == build) {
 			a.log.Info("restoring with a Paper build from the version list this machine has", "minecraft", mc, "build", k.PaperBuild, "err", err)
 			return k, nil
 		}
