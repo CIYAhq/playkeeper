@@ -8415,7 +8415,7 @@ control "seller page: the limits are each seller's own" internal/panel/whop_sell
   ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
 control "seller page: a seller past their limit is refused" internal/panel/whop_sellerpage.go \
   'if ok, wait := perMinute.allow(seller); !ok {' \
-  'if ok, wait := true, time.Duration(0); !ok {' \
+  'if ok, wait := perMinute.allow(seller); !ok && false {' \
   ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
 control "seller page: one address is bounded only against floods" internal/panel/public.go \
   '{prefix: whopSellerPrefix, limits: whopSellerProxyLimits,' \
