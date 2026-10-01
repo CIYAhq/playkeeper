@@ -24,6 +24,8 @@ func shortWaits(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { agentclient.Timeout, linkRequestTimeout = client, link })
 }
 
+const slowCopy = "survival-1.tar.zst.age"
+
 // slowAnswer answers with body after wait, as an agent waiting on a slow
 // store does, and notes in cancelled, if set, a request cancelled before
 // then.
@@ -39,6 +41,61 @@ func slowAnswer(wait time.Duration, body string, cancelled *atomic.Bool) http.Ha
 		}
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, body)
+	}
+}
+
+const deleted = `{"deleted":"` + slowCopy + `"}`
+
+func TestASlowCopyDeleteOnAJoinedMachineWaitsForItsStore(t *testing.T) {
+	shortWaits(t, 500*time.Millisecond)
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	ra := newRemoteAgent()
+	key := "DELETE /v1/servers/rstuvwxyzq/offsite/copies/" + slowCopy
+	var cancelled atomic.Bool
+	ra.handle(key, slowAnswer(1500*time.Millisecond, deleted, &cancelled))
+	mid, _ := e.joinMachine(t, cookie, csrf, ra)
+	var servers []map[string]any
+	e.get(t, "/api/servers", cookie, &servers)
+	if len(servers) != 2 || servers[1]["id"] != "rstuvwxyzq" || servers[1]["machineId"] != mid {
+		t.Fatalf("servers: %v", servers)
+	}
+
+	r := e.do(t, "DELETE", "/api/servers/rstuvwxyzq/offsite/copies/"+slowCopy, "", auth(cookie, csrf))
+	if r.status != http.StatusOK || r.body["deleted"] != slowCopy {
+		t.Fatalf("a deletion its store took three times the link's and the agent client's wait for: %d %v", r.status, r.body)
+	}
+	if cancelled.Load() {
+		t.Fatal("the dashboard cancelled the machine's deletion")
+	}
+	if actor, _ := ra.saw(key); actor != "admin" {
+		t.Fatalf("the deletion reached the machine as %q", actor)
+	}
+}
+
+func TestASlowCopyDeleteOnTheDashboardsMachineWaitsForItsStore(t *testing.T) {
+	shortWaits(t, 500*time.Millisecond)
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	key := "DELETE /v1/servers/" + sampleServer + "/offsite/copies/" + slowCopy
+	var cancelled atomic.Bool
+	e.agent.mu.Lock()
+	e.agent.answers[key] = slowAnswer(1500*time.Millisecond, deleted, &cancelled)
+	e.agent.mu.Unlock()
+
+	r := e.do(t, "DELETE", "/api/servers/"+sampleServer+"/offsite/copies/"+slowCopy, "", auth(cookie, csrf))
+	if r.status != http.StatusOK || r.body["deleted"] != slowCopy {
+		t.Fatalf("a deletion its store took three times the agent client's wait for: %d %v", r.status, r.body)
+	}
+	if cancelled.Load() {
+		t.Fatal("the dashboard cancelled the agent's deletion")
+	}
+	e.agent.mu.Lock()
+	defer e.agent.mu.Unlock()
+	last := e.agent.reqs[len(e.agent.reqs)-1]
+	if last.method+" "+last.path != key || last.query.Get("actor") != "admin" {
+		t.Fatalf("the agent got %s %s with %v", last.method, last.path, last.query)
 	}
 }
 

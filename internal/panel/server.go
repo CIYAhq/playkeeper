@@ -591,7 +591,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/offsite/copies", "/v1/servers/{id}/offsite/copies"),
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/copies/{name}/check", "/v1/servers/{id}/offsite/copies/{name}/check"),
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/check/cancel", "/v1/servers/{id}/offsite/check/cancel"),
-		{"DELETE", "/api/servers/{id}/offsite/copies/{name}", needSessionCSRF, actManageBackupCopies, s.serverProxy("DELETE", "/v1/servers/{id}/offsite/copies/{name}")},
+		{"DELETE", "/api/servers/{id}/offsite/copies/{name}", needSessionCSRF, actManageBackupCopies, s.deleteLong("/v1/servers/{id}/offsite/copies/{name}")},
 		smAs(actRestore, "POST", "/api/servers/{id}/offsite/restore", "/v1/servers/{id}/offsite/restore"),
 		smAs(actRestore, "POST", "/api/servers/{id}/offsite/restore/cancel", "/v1/servers/{id}/offsite/restore/cancel"),
 		mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),

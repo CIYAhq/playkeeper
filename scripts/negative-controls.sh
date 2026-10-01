@@ -1360,6 +1360,14 @@ control "a resource pack's upload over a link has the link's limits" internal/ag
   '"POST /v1/servers/{id}/datapacks":                   true,
 	"POST /v1/servers/{id}/resourcepack":                true,' \
   ./internal/panel '^TestAResourcePackUploadOverALinkHasTheLinksLimits$'
+control "a link waits for a copy's deletion as long as its store takes" internal/agent/link.go \
+  '"DELETE /v1/servers/{id}/offsite/copies/{name}":     true,' \
+  '"DELETE /v1/servers/{id}/offsite/copies/{name}":     false,' \
+  ./internal/panel '^TestASlowCopyDeleteOnAJoinedMachineWaitsForItsStore$'
+control "deleting a copy waits past the agent client's minute" internal/panel/server.go \
+  's.deleteLong("/v1/servers/{id}/offsite/copies/{name}")' \
+  's.serverProxy("DELETE", "/v1/servers/{id}/offsite/copies/{name}")' \
+  ./internal/panel '^(TestASlowCopyDeleteOnAJoinedMachineWaitsForItsStore|TestASlowCopyDeleteOnTheDashboardsMachineWaitsForItsStore)$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
 		network := ""' \
