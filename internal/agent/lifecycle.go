@@ -242,11 +242,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		defer func() { <-s.opLock }()
 		defer cancel()
 		err := runOp(ctx, h, fn)
-		s.opMu.Lock()
-		done := finishOp(op, h, err, s.now().UTC())
-		s.op, s.opH = nil, nil
-		s.opMu.Unlock()
-		s.finishOperation(s.id, "server", &done)
+		done := s.endOp(s.id, "server", &s.opMu, op, h, err, func() { s.op, s.opH = nil, nil })
 		if kind == "backup" && done.Status == api.OpFailed {
 			s.alert(discord.BackupFailed(done.Error))
 		}
