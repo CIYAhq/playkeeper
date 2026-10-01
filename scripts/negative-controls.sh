@@ -6801,8 +6801,8 @@ control "turning the dashboard's port off forgets the visit" internal/agent/dash
   '		_ = ""' \
   ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
 control "the hand-over opens port 443 for the dashboard with the page off" internal/agent/pageports.go \
-  'if st := a.publicPageState(nil); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {' \
-  'if st := a.publicPageState(nil); !st.On || !want.HTTPS && !want.HTTP {' \
+  '	if !st.On && !st.Dashboard && !joined || !want.HTTPS && !want.HTTP {' \
+  '	if !st.On && !joined || !want.HTTPS && !want.HTTP {' \
   ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
 control "the dashboard wants port 443 only once the machine's name works" internal/agent/dashboardport.go \
   '	return a.namedHost()' \
@@ -7295,6 +7295,18 @@ control "joined page: Settings show a server on the dashboard's machine off whil
   '} else if on, known := s.pageRecord(id); known && !on {' \
   '} else if on, known := s.pageRecord(id); known && !on && false {' \
   ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the agent opens the ports for a joined server's page with none of its own on it" internal/agent/pageports.go \
+  '	joined := want.Joined && st.Host != ""' \
+  '	joined := want.Joined && false' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "joined page: the agent opens the ports for a joined server's page only while the machine has an address" internal/agent/pageports.go \
+  '	joined := want.Joined && st.Host != ""' \
+  '	joined := want.Joined' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "joined page: the keeper tells the agent a joined server's page is on" internal/panel/pageports.go \
+  '	want.Joined = on && !st.On' \
+  '	want.Joined = on && !st.On && false' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
 control "the share card cuts a line too long at once" internal/sharecard/card.go \
   '	keep := max(0, (w/scale+1)/advance-len("..."))
 	r := []rune(s)
