@@ -10547,6 +10547,7 @@ webcontrol "seller flow: the live store links to its page on Whop" web/src/pages
   'https://whop.com/' \
   'https://whop.invalid/' \
   src/pages/whop-seller-view.test.tsx 'links to the store'
+# shellcheck disable=SC2016
 webcontrol "seller flow: a store with no route yet links to its page by its business" web/src/pages/whop-seller-view.tsx \
   '`https://whop.com/${route || store}`' \
   '`https://whop.com/${route}`' \
