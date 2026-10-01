@@ -439,6 +439,29 @@ func TestCommunityIsOneSetting(t *testing.T) {
 	}
 }
 
+// Playkeeper Cloud's seller terms are at /cloud/seller-terms, kept out of
+// search engines as /cloud is, and say who's behind them, which version
+// they are and where legal notices go. They link the privacy policy only
+// once its page is on the site.
+func TestTheSellerTerms(t *testing.T) {
+	built := pages(build(t, Default))
+	terms, ok := built["/cloud/seller-terms"]
+	if !ok {
+		t.Fatal("there is no /cloud/seller-terms")
+	}
+	for _, want := range []string{"CIYA TECHNOLOGIES LTD, Pyrrou 11, 4105 Limassol, Cyprus", "Version of 1 October 2026", `<a href="mailto:me@siya.digital">me@siya.digital</a>`, `<meta name="robots" content="noindex">`} {
+		if !strings.Contains(terms, want) {
+			t.Errorf("the seller terms don't say %s", want)
+		}
+	}
+	if body := between(terms, "<main", "</main>"); strings.Contains(body, "[") {
+		t.Errorf("the seller terms still have a bracketed proposal: %s", between(body, "[", "]"))
+	}
+	if _, policy := built["/privacy"]; !policy && strings.Contains(terms, `href="/privacy"`) {
+		t.Error("the seller terms link a privacy policy that isn't there")
+	}
+}
+
 // Nothing on the site collects an email address; the pricing cards that come
 // later offer Watch releases on GitHub.
 func TestNoEmailForms(t *testing.T) {
