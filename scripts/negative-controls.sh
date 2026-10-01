@@ -9082,9 +9082,9 @@ control "deleting customers: a membership that gives access is kept" internal/pa
   's.now().UnixMilli(), m.HasAccess()}' \
   's.now().UnixMilli(), false}' \
   ./internal/panel '^TestADeletedCustomersEndedMembershipIsntKeptAgain$'
-control "deleting customers: one who came back has their ended memberships kept" internal/panel/erasure.go \
-  'AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ?)' \
-  'AND NOT EXISTS(SELECT 1 FROM customers WHERE provider = ? AND store = ? AND subject = ? AND 0)' \
+control "deleting customers: the store's reads leave out a deleted customer's ended memberships" internal/panel/erasure.go \
+  'erased_customers WHERE store_id = ? AND subject_hash = ?)' \
+  'erased_customers WHERE store_id = ? AND subject_hash = ? AND 0)' \
   ./internal/panel '^TestDeletingACustomerLeavesTheirOtherStoreAlone$'
 control "deleting customers: the deletion waits while their servers move" internal/panel/erasure.go \
   'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
