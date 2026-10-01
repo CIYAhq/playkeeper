@@ -8880,9 +8880,13 @@ control "deleting customers: buying again cancels a deletion that waits for a mo
   'if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan && false {' \
   ./internal/panel '^TestBuyingAgainCancelsADeletionWaitingForAMove$'
 control "deleting customers: a renewal Whop's API hasn't confirmed counts as a plan" internal/panel/erasure.go \
-  'FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND status IN' \
-  'FROM whop_memberships WHERE store_id = ? AND whop_user_id = ? AND stale = 0 AND status IN' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.status IN' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.stale = 0 AND m.status IN' \
   ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: a store that left holds no plan" internal/panel/erasure.go \
+  'WHERE st.store_id = m.store_id AND st.left_at != 0)' \
+  'WHERE st.store_id = m.store_id AND st.left_at != 0 AND 0)' \
+  ./internal/panel '^(TestACustomerOfAStoreThatLeftIsDeletedOnRequest|TestACustomerOfAStoreThatLeftIsDeletedDaysAfterTheirServers)$'
 control "deleting customers: buying again cancels the request" internal/panel/erasure.go \
   "SET erase_requested_at = 0, erase_actor = ''" \
   'SET erase_actor = erase_actor' \
@@ -9269,13 +9273,21 @@ control "seller prices: only the business's team calls, with Whop's token" inter
   'user, err := "user_otherowner", error(nil)' \
   ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
 control "seller prices: a suspended store doesn't change" internal/panel/sellerprices.go \
-  'case change && !st.SuspendedAt.IsZero():' \
+  'case !st.SuspendedAt.IsZero():' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: a store that left doesn't change" internal/panel/sellerprices.go \
-  'case change && !st.LeftAt.IsZero():' \
+  'case !st.LeftAt.IsZero():' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a price change looks at the store again once it holds the lock" internal/panel/sellerprices.go \
+  'if st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); !ok {' \
+  'if false {' \
+  ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
+control "seller prices: Open the store looks at the store again once it holds the lock" internal/panel/sellerprices.go \
+  'if st, ok = s.sellerStoreToChange(r.Context(), w, store); !ok {' \
+  'if false {' \
+  ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
 control "seller prices: the floor is twelve dollars a month for each 4 GB" internal/panel/sellerprices.go \
   'const whopFloorPer4GB = 1200' \
   'const whopFloorPer4GB = 1100' \
