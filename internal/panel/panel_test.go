@@ -71,6 +71,22 @@ type agentRequest struct {
 	body         map[string]any
 }
 
+// forget drops the requests to key ("METHOD /path") from what the agent saw.
+func (fa *fakeAgent) forget(key string) {
+	fa.mu.Lock()
+	defer fa.mu.Unlock()
+	kept := 0
+	for i, h := range fa.hits {
+		if h != key {
+			fa.hits[kept], fa.bodies[kept], fa.reqs[kept] = h, fa.bodies[i], fa.reqs[i]
+			kept++
+		}
+	}
+	fa.hits, fa.bodies, fa.reqs = fa.hits[:kept], fa.bodies[:kept], fa.reqs[:kept]
+	delete(fa.headers, key)
+	delete(fa.lastBody, key)
+}
+
 func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	t.Helper()
 	sock := filepath.Join(dir, "agent.sock")
@@ -267,6 +283,12 @@ func (e *env) setup(t *testing.T) (cookie, csrf string) {
 	r := e.do(t, "POST", "/api/setup", `{"token":"`+code+`","username":"admin","password":"correct horse battery"}`, map[string]string{"X-Requested-With": "playkeeper"})
 	if r.status != 200 || r.cookie == "" {
 		t.Fatalf("setup failed: %d %v", r.status, r.body)
+	}
+	// Setup tells the machine its first account was made (see
+	// TestTheFirstAccountTellsItsMachine); tests count only their own
+	// requests to the agent.
+	if e.agent != nil {
+		e.agent.forget("POST /v1/usage-stats/first-account")
 	}
 	return r.cookie, r.body["csrfToken"].(string)
 }

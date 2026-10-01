@@ -1035,6 +1035,7 @@ func (s *Server) hSetup(w http.ResponseWriter, r *http.Request, _ *session) {
 		return
 	}
 	s.consumeSetupToken()
+	s.firstAccountMade(r.Context())
 	token, sess, err := s.newSession(u)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start a session.", "")

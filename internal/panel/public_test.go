@@ -60,7 +60,7 @@ func newEnvAgent(t *testing.T, h http.HandlerFunc, logw io.Writer) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := &http.Server{Handler: h}
+	agent := &http.Server{Handler: answeringSetup(h)}
 	go agent.Serve(ln)
 	t.Cleanup(func() { agent.Close() })
 	cfg := config.Default()

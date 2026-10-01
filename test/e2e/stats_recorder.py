@@ -7,11 +7,13 @@ install sent it.
                                        line with its path and body
   stats_recorder.py check LOG CONFIG VERSION
                                        the installer's started and succeeded
-                                       and the agent's first heartbeat came
-                                       under the ID in CONFIG (config.json),
-                                       from VERSION, marked as a test (CI runs
-                                       in an Actions job), with the fields
-                                       README.md lists and nothing else
+                                       and the agent's heartbeats came under
+                                       the ID in CONFIG (config.json), from
+                                       VERSION, marked as a test (CI runs in
+                                       an Actions job), with the fields
+                                       README.md lists and nothing else, one
+                                       of them sent as the first server the
+                                       core flows started came online
 """
 import json
 import sys
@@ -57,7 +59,10 @@ def check(log, config, version, source="source"):
     for b in beats:
         assert set(b) <= HEARTBEAT, set(b) - HEARTBEAT
         assert b["address"] == "ip" and 0 <= b["running"] <= b["servers"], b
-    print(f"The installer reported started and succeeded, and the agent {len(beats)} heartbeat(s), under {usage_id}, marked as a test, with only the fields README.md lists.")
+    # The machine's first server coming online sends one at once, long before
+    # the 12 hours are up, and it counts that server running.
+    assert any(b["servers"] >= 1 and b["running"] >= 1 for b in beats), beats
+    print(f"The installer reported started and succeeded, and the agent {len(beats)} heartbeat(s), one as its first server came online, under {usage_id}, marked as a test, with only the fields README.md lists.")
 
 
 if __name__ == "__main__":

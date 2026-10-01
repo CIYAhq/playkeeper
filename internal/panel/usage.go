@@ -6,14 +6,16 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
 
 // Anonymous usage stats (internal/usage): each machine's agent sends its
 // own heartbeat, and the switch in Settings sets them on every machine of
-// the dashboard. The panel only ever passes on or off: where they go and
-// what they say is up to each agent and its config.json.
+// the dashboard. The panel only ever passes on or off, and tells its own
+// machine when the first account is made: where they go, what they say and
+// whether they're sent is up to each agent and its config.json.
 
 // usageMachine is a joined machine's usage stats, or why they can't be read.
 type usageMachine struct {
@@ -118,6 +120,16 @@ func (s *Server) hUsageStatsSet(w http.ResponseWriter, r *http.Request, sess *se
 	}
 	wg.Wait()
 	s.hUsageStats(w, r, sess)
+}
+
+// firstAccountMade tells the dashboard's machine that its first account was
+// just made, so it sends its heartbeat now if usage stats are on.
+func (s *Server) firstAccountMade(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := s.agent.Do(ctx, http.MethodPost, "/v1/usage-stats/first-account", nil, nil, nil); err != nil {
+		s.log.Info("could not tell the agent the first account was made", "err", err)
+	}
 }
 
 // carryUsageOff turns usage stats off on a joined machine that connects

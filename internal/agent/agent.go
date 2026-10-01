@@ -652,6 +652,7 @@ func New(opts Options) (*Agent, error) {
 	a.loadUpdateState()
 	a.collectUpdateResult()
 	a.loadAddress()
+	a.loadUsage()
 	a.markInterruptedOperations(a.findInterruptedRestores()...)
 	a.pruneStages()
 	a.pruneArchiveLeftovers()
@@ -1057,6 +1058,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/update/apply", a.hUpdateApply},
 		{"GET", "/v1/usage-stats", a.hUsageStats},
 		{"PUT", "/v1/usage-stats", a.hUsageStatsSet},
+		{"POST", usageFirstAccountPath, a.hUsageFirstAccount},
 		// wave 5: player profiles, messages and bans; Discord.
 		{"GET", "/v1/servers/{id}/players/profile", srv((*server).hProfile)},
 		{"POST", "/v1/servers/{id}/players/message", srv((*server).hMessage)},

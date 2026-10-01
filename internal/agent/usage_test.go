@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -48,10 +50,25 @@ func (r *statsRecorder) count() int {
 	return len(r.beats)
 }
 
-func (r *statsRecorder) last() map[string]any {
+func (r *statsRecorder) beat(i int) map[string]any {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.beats[len(r.beats)-1]
+	return r.beats[i]
+}
+
+// heartbeat is the i'th heartbeat as the agent built it.
+func (r *statsRecorder) heartbeat(i int) usage.Heartbeat {
+	b, _ := json.Marshal(r.beat(i))
+	var h usage.Heartbeat
+	json.Unmarshal(b, &h)
+	return h
+}
+
+// quiet reports whether no more heartbeats than n arrive in a moment, long
+// enough for one the agent was kicked to send.
+func (r *statsRecorder) quiet(n int) bool {
+	time.Sleep(300 * time.Millisecond)
+	return r.count() == n
 }
 
 // sendingEnv is an installed agent, not playkeeper dev, whose heartbeats go
@@ -82,11 +99,13 @@ func (e *agentEnv) usageStats() api.UsageStats {
 }
 
 // The heartbeat is exactly the report the dashboard shows, and says the
-// machine's kind of address and servers, never their names.
+// machine's kind of address and servers, never their names. The first
+// server coming online sends one at once, which counts it running.
 func TestTheHeartbeatIsWhatTheDashboardShows(t *testing.T) {
 	e, rec := sendingEnv(t, time.Hour, nil)
 	e.waitFor("the first heartbeat", func() bool { return rec.count() == 1 })
 	e.create()
+	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 2 })
 	st := e.usageStats()
 	want := usage.Heartbeat{ID: "00112233445566778899aabbccddeeff", Address: usage.AddressIP, Servers: 1, Running: 1, System: usage.System{
 		Version: version.Version, OS: "debian", OSVersion: "13", Arch: runtime.GOARCH, Source: usage.SourceSite, Channel: "hn", Kind: usage.KindDashboard}}
@@ -96,15 +115,197 @@ func TestTheHeartbeatIsWhatTheDashboardShows(t *testing.T) {
 	if !st.On || st.Reason != api.UsageDefault || !st.CanChange || st.Service != rec.srv.URL || st.LastSent == nil {
 		t.Errorf("usage stats: %+v", st)
 	}
-	first := rec.last()
+	first := rec.beat(0)
 	if first["id"] != want.ID || first["servers"] != float64(0) || first["address"] != usage.AddressIP || first["os"] != "debian" {
 		t.Errorf("the first heartbeat: %v", first)
 	}
-	b, _ := json.Marshal(first)
-	for _, secret := range []string{e.status().Name, e.sid, e.cfg.InstallID, "Debian GNU/Linux"} {
-		if secret != "" && strings.Contains(string(b), secret) {
-			t.Errorf("the heartbeat carries %q: %s", secret, b)
+	if online := rec.heartbeat(1); online != want {
+		t.Errorf("the heartbeat as the first server came online is %+v, want %+v", online, want)
+	}
+	for i := range 2 {
+		b, _ := json.Marshal(rec.beat(i))
+		for _, secret := range []string{e.status().Name, e.sid, e.cfg.InstallID, "Debian GNU/Linux"} {
+			if secret != "" && strings.Contains(string(b), secret) {
+				t.Errorf("heartbeat %d carries %q: %s", i+1, secret, b)
+			}
 		}
+	}
+}
+
+// The dashboard's first account, which the panel tells the agent about, and
+// the machine's first server online each send a heartbeat at once, the
+// first time only. No machine link carries the first account.
+func TestEachSetupStepSendsAHeartbeatOnce(t *testing.T) {
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+	})
+	firstAccount := func() {
+		t.Helper()
+		if code, out := e.call("POST", usageFirstAccountPath, nil); code != http.StatusNoContent {
+			t.Fatalf("the first account: %d %v", code, out)
+		}
+	}
+	firstAccount()
+	e.waitFor("the first account's heartbeat", func() bool { return rec.count() == 1 })
+	if h := rec.heartbeat(0); h.Servers != 0 || h.Running != 0 || h.Address != usage.AddressIP {
+		t.Errorf("the first account's heartbeat: %+v", h)
+	}
+	firstAccount()
+	if !rec.quiet(1) {
+		t.Fatalf("the first account told again sent %d heartbeats in all", rec.count())
+	}
+	e.create()
+	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 2 })
+	if h := rec.heartbeat(1); h.Servers != 1 || h.Running != 1 {
+		t.Errorf("the first server's heartbeat: %+v", h)
+	}
+	if op := e.runOp("POST", "/restart"); op.Status != api.OpSucceeded {
+		t.Fatalf("restart: %+v", op)
+	}
+	e.stop()
+	e.start()
+	firstAccount()
+	if !rec.quiet(2) {
+		t.Errorf("a restarted server and agent sent %d heartbeats in all, want one for each step", rec.count())
+	}
+	for _, r := range LinkRoutes() {
+		if r.Pattern == usageFirstAccountPath {
+			t.Errorf("a machine link offers %s %s, which only the dashboard's own panel sends", r.Method, r.Pattern)
+		}
+	}
+}
+
+// A first start that gave up waiting for its server still has the server's
+// heartbeat sent once it comes up, and it counts the server running.
+func TestAServerUpAfterItsStartGaveUpSendsTheFirstServerHeartbeat(t *testing.T) {
+	boot, let := gate(t)
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) {
+			o.UsageFirst, o.UsageInterval, o.ReadyTimeout = time.Hour, time.Hour, 300*time.Millisecond
+		}
+		e.fd.mu.Lock()
+		e.fd.beforeBoot = boot
+		e.fd.mu.Unlock()
+	})
+	code, out := e.startCreate(map[string]any{})
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, "did not finish starting") {
+		t.Fatalf("the start didn't give up waiting: %+v", op)
+	}
+	if !rec.quiet(0) {
+		t.Fatalf("%d heartbeats before the server came up", rec.count())
+	}
+	e.fd.mu.Lock()
+	e.fd.beforeBoot = nil
+	e.fd.mu.Unlock()
+	let()
+	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 1 })
+	if h := rec.heartbeat(0); h.Servers != 1 || h.Running != 1 {
+		t.Errorf("the first server's heartbeat: %+v", h)
+	}
+}
+
+// A run that logs it's up while an operation still shows a step of its own,
+// as when a start has just given up waiting, is noted once the operation
+// has ended.
+func TestTheFirstServerIsNotedOnceTheOperationShowingAStepEnds(t *testing.T) {
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+	})
+	e.create()
+	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 1 })
+	if _, err := e.a.db.Exec(`DELETE FROM kv WHERE key = ?`, kvUsageOnline); err != nil {
+		t.Fatal(err)
+	}
+	s := e.srv()
+	held, release := gate(t)
+	if _, err := e.opWhenFree(func() (*api.Operation, error) {
+		return s.beginOp("start", "admin", func(ctx context.Context, h *opHandle) error {
+			h.phase(string(api.PhaseStartingContainer))
+			held()
+			return errors.New("the server did not finish starting")
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitFor("the operation to show its step", func() bool {
+		op := s.currentOp()
+		return op != nil && op.Phase == string(api.PhaseStartingContainer)
+	})
+	s.runOnline()
+	if !rec.quiet(1) {
+		t.Fatalf("a heartbeat while the operation showed %s", api.PhaseStartingContainer)
+	}
+	release()
+	e.waitFor("the heartbeat once the operation ended", func() bool { return rec.count() == 2 })
+	if h := rec.heartbeat(1); h.Servers != 1 || h.Running != 1 {
+		t.Errorf("the heartbeat once the operation ended: %+v", h)
+	}
+}
+
+// While usage stats are off, by root's choice or the switch's, the setup
+// steps send nothing.
+func TestSetupStepsSendNothingWhileUsageStatsAreOff(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		setup     func(e *agentEnv)
+		switchOff bool
+	}{
+		{name: "DO_NOT_TRACK for the agent", setup: func(e *agentEnv) {
+			e.tweak = func(o *Options) {
+				o.UsageFirst, o.UsageInterval = time.Hour, time.Hour
+				o.Getenv = func(k string) string { return map[string]string{"DO_NOT_TRACK": "1"}[k] }
+			}
+		}},
+		{name: "off when installed", setup: func(e *agentEnv) {
+			e.cfg.UsageStats = "off"
+			e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+		}},
+		{name: "the switch", switchOff: true, setup: func(e *agentEnv) {
+			e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, rec := sendingEnv(t, time.Hour, c.setup)
+			if c.switchOff {
+				if code, out := e.call("PUT", "/v1/usage-stats", map[string]any{"on": false, "actor": "admin"}); code != 200 {
+					t.Fatalf("the switch: %d %v", code, out)
+				}
+			}
+			if code, out := e.call("POST", usageFirstAccountPath, nil); code != http.StatusNoContent {
+				t.Fatalf("the first account: %d %v", code, out)
+			}
+			e.create()
+			if !rec.quiet(0) {
+				t.Errorf("%d heartbeats were sent while usage stats were off", rec.count())
+			}
+		})
+	}
+}
+
+// A machine whose servers came online before Playkeeper noted the first, as
+// one updated from an earlier version, sends no heartbeat for it.
+func TestAnUpdatedMachineSendsNoHeartbeatForAnOldFirstServer(t *testing.T) {
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) { o.UsageInterval = -1 }
+	})
+	e.create()
+	if _, err := e.a.db.Exec(`DELETE FROM kv WHERE key = ?`, kvUsageOnline); err != nil {
+		t.Fatal(err)
+	}
+	e.stop()
+	e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+	e.start()
+	if _, noted, err := e.a.kvGet(kvUsageOnline); err != nil || !noted {
+		t.Fatalf("the first server online isn't noted after the update: %v %v", noted, err)
+	}
+	if op := e.runOp("POST", "/restart"); op.Status != api.OpSucceeded {
+		t.Fatalf("restart: %+v", op)
+	}
+	if !rec.quiet(0) {
+		t.Errorf("%d heartbeats for a first server that came online before the update", rec.count())
 	}
 }
 

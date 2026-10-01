@@ -121,6 +121,7 @@ describe('Usage stats', () => {
     expect(card().textContent).toContain('Off · nothing is sent')
     expect(card().querySelector('li')?.textContent).toBe('home-serverOff')
     await act(async () => (card().querySelector('button:not([role="switch"])') as HTMLElement).click())
+    expect(card().textContent).toContain('sends stats.playkeeper.io exactly this when Playkeeper starts, when its first account is made, when its first server comes online, and twice a day:')
     expect(JSON.parse(card().querySelector('pre')?.textContent ?? '{}')).toEqual(report)
   })
 
