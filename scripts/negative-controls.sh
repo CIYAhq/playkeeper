@@ -12184,6 +12184,89 @@ webcontrol "room per store: one store's plans have no store heading" web/src/pag
   '{stores.length > 0 ? (' \
   src/pages/pages.test.tsx 'says how many more of each plan fit'
 
+# Step 6 of the fleet plan, its last part: joined machines the dashboard
+# confirmed watch it with its Discord webhook, and only they keep it.
+control "dashboard watch: a machine that isn't joined keeps no dashboard's webhook" internal/agent/dashboardwatch.go \
+  'd, err := machinelink.LoadDashboard(a.cfg.LinkDashboardPath())
+	if err != nil {
+		writeError(w, errConflict(' \
+  'd, err := machinelink.LoadDashboard(a.cfg.LinkDashboardPath())
+	if false && err != nil {
+		writeError(w, errConflict(' \
+  ./internal/agent '^TestAMachineThatIsntJoinedRefusesTheDashboardsWebhook$'
+control "dashboard watch: only a Discord webhook is kept" internal/agent/dashboardwatch.go \
+  'wh, err := discord.ParseWebhookURL(req.WebhookURL)
+	if err != nil {' \
+  'wh, err := discord.ParseWebhookURL(req.WebhookURL)
+	if false && err != nil {' \
+  ./internal/agent '^TestAMachineThatIsntJoinedRefusesTheDashboardsWebhook$'
+control "dashboard watch: a machine that left its dashboard forgets the webhook" internal/agent/dashboardwatch.go \
+  'case err != nil:
+		why = "this machine isn'"'"'t joined to a dashboard any more"' \
+  'case false:
+		why = "this machine isn'"'"'t joined to a dashboard any more"' \
+  ./internal/agent '^TestAMachineForgetsTheDashboardsWebhookWhenItLeaves$'
+control "dashboard watch: a machine that joins again forgets the webhook" internal/agent/dashboardwatch.go \
+  'case dashboardJoin(d) != a.watch.join:' \
+  'case false:' \
+  ./internal/agent '^TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook$'
+control "dashboard watch: a join is its dashboard's key" internal/agent/dashboardwatch.go \
+  'return d.Fingerprint() + " " + d.MachineID' \
+  'return d.MachineID' \
+  ./internal/agent '^TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook$'
+control "dashboard watch: a join is the id its dashboard gave the machine" internal/agent/dashboardwatch.go \
+  'return d.Fingerprint() + " " + d.MachineID' \
+  'return d.Fingerprint()' \
+  ./internal/agent '^TestAMachineThatJoinsAgainForgetsTheDashboardsWebhook$'
+control "dashboard watch: its messages open the dashboard at the address it joined, with its port" internal/agent/dashboardwatch.go \
+  'addr, err := machinelink.ParseAddress(d.Address)
+	if err != nil {
+		return ""
+	}
+	return "https://" + addr.HostPort()' \
+  'return "https://" + d.Address' \
+  ./internal/agent '^(TestTheWatchOpensTheDashboardAtTheAddressItJoinedWithItsPort|TestAJoinedMachinePostsOnlyThatItsDashboardCantBeReachedAndIsBack)$'
+# shellcheck disable=SC2016
+control "dashboard watch: the dashboard clears its webhook" internal/agent/dashboardwatch.go \
+  'res, err := a.db.Exec(`DELETE FROM dashboard_watch WHERE id = 1`)' \
+  'res, err := a.db.Exec(`DELETE FROM dashboard_watch WHERE id = 0`)' \
+  ./internal/agent '^TestTheDashboardClearsItsWebhook$'
+control "dashboard watch: a link down less than 5 minutes posts nothing" internal/agent/dashboardwatch.go \
+  'if !a.watch.posted && now.Sub(a.watch.downSince) >= dashboardDownAfter {' \
+  'if !a.watch.posted {' \
+  ./internal/agent '^TestAJoinedMachinePostsOnlyThatItsDashboardCantBeReachedAndIsBack$'
+control "dashboard watch: a link that hasn't heard the dashboard lately is down" internal/agent/dashboardwatch.go \
+  'st.State == machinelink.LinkConnected && now.Sub(st.LastSeen) < linkQuietAfter' \
+  'st.State == machinelink.LinkConnected' \
+  ./internal/agent '^TestAJoinedMachinePostsOnlyThatItsDashboardCantBeReachedAndIsBack$'
+control "dashboard watch: no link can read the Discord webhook" internal/agent/link.go \
+  '"GET " + discordWebhookPath:       true,' \
+  '"GET " + discordWebhookPath:       false,' \
+  ./internal/agent '^TestOnlyTheAgentsSocketGivesTheDiscordWebhook$'
+control "dashboard watch: its alerts go out whatever the switches say" internal/discord/alerts.go \
+  'KindDashboardDown, KindDashboardBack:
+		return true' \
+  'KindDashboardDown:
+		return true' \
+  ./internal/discord '^TestAJoinedMachinesWatchOnItsDashboardPostsWhateverTheSwitches$'
+control "dashboard watch: only a confirmed machine gets the webhook" internal/panel/dashboardwatch.go \
+  'if !m.customersAt.IsZero() {' \
+  'if true {' \
+  ./internal/panel '^TestOnlyConfirmedMachinesHaveTheDashboardsWebhook$'
+control "dashboard watch: confirming or stopping a machine tells it at once" internal/panel/machinecustomers.go \
+  '	s.kickSaleRoom()
+	s.kickWatch()' \
+  '	s.kickSaleRoom()' \
+  ./internal/panel '^(TestOnlyConfirmedMachinesHaveTheDashboardsWebhook|TestAMachineTheHetznerTokenConfirmedHasTheDashboardsWebhook)$'
+control "dashboard watch: disconnecting Discord clears the webhook at once" internal/panel/team.go \
+  'if method == "DELETE" || pattern == "/v1/discord/connect" {' \
+  'if pattern == "/v1/discord/connect" {' \
+  ./internal/panel '^TestOnlyConfirmedMachinesHaveTheDashboardsWebhook$'
+control "dashboard watch: a machine back online is told again" internal/panel/machines.go \
+  's.watchReconnected(e.MachineID)' \
+  '_ = e.MachineID' \
+  ./internal/panel '^TestAMachineThatWasAwayCatchesUpOnTheDashboardsWebhook$'
+
 # Step 8 of the fleet plan: a server moved in from another machine keeps its
 # id, and only the dashboard's move-in picks one.
 control "moving in: an id a server here has is refused" internal/agent/servers.go \
