@@ -27,7 +27,7 @@ checks() {
   esac
 }
 
-# The specs under test/e2e/ui other parts run, which the fake-panel job doesn't.
+# The specs under test/e2e/ui other parts run, which the fake-panel part's jobs don't.
 others='^test/e2e/ui/((onboarding|views|smoke|demo|demo-iphone|whop-store)\.spec|playwright\.whop-store\.config)\.ts$'
 
 out=()

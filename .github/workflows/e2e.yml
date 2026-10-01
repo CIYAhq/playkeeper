@@ -8,7 +8,8 @@ name: End to end
 # stats they send; the current release upgraded to this build, updated from
 # the dashboard, and a broken update rolled back; the playkeeper.io, names
 # and stats service images; certificates from Pebble; the browser checks
-# against a faked panel; and the Whop store site, built and run in workerd.
+# against a faked panel; playkeeper.io's pages in a browser; and the Whop
+# store site, built and run in workerd.
 # The Release check runs every part on the release it builds
 # (release-check.yml). Pull requests run only the parts whose own files they
 # change, and pushes to main only the first runner, when the played state
@@ -514,11 +515,14 @@ jobs:
           path: /tmp/evidence
           retention-days: 7
 
+  # The 125 MB of packages WebKit and Chromium need come from Ubuntu's mirror,
+  # which took over 18 minutes for them twice on 1 Oct 2026 and sent others at
+  # 47 kB/s that day: 44 minutes for these, on top of 5 for the rest.
   site:
     name: Site image — build it, check every page, /sizing, /demo/, /t, /healthz and the /install script, walk the live demo
     if: inputs.parts == 'all' || contains(format(',{0},', inputs.parts), ',site,')
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build the playkeeper.io image and check what it serves
@@ -591,11 +595,16 @@ jobs:
           PLAYKEEPER_PEBBLE_DIR: ${{ runner.temp }}/pebble
         run: .tools/go/bin/go test -count=1 -run '^TestPebble$' -v ./internal/certs/
 
+  # This job and the two below spend most of a slow day in their setup: the
+  # 32 MB of packages Chromium needs come from Ubuntu's mirror, which sent
+  # them at 47 kB/s on 1 Oct 2026 (11 minutes, against 1 on a usual day).
+  # Their 30 minutes leave room for a mirror twice that slow on top of their
+  # tests, at most 6 minutes each.
   ui-fake-panel:
     name: Browser checks against a faked panel — the Console with a long log, desktop and phone; the stats dashboard; the click-through's own checks
     if: inputs.parts == 'all' || contains(format(',{0},', inputs.parts), ',fake-panel,')
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Pinned toolchains, the built UI and the test browser
@@ -609,8 +618,6 @@ jobs:
           PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
       - name: Console scrolling, following and "Jump to latest"
         run: cd test/e2e/ui && npx playwright test -c playwright.fake-panel.config.ts
-      - name: playkeeper.io on desktop and phone — nothing wider than the screen, no serious accessibility violations
-        run: cd test/e2e/ui && npx playwright test -c playwright.site.config.ts
       - name: The stats dashboard against the stats service — sign-in, the token kept in the browser alone, the counts, a phone
         run: cd test/e2e/ui && npx playwright test -c playwright.stats.config.ts
       - name: The click-through's own checks — its verdicts, the recorded fixtures, which pages a change touches, the split and the gate
@@ -619,6 +626,36 @@ jobs:
         if: failure()
         with:
           name: ui-fake-panel-traces
+          path: test/e2e/ui/test-results
+          retention-days: 7
+
+  # The site's checks, split between two runners: together they're 13 minutes
+  # of tests, and the site gains pages every week.
+  ui-site:
+    name: playkeeper.io in a browser, ${{ matrix.size }} — every page nothing wider than the screen and no serious accessibility violations; the free tools; the template directory
+    if: inputs.parts == 'all' || contains(format(',{0},', inputs.parts), ',fake-panel,')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [desktop, phone]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Pinned toolchains and the test browser
+        run: |
+          ./scripts/setup.sh
+          echo "$PWD/.tools/node/bin" >> "$GITHUB_PATH"
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: playkeeper.io's pages, its free tools and its template directory (the ${{ matrix.size }} project of playwright.site.config.ts)
+        run: cd test/e2e/ui && npx playwright test -c playwright.site.config.ts --project=${{ matrix.size }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: ui-site-${{ matrix.size }}-traces
           path: test/e2e/ui/test-results
           retention-days: 7
 
