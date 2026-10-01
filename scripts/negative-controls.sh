@@ -1136,6 +1136,20 @@ control "a restart does not start the handoff timeouts over" internal/agent/upda
   'since = st.ModTime()' \
   'since = a.now()' \
   ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "an update operation ends after its audit entry" internal/agent/update.go \
+  '		if err = a.insertAudit(tx, "", actor, action, target, result, detail); err == nil {
+			err = writeOperation(tx, op)
+		}' \
+  '		if err = writeOperation(tx, op); err == nil {
+			err = a.insertAudit(tx, "", actor, action, target, result, detail)
+		}' \
+  ./internal/agent '^TestAnUpdatesResultIsStoredWithWhatTheAgentSaysAboutIt$'
+control "an update's result is stored under the update's lock" internal/agent/update.go \
+  '	a.upd.mu.Lock()
+	defer a.upd.mu.Unlock()
+	var op *api.Operation' \
+  '	var op *api.Operation' \
+  ./internal/agent '^TestAnUpdatesResultIsStoredWithWhatTheAgentSaysAboutIt$'
 control "an updater that waited does not install over what the installer installed" internal/install/selfupdate.go \
   'if installed != current {' \
   'if false && installed != current {' \
@@ -1507,6 +1521,10 @@ control "friends' pack links favour no letter" internal/modpacks/share/token.go 
   'if b < 248 && len(out) < TokenLen {' \
   'if len(out) < TokenLen {' \
   ./internal/modpacks/share '^TestNewToken(IsUniform|SkipsBiasedBytes)$'
+control "the uniformity bound still catches letters favoured by an unskipped byte" internal/modpacks/share/token.go \
+  'if b < 248 && len(out) < TokenLen {' \
+  'if len(out) < TokenLen {' \
+  ./internal/modpacks/share '^TestNewTokenIsUniform$'
 control "stopping sharing forgets the friends' pack link" internal/agent/packshare.go \
   "UPDATE servers SET packs_public = 0, packs_token = '' WHERE id = ?" \
   'UPDATE servers SET packs_public = 0 WHERE id = ?' \
@@ -2103,11 +2121,21 @@ control "operations: the audit entry is stored before the operation shows finish
 			err = a.insertAudit(tx, serverID, op.Actor, op.Kind, target, op.Status, op.Error)
 		}' \
   ./internal/agent '^TestAFinishedOperationIsAlreadyAudited$'
-control "operations: a server's operation stores its end with its audit entry" internal/agent/lifecycle.go \
-  's.finishOperation(s.id, "server", &done)' \
-  's.saveOperation(&done)
-		s.audit(done.Actor, kind, "server", done.Status, done.Error)' \
-  ./internal/agent '^TestAFinishedOperationIsAlreadyAudited$'
+control "operations: an operation stores its end with its audit entry" internal/agent/state.go \
+  '	a.finishOperation(serverID, target, &done)' \
+  '	a.saveOperation(&done)
+	a.auditFor(serverID, done.Actor, done.Kind, target, done.Status, done.Error)' \
+  ./internal/agent '^(TestAFinishedOperationIsAlreadyAudited|TestAFinishedAddressOperationIsAlreadyAudited)$'
+control "operations: an operation is stored as ended before it stops showing" internal/agent/state.go \
+  '	a.finishOperation(serverID, target, &done)
+	mu.Lock()
+	clear()
+	mu.Unlock()' \
+  '	mu.Lock()
+	clear()
+	mu.Unlock()
+	a.finishOperation(serverID, target, &done)' \
+  ./internal/agent '^TestAnOperationShowsUntilItsEndIsStored$'
 control "resource packs: a listed pack doesn't wait while the agent is asked about another" internal/panel/packs.go \
   'if wait == nil || known && !started {' \
   'if wait == nil || known && !started && false {' \
@@ -3978,11 +4006,6 @@ control "free address: the name taken from the service is refreshed at once" int
   '			c.Name = held.Name
 ' \
   ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_released_and_the_service_holds_bob$'
-control "operations: an address operation stores its end with its audit entry" internal/agent/address.go \
-  'a.finishOperation("", "machine", &done)' \
-  'a.saveOperation(&done)
-		a.audit(actor, kind, "machine", done.Status, done.Error)' \
-  ./internal/agent '^TestAFinishedAddressOperationIsAlreadyAudited$'
 control "free address: publishing waits only for the servers it synced" internal/agent/address.go \
   'for !freePublished(a.address(), synced) && time.Since(start) < publishWait {' \
   'for !freePublished(a.address(), a.joinServers()) && len(synced) >= 0 && time.Since(start) < publishWait {' \

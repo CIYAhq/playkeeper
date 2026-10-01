@@ -196,6 +196,7 @@ func TestFailedStartIsExplained(t *testing.T) {
 // crash, not as a stop.
 func TestAnOutOfMemoryErrorThenStoppingServerIsACrash(t *testing.T) {
 	e := crashEnv(t)
+	e.rcon.setOnline("PkBotBuilder")
 	e.fd.addLog("[03:10:02 INFO]: PkBotBuilder joined the game")
 	e.waitFor("the session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 	e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
