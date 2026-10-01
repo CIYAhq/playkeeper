@@ -608,13 +608,83 @@ func TestPregenCancel(t *testing.T) {
 	s.pg.idleSince = s.pg.idleSince.Add(-pregenIdleGrace)
 	s.pg.mu.Unlock()
 	e.waitFor("the lost task to end", func() bool { return e.pregen().State == "idle" })
-	lost := func() int {
-		return e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'pregen.cancelled' AND result = 'failed' AND detail = 'Chunky no longer has the task'`, e.sid)
-	}
-	// The task is recorded as ended a moment before its audit entry.
-	e.waitFor("the lost task's audit entry", func() bool { return lost() > 0 })
-	if n := lost(); n != 1 {
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'pregen.cancelled' AND result = 'failed' AND detail = 'Chunky no longer has the task'`, e.sid); n != 1 {
 		t.Errorf("%d audit entries for the lost task", n)
+	}
+}
+
+// Whoever sees the task paused, continued or ended finds it audited: each
+// change is stored with its audit entry, the entry first. The trigger notes
+// each change, and whether the entry stored last was its own.
+func TestAPregenTaskPausedContinuedOrEndedIsAlreadyAudited(t *testing.T) {
+	e := newAgentEnv(t)
+	e.withSources()
+	for _, q := range []string{
+		`CREATE TABLE changes(what TEXT, audited INTEGER)`,
+		`CREATE TRIGGER pregen_changed AFTER UPDATE ON pregen
+			WHEN (NEW.ended != '' AND OLD.ended = '') OR (NEW.ended = '' AND NEW.paused_by_user != OLD.paused_by_user)
+			BEGIN INSERT INTO changes SELECT what, (SELECT action FROM audit WHERE server_id = NEW.server_id ORDER BY id DESC LIMIT 1) = 'pregen.' || what
+				FROM (SELECT CASE WHEN NEW.ended != '' THEN NEW.ended WHEN NEW.paused_by_user = 1 THEN 'paused' ELSE 'continued' END AS what); END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.create()
+	fc := e.chunky()
+	s := e.srv()
+	// Run out of memory twice since the task started, before Chunky saved
+	// it, the server drops it at a restart, and it is paused for memory.
+	e.startPregen("small", false)
+	for i := 1; i <= 2; i++ {
+		s.recordEvent(s.now().Add(time.Duration(i)*time.Millisecond), "server_crashed", "", "docker", oomCrash)
+	}
+	fc.loseOnStop()
+	e.serverOp("/restart")
+	e.waitFor("the task paused for memory", func() bool {
+		v := e.pregen()
+		return v.State == "paused" && v.PausedBy == "memory"
+	})
+	e.pregenAct("continue")
+	e.pregenAct("pause")
+	e.pregenAct("cancel")
+
+	e.startPregen("small", false)
+	fc.lose()
+	e.waitFor("Chunky to report no task", func() bool {
+		s.pg.mu.Lock()
+		defer s.pg.mu.Unlock()
+		return !s.pg.idleSince.IsZero()
+	})
+	s.pg.mu.Lock()
+	s.pg.idleSince = s.pg.idleSince.Add(-pregenIdleGrace)
+	s.pg.mu.Unlock()
+	e.waitFor("the lost task to end", func() bool { return e.pregen().State == "idle" })
+
+	e.startPregen("small", false)
+	fc.endAt(16129, 441*time.Second)
+	e.fd.addLog("[22:56:56 INFO]: [Chunky] Task finished for world. Processed: 16129 chunks (100.00%), Total time: 0:07:21")
+	e.waitFor("the finished task", func() bool { return e.pregen().State == "finished" })
+
+	rows, err := e.a.db.Query(`SELECT what, audited FROM changes ORDER BY rowid`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var what string
+		var audited bool
+		if err := rows.Scan(&what, &audited); err != nil {
+			t.Fatal(err)
+		}
+		if !audited {
+			what += " before its audit entry"
+		}
+		got = append(got, what)
+	}
+	if want := "paused, continued, paused, cancelled, cancelled, finished"; strings.Join(got, ", ") != want {
+		t.Fatalf("the task was %s; want %s, each after its audit entry", strings.Join(got, ", "), want)
 	}
 }
 

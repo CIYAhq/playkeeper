@@ -6630,6 +6630,21 @@ control "a crash in the millisecond a task started or was resumed counts for it"
   'AND ts >= MAX(?, COALESCE(' \
   'AND ts > MAX(?, COALESCE(' \
   ./internal/agent '^TestACrashInTheMillisecondATaskStartedCountsForIt$'
+control "a pre-generation task ends after its audit entry" internal/agent/pregen.go \
+  '	if err := s.insertAudit(tx, s.id, entry.actor, entry.action, t.World, entry.result, entry.detail); err != nil {
+		return err
+	}' \
+  '	defer s.audit(entry.actor, entry.action, t.World, entry.result, entry.detail)' \
+  ./internal/agent '^TestAPregenTaskPausedContinuedOrEndedIsAlreadyAudited$'
+# shellcheck disable=SC2016
+control "a pre-generation task is paused or resumed after its audit entry" internal/agent/pregen.go \
+  '	return s.execAudited(entry.actor, entry.action, world, entry.result, entry.detail, `UPDATE pregen SET `+set+` WHERE server_id = ?`, append(args, s.id)...)' \
+  '	if err := s.updatePregen(set, args...); err != nil {
+		return err
+	}
+	s.audit(entry.actor, entry.action, world, entry.result, entry.detail)
+	return nil' \
+  ./internal/agent '^TestAPregenTaskPausedContinuedOrEndedIsAlreadyAudited$'
 control "only a task a restart dropped is sent again" internal/agent/pregen.go \
   '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
   '	if run.IsZero() || tried {' \
