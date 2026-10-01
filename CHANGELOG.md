@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.16
 
 - Fixed: turning the public page off right after it took ports 443 and 80 could leave a port taken for a moment after the dashboard said it was given back. It's now given back at once.
+- Fixed, selling through the Playkeeper Cloud app (early beta): a blueprint copy's hosting products arrive hidden on Whop, and **Open the store** left them so, so the store's page on Whop listed nothing. Opening or updating the store now shows them there. While the store sells nothing, closed, suspended or gone, they're hidden again, as its plans' stock is 0, and once it sells again those are shown, while a product its seller hid stays hidden. **Visit your store** now goes to that page even before anyone has bought there.
 
 ## 0.4.15
 
