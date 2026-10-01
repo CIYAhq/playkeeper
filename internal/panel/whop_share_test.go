@@ -1,7 +1,9 @@
 package panel
 
 import (
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +11,32 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
+
+// The payment check takes only the membership's own paid payment: a Whop
+// that ignores the membership filter and answers with another membership's
+// payment, which carried the share, starts nobody on it.
+func TestThePaymentCheckTakesOnlyTheMembershipsOwnPayment(t *testing.T) {
+	_, e, _ := twoStores(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/payments":
+			json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "pay_bob", "status": "paid", "membership_id": "mem_bob", "plan_id": "plan_other",
+				"product_id": "prod_other", "paid_at": "2026-09-24T12:00:00Z", "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}},
+				"page_info": map[string]any{"has_next_page": false}})
+		case "/payments/pay_bob/fees":
+			json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
+				"settlement_amount": map[string]any{"amount": "8.50", "currency": "usd", "decimals": 2}}}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	c := &whop.Client{APIURL: srv.URL, Key: "k", HTTP: srv.Client()}
+	st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other")
+	if err := e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_alex_free", 4096); err == nil || !strings.Contains(err.Error(), "no paid payment") {
+		t.Fatalf("alex's unpaid membership on bob's payment: %v", err)
+	}
+}
 
 // shareEnv is twoStores with the owner's own Whop account, siyabuilt,
 // named to receive Playkeeper's share, and Other Hosting's app store.
@@ -226,6 +254,37 @@ func TestAPlansLeastChargeIsWhatOnePaymentCharges(t *testing.T) {
 		if got := whopLeastCharge(c.p); got != c.want {
 			t.Errorf("%+v: %v, not %v", c.p, got, c.want)
 		}
+	}
+}
+
+// A share can be set for a price that isn't on Whop yet, as the seller's
+// page does before lowering one: the share the new price needs comes
+// first, while the plan on Whop still charges the old price. With no new
+// price it's the share check as ever.
+func TestAShareIsSetForAPriceBeforeItsOnWhop(t *testing.T) {
+	f, e, _, st := shareEnv(t)
+	f.mu.Lock()
+	f.installed["biz_other"].plans[0]["renewal_price"] = 15
+	f.mu.Unlock()
+	if problem := e.syncShares(t, st, true); problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 56.67 {
+		t.Fatalf("at $15: %q, %v", problem, f.share("biz_other", "prod_other"))
+	}
+	c, err := e.srv.whopClientFor(t.Context(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problem, err := e.srv.syncWhopSharesAt(t.Context(), c, st, false, map[string]float64{"plan_other": 12}); err != nil || problem != "" ||
+		f.share("biz_other", "prod_other")["commission_value"] != 70.84 {
+		t.Fatalf("before the price goes down to $12: %q, %v, %v", problem, err, f.share("biz_other", "prod_other"))
+	}
+	f.mu.Lock()
+	price := f.installed["biz_other"].plans[0]["renewal_price"]
+	f.mu.Unlock()
+	if price != 15 {
+		t.Fatalf("the plan's price on Whop changed: %v", price)
+	}
+	if problem, err := e.srv.syncWhopSharesAt(t.Context(), c, st, false, nil); err != nil || problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 56.67 {
+		t.Fatalf("with no new price, at $15 on Whop: %q, %v, %v", problem, err, f.share("biz_other", "prod_other"))
 	}
 }
 

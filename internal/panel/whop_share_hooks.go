@@ -2,8 +2,8 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,13 +12,14 @@ import (
 
 // Where the store's pass meets Playkeeper's share (the hosted blueprint's
 // 2.2, see whop_share.go). An open app store's share is checked each time
-// its pass has just read its plans; a share gone or short closes it for a
+// its pass has just read its plans, and before a payment check when it
+// wasn't just now (whopShareDue); a share gone or short closes it for a
 // reason of its own, and after whopShareGrace it leaves. A store whose
 // grant has lacked what its pass reads for whopGrantGrace leaves too. A
-// customer starts, or their plan grows, only once each membership giving
-// them servers was paid with the share. Every payment the checks read, and
-// each renewal and refund since the last read, is kept for the seller's
-// view.
+// customer's membership gives them servers only once a payment of it
+// carried the share for its plan (whopPaidPlan). Every payment the checks
+// read, and each renewal and refund since the last read, is kept for the
+// seller's view.
 
 const (
 	// whopShareClosed is the reason the share check closes a store for.
@@ -29,6 +30,15 @@ const (
 	// uninstalled. The owner's to change.
 	whopShareGrace = 72 * time.Hour
 	whopGrantGrace = 7 * 24 * time.Hour
+	// whopShareUncheckedFor is how long the share check may keep failing
+	// before the store closes for it (noteWhopShareUnchecked).
+	whopShareUncheckedFor = time.Hour
+	// whopShareFresh is how recently the share check must have found the
+	// store's share right for a payment check to count. A payment's fee
+	// lines don't say who received its share, so between the store's reads
+	// a seller could swap Playkeeper for a partner of their own at the same
+	// percentage, and the payments made meanwhile would look paid.
+	whopShareFresh = 2 * time.Minute
 	// whopPaymentsBack is how far back a store's first read of its payments
 	// and refunds goes, a month and a few days, and whopPaymentsOverlap how
 	// far each later read goes back before the last one, so a payment Whop
@@ -38,12 +48,15 @@ const (
 )
 
 // whopShareStep checks an open app store's share, once its pass has just
-// read its plans (see syncWhopShares). A share gone or short closes the
-// store for whopShareClosed, in the problem's words, and after
-// whopShareGrace like that the store leaves. A share set right opens it
-// again for that reason alone. A store that isn't open yet has no share to
-// check, since Open the store sets it. It says whether the store left, and
-// keeps st's closed words current, so the rest of the pass sees them.
+// read its plans or a payment check waits on it (whopShareDue), and notes
+// when it found it right (see syncWhopShares). A share gone or short
+// closes the store for whopShareClosed, in the problem's words, and after
+// whopShareGrace like that the store leaves. A check that keeps failing
+// closes it too, but never has it leave (noteWhopShareUnchecked). A share
+// set right opens it again for that reason alone. A store that isn't open
+// yet has no share to check, since Open the store sets it. It says whether
+// the store left, and keeps st's closed words current, so the rest of the
+// pass sees them.
 func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStore) bool {
 	notOpen, err := s.whopClosedFor(ctx, st.ID, whopNotOpenYet)
 	if err != nil || notOpen {
@@ -52,8 +65,13 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 	problem, err := s.syncWhopShares(ctx, c, *st, false)
 	if err != nil {
 		s.log.Warn("could not check Playkeeper's share on a store", "store", st.ID, "err", err)
+		s.noteWhopShareUnchecked(ctx, st, err)
 		return false
 	}
+	if err := s.whopWatchClear(ctx, st.ID, "share_unchecked_since"); err != nil {
+		s.log.Error("could not note a store's share was checked", "store", st.ID, "err", err)
+	}
+	s.noteWhopShareRight(ctx, st.ID, problem == "")
 	if problem == "" {
 		if err := s.whopWatchClear(ctx, st.ID, "share_bad_since"); err != nil {
 			s.log.Error("could not note a store's share is right", "store", st.ID, "err", err)
@@ -84,12 +102,90 @@ func (s *Server) whopShareStep(ctx context.Context, c *whop.Client, st *whopStor
 	return false
 }
 
+// noteWhopShareUnchecked notes since when the share check has failed for
+// the store, err being the latest failure, and once that's
+// whopShareUncheckedFor, closes the store for whopShareClosed in its words:
+// nobody would be started on what it sells meanwhile (whopShareFresh). The
+// next check that gets an answer opens it again, or closes it for what it
+// found. A failing check never has the store leave, since a Whop outage
+// would have every store leave: a store whose grant was taken back leaves
+// by the grant watch (whopGrantWatch).
+func (s *Server) noteWhopShareUnchecked(ctx context.Context, st *whopStore, err error) {
+	since, werr := s.whopWatchSince(ctx, st.ID, "share_unchecked_since")
+	if werr != nil {
+		s.log.Error("could not note since when a store's share couldn't be checked", "store", st.ID, "err", werr)
+		return
+	}
+	if s.now().Sub(since) < whopShareUncheckedFor {
+		return
+	}
+	why := "Playkeeper's share couldn't be checked on Whop for an hour, so the store doesn't sell until it can be."
+	var we *whop.Error
+	if errors.As(err, &we) {
+		why = "Playkeeper's share couldn't be checked on Whop for an hour (Whop said: " + cmpOr(we.Message, fmt.Sprintf("error %d", we.Status)) +
+			"), so the store doesn't sell until it can be."
+	}
+	if err := s.closeWhopStore(ctx, st.ID, whopShareClosed, why); err != nil {
+		s.log.Error("could not close a store whose share couldn't be checked", "store", st.ID, "err", err)
+	}
+	st.ClosedWhy = cmpOr(st.ClosedWhy, why)
+}
+
+// noteWhopShareRight notes when the share check last found the store's
+// share right, or that it found it wrong (see whopShareFresh).
+func (s *Server) noteWhopShareRight(ctx context.Context, storeID string, right bool) {
+	at := int64(0)
+	if right {
+		at = s.now().UnixMilli()
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO whop_share_watch(store_id, share_right_at) VALUES(?, ?)
+		ON CONFLICT(store_id) DO UPDATE SET share_right_at = excluded.share_right_at`, storeID, at); err != nil {
+		s.log.Error("could not note what the share check found", "store", storeID, "err", err)
+	}
+}
+
+// whopShareRecent says whether the share check found the store's share
+// right within whopShareFresh.
+func (s *Server) whopShareRecent(ctx context.Context, storeID string) bool {
+	var at int64
+	err := s.db.QueryRowContext(ctx, `SELECT share_right_at FROM whop_share_watch WHERE store_id = ?`, storeID).Scan(&at)
+	return err == nil && at > 0 && s.now().Sub(time.UnixMilli(at)) < whopShareFresh
+}
+
+// whopShareDue says whether an open app store's pass checks its share
+// though it didn't just read its plans: a payment check waits on it
+// (whopPaidPlan), and it wasn't found right recently enough.
+func (s *Server) whopShareDue(ctx context.Context, st whopStore) bool {
+	if st.Via != whopViaApp || st.ClosedWhy != "" || s.whopShareRecent(ctx, st.ID) {
+		return false
+	}
+	custs, err := s.whopCustomers(ctx, st.ID)
+	if err != nil {
+		s.log.Error("could not list Whop customers", "store", st.ID, "err", err)
+		return false
+	}
+	now := s.now().UnixMilli()
+	for _, wc := range custs {
+		if wc.Unconfirmed > 0 || wc.NextTryAt > now {
+			continue
+		}
+		for _, h := range wc.Hosting {
+			if h.checkDue(now) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // whopReadPayments keeps each payment an open app store was paid since its
 // payments were last read, and each it refunded since, for the seller's view
 // (keepCheckedPayment), on the share check's schedule. Only payments for its
 // hosting products count, those the dashboard keeps Playkeeper's share on
 // (whopSharesSet), since a seller may sell other things on the same
-// business. A payment's share comes from its fee lines, which are kept too.
+// business. A payment's share comes from its fee lines, which are kept too,
+// and read once: a payment the overlap lists again is read again only when
+// more of it was refunded since (whopPaymentKept).
 // Whop lists refunds only by when they were asked for, so the refunds read
 // goes back to the oldest one still unsettled last time, which may yet
 // change its payment. The read counts as done only once all of it is, so
@@ -146,7 +242,7 @@ func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopSt
 		pays = append(pays, pay)
 	}
 	for _, pay := range pays {
-		if _, ok := hosting[pay.ProductID]; !ok {
+		if _, ok := hosting[pay.ProductID]; !ok || s.whopPaymentKept(ctx, st.ID, pay) {
 			continue
 		}
 		lines, err := c.PaymentFees(ctx, pay.ID)
@@ -167,6 +263,28 @@ func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopSt
 		ON CONFLICT(store_id) DO UPDATE SET payments_read_at = excluded.payments_read_at, refunds_from = excluded.refunds_from`, st.ID, now.UnixMilli(), from); err != nil {
 		s.log.Error("could not note a store's payments were read", "store", st.ID, "err", err)
 	}
+}
+
+// whopPaymentKept says whether a payment is kept for the store as Whop has
+// it now: read before, with nothing refunded since. Its fee lines were kept
+// with it (keepWhopFeeLines), so they aren't read again.
+func (s *Server) whopPaymentKept(ctx context.Context, storeID string, pay whop.Payment) bool {
+	if pay.Total == nil {
+		return false
+	}
+	amount, err := pay.Total.Minor()
+	if err != nil {
+		return false
+	}
+	var refunded int64
+	if pay.Refunded != nil {
+		if refunded, err = pay.Refunded.Minor(); err != nil {
+			return false
+		}
+	}
+	var kept int64
+	err = s.db.QueryRowContext(ctx, `SELECT refunded FROM whop_payments WHERE payment_id = ? AND store_id = ?`, pay.ID, storeID).Scan(&kept)
+	return err == nil && kept == min(refunded, amount)
 }
 
 // keepCheckedPayment keeps a payment the share check read for the seller's
@@ -246,10 +364,14 @@ func (s *Server) whopGrantWatch(ctx context.Context, st whopStore, lost []string
 	return false
 }
 
+// whopWatches are the columns of whop_share_watch that say since when a
+// store has been some way, 0 while it isn't.
+var whopWatches = map[string]bool{"share_bad_since": true, "grant_gone_since": true, "share_unchecked_since": true}
+
 // whopWatchSince is since when the store has been as column says (see
 // whop_share_watch), from now if it wasn't.
 func (s *Server) whopWatchSince(ctx context.Context, storeID, column string) (time.Time, error) {
-	if column != "share_bad_since" && column != "grant_gone_since" {
+	if !whopWatches[column] {
 		return time.Time{}, fmt.Errorf("no such watch %q", column)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO whop_share_watch(store_id, `+column+`) VALUES(?, ?)
@@ -263,7 +385,7 @@ func (s *Server) whopWatchSince(ctx context.Context, storeID, column string) (ti
 
 // whopWatchClear notes the store is no longer as column says.
 func (s *Server) whopWatchClear(ctx context.Context, storeID, column string) error {
-	if column != "share_bad_since" && column != "grant_gone_since" {
+	if !whopWatches[column] {
 		return fmt.Errorf("no such watch %q", column)
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE whop_share_watch SET `+column+` = 0 WHERE store_id = ?`, storeID)
@@ -280,56 +402,94 @@ func (s *Server) whopClosedFor(ctx context.Context, storeID, by string) (bool, e
 	return err == nil, err
 }
 
-// whopCustomerPaid checks that each membership giving an app store's
-// customer their servers was paid with Playkeeper's share for its plan (see
-// whopSharePaid), before they start or their plan grows.
-func (s *Server) whopCustomerPaid(ctx context.Context, c *whop.Client, st whopStore, whopUserID string) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.membership_id, m.status, p.allowance_memory_mb FROM whop_memberships m
-		JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id
-		WHERE m.store_id = ? AND m.whop_user_id = ? AND m.stale = 0 AND p.allowance_from != '' ORDER BY m.membership_id`, st.ID, whopUserID)
-	if err != nil {
-		return err
-	}
-	type owed struct {
-		membership string
-		memoryMB   int
-	}
-	var all []owed
-	for rows.Next() {
-		var o owed
-		var status string
-		if err := rows.Scan(&o.membership, &status, &o.memoryMB); err != nil {
-			rows.Close()
-			return err
+// whopPaidPlan is what an app store's customer is hosted with: what their
+// memberships that give servers allow together, each counted only as far
+// as a payment of it carried Playkeeper's share (whopSharePaid), as
+// whop_membership_checks keeps. A membership never found paid gives
+// nothing; one moved to a plan with more memory gives what it was paid for
+// until a payment carries the share for its new plan. One not paid for its
+// plan is checked while the store is open and its share was found right
+// recently (whopShareFresh), at once and then on the usual retry schedule,
+// without holding up the rest of the customer, so a paid membership that
+// ends pauses them even while another waits. What waits is waiting, ""
+// when nothing does, and unsure is whether a membership that gives nothing
+// never had Whop's answer, paid or not (whopNotPaid), so what it would
+// give isn't known yet.
+func (s *Server) whopPaidPlan(ctx context.Context, c *whop.Client, st whopStore, wc whopCustomer) (plan CustomerPlan, waiting string, unsure bool) {
+	now := s.now().UnixMilli()
+	var parts []planPart
+	var waits []string
+	for _, h := range wc.Hosting {
+		if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {
+			err := s.whopSharePaid(ctx, c, st, wc.WhopUserID, h.ID, h.Part.memoryMB)
+			var np *whopNotPaid
+			switch {
+			case err == nil:
+				h.Paid, h.Problem, h.Answered = h.Part, "", true
+			case errors.As(err, &np):
+				h.Problem, h.Answered = err.Error(), true
+			default:
+				h.Problem = err.Error()
+				var we *whop.Error
+				if errors.As(err, &we) {
+					h.Problem = whopProblem(err)
+				}
+			}
+			s.keepWhopMembershipCheck(st.ID, h)
 		}
-		if whopHosts(st.Via, status) {
-			all = append(all, o)
+		if h.paidFor() {
+			parts = append(parts, h.Part)
+			continue
+		}
+		if h.Paid.memoryMB > 0 {
+			parts = append(parts, h.Paid)
+		} else if !h.Answered {
+			unsure = true
+		}
+		if h.Problem != "" {
+			waits = append(waits, h.Problem)
 		}
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, o := range all {
-		if err := s.whopSharePaid(ctx, c, st, whopUserID, o.membership, o.memoryMB); err != nil {
-			return err
-		}
-	}
-	return nil
+	return customerPlan(parts), strings.Join(waits, "; "), unsure
 }
 
-// whopPlanGrows says whether p gives more servers or memory than the plan
-// applied last (see planKey), as a new membership does. A plan applied in
-// a shape it can't read counts as growing, so it's checked.
-func whopPlanGrows(applied string, p CustomerPlan) bool {
-	parts := strings.Split(applied, "|")
-	if len(parts) < 4 {
-		return true
+// keepWhopMembershipCheck keeps what the payment check found for a
+// membership: what it gives as paid for, or why it isn't and when to look
+// again.
+func (s *Server) keepWhopMembershipCheck(store string, h whopHosting) {
+	now := s.now()
+	var err error
+	if h.paidFor() {
+		_, err = s.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb, checked_at, answered)
+			VALUES(?,?,?,?,?,?,?,?,1)
+			ON CONFLICT(store_id, membership_id) DO UPDATE SET paid_plan_id = excluded.paid_plan_id, paid_title = excluded.paid_title, paid_servers = excluded.paid_servers,
+			paid_mb = excluded.paid_mb, paid_disk_gb = excluded.paid_disk_gb, problem = '', attempts = 0, next_check_at = 0, checked_at = excluded.checked_at, answered = 1`,
+			store, h.ID, h.Paid.id, h.Paid.name, h.Paid.servers, h.Paid.memoryMB, h.Paid.diskGB, now.UnixMilli())
+	} else {
+		_, err = s.db.Exec(`INSERT INTO whop_membership_checks(store_id, membership_id, problem, attempts, next_check_at, checked_at, answered) VALUES(?,?,?,1,?,?,?)
+			ON CONFLICT(store_id, membership_id) DO UPDATE SET problem = excluded.problem, attempts = attempts + 1, next_check_at = excluded.next_check_at, checked_at = excluded.checked_at,
+			answered = MAX(answered, excluded.answered)`,
+			store, h.ID, h.Problem, now.Add(whopBackoff(h.Attempts)).UnixMilli(), now.UnixMilli(), h.Answered)
 	}
-	servers, err1 := strconv.Atoi(parts[len(parts)-3])
-	memoryMB, err2 := strconv.Atoi(parts[len(parts)-2])
-	if err1 != nil || err2 != nil {
-		return true
+	if err != nil {
+		s.log.Error("could not keep what the payment check found", "store", store, "membership", h.ID, "err", err)
 	}
-	return p.Servers > servers || p.MemoryMB > memoryMB
+}
+
+// noteWhopPaymentProblem shows why some of an app store's customer's
+// memberships don't give servers yet (whopPaidPlan), and clears it once
+// none waits, unless a call for them failed since: that problem stays
+// until their next try.
+func (s *Server) noteWhopPaymentProblem(store, whopUserID, problem string) {
+	var err error
+	if problem == "" {
+		_, err = s.db.Exec(`UPDATE whop_customers SET problem = '' WHERE store_id = ? AND whop_user_id = ? AND attempts = 0 AND problem != ''`, store, whopUserID)
+	} else {
+		_, err = s.db.Exec(`INSERT INTO whop_customers(store_id, whop_user_id, problem, updated_at) VALUES(?,?,?,?)
+			ON CONFLICT(store_id, whop_user_id) DO UPDATE SET problem = excluded.problem WHERE whop_customers.attempts = 0 AND whop_customers.problem != excluded.problem`,
+			store, whopUserID, problem, s.now().UnixMilli())
+	}
+	if err != nil {
+		s.log.Error("could not note why a customer's membership waits", "store", store, "customer", whopUserID, "err", err)
+	}
 }

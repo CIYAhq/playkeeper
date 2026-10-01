@@ -4948,6 +4948,18 @@ control "a new place counts its copies from none" internal/agent/offsite.go \
   'copies_made = 0 WHERE' \
   'copies_made = copies_made WHERE' \
   ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+# shellcheck disable=SC2016
+control "a finished copy is stored with its count and its leaving the queue" internal/agent/offsite.go \
+  '	if err := s.recordCopy(b, cp); err != nil {' \
+  '	raw, _ := json.Marshal(cp)
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, s.id, b.ID, b.Kind, b.CreatedAt.UnixMilli(), b.FileName, b.SizeBytes, b.MinecraftVersion, b.LevelName, string(raw), s.now().UnixMilli())
+	if err == nil {
+		_, _ = s.db.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id)
+		s.dropUpload(b.ID)
+	}
+	if err != nil {' \
+  ./internal/agent '^TestARecordedCopyIsAlreadyCountedAndOutOfTheQueue$'
 control "a scheduled backup refused for want of a pause is recorded" internal/agent/schedules.go \
   's.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)' \
   '_ = why' \
@@ -6913,8 +6925,8 @@ control "the store's marks follow the dashboard's port at once" internal/panel/w
   'err == nil && false && dash != st.MarkedAs {' \
   ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
 control "a Whop refusing the marks is asked again a minute later, not every pass" internal/panel/whop_customers.go \
-  '	if st.Problem == "" || since >= time.Minute {' \
-  '	if true {' \
+  '	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {' \
+  '	if st.Via == whopViaKey {' \
   ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
 control "a new install leaves the dashboard on 8443 while something has port 443" internal/install/install.go \
   'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
@@ -8478,8 +8490,8 @@ control "stores: reading a store leaves another's plans" internal/panel/whop.go 
   "DELETE FROM whop_plans WHERE ? != '' AND plan_id NOT IN" \
   ./internal/panel '^TestReadingOneStoreLeavesAnothersPlans$'
 control "stores: a store's customers have its own memberships" internal/panel/whop_customers.go \
-  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? ORDER BY' \
-  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? OR 1 ORDER BY' \
+  'WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id' \
+  'WHERE m.store_id = ? OR 1 ORDER BY m.updated_at, m.membership_id' \
   ./internal/panel '^TestEachStoreStartsItsOwnCustomers$'
 control "stores: a store's customers are its own" internal/panel/whop_customers.go \
   'problem, updated_at FROM whop_customers WHERE store_id = ?`' \
@@ -8853,6 +8865,18 @@ control "share: a plan past the fleet's limits is a problem" internal/panel/whop
   'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {' \
   'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" && false {' \
   ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "share: a price not on Whop yet is judged as Whop will charge it" internal/panel/whop_share.go \
+  'plans[i].InitialPrice, plans[i].RenewalPrice = 0, price' \
+  '_, _ = i, price' \
+  ./internal/panel '^TestAShareIsSetForAPriceBeforeItsOnWhop$'
+control "share: a hosting plan that shares its product needs a look" internal/panel/whop_customers.go \
+  'problem = whopSharedNote(plans)' \
+  '_ = plans' \
+  ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
+control "share: only plans on sale share a product" internal/panel/whop_share.go \
+  'func(p whop.Plan) bool { return p.Visibility == "archived" })' \
+  'func(p whop.Plan) bool { return false })' \
+  ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
 control "hosting: a one-time purchase gives no servers in an app store" internal/panel/whop_customers.go \
   'if via == whopViaApp && status == "completed" {' \
   'if false && via == whopViaApp && status == "completed" {' \
@@ -8863,8 +8887,8 @@ control "hosting: an app store's one-time purchase gives no servers, in a query"
   ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
 # shellcheck disable=SC2016
 control "hosting: a one-time purchase keeps no servers running past a cancelled plan" internal/panel/whop_customers.go \
-  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)' \
-  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0)' \
+  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0' \
+  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0' \
   ./internal/panel '^TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn$'
 # shellcheck disable=SC2016
 control "hosting: signing in on a one-time purchase in an app store makes no account" internal/panel/whop_signin.go \
@@ -8957,10 +8981,63 @@ control "grant watch: a grant Whop couldn't check counts neither way" internal/p
   'case problem == "":' \
   'default:' \
   ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
-control "payment check: before a customer starts" internal/panel/whop_customers.go \
-  'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
-  'if err := error(nil); err != nil {' \
+control "payment check: an app store's customer is hosted by their paid plan" internal/panel/whop_customers.go \
+  'wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
+  '_, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: a membership counts only as far as a payment of it carried the share" internal/panel/whop_share_hooks.go \
+  'if h.paidFor() {' \
+  'if true {' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: a membership not paid for its plan is checked while the store is open" internal/panel/whop_share_hooks.go \
+  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) && false {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: a membership moved to more memory gives what it was paid for" internal/panel/whop_share_hooks.go \
+  'if h.Paid.memoryMB > 0 {' \
+  'if false {' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: the customer's page says what waits" internal/panel/whop_customers.go \
+  's.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)' \
+  '_ = waits' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: only the membership's own payment" internal/whop/payments.go \
+  'return p.MembershipID != membershipID || p.Status != "paid"' \
+  'return false' \
+  ./internal/panel '^TestThePaymentCheckTakesOnlyTheMembershipsOwnPayment$'
+control "payment check: only a paid payment" internal/whop/payments.go \
+  'return p.MembershipID != membershipID || p.Status != "paid"' \
+  'return p.MembershipID != membershipID' \
+  ./internal/whop '^TestPaidPaymentsAreOnlyTheMembershipsOwn$'
+# shellcheck disable=SC2016
+control "payment check: an unpaid membership doesn't hold back a cancellation's reminder" internal/panel/whop_customers.go \
+  'AND `+whopPaidIn(st.Via, "o")+`)`' \
+  'AND 1)`' \
+  ./internal/panel '^TestACancellationIsRemindedThoughAnUnpaidMembershipGoesOn$'
+control "payment check: the migration keeps one membership of the plan a customer was given, or their only one" internal/panel/auth.go \
+  'AND (a.of_given = 1 AND h.plan_id = a.ids OR a.of_given = 0 AND a.n = 1);' \
+  ';' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
+control "payment check: a started customer isn't given less while a membership of theirs has no answer" internal/panel/whop_customers.go \
+  'keep = unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)' \
+  'keep = false && unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)' \
+  ./internal/panel '^TestAStartedCustomerIsntPausedWhileTheirPaymentCantBeChecked$'
+control "payment check: Whop's answer that a membership wasn't paid counts as an answer" internal/panel/whop_share_hooks.go \
+  'case errors.As(err, &np):' \
+  'case false && errors.As(err, &np):' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: starting again tries a waiting payment check at once" internal/panel/whop_customers.go \
+  'UPDATE whop_membership_checks SET next_check_at = 0 WHERE next_check_at > 0' \
+  'UPDATE whop_membership_checks SET next_check_at = 0 WHERE 0' \
+  ./internal/panel '^TestAPaymentCheckWaitingIsTriedAtOnceOnStartingAgain$'
+control "payment check: the migration compares within an allowance's bounds" internal/panel/auth.go \
+  'min(sum(servers), 10) AS servers, min(sum(mb), 65536) AS mb' \
+  'sum(servers) AS servers, sum(mb) AS mb' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
+control "payment check: the migration keeps a moved membership as paid for what was given" internal/panel/auth.go \
+  'COALESCE((SELECT q.title FROM whop_plans q WHERE q.store_id = a.store_id AND q.plan_id = a.ids), a.ids), a.servers, a.mb, a.disk' \
+  'h.title, h.servers, h.mb, h.disk' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
 control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
   's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
   '_ = whopUserID' \
@@ -8974,9 +9051,61 @@ control "payments: a refund keeps its payment again" internal/panel/whop_share_h
   '_ = pay' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payments: only the hosting products' payments are kept" internal/panel/whop_share_hooks.go \
-  'if _, ok := hosting[pay.ProductID]; !ok {' \
-  'if _, ok := hosting[pay.ProductID]; !ok && false {' \
+  'if _, ok := hosting[pay.ProductID]; !ok || s.whopPaymentKept(ctx, st.ID, pay) {' \
+  'if _, ok := hosting[pay.ProductID]; !ok && false || s.whopPaymentKept(ctx, st.ID, pay) {' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a payment kept isn't read again" internal/panel/whop_share_hooks.go \
+  'if _, ok := hosting[pay.ProductID]; !ok || s.whopPaymentKept(ctx, st.ID, pay) {' \
+  'if _, ok := hosting[pay.ProductID]; !ok {' \
+  ./internal/panel '^TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded$'
+control "payments: a payment refunded since it was kept is read again" internal/panel/whop_share_hooks.go \
+  'return err == nil && kept == min(refunded, amount)' \
+  'return err == nil && (kept == min(refunded, amount) || true)' \
+  ./internal/panel '^TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded$'
+control "share fresh: a pass that didn't read the store checks the share when a payment waits on it" internal/panel/whop_customers.go \
+  '(plansRead || s.whopShareDue(ctx, st))' \
+  '(plansRead || false)' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: a payment counts only after the share was found right" internal/panel/whop_share_hooks.go \
+  'if h.checkDue(now) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now) && st.ClosedWhy == "" {' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: only a share found right recently counts" internal/panel/whop_share_hooks.go \
+  'return err == nil && at > 0 && s.now().Sub(time.UnixMilli(at)) < whopShareFresh' \
+  'return err == nil && at > 0' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: the share check notes when it found the share right" internal/panel/whop_share_hooks.go \
+  's.noteWhopShareRight(ctx, st.ID, problem == "")' \
+  's.noteWhopShareRight(ctx, st.ID, false)' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: the share is checked out of turn only for a payment check that's due" internal/panel/whop_share_hooks.go \
+  'if h.checkDue(now) {' \
+  'if h.checkDue(now) || true {' \
+  ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
+control "share unchecked: a share check that keeps failing closes the store" internal/panel/whop_share_hooks.go \
+  's.noteWhopShareUnchecked(ctx, st, err)' \
+  '_ = err' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "share unchecked: only after an hour" internal/panel/whop_share_hooks.go \
+  'if s.now().Sub(since) < whopShareUncheckedFor {' \
+  'if false && s.now().Sub(since) < whopShareUncheckedFor {' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "share unchecked: an answer from Whop starts the hour afresh" internal/panel/whop_share_hooks.go \
+  'if err := s.whopWatchClear(ctx, st.ID, "share_unchecked_since"); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "leaving: a store that comes back sheds the share check's closure" internal/panel/leaving.go \
+  'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?' \
+  'DELETE FROM whop_store_closures WHERE 0 AND store_id = ? AND closed_by = ?' \
+  ./internal/panel '^TestAStoreThatComesBackStartsItsShareWatchAfresh$'
+control "leaving: a store that comes back counts a bad share from its next finding" internal/panel/leaving.go \
+  'UPDATE whop_share_watch SET share_bad_since = 0, grant_gone_since = 0' \
+  'UPDATE whop_share_watch SET grant_gone_since = 0' \
+  ./internal/panel '^TestAStoreThatComesBackStartsItsShareWatchAfresh$'
+control "app store cadence: an app store's products have no address to compare" internal/panel/whop_customers.go \
+  '	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {' \
+  '	if st.Problem == "" || since >= time.Minute {' \
+  ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
 control "payments: Whop is asked for a store's payments newest paid first" internal/whop/payments.go \
   '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
   '"first": {strconv.Itoa(100)}}' \
@@ -8989,11 +9118,6 @@ control "payments: a refund still unsettled is read again once it settles" inter
   'r.Unsettled() && !at.IsZero()' \
   'false && r.Unsettled() && !at.IsZero()' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
-control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
-  'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
-  'if false {' \
-  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
-
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.
 control "pausing: a paused customer only looks, downloads and looks after their account" internal/panel/workspace.go \
@@ -9698,9 +9822,25 @@ control "seller prices: Whop is asked for no initial price" internal/whop/store.
   'map[string]any{"initial_price": price, "renewal_price": price}' \
   ./internal/whop '^TestSetPlanPriceChargesItOnceAtCheckoutAndOnEachRenewal$'
 control "seller prices: an open store's share follows a new price at once" internal/panel/sellerprices.go \
-  'case len(set) > 0:' \
-  'case len(set) < 0:' \
+  'if len(set) > 0 && !shareFirst {' \
+  'if len(set) < 0 && !shareFirst {' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: a lower price has its share set first" internal/panel/sellerprices.go \
+  'shareFirst := len(set) > 0 && price < sp.Price' \
+  'shareFirst := len(set) > 0 && price < 0' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a higher price is set before its share" internal/panel/sellerprices.go \
+  'shareFirst := len(set) > 0 && price < sp.Price' \
+  'shareFirst := len(set) > 0 && price != sp.Price' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a lower price whose share Whop won't set is refused" internal/panel/sellerprices.go \
+  'problem, err := s.syncWhopSharesAt(ctx, c, st, true, map[string]float64{sp.ID: float64(price) / 100})' \
+  'problem, err := s.syncWhopSharesAt(ctx, c, st, true, map[string]float64{sp.ID: float64(price) / 100}); err = nil' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a lower price is refused on a problem with the shares" internal/panel/sellerprices.go \
+  'case problem != "":' \
+  'case false:' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
 control "seller prices: a plan priced in another currency doesn't sell" internal/panel/sellerprices.go \
   'case !usd:' \
   'case false:' \

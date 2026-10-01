@@ -111,7 +111,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	}
 	switch {
-	case route == "GET /permissions" && f.permissionsDown, route == "GET /memberships" && f.membershipsDown:
+	case route == "GET /permissions" && f.permissionsDown, route == "GET /memberships" && f.membershipsDown,
+		route == "GET /affiliates/aff_"+biz+"/overrides" && b.sharesDown, route == "GET /payments" && b.paymentsDown:
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
 	case route == "GET /permissions":
@@ -191,6 +192,9 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"id": "aff_" + biz, "status": "active"})
 	case route == "GET /affiliates/aff_"+biz+"/overrides":
 		page(b.shares)
+	case f.shareDown && strings.HasPrefix(route, "POST /affiliates/aff_"+biz+"/overrides") || f.shareDown && strings.HasPrefix(route, "PATCH /affiliates/aff_"+biz+"/overrides/"):
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the affiliate:update scope."}}`)
 	case route == "POST /affiliates/aff_"+biz+"/overrides":
 		share := map[string]any{"id": fmt.Sprintf("ovr_%s_%d", biz, len(b.shares)+1)}
 		for _, k := range []string{"override_type", "product_id", "commission_type", "commission_value", "revenue_basis"} {
@@ -318,6 +322,27 @@ func (f *fakeWhop) buyAt(biz, id, user, plan, status string) map[string]any {
 	b.fees[pay] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
 		"settlement_amount": map[string]any{"amount": strings.TrimPrefix(dollarsOf(whopShareFor(memoryMB)), "$"), "currency": "usd", "decimals": 2}}}
 	return m
+}
+
+// askedSince is each request asked since the first from, as method and
+// path, that starts with any of routes.
+func (f *fakeWhop) askedSince(from int, routes ...string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, a := range f.asked[from:] {
+		if slices.ContainsFunc(routes, func(r string) bool { return strings.HasPrefix(a, r) }) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// askedSoFar is how many requests the dashboard has asked, for askedSince.
+func (f *fakeWhop) askedSoFar() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.asked)
 }
 
 // sentIn is what went to the support chat of the business that installed

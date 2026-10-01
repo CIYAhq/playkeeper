@@ -56,8 +56,11 @@ type fakeBusiness struct {
 	fees     map[string][]map[string]any
 	refunds  []map[string]any
 	// unlistArchived leaves archived plans out of the plan list, as Whop
-	// may, though each is still read by its id.
+	// may, though each is still read by its id. sharesDown makes listing
+	// the partner's revenue shares fail, and paymentsDown listing payments.
 	unlistArchived bool
+	sharesDown     bool
+	paymentsDown   bool
 }
 
 // fakeChat is an installed business's support chat with one customer.
@@ -111,14 +114,18 @@ type fakeWhop struct {
 	marksDown bool
 	showDown  bool
 	// shareWrites are the revenue shares the app added or set, as
-	// "add <product> <percent>" or "set <share> <percent>".
+	// "add <product> <percent>" or "set <share> <percent>", and shareDown
+	// makes Whop refuse adding or setting one.
 	shareWrites []string
+	shareDown   bool
 	// refuseFilter refuses listing memberships by plan, as a Whop that
 	// doesn't know the filter might.
 	refuseFilter bool
 	// requests counts what the dashboard asked, and planReads its reads of
-	// the store's plans, which only reading the store does.
+	// the store's plans, which only reading the store does. asked is each
+	// request's method and path.
 	requests, planReads int
+	asked               []string
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
 	// the refresh tokens ended. noTokenExchange is an app without the
 	// oauth:token_exchange permission on Whop.
@@ -276,6 +283,7 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests++
+	f.asked = append(f.asked, r.Method+" "+r.URL.Path)
 	if r.URL.Path == "/.well-known/jwks.json" {
 		w.Write(whop.UserTokenKeys(whopTestTokenKid, &f.tokenKey.PublicKey))
 		return

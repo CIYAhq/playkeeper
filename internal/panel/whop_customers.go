@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -78,6 +79,16 @@ func whopHostingIn(via string) string {
 		return whopAppHosting
 	}
 	return whopAccess
+}
+
+// whopPaidIn is the condition, on a membership alias of a store reached
+// via, that the payment check counts it (whopPaidPlan): in an app store, a
+// payment of it carried Playkeeper's share; in the key store, always.
+func whopPaidIn(via, alias string) string {
+	if via != whopViaApp {
+		return "1"
+	}
+	return `EXISTS (SELECT 1 FROM whop_membership_checks k WHERE k.store_id = ` + alias + `.store_id AND k.membership_id = ` + alias + `.membership_id AND k.paid_mb > 0)`
 }
 
 // whopHostingSQL is the condition, on a membership m of any store, that its
@@ -241,8 +252,8 @@ func (s *Server) runWhop(ctx context.Context) {
 	}
 }
 
-// retryWhopNow drops the waits of the calls and messages that failed, so
-// they're tried at once, and has the next pass read the store and every
+// retryWhopNow drops the waits of the calls, messages and payment checks
+// that failed, so they're tried at once, and has the next pass read the store and every
 // membership again. Starting again does it, so a release that brings what
 // was missing, such as the hosting core or a webhook Whop now takes, needs
 // no wait, and a purchase made while the webhook was missing is caught
@@ -253,6 +264,9 @@ func (s *Server) retryWhopNow() {
 	}
 	if _, err := s.db.Exec(`UPDATE whop_messages SET next_try_at = 0 WHERE sent_at = 0`); err != nil {
 		s.log.Error("could not retry Whop messages", "err", err)
+	}
+	if _, err := s.db.Exec(`UPDATE whop_membership_checks SET next_check_at = 0 WHERE next_check_at > 0`); err != nil {
+		s.log.Error("could not retry Whop payment checks", "err", err)
 	}
 	if _, err := s.db.Exec(`UPDATE whop_stores SET polled_at = 0, synced_at = 0`); err != nil {
 		s.log.Error("could not have Whop read again", "err", err)
@@ -354,7 +368,7 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 		s.log.Warn("could not read memberships from Whop", "store", st.ID, "err", read)
 	}
 	plansRead := s.refreshWhopPlans(ctx, c, st)
-	if st.Via == whopViaApp && plansRead && s.whopShareStep(ctx, c, &st) {
+	if st.Via == whopViaApp && (plansRead || s.whopShareDue(ctx, st)) && s.whopShareStep(ctx, c, &st) {
 		return
 	}
 	if s.whopTakenOver(st.ID) || !s.stillSellsFor(ctx, c, st) {
@@ -525,35 +539,42 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 
 // refreshWhopPlans reads the store again every whopPollEvery, so a plan's
 // allowance changed on Whop reaches its customers, and sooner when the
-// store may be out of date (see whopStoreDue). It says whether it just read
-// the store.
+// store may be out of date (see whopStoreDue). An app store's read notes
+// its hosting plans that share a product as its problem (whopSharedNote).
+// It says whether it just read the store.
 func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopStore) bool {
 	if !s.whopStoreDue(ctx, st) {
 		return false
 	}
 	problem := ""
-	if err := s.readWhopStore(ctx, c, st.ID, false); err != nil {
+	plans, err := s.readWhopStorePlans(ctx, c, st.ID, false)
+	switch {
+	case err != nil:
 		problem = whopProblem(err)
 		s.log.Warn("could not read the store on Whop", "store", st.ID, "err", err)
+	case st.Via == whopViaApp:
+		problem = whopSharedNote(plans)
 	}
 	if _, err := s.db.Exec(`UPDATE whop_stores SET synced_at = ?, problem = ? WHERE store_id = ?`, s.now().UnixMilli(), problem, st.ID); err != nil {
 		s.log.Error("could not record reading the store on Whop", "err", err)
 	}
-	return problem == ""
+	return err == nil
 }
 
 // whopStoreDue says whether the reconciler reads the store this pass: every
-// whopPollEvery; at once when the products name another address than the
-// dashboard's, since the store sends buyers there and the old one may no
-// longer answer (the dashboard losing port 443, say), but only a minute
-// after a read that failed; and two minutes after the last read when a
-// membership is of a plan the dashboard hasn't read yet.
+// whopPollEvery; at once when a key store's products name another address
+// than the dashboard's, since the store sends buyers there and the old one
+// may no longer answer (the dashboard losing port 443, say), but only a
+// minute after a read that failed; and two minutes after the last read
+// when a membership is of a plan the dashboard hasn't read yet. Reading
+// the store doesn't mark an app store's products (Open the store does), so
+// no address of theirs is kept to compare.
 func (s *Server) whopStoreDue(ctx context.Context, st whopStore) bool {
 	since := s.now().Sub(st.SyncedAt)
 	if since >= whopPollEvery {
 		return true
 	}
-	if st.Problem == "" || since >= time.Minute {
+	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {
 		if dash, err := s.dashboardURL(ctx); err == nil && dash != "" && dash != st.MarkedAs {
 			return true
 		}
@@ -582,6 +603,37 @@ type whopCustomer struct {
 	Unconfirmed int
 	Latest      string
 	UpdatedAt   int64
+	// Hosting is each confirmed membership of theirs that gives servers,
+	// with what the payment check found for it, since in an app store only
+	// those it found paid count (whopPaidPlan).
+	Hosting []whopHosting
+}
+
+// whopHosting is one membership that gives a customer servers: Part, what
+// its plan gives now, and what the payment check found, Paid, what it gave
+// when a payment of it last carried Playkeeper's share (zero for never),
+// and while it isn't paid for Part, the Problem it found, its Attempts and
+// when it looks again. Answered is whether the check ever had Whop's
+// answer for it, paid or not, rather than Whop failing to give one.
+type whopHosting struct {
+	ID          string
+	Part, Paid  planPart
+	Problem     string
+	Attempts    int
+	NextCheckAt int64
+	Answered    bool
+}
+
+// paidFor says whether a payment of the membership carried the share for
+// what its plan gives now: the share is by memory alone.
+func (h whopHosting) paidFor() bool {
+	return h.Paid.memoryMB > 0 && h.Paid.memoryMB >= h.Part.memoryMB
+}
+
+// checkDue says whether the payment check looks at the membership at now,
+// in milliseconds: it isn't paid for its plan, and it's time to look again.
+func (h whopHosting) checkDue(now int64) bool {
+	return !h.paidFor() && h.NextCheckAt <= now
 }
 
 // planPart is one plan with an allowance that a customer's membership grants.
@@ -619,6 +671,18 @@ func customerPlan(parts []planPart) CustomerPlan {
 // planKey is what the core was given for a plan, so a change shows.
 func planKey(p CustomerPlan) string {
 	return fmt.Sprintf("%s|%d|%d|%d", p.ID, p.Servers, p.MemoryMB, p.DiskGB)
+}
+
+// whopGivesLess says whether p allows fewer servers or less memory than
+// the plan the core was given, applied (planKey).
+func whopGivesLess(p CustomerPlan, applied string) bool {
+	f := strings.Split(applied, "|")
+	if len(f) != 4 {
+		return false
+	}
+	servers, err1 := strconv.Atoi(f[1])
+	memoryMB, err2 := strconv.Atoi(f[2])
+	return err1 == nil && err2 == nil && (p.Servers < servers || p.MemoryMB < memoryMB)
 }
 
 // capAllowance keeps what several plans allow together within an
@@ -661,9 +725,13 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 		*wc = r
 	}
 	rows.Close()
-	rows, err = s.db.QueryContext(ctx, `SELECT m.whop_user_id, m.plan_id, m.status, m.stale, m.updated_at,
-		COALESCE(p.title, ''), COALESCE(p.allowance_servers, 0), COALESCE(p.allowance_memory_mb, 0), COALESCE(p.disk_gb, 0), COALESCE(p.allowance_from, '')
-		FROM whop_memberships m LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id`, storeID)
+	rows, err = s.db.QueryContext(ctx, `SELECT m.whop_user_id, m.membership_id, m.plan_id, m.status, m.stale, m.updated_at,
+		COALESCE(p.title, ''), COALESCE(p.allowance_servers, 0), COALESCE(p.allowance_memory_mb, 0), COALESCE(p.disk_gb, 0), COALESCE(p.allowance_from, ''),
+		COALESCE(k.paid_plan_id, ''), COALESCE(k.paid_title, ''), COALESCE(k.paid_servers, 0), COALESCE(k.paid_mb, 0), COALESCE(k.paid_disk_gb, 0),
+		COALESCE(k.problem, ''), COALESCE(k.attempts, 0), COALESCE(k.next_check_at, 0), COALESCE(k.answered, 0)
+		FROM whop_memberships m LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id
+		LEFT JOIN whop_membership_checks k ON k.store_id = m.store_id AND k.membership_id = m.membership_id
+		WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id`, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -671,10 +739,12 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 	for rows.Next() {
 		var id, from string
 		var pt planPart
+		var h whopHosting
 		var status string
 		var stale bool
 		var updated int64
-		if err := rows.Scan(&id, &pt.id, &status, &stale, &updated, &pt.name, &pt.servers, &pt.memoryMB, &pt.diskGB, &from); err != nil {
+		if err := rows.Scan(&id, &h.ID, &pt.id, &status, &stale, &updated, &pt.name, &pt.servers, &pt.memoryMB, &pt.diskGB, &from,
+			&h.Paid.id, &h.Paid.name, &h.Paid.servers, &h.Paid.memoryMB, &h.Paid.diskGB, &h.Problem, &h.Attempts, &h.NextCheckAt, &h.Answered); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -685,6 +755,8 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 			wc.Unconfirmed++
 		case from != "" && whopHosts(via, status):
 			parts[id] = append(parts[id], pt)
+			h.Part = pt
+			wc.Hosting = append(wc.Hosting, h)
 		}
 	}
 	rows.Close()
@@ -707,8 +779,12 @@ func (s *Server) whopCustomers(ctx context.Context, storeID string) ([]whopCusto
 // their last plan ending pauses them; a plan starting again after that
 // starts them again. A customer with a membership Whop's API hasn't
 // confirmed is left as they are until it does, and one whose call failed
-// waits for their next try. While the store is closed, nobody starts. Each
-// is the core's customer of the store.
+// waits for their next try. While the store is closed, nobody starts. In an
+// app store, only memberships whose payment carried Playkeeper's share
+// count (whopPaidPlan), but a customer already started isn't paused or
+// given less while one of theirs has no answer from Whop yet, as while the
+// store is closed or Whop fails the check. Each is the core's customer of
+// the store.
 func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopStore) {
 	custs, err := s.whopCustomers(ctx, st.ID)
 	if err != nil {
@@ -720,8 +796,20 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client, st whopS
 		if wc.Unconfirmed > 0 || wc.NextTryAt > now {
 			continue
 		}
-		if err := s.stepWhopCustomer(ctx, c, st, wc); err != nil {
-			s.whopCustomerFailed(st.ID, wc, err)
+		waits, keep := "", false
+		if st.Via == whopViaApp {
+			var unsure bool
+			wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc)
+			keep = unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)
+		}
+		if !keep {
+			if err := s.stepWhopCustomer(ctx, c, st, wc); err != nil {
+				s.whopCustomerFailed(st.ID, wc, err)
+				continue
+			}
+		}
+		if st.Via == whopViaApp {
+			s.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)
 		}
 	}
 }
@@ -737,11 +825,6 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopSt
 	case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":
 		// A closed store starts nobody: they start once it opens.
 	case has && (wc.Applied == "" || wc.Paused):
-		if st.Via == whopViaApp {
-			if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {
-				return err
-			}
-		}
 		if cust.Handle == "" {
 			u, err := c.User(ctx, wc.WhopUserID)
 			if err != nil {
@@ -758,11 +841,6 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, st whopSt
 		}
 		return s.recordWhopCustomer(cust, planKey(wc.Plan), false, at)
 	case has && wc.Applied != planKey(wc.Plan):
-		if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {
-			if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {
-				return err
-			}
-		}
 		if err := s.hosting.ChangeCustomerPlan(ctx, cust, wc.Plan); err != nil {
 			return err
 		}
@@ -851,14 +929,16 @@ func (s *Server) queueWhopMessage(ctx context.Context, store, whopUserID, kind, 
 // remindCancelled reminds a customer of the store who cancelled the plans
 // that keep their servers running to download their world before the last
 // one ends, once for those cancellations. Cancelling one plan while another
-// goes on stops nothing, so it says nothing.
+// goes on stops nothing, so it says nothing. In an app store only
+// memberships the payment check found paid keep servers running.
 func (s *Server) remindCancelled(ctx context.Context, st whopStore) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.membership_id, m.whop_user_id, m.period_end, m.told_cancel FROM whop_memberships m
 		JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id AND p.allowance_from != ''
 		JOIN whop_customers c ON c.store_id = m.store_id AND c.whop_user_id = m.whop_user_id AND c.applied != '' AND c.paused = 0
-		WHERE m.store_id = ? AND m.stale = 0 AND m.status IN `+whopHostingIn(st.Via)+` AND NOT EXISTS (
+		WHERE m.store_id = ? AND m.stale = 0 AND m.status IN `+whopHostingIn(st.Via)+` AND `+whopPaidIn(st.Via, "m")+` AND NOT EXISTS (
 			SELECT 1 FROM whop_memberships o JOIN whop_plans q ON q.store_id = o.store_id AND q.plan_id = o.plan_id AND q.allowance_from != ''
-			WHERE o.store_id = m.store_id AND o.whop_user_id = m.whop_user_id AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)`, st.ID)
+			WHERE o.store_id = m.store_id AND o.whop_user_id = m.whop_user_id AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0
+			AND `+whopPaidIn(st.Via, "o")+`)`, st.ID)
 	if err != nil {
 		s.log.Error("could not list cancelled Whop memberships", "err", err)
 		return

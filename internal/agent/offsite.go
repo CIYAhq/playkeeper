@@ -1928,14 +1928,10 @@ func (s *server) uploadFailed(ctx context.Context, job uploadJob, err error) {
 // copyDone records a finished copy, then applies the rules at the
 // destination and, when nothing else runs, on this machine.
 func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow, b *api.Backup, cp offsite.Copy) {
-	raw, _ := json.Marshal(cp)
-	if _, err := s.db.Exec(`INSERT OR REPLACE INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?)`, s.id, b.ID, b.Kind, b.CreatedAt.UnixMilli(), b.FileName, b.SizeBytes, b.MinecraftVersion, b.LevelName, string(raw), s.now().UnixMilli()); err != nil {
+	if err := s.recordCopy(b, cp); err != nil {
 		s.log.Warn("a finished copy could not be recorded", "server", s.id, "backup", b.ID, "err", err)
 		return
 	}
-	_, _ = s.db.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id)
-	s.dropUpload(b.ID)
 	s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+offsitePlace(row.cfg.Config))
 	s.pruneOffsite(ctx, dest)
 	if !s.busy() {
@@ -1944,6 +1940,29 @@ func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow,
 			release()
 		}
 	}
+}
+
+// recordCopy stores a finished copy together with its count and its leaving
+// the queue, the copy last, so whoever sees it recorded finds it counted and
+// no longer queued, and a crash can't keep one without the others.
+func (s *server) recordCopy(b *api.Backup, cp offsite.Copy) error {
+	raw, _ := json.Marshal(cp)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, b.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, s.id, b.ID, b.Kind, b.CreatedAt.UnixMilli(), b.FileName, b.SizeBytes, b.MinecraftVersion, b.LevelName, string(raw), s.now().UnixMilli()); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // pruneOffsite deletes the copies the rules no longer keep, unless a copy is
