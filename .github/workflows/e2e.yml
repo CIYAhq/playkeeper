@@ -592,11 +592,16 @@ jobs:
           PLAYKEEPER_PEBBLE_DIR: ${{ runner.temp }}/pebble
         run: .tools/go/bin/go test -count=1 -run '^TestPebble$' -v ./internal/certs/
 
+  # This job and the two below spend most of a slow day in their setup: the
+  # 32 MB of packages Chromium needs come from Ubuntu's mirror, which sent
+  # them at 47 kB/s on 1 Oct 2026 (11 minutes, against 1 on a usual day).
+  # Their 30 minutes leave room for a mirror twice that slow on top of their
+  # tests, at most 6 minutes each.
   ui-fake-panel:
     name: Browser checks against a faked panel — the Console with a long log, desktop and phone; the stats dashboard; the click-through's own checks
     if: inputs.parts == 'all' || contains(format(',{0},', inputs.parts), ',fake-panel,')
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Pinned toolchains, the built UI and the test browser
@@ -621,15 +626,13 @@ jobs:
           path: test/e2e/ui/test-results
           retention-days: 7
 
-  # The site's checks are split between two runners so that each fits in 20
-  # minutes with room to spare: the setup's packages come from Ubuntu's
-  # mirror, which sometimes sends them at a tenth of its usual speed (a
-  # 9-minute setup instead of 2), and the site gains pages every week.
+  # The site's checks, split between two runners: together they're 13 minutes
+  # of tests, and the site gains pages every week.
   ui-site:
     name: playkeeper.io in a browser, ${{ matrix.size }} — every page nothing wider than the screen and no serious accessibility violations; the free tools; the template directory
     if: inputs.parts == 'all' || contains(format(',{0},', inputs.parts), ',fake-panel,')
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

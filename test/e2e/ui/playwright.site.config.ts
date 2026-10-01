@@ -7,8 +7,8 @@ import { defineConfig } from '@playwright/test'
 // Locally, from this directory: npx playwright test -c
 // playwright.site.config.ts. CI runs each project on a runner of its own
 // ("playkeeper.io in a browser" in e2e.yml): the checks at phone size, which
-// say so in their names, and the rest. Together they take most of a job's 20
-// minutes on one runner, and the site gains pages every week.
+// say so in their names, and the rest. Together they're 13 minutes of tests,
+// and the site gains pages every week.
 const port = Number(process.env.PK_SITE_PORT ?? 4180)
 const phone = /at phone size/
 
