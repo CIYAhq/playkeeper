@@ -941,6 +941,14 @@ control "the installer says once that a package mirror wasn't ready" internal/in
   '		if n == 1 {' \
   '		if n >= 1 {' \
   ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
+control "an installer interrupted while it waits for a mirror stops waiting" internal/install/packages.go \
+  'ctx.Err() == nil && sys.Now().Before(end)' \
+  'sys.Now().Before(end)' \
+  ./internal/install '^TestAnInstallInterruptedWhileItWaitsToTryAgainStopsThere$'
+control "an installer interrupted while it waits for a mirror doesn't try again" internal/install/packages.go \
+  'if ctx.Err() != nil {' \
+  'if false && ctx.Err() != nil {' \
+  ./internal/install '^TestAnInstallInterruptedWhileItWaitsToTryAgainStopsThere$'
 control "dnf's next try reads the metadata afresh" internal/install/packages.go \
   'if again {' \
   'if false && again {' \
