@@ -31,10 +31,6 @@ type Settings struct {
 	// landing page then shows the channel's own install command,
 	// /install/<code>, which the site's install log counts (nginx.conf).
 	Channels []Channel
-	// WhopPixel is the Whop business (biz_…) whose ad pixel /start, the Meta
-	// ads' landing page, loads. No other page loads it, and only /start's
-	// Content-Security-Policy lets it in; empty loads none.
-	WhopPixel string
 }
 
 // Analytics is an OpenAnalytics site: the script pages load, the collector it
@@ -77,7 +73,6 @@ var Default = Settings{
 		Collector: "https://analytics-c.ciya.so",
 		Key:       "oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf",
 	},
-	Stats:     "https://stats.playkeeper.io",
-	Channels:  channels,
-	WhopPixel: "biz_bbmk63HMB3yZ4c",
+	Stats:    "https://stats.playkeeper.io",
+	Channels: channels,
 }
