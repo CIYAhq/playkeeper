@@ -254,6 +254,12 @@ func (c *Client) MakePlanMonthly(ctx context.Context, planID string) (Plan, erro
 	return p, err
 }
 
+// HideProduct hides a product from the store's page on Whop. Whoever has it
+// keeps it.
+func (c *Client) HideProduct(ctx context.Context, productID string) error {
+	return c.do(ctx, http.MethodPatch, "/products/"+url.PathEscape(productID), nil, map[string]any{"visibility": "hidden"}, nil)
+}
+
 // ShowPlan makes a plan visible on the store's page. A hidden plan sells
 // only through its own link, and the store site lists only visible ones.
 func (c *Client) ShowPlan(ctx context.Context, planID string) error {
