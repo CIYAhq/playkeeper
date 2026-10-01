@@ -284,12 +284,14 @@ func (s *Server) closePagePorts(state string) {
 		if l == nil {
 			continue
 		}
-		// Shutdown closes only the listeners its server serves on already: one
-		// whose server hasn't started yet would keep the port until it does.
-		l.ln.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		l.srv.Shutdown(ctx)
 		cancel()
+		// Shutdown closes only the listeners its server serves on already: one
+		// whose server hasn't started yet would keep the port until it does.
+		// Closed before Shutdown, a listener its server serves on would end
+		// that server with an error rather than as shut down.
+		l.ln.Close()
 		s.log.Info("the public page stopped answering", "port", l.port)
 	}
 }

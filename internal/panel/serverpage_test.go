@@ -129,7 +129,13 @@ func sendSockets(t *testing.T, w http.ResponseWriter, v any, files []*os.File) {
 
 func newPageEnv(t *testing.T, a *pageAgent) *env {
 	t.Helper()
-	e, _ := newScriptedEnv(t, a.handle(t))
+	return newPageEnvLogging(t, a, io.Discard)
+}
+
+// newPageEnvLogging is newPageEnv with the panel's log written to logs.
+func newPageEnvLogging(t *testing.T, a *pageAgent, logs io.Writer) *env {
+	t.Helper()
+	e, _ := newScriptedEnvLogging(t, a.handle(t), logs)
 	e.srv.static = fstest.MapFS{
 		"index.html":           {Data: []byte(indexPage)},
 		"assets/index-a1b2.js": {Data: []byte("console.log(1)")},
@@ -446,7 +452,8 @@ func TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn(t *testing.T) {
 		}
 		return out, files
 	}
-	e := newPageEnv(t, a)
+	logs := &lockedBuffer{}
+	e := newPageEnvLogging(t, a, logs)
 	ctx := context.Background()
 
 	// Off: nothing is asked for or held.
@@ -491,6 +498,12 @@ func TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn(t *testing.T) {
 		t.Fatalf("the keeper kept port %d after the page went off: %v", https, err)
 	} else {
 		ln.Close()
+	}
+	// Its server was shut down, not cut off, so it ends without a warning.
+	for deadline := time.Now().Add(200 * time.Millisecond); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if strings.Contains(logs.String(), `level=WARN msg="the public page stopped answering"`) {
+			t.Fatalf("turning the page off logged a warning:\n%s", logs.String())
+		}
 	}
 }
 
