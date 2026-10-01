@@ -57,9 +57,10 @@ type fakeBusiness struct {
 	refunds  []map[string]any
 	// unlistArchived leaves archived plans out of the plan list, as Whop
 	// may, though each is still read by its id. sharesDown makes listing
-	// the partner's revenue shares fail.
+	// the partner's revenue shares fail, and paymentsDown listing payments.
 	unlistArchived bool
 	sharesDown     bool
+	paymentsDown   bool
 }
 
 // fakeChat is an installed business's support chat with one customer.
