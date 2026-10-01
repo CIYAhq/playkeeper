@@ -13110,6 +13110,11 @@ control "a Paper backup restores from the list the machine has while PaperMC is 
   'for _, k := range a.keptPaperCatalog() {' \
   'for _, k := range []api.CatalogEntry(nil) {' \
   ./internal/agent '^TestAPaperBackupIsRestoredWhilePaperMCIsDown$'
+# After Bugbot's finding on df3638d2: the kept list picks as PaperMC does.
+control "a backup of an experimental Paper build restores from the kept list" internal/agent/versions.go \
+  '(!k.Experimental && k.PaperBuild >= build || k.PaperBuild == build)' \
+  '(!k.Experimental && k.PaperBuild >= build)' \
+  ./internal/agent '^TestAPaperBackupIsRestoredWhilePaperMCIsDown$'
 control "the other types offer the list built into the release" internal/agent/software.go \
   'rels, at, berr := builtInTypeCatalog(typ)' \
   'rels, at, berr := []software.Release(nil), time.Time{}, software.ErrNoBuiltInList' \
