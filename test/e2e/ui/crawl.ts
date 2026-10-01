@@ -298,12 +298,16 @@ export class Crawler {
     return base ? { base, under } : null
   }
 
-  /** Waits, as long as a press is watched, for a menu or dialog that `before` didn't have. */
+  /**
+   * Waits, as long as a press is watched, for a menu or dialog that `before`
+   * didn't have, or one more of them: a toast is a dialog too, and pressing
+   * Copy's "Copied" shows a second "Copied" while the first is still up.
+   */
   private async opensLayer(before: Snapshot | null): Promise<boolean> {
     const end = Date.now() + MAX_WAIT_MS
     for (;;) {
       const now = await this.snap()
-      if (before && now && now.url === before.url && now.layers.some((l) => !before.layers.includes(l))) return true
+      if (before && now && now.url === before.url && (now.layers.length > before.layers.length || now.layers.some((l) => !before.layers.includes(l)))) return true
       if (Date.now() > end) return false
       await this.page.waitForTimeout(100)
     }
