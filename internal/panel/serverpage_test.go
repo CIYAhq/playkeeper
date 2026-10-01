@@ -36,9 +36,12 @@ type pageAgent struct {
 	// hosts are servers' own addresses, each with a page of its own server.
 	hosts []string
 	// names are who's playing, which a test may change while the page runs.
-	names   atomic.Pointer[[]string]
-	pages   atomic.Int32
-	asks    chan api.PagePortsRequest
+	names atomic.Pointer[[]string]
+	pages atomic.Int32
+	asks  chan api.PagePortsRequest
+	// answer is what the agent says about ports 443 and 80, and the sockets
+	// it passes. Without one it opens neither: the keeper asks whenever the
+	// page is on.
 	answer  func(api.PagePortsRequest) (api.PublicPagePorts, []*os.File)
 	retried atomic.Int32
 }
@@ -80,7 +83,11 @@ func (a *pageAgent) handle(t *testing.T) http.HandlerFunc {
 			// the answer notes, like the port it opened, is the test's to read:
 			// the answer reaches the panel through a socket, which orders
 			// nothing the race detector sees.
-			ports, files := a.answer(want)
+			ports := api.PublicPagePorts{HTTPS: api.PagePort{Port: 443, State: api.PortOff}, HTTP: api.PagePort{Port: 80, State: api.PortOff}}
+			var files []*os.File
+			if a.answer != nil {
+				ports, files = a.answer(want)
+			}
 			if a.asks != nil {
 				a.asks <- want
 			}
