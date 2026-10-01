@@ -10468,6 +10468,61 @@ webcontrol "seller flow: Update the store goes through a relative address, which
   'await post<SellerOpened>(' \
   "await post<SellerOpened>('https://playkeeper.invalid' + " \
   src/pages/whop-seller-view.test.tsx 'says so or why not'
+
+# Seller terms (internal/panel/sellerterms.go, the hosted blueprint's 3.3):
+# Open the store needs the box "I accept the seller terms" ticked, and keeps
+# who ticked it, when and which version, the first time each person accepts
+# a version; Update the store doesn't ask again. The version is the one the
+# terms' page on playkeeper.io gives. The seller's page links Help in the
+# Discord's #sellers channel, the terms and the privacy policy.
+control "seller terms: Open the store needs the box ticked" internal/panel/sellerprices.go \
+  'if !req.AcceptTerms {' \
+  'if false {' \
+  ./internal/panel '^TestOpenTheStoreNeedsTheSellerTermsAccepted$'
+control "seller terms: Update the store doesn't ask again" internal/panel/sellerprices.go \
+  'if !updating {' \
+  'if true {' \
+  ./internal/panel '^TestOpenTheStoreNeedsTheSellerTermsAccepted$'
+control "seller terms: opening keeps who accepted, when and which version" internal/panel/sellerprices.go \
+  'if err := s.acceptSellerTerms(r.Context(), st.ID, user); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestOpenTheStoreNeedsTheSellerTermsAccepted$'
+control "seller terms: a person's first acceptance of a version is the one kept" internal/panel/sellerterms.go \
+  'ON CONFLICT(store_id, version, whop_user) DO NOTHING' \
+  'ON CONFLICT(store_id, version, whop_user) DO UPDATE SET accepted_at = excluded.accepted_at' \
+  ./internal/panel '^TestOpenTheStoreNeedsTheSellerTermsAccepted$'
+control "seller terms: an acceptance is audited once" internal/panel/sellerterms.go \
+  'if n, _ := res.RowsAffected(); n > 0 {' \
+  'if true {' \
+  ./internal/panel '^TestOpenTheStoreNeedsTheSellerTermsAccepted$'
+control "seller terms: the version kept is the one the terms' page gives" internal/panel/sellerterms.go \
+  'const sellerTermsVersion = "2026-10-01"' \
+  'const sellerTermsVersion = "2026-09-30"' \
+  ./internal/panel '^TestTheSellerTermsVersionIsThePages$'
+control "seller terms: the page sends sellers to the #sellers channel" site/pages/cloud/seller-terms.html \
+  '<a href="https://discord.gg/XexFT2pu8t">#sellers channel</a>' \
+  '#sellers channel' \
+  ./internal/site '^TestTheSellerTerms$'
+webcontrol "seller terms: Open the store waits for the box" web/src/pages/whop-seller.tsx \
+  'disabled={!accepted}' \
+  '' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller terms: Open the store sends the tick" web/src/pages/whop-seller.tsx \
+  '{ acceptTerms: accepted }' \
+  '{}' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller terms: the box links the terms" web/src/pages/whop-seller.tsx \
+  'href={sellerTermsURL} target="_blank" rel="noreferrer" className="font-medium' \
+  'href="#" target="_blank" rel="noreferrer" className="font-medium' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller terms: every screen links the terms and the privacy policy" web/src/pages/whop-seller.tsx \
+  '<SellerLinks />' \
+  '' \
+  src/pages/whop-seller.test.tsx 'links Help in the sellers'
+webcontrol "seller terms: the seller page's Help goes to the #sellers channel" web/src/pages/whop-seller.tsx \
+  '<Frame help={sellersHelpURL}>' \
+  '<Frame>' \
+  src/pages/whop-seller.test.tsx 'links Help in the sellers'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
