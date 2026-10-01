@@ -555,3 +555,66 @@ func TestOnlyTheBusinesssTeamPricesAndOpensItsStore(t *testing.T) {
 		}
 	}
 }
+
+// Once the store is open, the seller's prices offer Update the store
+// instead of Open the store: the same call, by the same rules, which sets
+// Playkeeper's share on a hosting product the seller added since, marks it
+// for the store site and shows its plan, as a copy's plans need. The audit
+// log says it was an update. One refused for a plan that breaks the rules
+// writes nothing to Whop and leaves the store open, since only the store's
+// pass closes an open store. A suspended store is offered neither.
+func TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite(t *testing.T) {
+	f, e, token := openedAsSeller(t)
+	sharesGoToSiya(t, e)
+	offered := func(name string, open, update bool) {
+		t.Helper()
+		r := e.asSeller(t, "GET", "biz_other/prices", "", token, nil)
+		if r.body["canOpen"] != open || r.body["canUpdate"] != update {
+			t.Fatalf("%s offers Open the store %v and Update the store %v", name, r.body["canOpen"], r.body["canUpdate"])
+		}
+	}
+	sell := func() resp {
+		t.Helper()
+		return e.asSeller(t, "POST", "biz_other/sell", `{}`, token, nil)
+	}
+	offered("a store not open yet", true, false)
+	if r := sell(); r.status != http.StatusOK || r.body["open"] != true {
+		t.Fatalf("Open the store: %d %v", r.status, r.body)
+	}
+	offered("an open store", false, true)
+	f.setOtherProduct("prod_big", whop.Metadata{})
+	f.addOtherPlan(map[string]any{"id": "plan_big", "title": "Big", "visibility": "hidden", "renewal_price": 24,
+		"product": map[string]any{"id": "prod_big", "title": "Big server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "8"}})
+	f.addOtherPlan(map[string]any{"id": "plan_cheap", "title": "Cheap", "visibility": "hidden", "renewal_price": 9,
+		"product": map[string]any{"id": "prod_cheap", "title": "Cheap server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	if r := sell(); r.status != http.StatusConflict || r.body["error"] != "Cheap: It charges $9.00, under the $12.00 floor for 4 GB." {
+		t.Fatalf("Update the store with a plan under the floor: %d %v", r.status, r.body)
+	}
+	if st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other"); st.ClosedWhy != "" {
+		t.Fatalf("a refused update closed the store: %q", st.ClosedWhy)
+	}
+	if vis := f.otherPlanVisibility("plan_big"); vis != "hidden" || f.share("biz_other", "prod_big") != nil {
+		t.Fatalf("a refused update reached Whop: Big %v, its share %v", vis, f.share("biz_other", "prod_big"))
+	}
+	f.setOtherPlan("plan_cheap", map[string]any{"visibility": "archived"})
+	if r := sell(); r.status != http.StatusOK || r.body["open"] != true {
+		t.Fatalf("Update the store: %d %v", r.status, r.body)
+	}
+	if share := f.share("biz_other", "prod_big"); share == nil || share["commission_value"] != 70.84 {
+		t.Fatalf("Playkeeper's share on Big's product: %v", share)
+	}
+	if meta := f.otherProduct("prod_big"); meta[whop.MetaDashboard] != whopDashboard || meta[whop.MetaBusiness] != "biz_other" {
+		t.Fatalf("Big's product: %v", meta)
+	}
+	if vis := f.otherPlanVisibility("plan_big"); vis != "visible" {
+		t.Fatalf("Big shows as %v on Whop", vis)
+	}
+	if rows := e.auditRows(t, "whop.store_sell"); len(rows) != 2 || !strings.HasPrefix(rows[0], "whop:user_otherowner biz_other succeeded Open the store: ") ||
+		!strings.HasPrefix(rows[1], "whop:user_otherowner biz_other succeeded Update the store: ") {
+		t.Fatalf("the audit log: %v", rows)
+	}
+	if _, err := e.srv.suspendWhopStore(t.Context(), "biz_other", "admin", "griefing"); err != nil {
+		t.Fatal(err)
+	}
+	offered("a suspended store", false, false)
+}

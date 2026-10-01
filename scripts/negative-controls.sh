@@ -9438,6 +9438,22 @@ control "seller prices: Open the store opens its seller's reason alone" internal
   's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
   's.openWhopStore(ctx, st.ID, "share")' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: an open store offers Update the store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = false && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store is offered only once the store is open" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store isn't offered to a suspended store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.ClosedWhy == "" && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: the audit log tells an update from an opening" internal/panel/sellerprices.go \
+  'pressed = "Update the store"' \
+  'pressed = "Open the store"' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
 webcontrol "seller prices: the page sends the price the seller typed" web/src/pages/whop-seller-prices.tsx \
   '{ plan: p.id, price: value.trim() }' \
   '{ plan: p.id, price: typed(p.price) }' \
@@ -9447,9 +9463,25 @@ webcontrol "seller prices: the page offers Open the store only while the store c
   '{(' \
   src/pages/whop-seller-prices.test.tsx 'offers no Open the store'
 webcontrol "seller prices: Open the store goes once the store opened" web/src/pages/whop-seller-prices.tsx \
-  'setPrices((v) => v && { ...v, canOpen: !done.open })' \
+  'setPrices((v) => v && { ...v, canOpen: !done.open, canUpdate: done.open })' \
   'setPrices((v) => v)' \
   src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: Update the store comes once the store opened" web/src/pages/whop-seller-prices.tsx \
+  'canOpen: !done.open, canUpdate: done.open })' \
+  'canOpen: !done.open })' \
+  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: the page offers Update the store once the store is open" web/src/pages/whop-seller-prices.tsx \
+  '{prices.canUpdate && (' \
+  '{false && (' \
+  src/pages/whop-seller-prices.test.tsx 'updates an open store'
+webcontrol "seller prices: the page offers Update the store only once the store is open" web/src/pages/whop-seller-prices.tsx \
+  '{prices.canUpdate && (' \
+  '{(' \
+  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+webcontrol "seller prices: the page says an update is done" web/src/pages/whop-seller-prices.tsx \
+  "t(update ? 'sellerPrices.updated' : 'sellerPrices.opened')" \
+  "t('sellerPrices.opened')" \
+  src/pages/whop-seller-prices.test.tsx 'updates an open store'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
