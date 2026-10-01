@@ -45,6 +45,8 @@ sudo ./playkeeper-*-linux-$ARCH/install.sh
 - UDP **19132** (or the next free port) for each server with crossplay, for Bedrock players;
 - TCP **80** to send browsers on to port 443, and if you give the dashboard your own domain, for Let's Encrypt's checks while it issues or renews the certificate.
 
+[playkeeper.io/ports](https://playkeeper.io/ports) has the steps for AWS, Google Cloud, Azure, Oracle Cloud, DigitalOcean, Hetzner, Vultr, Hostinger and Linode.
+
 When ufw or firewalld is on, the installer allows 8443, 25565, 443 and 80 in it (in firewalld, in the zone of the network interface with the default route, saved and running). Another firewall on the server, such as nftables on Debian, needs its own rules: the installer's check says which one it found and how to allow the ports.
 
 On Oracle Cloud, allow the dashboard's port in the VM's own firewall too: its Ubuntu images block every port but SSH with iptables ([Troubleshooting](docs/TROUBLESHOOTING.md#cant-reach-the-dashboard)).
