@@ -1,7 +1,7 @@
 {
   "types": {
     "fabric": {
-      "madeAt": "2026-10-01T11:12:27Z",
+      "madeAt": "2026-10-01T15:07:08Z",
       "releases": [
         {
           "id": "fabric-26.3",
@@ -2376,7 +2376,7 @@
       }
     },
     "forge": {
-      "madeAt": "2026-10-01T11:12:27Z",
+      "madeAt": "2026-10-01T15:07:08Z",
       "releases": [
         {
           "id": "forge-26.3",
@@ -3296,7 +3296,7 @@
       }
     },
     "neoforge": {
-      "madeAt": "2026-10-01T11:12:27Z",
+      "madeAt": "2026-10-01T15:07:08Z",
       "releases": [
         {
           "id": "neoforge-26.3",
@@ -5228,7 +5228,7 @@
       }
     },
     "purpur": {
-      "madeAt": "2026-10-01T11:12:27Z",
+      "madeAt": "2026-10-01T15:07:08Z",
       "releases": [
         {
           "id": "purpur-26.3",
@@ -6108,7 +6108,7 @@
       }
     },
     "quilt": {
-      "madeAt": "2026-10-01T11:12:27Z",
+      "madeAt": "2026-10-01T15:07:08Z",
       "releases": [
         {
           "id": "quilt-26.3",
@@ -13178,7 +13178,7 @@
       }
     },
     "vanilla": {
-      "madeAt": "2026-10-01T11:12:27Z",
+      "madeAt": "2026-10-01T15:07:08Z",
       "releases": [
         {
           "id": "vanilla-26.3",
