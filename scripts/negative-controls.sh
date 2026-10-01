@@ -777,6 +777,10 @@ control "a stopped run's log is read without following" internal/agent/collector
   'docker.LogsOptions{Follow: c.State.Running, Since: since}' \
   'docker.LogsOptions{Follow: true, Since: since}' \
   ./internal/agent '^TestARunStartedAsTheFollowerAttachesIsReadAsItsOwn$'
+control "a running container's log is read only while it has the run the follower saw" internal/agent/collector.go \
+  'if started, _ := again.State.Started(); err != nil || !started.Equal(runStart) {' \
+  'if started, _ := again.State.Started(); err != nil || false && !started.Equal(runStart) {' \
+  ./internal/agent '^TestARestartAsTheFollowerAttachesIsReadAsANewRun$'
 control "the crash helper reads the run's log from Docker" internal/agent/crash.go \
   'in.Console = s.runLog(ctx, id, runStart)' \
   'in.Console = s.runLog(ctx, id, runStart)[:0]' \
