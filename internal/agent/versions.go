@@ -37,6 +37,8 @@ type catalogCache struct {
 	// until then they're served without asking it.
 	retryAt time.Time
 	builds  map[string]cachedBuild
+	// The list being fetched, which callers wait for without the lock.
+	flights map[string]*flight[[]api.CatalogEntry]
 }
 
 func (a *Agent) fill() minecraft.Fill {
@@ -58,21 +60,35 @@ var (
 func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Time, error) {
 	c := &a.catalog
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	now := a.now()
 	if c.entries != nil && (now.Before(c.retryAt) || c.retryAt.IsZero() && now.Sub(c.at) < catalogTTL) {
-		return c.entries, c.at, nil
+		entries, at := c.entries, c.at
+		c.mu.Unlock()
+		return entries, at, nil
 	}
-	// The fetch outlives a caller that leaves, so its failure is PaperMC's.
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
-	entries, err := a.fill().Catalog(cctx)
-	if err == nil {
-		c.entries, c.at, c.retryAt = entries, a.now(), time.Time{}
-		a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: c.at, Entries: entries})
-		return entries, c.at, nil
+	c.mu.Unlock()
+	entries, at, err := fetchOnce(ctx, &c.mu, &c.flights, api.TypePaper, func() ([]api.CatalogEntry, time.Time, error) {
+		// The fetch outlives a caller that leaves, so its failure is
+		// PaperMC's, and holds no lock, so it holds up only its callers.
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		entries, err := a.fill().Catalog(cctx)
+		if err != nil {
+			return nil, time.Time{}, err
+		}
+		now := a.now()
+		c.mu.Lock()
+		c.entries, c.at, c.retryAt = entries, now, time.Time{}
+		c.mu.Unlock()
+		a.saveSoftwareList(api.TypePaper, "", savedCatalog{At: now, Entries: entries})
+		return entries, now, nil
+	})
+	if err == nil || ctx.Err() != nil {
+		return entries, at, err
 	}
 	a.log.Warn("could not load the Paper version list", "err", err)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.entries == nil {
 		var saved savedCatalog
 		if a.savedSoftwareList(api.TypePaper, "", &saved) && len(saved.Entries) > 0 {
@@ -84,6 +100,9 @@ func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Ti
 			a.log.Warn("the Paper version list built into Playkeeper can't be used", "err", berr)
 			return nil, time.Time{}, err
 		}
+	} else if c.retryAt.IsZero() && a.now().Sub(c.at) < catalogTTL {
+		// A fetch that ended meanwhile got PaperMC's list.
+		return c.entries, c.at, nil
 	}
 	c.retryAt = a.now().Add(upstreamRetry)
 	return c.entries, c.at, nil
