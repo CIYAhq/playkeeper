@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-web test-sh web-budget web build package notices site dev e2e-vm clean template-check template-thumbnails plugins
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-panel-race test-web test-sh web-budget web build package notices site dev e2e-vm clean template-check template-thumbnails plugins
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -50,6 +50,11 @@ test-go-other: ## Go unit tests of every package but the agent's
 # side, balanced by the times in scripts/agent-test-times.txt.
 test-agent: ## The agent's unit tests in 16 shards side by side (JOBS=n for another number, SHARD=k/n for one shard)
 	$(if $(SHARD),./scripts/go-test-shard.sh ./internal/agent $(SHARD) $(OUT),./scripts/go-test-shard.sh --jobs $(or $(JOBS),16) ./internal/agent $(or $(OUT),$$(mktemp -d)) scripts/agent-test-times.txt)
+
+# Go's race detector needs cgo, so a C compiler, and keeps every core busy:
+# CI splits the panel's shards between runners.
+test-panel-race: ## The panel's unit tests under the race detector in 4 shards side by side (needs a C compiler; JOBS=n for another number, PART=r/m for runner r of m's shards)
+	CGO_ENABLED=1 GOFLAGS="$$GOFLAGS -race" ./scripts/go-test-shard.sh --jobs $(or $(JOBS),4) ./internal/panel $(or $(OUT),$$(mktemp -d)) /dev/null $(PART)
 
 test-web:
 	cd web && npx vitest run

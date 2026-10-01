@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Runs a Go package's tests in shards, and checks that the shards together
 # ran every test. The agent's tests mostly wait on timers, so CI runs all
-# their shards side by side on one runner.
-#   scripts/go-test-shard.sh --jobs N PACKAGE [OUT] [TIMES]
+# their shards side by side on one runner; the panel's under the race
+# detector keep every core busy, so CI splits their shards between runners.
+#   scripts/go-test-shard.sh --jobs N PACKAGE [OUT] [TIMES] [R/M]
 #                                                 all N shards at once, each test in the shard
 #                                                 with the least time so far, the slowest first,
-#                                                 by TIMES (lines "Test seconds"), then --check
+#                                                 by TIMES (lines "Test seconds"), then --check;
+#                                                 with R/M, only shards R, R+M, R+2M... of that
+#                                                 split, runner R of M's, each checked to have
+#                                                 run all of its own tests
 #   scripts/go-test-shard.sh PACKAGE K/N [OUT]   runs the Kth of every N tests
 #                                                 go test -list names, in its order
 #   scripts/go-test-shard.sh --check OUT N        every shard's list is the same and
@@ -93,12 +97,18 @@ if [ "${1:-}" = --check ]; then
 fi
 
 if [ "${1:-}" = --jobs ]; then
-  jobs=${2:?usage: go-test-shard.sh --jobs N PACKAGE [OUT] [TIMES]} pkg=${3:?usage: go-test-shard.sh --jobs N PACKAGE [OUT] [TIMES]}
-  out=${4:-$(mktemp -d)} times=${5:-/dev/null}
+  jobs=${2:?usage: go-test-shard.sh --jobs N PACKAGE [OUT] [TIMES] [R/M]} pkg=${3:?usage: go-test-shard.sh --jobs N PACKAGE [OUT] [TIMES] [R/M]}
+  out=${4:-$(mktemp -d)} times=${5:-/dev/null} part=${6:-1/1}
   if ! [[ $jobs =~ ^[0-9]+$ ]] || [ "$jobs" -lt 1 ]; then
     echo "--jobs takes a number of shards, not '$jobs'" >&2
     exit 2
   fi
+  r=${part%/*} m=${part#*/}
+  if ! [[ $r =~ ^[0-9]+$ && $m =~ ^[0-9]+$ ]] || [ "$r" -lt 1 ] || [ "$r" -gt "$m" ] || [ "$m" -gt "$jobs" ]; then
+    echo "part is '$part', not R/M with 1 <= R <= M <= $jobs" >&2
+    exit 2
+  fi
+  ours=$(seq "$r" "$m" "$jobs")
   mkdir -p "$out"
   out=$(cd "$out" && pwd)
   dir=$(go list -f '{{.Dir}}' "$pkg")
@@ -109,7 +119,7 @@ if [ "${1:-}" = --jobs ]; then
   awk 'FILENAME == ARGV[1] { t[$1] = $2; next } { print $1, ($1 in t ? t[$1] : 5) }' "$times" "$out/all.txt" | sort -k2,2nr -k1,1 |
     awk -v n="$jobs" -v out="$out" '{ k = 1; for (i = 2; i <= n; i++) if (load[i] < load[k]) k = i; load[k] += $2; print $1 > (out "/mine-" k ".txt") }'
   started=$(date +%s)
-  for k in $(seq "$jobs"); do
+  for k in $ours; do
     cp "$out/all.txt" "$out/all-$k.txt"
     touch "$out/mine-$k.txt"
     (
@@ -127,7 +137,7 @@ if [ "${1:-}" = --jobs ]; then
   done
   wait
   failed=0
-  for k in $(seq "$jobs"); do
+  for k in $ours; do
     ran "$out/test-$k.json" >"$out/ran-$k.txt"
     status=$(cat "$out/status-$k")
     echo "shard $k of $jobs: $(wc -l <"$out/ran-$k.txt") of the $(wc -l <"$out/all.txt") tests, exit $status"
@@ -136,12 +146,26 @@ if [ "${1:-}" = --jobs ]; then
       report "$out/test-$k.json"
     fi
   done
-  echo "all $jobs shards took $(($(date +%s) - started)) s"
-  "$0" --check "$out" "$jobs"
+  if [ "$m" = 1 ]; then
+    echo "all $jobs shards took $(($(date +%s) - started)) s"
+    "$0" --check "$out" "$jobs"
+    exit "$failed"
+  fi
+  echo "shards $(paste -sd' ' <<<"$ours") of $jobs took $(($(date +%s) - started)) s"
+  # The other runners run the other shards of the same split, so every test
+  # has run once each runner's shards have run all of theirs.
+  missed=$(for k in $ours; do comm -23 <(sort -u "$out/mine-$k.txt") <(sort -u "$out/ran-$k.txt"); done)
+  if [ -n "$missed" ]; then
+    echo "part $r of $m: no shard ran these tests:" >&2
+    echo "$missed" >&2
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error title=Tests no shard ran::$(paste -sd' ' <<<"$missed")"; fi
+    exit 1
+  fi
+  echo "part $r of $m: its shards ran all $(for k in $ours; do cat "$out/mine-$k.txt"; done | wc -l) of their tests"
   exit "$failed"
 fi
 
-pkg=${1:?usage: go-test-shard.sh PACKAGE K/N [OUT] | --jobs N PACKAGE [OUT] [TIMES] | --check OUT N}
+pkg=${1:?usage: go-test-shard.sh PACKAGE K/N [OUT] | --jobs N PACKAGE [OUT] [TIMES] [R/M] | --check OUT N}
 shard=${2%/*} of=${2#*/}
 out=${3:-$(mktemp -d)}
 if ! [[ $shard =~ ^[0-9]+$ && $of =~ ^[0-9]+$ ]] || [ "$shard" -lt 1 ] || [ "$shard" -gt "$of" ]; then
