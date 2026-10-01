@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"errors"
+	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -18,10 +19,12 @@ import (
 // the dashboard's zone (dnsanswers.go) also names each joined machine and
 // each server on one, so a customer placed on a joined machine joins at
 // their server's name with no port, as on the dashboard's own machine. A
-// server's name points at the machine it runs on, and its SRV record at
-// that machine's name, <machine id>.m under the zone. A server's name is a
-// single label, so no server can take a machine's name and send another
-// machine's players to itself.
+// server's SRV record points at the name of the machine it runs on,
+// <machine id>.m under the zone, and the server's name itself at the
+// dashboard's machine, whose public page shows the server there
+// (joinedpage.go). Bedrock players join at the machine's IP address, which
+// the dashboard shows them. A server's name is a single label, so no server
+// can take a machine's name and send another machine's players to itself.
 
 // machineSubzone is the label joined machines' names go under.
 const machineSubzone = "m"
@@ -60,10 +63,11 @@ func publicAddress(hostport string) (netip.Addr, bool) {
 }
 
 // zoneServer is a server on a joined machine for the zone: its id, label
-// (its slug), game port, and its machine's name and address.
+// (its slug), game port, and its machine's id, name and address.
 type zoneServer struct {
 	id, label string
 	port      int
+	machineID string
 	machine   string
 	ip        netip.Addr
 }
@@ -91,7 +95,7 @@ func zoneServers(servers []map[string]any, machines []machine, links map[string]
 		if !ok {
 			continue
 		}
-		out = append(out, zoneServer{id: id, label: slug, port: int(port), machine: name, ip: ip})
+		out = append(out, zoneServer{id: id, label: slug, port: int(port), machineID: mid, machine: name, ip: ip})
 	}
 	return out
 }
@@ -136,10 +140,11 @@ func (s *Server) joinedLinks(ctx context.Context) (map[string]*machinelink.Statu
 }
 
 // addJoined names servers on joined machines in the plan's zone: their
-// machine's name and address, and for each server its name at that address
-// and an SRV record taking players to the machine's name and the server's
-// port. A server whose name the zone has already, or can't hold, is left
-// out, as is any once the zone is full. It returns the servers named.
+// machine's name at its address, and for each server its name at the
+// dashboard's machine, as the dashboard's own servers' names are, and an
+// SRV record taking players to the machine's name and the server's port.
+// A server whose name the zone has already, or can't hold, is left out, as
+// is any once the zone is full. It returns the servers named.
 func (p *dnsPlan) addJoined(servers []zoneServer) []zoneServer {
 	taken := map[string]bool{}
 	for _, r := range p.zone.Records {
@@ -152,14 +157,17 @@ func (p *dnsPlan) addJoined(servers []zoneServer) []zoneServer {
 			typ = dnszone.TypeAAAA
 		}
 		host := dnszone.Record{Name: j.machine, Type: typ, Value: j.ip.String()}
-		name := dnszone.Record{Name: j.label, Type: typ, Value: j.ip.String()}
 		srv := dnszone.Record{Name: "_minecraft._tcp." + j.label, Type: dnszone.TypeSRV, Value: j.machine + "." + p.zone.Name, Port: j.port}
-		add := []dnszone.Record{name, srv}
+		var add []dnszone.Record
+		for _, m := range p.machine {
+			add = append(add, dnszone.Record{Name: j.label, Type: m.Type, Value: m.Value})
+		}
+		add = append(add, srv)
 		if !taken[host.Name] {
 			add = append(add, host)
 		}
 		switch {
-		case strings.Contains(j.label, "."), taken[name.Name], taken[srv.Name]:
+		case strings.Contains(j.label, "."), taken[j.label], taken[srv.Name]:
 			continue
 		case len(p.zone.Records)+len(add) > dnszone.MaxRecords, !p.holds(add):
 			continue
@@ -182,25 +190,61 @@ func (p *dnsPlan) holds(records []dnszone.Record) bool {
 
 // zoneAddresses are the addresses without a port of the servers on joined
 // machines the zone names, by server id, kept while public DNS finds the
-// zone (api.AddressCheck.PortFree). The server list gives each in place of
-// its machine's IP address and the server's port.
+// zone (api.AddressCheck.PortFree), and those servers by address. The
+// server list gives each in place of its machine's IP address and the
+// server's port, and the public page shows the server there.
 type zoneAddresses struct {
-	mu   sync.Mutex
-	byID map[string]string
+	mu     sync.Mutex
+	byID   map[string]string
+	byName map[string]joinedName
+}
+
+// joinedName is a server on a joined machine at the address without a
+// port the zone gives it: its id, its label there, which is its slug on
+// the dashboard, and the machine the zone sends its players to.
+type joinedName struct {
+	id, label, address, machineID string
 }
 
 // setZoneAddresses keeps the addresses of named under host while portFree,
-// and forgets every address otherwise.
+// and forgets every address otherwise. The page forgets what it showed at
+// them once they change.
 func (s *Server) setZoneAddresses(named []zoneServer, host string, portFree bool) {
-	byID := map[string]string{}
+	byID, byName := map[string]string{}, map[string]joinedName{}
 	if portFree {
 		for _, j := range named {
-			byID[j.id] = j.label + "." + host
+			address := j.label + "." + host
+			byID[j.id] = address
+			byName[address] = joinedName{id: j.id, label: j.label, address: address, machineID: j.machineID}
 		}
 	}
 	s.zoneAddrs.mu.Lock()
-	s.zoneAddrs.byID = byID
+	changed := !maps.Equal(s.zoneAddrs.byName, byName)
+	s.zoneAddrs.byID, s.zoneAddrs.byName = byID, byName
 	s.zoneAddrs.mu.Unlock()
+	if changed {
+		s.pageChanged()
+	}
+}
+
+// zoneName is the server on a joined machine whose address without a port
+// is the Host header host, if the zone gives one that address.
+func (s *Server) zoneName(host string) (joinedName, bool) {
+	name := hostName(host)
+	s.zoneAddrs.mu.Lock()
+	defer s.zoneAddrs.mu.Unlock()
+	j, ok := s.zoneAddrs.byName[name]
+	return j, ok
+}
+
+// zoneNames are the servers on joined machines the zone gives addresses,
+// by address.
+func (s *Server) zoneNames() []joinedName {
+	s.zoneAddrs.mu.Lock()
+	defer s.zoneAddrs.mu.Unlock()
+	out := slices.Collect(maps.Values(s.zoneAddrs.byName))
+	slices.SortFunc(out, func(a, b joinedName) int { return strings.Compare(a.address, b.address) })
+	return out
 }
 
 // zoneAddress is the address without a port of the server id on a joined

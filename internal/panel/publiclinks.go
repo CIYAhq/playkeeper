@@ -51,6 +51,14 @@ func (s *Server) recordLink(kind linkKind, token, serverID string, m machine) {
 	}
 }
 
+// linkMadeFor reports whether the dashboard saw the machine machineID make
+// token's link of kind for the server serverID (see recordLink).
+func (s *Server) linkMadeFor(kind linkKind, token, serverID, machineID string) bool {
+	var sid, mid string
+	err := s.db.QueryRow(`SELECT server_id, machine_id FROM public_links WHERE kind = ? AND token_hash = ?`, string(kind), tokenHash(token)).Scan(&sid, &mid)
+	return err == nil && sid == serverID && mid == machineID
+}
+
 // linkMachine is the machine to ask about a link, and the link's server:
 // the machine the link was made on, while it still runs that server. It
 // returns errNoLinkRecord for a token the dashboard has no record of, and

@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.14
+
+- **Public pages for servers on every machine:** with **Addresses without a port** on, a server on a machine joined to this dashboard has its public page at its name, like `alex.beta.playkeeper.me`, as a server on this dashboard's machine does. This dashboard's machine serves it, asking the server's machine what the page shows, and its **Settings › Public page** works as there. The page shows that server alone and nothing that says which machine runs it: it gives no Bedrock address, which would be the machine's, and its links are under this dashboard's address. The name now points at this dashboard's machine. Java players who type it as the dashboard shows it, without a port, still reach the server's machine through its SRV record, and Bedrock players join at the machine's address, which the dashboard shows; typed with a port, the name reaches this dashboard's machine instead. HTTPS needs **An address for each server**, which gives the dashboard a certificate for every server's name; without it, the page answers over plain HTTP only. The joined machine needs 0.4.14 too.
+
 ## 0.4.13
 
 - **Security fix, Sign in with Whop:** another name under the dashboard's domain could set a cookie for the dashboard's name, and with it sign a visitor in to a customer account of its choosing: a joined machine that someone took over, and for a dashboard with a free name, anyone else's free name. That sign-in's cookie is now a `__Host-` one, which only the dashboard's own name can set, like every other cookie the dashboard sets, and a sign-in finishes only in the browser that left for Whop. Coming back in an older tab no longer ends a newer tab's sign-in. Someone on Whop's page as the update runs signs in again.

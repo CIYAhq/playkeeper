@@ -6685,8 +6685,8 @@ control "an HTTP-01 check goes ahead on a busy port only when its holder passes 
   'if errors.Is(err, syscall.EADDRINUSE) {' \
   ./internal/certs '^TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn$'
 control "the page's ports answer only the machine's address" internal/panel/serverpage.go \
-  'if !check && !s.page.answers(r.Host) {' \
-  'if false && !check && !s.page.answers(r.Host) {' \
+  'if !check && !s.pageAnswers(r.Context(), r.Host) {' \
+  'if false && !check && !s.pageAnswers(r.Context(), r.Host) {' \
   ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
 control "the page escapes what the owner typed" internal/panel/serverpage.go \
   'head := "<title>" + html.EscapeString(title) + "</title>"' \
@@ -6712,14 +6712,14 @@ control "visitors share one question to the agent" internal/panel/serverpage.go 
   '	if a, ok := lookup(); ok {
 		return a, a.ok
 	}
-	p.fetch.Lock()
-	defer p.fetch.Unlock()
+	c.fetch.Lock()
+	defer c.fetch.Unlock()
 	if a, ok := lookup(); ok {
 		return a, a.ok
 	}' \
   '	_ = lookup
-	p.fetch.Lock()
-	defer p.fetch.Unlock()' \
+	c.fetch.Lock()
+	defer c.fetch.Unlock()' \
   ./internal/panel '^TestManyVisitorsAskTheAgentOnceAndEachAddressIsLimited$'
 control "port 443 never serves the self-signed certificate" internal/panel/pageports.go \
   '	return s.pageCerts.GetCertificate(hello)
@@ -6736,11 +6736,11 @@ control "port 80 redirects only while port 443 serves the page" internal/panel/p
   'if _ = https; host == "" || s.pageCerts == nil {' \
   ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
 control "turning the page off gives the ports back" internal/panel/pageports.go \
-  'if !st.On && !dashboard {
+  'if !on && !dashboard {
 		s.closePagePorts(api.PortOff)
 		return
 	}' \
-  'if !st.On && !dashboard {
+  'if !on && !dashboard {
 		return
 	}' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
@@ -6749,8 +6749,8 @@ control "the keeper never asks for a port it holds" internal/panel/pageports.go 
   'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
 control "Let's Encrypt's check for a new address passes port 80 before the page follows it" internal/panel/serverpage.go \
-  'if !check && !s.page.answers(r.Host) {' \
-  'if !s.page.answers(r.Host) {' \
+  'if !check && !s.pageAnswers(r.Context(), r.Host) {' \
+  'if !s.pageAnswers(r.Context(), r.Host) {' \
   ./internal/panel '^TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp$'
 control "a changed address has the page's keeper look again" internal/panel/server.go \
   'if method != http.MethodGet {
@@ -6801,8 +6801,8 @@ control "turning the dashboard's port off forgets the visit" internal/agent/dash
   '		_ = ""' \
   ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
 control "the hand-over opens port 443 for the dashboard with the page off" internal/agent/pageports.go \
-  'if st := a.publicPageState(); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {' \
-  'if st := a.publicPageState(); !st.On || !want.HTTPS && !want.HTTP {' \
+  '	if !st.On && !st.Dashboard && !joined || !want.HTTPS && !want.HTTP {' \
+  '	if !st.On && !joined || !want.HTTPS && !want.HTTP {' \
   ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
 control "the dashboard wants port 443 only once the machine's name works" internal/agent/dashboardport.go \
   '	return a.namedHost()' \
@@ -6989,13 +6989,13 @@ webcontrol "Sell on Whop names the old redirect URL only while Whop lists it alo
   '{signIn.redirectUri && (' \
   src/pages/pages.test.tsx 'says when customers still come back through the dashboard'
 # What the owner adds to the page: About, a stream and a status board.
-control "a page's stream is only a Twitch or YouTube channel" internal/agent/publicblocks.go \
+control "a page's stream is only a Twitch or YouTube channel" internal/pagetext/pagetext.go \
   'case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
   'case len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
   ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
-control "the page's About keeps out control and direction-changing characters" internal/agent/publicblocks.go \
+control "the page's About keeps out control and direction-changing characters" internal/pagetext/pagetext.go \
   "return unicode.IsPrint(r) || r == '\\u200d'" \
-  'return r != 0' \
+  'return unicode.IsPrint(r) || r != 0' \
   ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
 control "a board with more numbers than the page shows is refused" internal/agent/publicblocks.go \
   'if len(req.Stats) > api.BoardStatsMax {' \
@@ -7013,6 +7013,310 @@ control "only the page's ports may frame the stream players" internal/panel/serv
   "\"+s.reachSource()+\"; font-src 'self'; object-src 'none';" \
   "\"+s.reachSource()+\"; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
   ./internal/panel '^TestThePageHasALiveShareCardAndMayFrameAStream$'
+# 0.4.14: the page of a server on a joined machine, which the dashboard's
+# machine serves at the server's name: only while both the dashboard's own
+# record and the machine say it's on the page, that server alone, within
+# the agent's own bounds, and nothing that says which machine runs it.
+control "joined page: a server's name answers only while its machine says it's on the page" internal/panel/joinedpage.go \
+  '		_, on := s.joinedPage(ctx, j)
+		return on' \
+  '		_, _ = s.joinedPage(ctx, j)
+		return true' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a server's name answers only while the dashboard's record says it's on the page" internal/panel/joinedpage.go \
+  '		case !public:
+			return pageAnswer{answered: true}, false' \
+  '		case !public && false:
+			return pageAnswer{answered: true}, false' \
+  ./internal/panel '^TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo$'
+control "joined page: the owner's off is recorded before the machine is asked" internal/panel/serverpage.go \
+  '	if req.Enabled != nil && !*req.Enabled {
+		s.setPageRecord(id, false)' \
+  '	if req.Enabled != nil && !*req.Enabled && false {
+		s.setPageRecord(id, false)' \
+  ./internal/panel '^TestAMachineThatRefusesTheOwnersOffLosesItsPage$'
+control "joined page: the owner's on waits for the machine to take it" internal/panel/serverpage.go \
+  '	if req.Enabled != nil && !*req.Enabled {
+		s.setPageRecord(id, false)' \
+  '	if req.Enabled != nil {
+		s.setPageRecord(id, *req.Enabled)' \
+  ./internal/panel '^TestAMachineThatRefusesTheOwnersOffLosesItsPage$'
+control "joined page: a machine that doesn't answer leaves the ports as they are" internal/panel/joinedpage.go \
+  '		case !ok:
+			return pageAnswer{}, false' \
+  '		case !ok:
+			return pageAnswer{answered: true}, false' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesThePortsHeld$'
+control "joined page: a machine that says its server is off the page is believed" internal/panel/joinedpage.go \
+  '		case status == http.StatusNotFound:
+			return pageAnswer{answered: true}, false' \
+  '		case status == http.StatusNotFound:
+			return pageAnswer{}, false' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: the record's off gives the ports back" internal/panel/joinedpage.go \
+  '		case !public:
+			return pageAnswer{answered: true}, false' \
+  '		case !public:
+			return pageAnswer{}, false' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesThePortsHeld$'
+control "joined page: the machine's word is taken only where the dashboard has no record" internal/panel/joinedpage.go \
+  'VALUES(?,?,?) ON CONFLICT(server_id) DO NOTHING`, id, machineSays' \
+  'VALUES(?,?,?) ON CONFLICT(server_id) DO UPDATE SET enabled = excluded.enabled`, id, machineSays' \
+  ./internal/panel '^(TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo|TestAMoveKeepsWhetherAServerWasOnThePage)$'
+control "joined page: Settings show a joined server on only while the record says so" internal/panel/serverpage.go \
+  'v.Enabled = s.pageRecordOr(id, v.Enabled) && v.Enabled' \
+  'v.Enabled = s.pageRecordOr(id, v.Enabled) || v.Enabled' \
+  ./internal/panel '^TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo$'
+control "joined page: a move records whether the server was on the page where it was" internal/panel/moves.go \
+  'if on, ok := movedPublicPage(state); ok {' \
+  'if on, ok := movedPublicPage(state); ok && false {' \
+  ./internal/panel '^TestAMoveKeepsWhetherAServerWasOnThePage$'
+# shellcheck disable=SC2016
+control "joined page: a deleted server's record of the page goes with it" internal/panel/workspace.go \
+  '		`DELETE FROM public_pages WHERE ` + gone,
+' \
+  '' \
+  ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
+# shellcheck disable=SC2016
+control "joined page: deleting a customer forgets whether their servers were on the page" internal/panel/erasure.go \
+  '`DELETE FROM public_pages WHERE server_id = ?`, ' \
+  '' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "joined page: only the machine the dashboard knows runs the server is asked" internal/panel/joinedpage.go \
+  'if err != nil || m.ID != j.machineID || m.Kind != remoteKind {' \
+  'if err != nil || m.Kind != remoteKind {' \
+  ./internal/panel '^TestAJoinedServersPageAsksOnlyTheMachineThatRunsIt$'
+control "joined page: the server's address is the name the zone gives it" internal/panel/joinedpage.go \
+  'sv := api.PublicServer{Slug: j.label, Address: j.address,' \
+  'sv := api.PublicServer{Slug: j.label, Address: in.Address,' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the server has no Bedrock address, which would be its machine's" internal/panel/joinedpage.go \
+  'InviteOnly: in.InviteOnly, HasIcon: in.HasIcon,' \
+  'InviteOnly: in.InviteOnly, HasIcon: in.HasIcon, Bedrock: in.Bedrock,' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the server's slug is the dashboard's" internal/panel/joinedpage.go \
+  'sv := api.PublicServer{Slug: j.label, Address: j.address,' \
+  'sv := api.PublicServer{Slug: in.Slug, Address: j.address,' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a state the page doesn't know reads as offline" internal/panel/joinedpage.go \
+  '		sv.State = api.PublicOffline' \
+  '		_ = api.PublicOffline' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: players count only while the server is online" internal/panel/joinedpage.go \
+  'if p := in.Players; p != nil && sv.State == api.PublicOnline {' \
+  'if p := in.Players; p != nil {' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the page lists only real players' names" internal/panel/joinedpage.go \
+  'if minecraft.ValidPlayerName(n) && len(names) < min(online, maxPageNames) {' \
+  'if (minecraft.ValidPlayerName(n) || true) && len(names) < min(online, maxPageNames) {' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: no more players are named than are playing" internal/panel/joinedpage.go \
+  'if minecraft.ValidPlayerName(n) && len(names) < min(online, maxPageNames) {' \
+  'if minecraft.ValidPlayerName(n) && len(names) < maxPageNames {' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a server's name is no longer than the agent allows" internal/panel/joinedpage.go \
+  'Name: shownLine(in.Name, api.ServerNameMax, nameRune)' \
+  'Name: shownLine(in.Name, 1<<20, nameRune)' \
+  ./internal/panel '^(TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows|TestAJoinedCardHoldsUpNoOtherPage)$'
+control "joined page: a server's name and description keep out control and formatting characters" internal/panel/joinedpage.go \
+  "return unicode.IsPrint(r) && r != '§'" \
+  'return unicode.IsPrint(r) || r != 0' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: About has no more lines than the agent allows" internal/panel/joinedpage.go \
+  'lines = lines[:min(len(lines), api.PublicAboutLines)]' \
+  'lines = lines[:len(lines)]' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a board has no more numbers than the agent allows" internal/panel/joinedpage.go \
+  'for _, st := range b.Stats[:min(len(b.Stats), api.BoardStatsMax)] {' \
+  'for _, st := range b.Stats {' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a board's next session is within a month" internal/panel/joinedpage.go \
+  'if b.Next != nil && !b.Next.Before(now.Add(-24*time.Hour)) && !b.Next.After(now.Add(api.BoardNextWithin)) {' \
+  'if b.Next != nil {' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a line the agent sets no bound on is bounded" internal/panel/joinedpage.go \
+  'MinecraftVersion: shownLine(in.MinecraftVersion, pageLineMax, pagetext.Printable)' \
+  'MinecraftVersion: in.MinecraftVersion' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a server type the page doesn't know is left out" internal/panel/joinedpage.go \
+  'if _, ok := minecraft.TypeByID(in.Type); ok {' \
+  'if _, ok := minecraft.TypeByID(in.Type); ok || true {' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a stream is only a channel's page" internal/panel/joinedpage.go \
+  'if parsed, ok := pagetext.Stream(st.URL); ok && parsed == *st {
+			sv.Stream = &parsed' \
+  'if _, ok := pagetext.Stream(st.URL); ok || true {
+			sv.Stream = st' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: its links are the dashboard's, never the machine's" internal/panel/joinedpage.go \
+  '	sv.Map, sv.Pack = s.joinedPageLinks(ctx, shown, j)' \
+  '	_, _ = s.joinedPageLinks(ctx, shown, j)
+	sv.Map, sv.Pack = in.Map, in.Pack' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a link shows only for the server the dashboard saw it made for" internal/panel/publiclinks.go \
+  'return err == nil && sid == serverID && mid == machineID' \
+  'return err == nil && mid == machineID' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a joined server's card is drawn among its own machine's answers" internal/panel/serverpage.go \
+  'answers, cardKey = s.joinedAnswers(j.machineID), "card "+j.id' \
+  'answers, cardKey = s.page.local, "card "+j.id' \
+  ./internal/panel '^TestAJoinedCardHoldsUpNoOtherPage$'
+control "joined page: the zone answers ahead of a copy a move left on the dashboard's machine" internal/panel/joinedpage.go \
+  'func (s *Server) joinedAt(host string) (joinedName, bool) {
+	return s.zoneName(host)' \
+  'func (s *Server) joinedAt(host string) (joinedName, bool) {
+	if s.page.answers(host) {
+		return joinedName{}, false
+	}
+	return s.zoneName(host)' \
+  ./internal/panel '^TestTheZoneAnswersAheadOfACopyAMoveLeft$'
+control "joined page: the keeper holds the ports while a joined server is on the page" internal/panel/pageports.go \
+  '		on, known = s.anyJoinedPageOn(jctx)' \
+  '		_, known = s.anyJoinedPageOn(jctx)' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: the keeper gives the ports back once the joined server is off" internal/panel/joinedpage.go \
+  '				case on:
+					answers <- someOn' \
+  '				case on || true:
+					answers <- someOn' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: the keeper's asks end with its look's deadline" internal/panel/joinedpage.go \
+  '		case <-ctx.Done():
+			return false, false' \
+  '		case <-make(chan struct{}):
+			return false, false' \
+  ./internal/panel '^TestTheKeepersAsksEndWithItsDeadline$'
+control "joined page: a look the joined machines don't all answer in time keeps what the page holds" internal/panel/pageports.go \
+  '	if known {
+		p.on = on
+	}' \
+  '	if known || true {
+		p.on = on
+	}' \
+  ./internal/panel '^TestALookCutShortKeepsThePorts$'
+control "joined page: Settings offer HTTPS for a joined server only with a certificate for its name" internal/panel/serverpage.go \
+  'if ports.HTTPS.State == api.PortOpen && !s.pageCertified(v.Host) {' \
+  'if false && ports.HTTPS.State == api.PortOpen && !s.pageCertified(v.Host) {' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
+control "joined page: a change to a joined server's Settings never answers with an address its machine has" internal/panel/serverpage.go \
+  '	s.pageChanged()
+	s.pageView(m, id, &v)' \
+  '	s.pageChanged()' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
+control "joined page: a changed zone forgets the page and asks the keeper to look again" internal/panel/fleetdns.go \
+  '	if changed {
+		s.pageChanged()' \
+  '	if false && changed {
+		s.pageChanged()' \
+  ./internal/panel '^TestAChangedZoneForgetsThePageAndLooksAgain$'
+control "joined page: an unchanged zone leaves the page and the keeper alone" internal/panel/fleetdns.go \
+  'changed := !maps.Equal(s.zoneAddrs.byName, byName)' \
+  'changed := !maps.Equal(s.zoneAddrs.byName, byName) || true' \
+  ./internal/panel '^TestAChangedZoneForgetsThePageAndLooksAgain$'
+control "joined page: a joined server's name points at the dashboard's machine" internal/panel/fleetdns.go \
+  '		for _, m := range p.machine {
+			add = append(add, dnszone.Record{Name: j.label, Type: m.Type, Value: m.Value})
+		}' \
+  '		add = append(add, dnszone.Record{Name: j.label, Type: typ, Value: j.ip.String()})' \
+  ./internal/panel '^TestJoinedServersJoinTheZoneAtTheirMachine$'
+control "joined page: a joined server's Settings never give an address its machine has" internal/panel/serverpage.go \
+  '	if m.Kind != localKind {
+		v.Host = s.zoneAddress(id)' \
+  '	if false && m.Kind != localKind {
+		v.Host = s.zoneAddress(id)' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
+control "joined page: the dashboard hears nothing of a server off the page" internal/agent/publicpage.go \
+  'set := s.publicPageSettings()
+	if !set.Enabled {' \
+  'set := s.publicPageSettings()
+	if false && !set.Enabled {' \
+  ./internal/agent '^TestThePageShowsTheDashboardAServerButNotTheMachinesAddress$'
+control "joined page: the dashboard hears no link under the machine's own name" internal/agent/publicpage.go \
+  '	out := api.PublicServerShown{PublicServer: sh.server, PackToken: sh.packToken}' \
+  '	ps, _ := s.publicServer(r.Context(), s.pageHost(), api.JoinAddress{})
+	out := api.PublicServerShown{PublicServer: ps, PackToken: sh.packToken}' \
+  ./internal/agent '^TestThePageShowsTheDashboardAServerButNotTheMachinesAddress$'
+control "joined page: a server the dashboard hides doesn't count as on its machine's page" internal/agent/publicpage.go \
+  '		if rows.Scan(&id) == nil && !hidden[id] {' \
+  '		if rows.Scan(&id) == nil && (!hidden[id] || true) {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's own address isn't among the page's names" internal/agent/ownaddress.go \
+  '		if hidden[js.id] {' \
+  '		if hidden[js.id] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the page leaves a hidden server out, at the machine's name and at its own address" internal/agent/publicpage.go \
+  'j.ServerID != only.id || hidden[j.ServerID] {' \
+  'j.ServerID != only.id || hidden[j.ServerID] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's icon isn't served at its own address" internal/agent/publicpage.go \
+  's != nil && !hidden[s.id] {' \
+  's != nil && (!hidden[s.id] || true) {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's icon isn't served at the machine's name" internal/agent/publicpage.go \
+  '		if hidden[s.id] {' \
+  '		if hidden[s.id] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the agent reads which servers the dashboard hides" internal/agent/publicpage.go \
+  '		out[id] = true' \
+  '		out[id] = id == ""' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the dashboard hides a copy a move is making or left on its machine" internal/panel/serverpage.go \
+  '		if copyHidden(copies, id, now) {' \
+  '		if copyHidden(copies, id, now) && false {' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the dashboard hides a server its record has off" internal/panel/serverpage.go \
+  'SELECT server_id FROM public_pages WHERE enabled = 0' \
+  'SELECT server_id FROM public_pages WHERE enabled = 0 AND 0' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the keeper's look tells the agent what the dashboard hides" internal/panel/pageports.go \
+  'url.Values{"hidden": hidden}, nil, &st)' \
+  'url.Values{"hidden": hidden[:0]}, nil, &st)' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the page's read tells the agent what the dashboard hides" internal/panel/serverpage.go \
+  'url.Values{"host": {host}, "hidden": hidden}' \
+  'url.Values{"host": {host}, "hidden": hidden[:0]}' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: an icon's read tells the agent what the dashboard hides" internal/panel/serverpage.go \
+  'url.Values{"host": {r.Host}, "hidden": hidden}' \
+  'url.Values{"host": {r.Host}, "hidden": hidden[:0]}' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: a move that left a copy has the page look again" internal/panel/moves.go \
+  '	s.pageChanged()
+	return nil
+}
+
+// leftCopy records' \
+  '	return nil
+}
+
+// leftCopy records' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: Settings show a server on the dashboard's machine off while its record has it off" internal/panel/serverpage.go \
+  '} else if on, known := s.pageRecord(id); known && !on {' \
+  '} else if on, known := s.pageRecord(id); known && !on && false {' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the agent opens the ports for a joined server's page with none of its own on it" internal/agent/pageports.go \
+  '	joined := want.Joined && st.Host != ""' \
+  '	joined := want.Joined && false' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "joined page: the agent opens the ports for a joined server's page only while the machine has an address" internal/agent/pageports.go \
+  '	joined := want.Joined && st.Host != ""' \
+  '	joined := want.Joined' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "joined page: the keeper tells the agent a joined server's page is on" internal/panel/pageports.go \
+  '	want.Joined = on && !st.On' \
+  '	want.Joined = on && !st.On && false' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "the share card cuts a line too long at once" internal/sharecard/card.go \
+  '	keep := max(0, (w/scale+1)/advance-len("..."))
+	r := []rune(s)
+	return strings.TrimRight(string(r[:min(keep, len(r))]), " ") + "..."' \
+  '	r := []rune(s)
+	for len(r) > 0 && width(string(r)+"...", scale) > w {
+		r = r[:len(r)-1]
+	}
+	return strings.TrimRight(string(r), " ") + "..."' \
+  ./internal/sharecard '^TestALongLineIsCutOffAtOnce$'
 
 # Usage stats (internal/usage): nothing is sent that its check refuses, while
 # they're off, or before the installer has said so; root's choices outrank
@@ -7332,8 +7636,8 @@ control "own addresses get a few certificates a day" internal/agent/ownaddress.g
   'if false && a.ownCertsToday(st) >= ownCertsPerDay {' \
   ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
 control "an own address's page shows only its server" internal/agent/publicpage.go \
-  'if only != nil && j.ServerID != only.id {' \
-  'if false && only != nil && j.ServerID != only.id {' \
+  'if only != nil && j.ServerID != only.id || hidden[j.ServerID] {' \
+  'if false && only != nil && j.ServerID != only.id || hidden[j.ServerID] {' \
   ./internal/agent '^TestAnOwnAddressOpensOnlyItsServersPage$'
 control "an own address's page answers only while its server is on the page" internal/agent/ownaddress.go \
   'if s := a.serverByID(js.id); s != nil && s.publicPageSettings().Enabled {
