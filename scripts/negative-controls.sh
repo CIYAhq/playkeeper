@@ -9274,7 +9274,8 @@ webcontrol "seller view: the seller's page shows the view once the store is open
 # least $12 a month for each 4 GB, set on a plan renewing monthly in US
 # dollars, and an open store's share follows it. Open the store needs every
 # hosting plan to sell as it is, within what the fleet runs, before any
-# other problem, sets Playkeeper's share first, putting
+# other problem, on a product that sells it alone, sets Playkeeper's share
+# first, putting
 # right one that pays too little, marks the hosting products for the store
 # site, and only then opens the store, for its seller's reason alone.
 control "seller prices: a call comes from the seller's page itself" internal/panel/sellerprices.go \
@@ -9361,6 +9362,22 @@ control "seller prices: a plan with too many servers says so" internal/panel/sel
   'case servers < 1 || servers > invites.MaxAllowanceServers:' \
   'case servers < 1:' \
   ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a hosting product sells one plan" internal/panel/sellerprices.go \
+  'if len(same) < 2 {' \
+  'if len(same) < 2 || true {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a product's plan that isn't for hosting counts too" internal/panel/sellerprices.go \
+  'if p.Product.ID != "" {' \
+  'if _, _, hosting := whop.PlanAllowance(p.Metadata); hosting && p.Product.ID != "" {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: an archived plan doesn't share its product" internal/panel/sellerprices.go \
+  'return p.Visibility == "archived"' \
+  'return false' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a shared product comes on top of a plan's other problem" internal/panel/sellerprices.go \
+  'sp.Problem = strings.TrimSpace(sp.Problem + " " + shared[p.ID])' \
+  'sp.Problem = shared[p.ID]' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
 control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
   'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
   'CanOpen: st.ClosedWhy != ""' \
