@@ -217,10 +217,10 @@ func whopPaidFor(wc whopCustomer, grace time.Duration) time.Duration {
 // (whopSharesSet), since a seller may sell other things on the same
 // business. A payment's share comes from its fee lines, which are kept too,
 // and read once: a payment the overlap lists again is read again only when
-// more of it was refunded since (whopPaymentKept). While the share check
-// has just found the share right (shareRight), each also counts for its
+// more of it was refunded since (whopPaymentKept). Each also counts for its
 // membership's payment check (noteWhopRenewal), so renewals need no reads
-// of their own.
+// of their own: a refund always, and a payment only while the share check
+// has just found the share right (shareRight).
 // Whop lists refunds only by when they were asked for, so the refunds read
 // goes back to the oldest one still unsettled last time, which may yet
 // change its payment. The read counts as done only once all of it is, so
@@ -289,9 +289,7 @@ func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopSt
 			return
 		}
 		s.keepCheckedPayment(ctx, st, pay, lines, "")
-		if shareRight {
-			s.noteWhopRenewal(ctx, st, pay, lines)
-		}
+		s.noteWhopRenewal(ctx, st, pay, lines, shareRight)
 	}
 	from := int64(0)
 	if !unsettled.IsZero() {
@@ -304,21 +302,26 @@ func (s *Server) whopReadPayments(ctx context.Context, c *whop.Client, st whopSt
 }
 
 // noteWhopRenewal keeps what a payment the payments read found says of its
-// membership's payment check. One that carried Playkeeper's share for what
-// the membership's plan allows, and wasn't refunded in full, has the
-// membership paid for its plan, and is the latest payment it was paid with
-// when it's newer than the one kept. One refunded in full that was that
-// payment leaves the membership with none, so the payment check looks at
-// Whop's newest payment of it again at once.
-func (s *Server) noteWhopRenewal(ctx context.Context, st whopStore, pay whop.Payment, lines []whop.PaymentFee) {
+// membership's payment check. One refunded in full that was the latest the
+// membership was paid with leaves it with none, so the payment check looks
+// again at once for the latest it wasn't refunded (whopSharePaid), as the
+// payment before; whatever the share check found, since a refund only takes
+// away. Otherwise, while credit says the share check has just found the
+// share right, one that carried Playkeeper's share for what the
+// membership's plan allows has it paid for its plan, and is the latest it
+// was paid with when it's newer than the one kept.
+func (s *Server) noteWhopRenewal(ctx context.Context, st whopStore, pay whop.Payment, lines []whop.PaymentFee, credit bool) {
 	if pay.MembershipID == "" {
 		return
 	}
 	var err error
-	if whopRefundedInFull(pay) {
+	switch {
+	case whopRefundedInFull(pay):
 		_, err = s.db.ExecContext(ctx, `UPDATE whop_membership_checks SET paid_at = 0, next_check_at = 0
 			WHERE store_id = ? AND membership_id = ? AND paid_payment = ?`, st.ID, pay.MembershipID, pay.ID)
-	} else {
+	case !credit:
+		return
+	default:
 		var part planPart
 		err = s.db.QueryRowContext(ctx, `SELECT p.plan_id, p.title, p.allowance_servers, p.allowance_memory_mb, p.disk_gb FROM whop_memberships m
 			JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id AND p.allowance_from != ''

@@ -342,9 +342,9 @@ func TestAShareTheSellerRemovesOrLowersIsAProblem(t *testing.T) {
 	}
 }
 
-// A customer starts only once their membership's latest paid payment
-// carried Playkeeper's share for their plan, in a revenue share line, and
-// every line it was checked with is kept.
+// A customer starts only once their membership's latest paid payment not
+// refunded in full carried Playkeeper's share for their plan, in a revenue
+// share line, and every line it was checked with is kept.
 func TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare(t *testing.T) {
 	f, e, _, st := shareEnv(t)
 	c, err := e.srv.whopClientFor(t.Context(), st)
@@ -411,15 +411,26 @@ func TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare(t *testing.T
 	f.mu.Lock()
 	f.installed["biz_other"].payments[0]["refunded_amount"] = money("12.00", "usd")
 	f.mu.Unlock()
+	if err := paid(8192); err == nil || !strings.Contains(err.Error(), "(pay_good) didn't carry Playkeeper's share of $17.00") {
+		t.Fatalf("its latest payment refunded in full, so the one before, for an 8 GB plan: %v", err)
+	}
+	if err := paid(4096); err != nil {
+		t.Fatalf("its latest payment refunded in full, so the one before, for a 4 GB plan: %v", err)
+	}
+	f.mu.Lock()
+	for _, p := range f.installed["biz_other"].payments {
+		p["refunded_amount"] = money("12.00", "usd")
+	}
+	f.mu.Unlock()
 	if err := paid(8192); err == nil || !strings.Contains(err.Error(), "was refunded") {
-		t.Fatalf("a refunded payment: %v", err)
+		t.Fatalf("every payment refunded in full: %v", err)
 	}
 	var lines int
 	var origins string
 	e.srv.db.QueryRow(`SELECT COUNT(*), group_concat(line, ', ') FROM (SELECT origin || ' ' || amount || ' ' || currency AS line FROM whop_fee_lines
 		WHERE payment_id = 'pay_good' ORDER BY n)`).Scan(&lines, &origins)
 	if lines != 2 || origins != "whop_processing_fee 0.36 usd, revshare_percentage_fee 8.50 usd" {
-		t.Fatalf("the lines kept of pay_good, checked twice: %d, %q", lines, origins)
+		t.Fatalf("the lines kept of pay_good, checked more than once: %d, %q", lines, origins)
 	}
 	if whopShareFor(4096) != 850 || whopShareFor(8192) != 1700 || whopShareFor(6144) != 1275 || whopShareFor(512) != 107 {
 		t.Fatalf("the share for 4, 8, 6 and 0.5 GB: %d, %d, %d, %d", whopShareFor(4096), whopShareFor(8192), whopShareFor(6144), whopShareFor(512))

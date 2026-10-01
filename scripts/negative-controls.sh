@@ -8827,7 +8827,7 @@ control "later payments: the pause says why" internal/panel/whop_customers.go \
   '"their Whop membership is "+cmpOr(wc.Latest, "gone")' \
   ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
 control "later payments: renewals are read with the store's payments" internal/panel/whop_share_hooks.go \
-  's.noteWhopRenewal(ctx, st, pay, lines)' \
+  's.noteWhopRenewal(ctx, st, pay, lines, shareRight)' \
   '_ = lines' \
   ./internal/panel '^TestARenewalThatCarriedTheShareKeepsItsMembership$'
 control "later payments: only while the share is right" internal/panel/whop_share_hooks.go \
@@ -8841,6 +8841,14 @@ control "later payments: a renewal without the share doesn't count" internal/pan
 control "later payments: a refund of the payment a membership was paid with has it checked again" internal/panel/whop_share_hooks.go \
   'UPDATE whop_membership_checks SET paid_at = 0, next_check_at = 0' \
   'UPDATE whop_membership_checks SET paid_at = paid_at, next_check_at = next_check_at' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund counts whatever the share check found" internal/panel/whop_share_hooks.go \
+  's.noteWhopRenewal(ctx, st, pay, lines, shareRight)' \
+  'if shareRight { s.noteWhopRenewal(ctx, st, pay, lines, shareRight) }' \
+  ./internal/panel '^TestARefundReadWhileTheShareIsWrongStillCounts$'
+control "later payments: the payment check skips payments refunded in full" internal/panel/whop_share.go \
+  'kept := slices.DeleteFunc(slices.Clone(pays), whopRefundedInFull)' \
+  'kept := pays' \
   ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
 control "later payments: the owner sets the grace" internal/panel/whop_share_hooks.go \
   'days = app.RenewalGraceDays' \

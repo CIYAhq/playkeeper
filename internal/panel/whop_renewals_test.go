@@ -86,6 +86,33 @@ func TestAMembershipNoRenewalPaidStopsPastItsGrace(t *testing.T) {
 	}
 }
 
+// A refund counts whatever the share check finds when it's read, since it
+// only takes away: one read while Playkeeper's share is wrong still leaves
+// the membership without the payment refunded.
+func TestARefundReadWhileTheShareIsWrongStillCounts(t *testing.T) {
+	r := newRenewalEnv(t)
+	renewed := r.start.Add(30 * 24 * time.Hour)
+	r.renew("pay_renew", "mem_kim", "user_kim", renewed, true)
+	r.pass(30*24*time.Hour + 20*time.Minute)
+	r.f.mu.Lock()
+	b := r.f.installed["biz_other"]
+	kept := b.shares
+	b.shares = nil
+	b.refunds = append(b.refunds, map[string]any{"id": "ref_renew", "payment_id": "pay_renew", "status": "succeeded",
+		"created_at": r.e.clock.now().UTC().Format(time.RFC3339)})
+	b.payments[slices.IndexFunc(b.payments, func(p map[string]any) bool { return p["id"] == "pay_renew" })]["refunded_amount"] =
+		map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
+	r.f.mu.Unlock()
+	r.pass(20 * time.Minute)
+	var paidAt int64
+	if err := r.e.srv.db.QueryRow(`SELECT paid_at FROM whop_membership_checks WHERE membership_id = 'mem_kim'`).Scan(&paidAt); err != nil || paidAt == renewed.UnixMilli() {
+		t.Fatalf("kim's membership once its renewal's refund was read without the share: paid %v, %v", time.UnixMilli(paidAt).UTC(), err)
+	}
+	r.f.mu.Lock()
+	b.shares = kept
+	r.f.mu.Unlock()
+}
+
 // A renewal read while the share check finds Playkeeper's share wrong
 // doesn't count for its membership: its revenue share line may have paid
 // whoever the seller put in Playkeeper's place.
@@ -136,7 +163,9 @@ func TestARenewalThatCarriedTheShareKeepsItsMembership(t *testing.T) {
 
 // A renewal that didn't carry Playkeeper's share doesn't count, nor does
 // one refunded in full: a refund of the payment a membership was last paid
-// with has its payment check look again at once.
+// with has its payment check look again at once, and it falls back on the
+// payment before, so it stops once that payment's period and grace end,
+// whichever order the payments read takes them in.
 func TestARenewalWithoutTheShareOrRefundedDoesntCount(t *testing.T) {
 	r := newRenewalEnv(t)
 	r.f.mu.Lock()
@@ -159,11 +188,17 @@ func TestARenewalWithoutTheShareOrRefundedDoesntCount(t *testing.T) {
 	b.payments[slices.IndexFunc(b.payments, func(p map[string]any) bool { return p["id"] == "pay_alex2" })]["refunded_amount"] =
 		map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}
 	r.f.mu.Unlock()
-	if calls := r.pass(20 * time.Minute); !calledFor(calls, "pause ", "user_alex") || calledFor(calls, "pause ", "user_kim") {
-		t.Fatalf("once alex's renewal was refunded: the core's calls %q", calls)
+	if calls := r.pass(20 * time.Minute); len(calls) > 0 {
+		t.Fatalf("once alex's renewal was refunded, their first payment 30 days old: the core's calls %q", calls)
 	}
-	if calls := r.pass(7*24*time.Hour + time.Hour); !calledFor(calls, "pause ", "user_kim") {
-		t.Fatalf("past kim's grace, their renewal without the share: the core's calls %q", calls)
+	var paidAt int64
+	var payment string
+	if err := r.e.srv.db.QueryRow(`SELECT paid_at, paid_payment FROM whop_membership_checks WHERE membership_id = 'mem_alex'`).Scan(&paidAt, &payment); err != nil ||
+		paidAt != r.start.UnixMilli() || payment != "pay_mem_alex" {
+		t.Fatalf("alex's membership once its renewal was refunded: paid %v by %q, %v", time.UnixMilli(paidAt).UTC(), payment, err)
+	}
+	if calls := r.pass(7*24*time.Hour + time.Hour); !calledFor(calls, "pause ", "user_kim") || !calledFor(calls, "pause ", "user_alex") {
+		t.Fatalf("past their first payments' grace: the core's calls %q", calls)
 	}
 	if problem := r.kimProblem(); !strings.Contains(problem, "(pay_kim2) didn't carry Playkeeper's share") {
 		t.Fatalf("kim's line once paused: %q", problem)

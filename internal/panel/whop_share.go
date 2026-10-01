@@ -432,14 +432,15 @@ type whopNotPaid struct{ why string }
 
 func (e *whopNotPaid) Error() string { return e.why }
 
-// whopSharePaid checks that a membership's latest paid payment carried
-// Playkeeper's share for a plan that allows memoryMB, and was made after
-// since, before its buyer, whopUserID, starts or keeps its servers, and
-// returns it. Every fee line it reads is kept, and the payment for the
-// seller's view (keepCheckedPayment). The error says why not: a
+// whopSharePaid checks that a membership's latest paid payment not refunded
+// in full carried Playkeeper's share for a plan that allows memoryMB, and
+// was made after since, before its buyer, whopUserID, starts or keeps its
+// servers, and returns it. Every fee line it reads is kept, and the payment
+// for the seller's view (keepCheckedPayment). The error says why not: a
 // *whopNotPaid when Whop's answer is that there's no paid payment yet, or
-// none since, or one refunded or with no line of Playkeeper's share
-// (whopSharePaidIn), or anything else when Whop or the dashboard failed.
+// none since, or only refunded ones, or one with no line of Playkeeper's
+// share (whopSharePaidIn), or anything else when Whop or the dashboard
+// failed.
 func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore, whopUserID, membershipID string, memoryMB int, since time.Time) (whop.Payment, error) {
 	pays, err := c.PaidPayments(ctx, st.ID, membershipID)
 	if err != nil {
@@ -448,12 +449,13 @@ func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore
 	if len(pays) == 0 {
 		return whop.Payment{}, &whopNotPaid{"Whop has no paid payment for this membership yet, so its server waits"}
 	}
-	pay := pays[0]
+	kept := slices.DeleteFunc(slices.Clone(pays), whopRefundedInFull)
+	if len(kept) == 0 {
+		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) was refunded, so its server waits", pays[0].ID)}
+	}
+	pay := kept[0]
 	if at := pay.PaidTime(); !at.IsZero() && at.Before(since) {
 		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its latest payment on Whop (%s) was on %s, longer ago than it pays for, so its server waits", pay.ID, at.UTC().Format("2 January"))}
-	}
-	if whopRefundedInFull(pay) {
-		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) was refunded, so its server waits", pay.ID)}
 	}
 	lines, err := c.PaymentFees(ctx, pay.ID)
 	if err != nil {
