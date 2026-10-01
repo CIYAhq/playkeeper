@@ -85,7 +85,8 @@ func TestANewAppStoreSellsNothingUntilItsSellerOpensIt(t *testing.T) {
 // A store back after leaving stays hidden until its seller opens it again,
 // which shows every hosting product, and closing after that hides them all.
 // An Open the store that Whop refused partway leaves the store closed, and
-// its next pass hides what it showed.
+// its next pass hides what it showed; an Update the store Whop refused
+// leaves the products it didn't show for the pass to show.
 func TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain(t *testing.T) {
 	f, e, token := openedAsSeller(t)
 	sharesGoToSiya(t, e)
@@ -160,6 +161,9 @@ func TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain(t *testing.T) {
 	e.reconcile()
 	if got := listed(); got != "Other hidden, Plus hidden, Merch visible" {
 		t.Fatalf("lifted, with Whop refusing to show a product: %s", got)
+	}
+	if r := e.asSeller(t, "POST", "biz_other/sell", acceptingTerms, token, nil); r.status != http.StatusBadGateway || listed() != "Other hidden, Plus hidden, Merch visible" {
+		t.Fatalf("Update the store, with Whop refusing to show Other: %d %v, %s", r.status, r.body, listed())
 	}
 	refuse(false, "")
 	pass("lifted", "Other visible, Plus hidden, Merch visible")

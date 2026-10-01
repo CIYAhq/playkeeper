@@ -459,8 +459,11 @@ func showHostedPlans(ctx context.Context, c *whop.Client, plans []whop.Plan) err
 // showHostedProducts shows each of the store's hosting products among plans
 // on its page on Whop, whop.com/<the store>, which lists only visible
 // products, where a copy's arrive hidden. A product already visible, or
-// archived, is left alone.
-func showHostedProducts(ctx context.Context, c *whop.Client, st whopStore, plans []whop.Plan) error {
+// archived, is left alone. The store's pass forgets each one shown, if it
+// hid it while the store sold nothing, so it hides it again if the store
+// stays closed, and still shows one Whop refused here once the store sells
+// (listWhopProducts). It's errDB when that can't be forgotten.
+func (s *Server) showHostedProducts(ctx context.Context, c *whop.Client, st whopStore, plans []whop.Plan) error {
 	hosting := hostingProducts(plans)
 	products, err := c.Products(ctx, st.ID)
 	if err != nil {
@@ -472,6 +475,10 @@ func showHostedProducts(ctx context.Context, c *whop.Client, st whopStore, plans
 		}
 		if err := c.ShowProduct(ctx, p.ID); err != nil {
 			return err
+		}
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM whop_unlisted_products WHERE store_id = ? AND product_id = ?`, st.ID, p.ID); err != nil {
+			s.log.Error("could not forget a product the store's pass hid", "store", st.ID, "product", p.ID, "err", err)
+			return errDB
 		}
 	}
 	return nil
@@ -833,15 +840,11 @@ func (s *Server) hWhopSellerSell(w http.ResponseWriter, r *http.Request, store s
 		s.sellerRefusal(w, err)
 		return
 	}
-	// The store's pass forgets what it hid while the store sold nothing
-	// before any product is shown, so its next pass looks at each afresh,
-	// and one shown here is hidden again if the store stays closed, even when
-	// Whop refuses a later one (listWhopProducts).
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM whop_unlisted_products WHERE store_id = ?`, st.ID); err != nil {
+	switch err := s.showHostedProducts(ctx, c, st, plans); {
+	case errors.Is(err, errDB):
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
-	}
-	if err := showHostedProducts(ctx, c, st, plans); err != nil {
+	case err != nil:
 		s.sellerRefusal(w, err)
 		return
 	}
