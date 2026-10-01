@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
 
@@ -98,6 +99,84 @@ func TestWithoutABuiltInListMojangsOutageLeavesNoVanillaServer(t *testing.T) {
 	op := e.waitOp(out["id"].(string))
 	if op.Status != api.OpFailed || !strings.Contains(op.Error, "HTTP 503") {
 		t.Fatalf("the install must fail on Mojang's manifest: %+v", op)
+	}
+}
+
+const (
+	fabricGames   = "https://meta.fabricmc.net/v2/versions/game"
+	fabricLoaders = "https://meta.fabricmc.net/v2/versions/loader"
+)
+
+// fabricMetaDown makes Fabric's metadata answer 503, with the build list
+// built into Playkeeper Fabric Loader 0.17.2 alone.
+func (e *agentEnv) fabricMetaDown() {
+	e.t.Helper()
+	for _, u := range []string{fabricGames, fabricLoaders} {
+		e.up.handle(u, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
+	}
+	old := builtInTypeBuilds
+	e.t.Cleanup(func() { builtInTypeBuilds = old })
+	builtInTypeBuilds = func(typ, mc string) ([]software.Build, time.Time, error) {
+		if typ != software.Fabric {
+			return nil, time.Time{}, software.ErrNoBuiltInList
+		}
+		return []software.Build{{Version: "0.17.2", Channel: software.Stable, Recommended: true, Pin: software.PinOf(typ, mc, "0.17.2")}}, time.Now(), nil
+	}
+}
+
+// A backup or a modpack that names a build the build list this machine has
+// doesn't know yet, while the type's upstream can't be asked, keeps the
+// build it names: the list can't say it's no longer offered.
+func TestARestoreAndAPackKeepTheBuildTheyNameWhileTheUpstreamIsDown(t *testing.T) {
+	e := newAgentEnv(t)
+	e.fabricMetaDown()
+	rt, err := e.a.restoreTargetFor(t.Context(), backup.Manifest{Type: software.Fabric, MinecraftVersion: "26.2", Build: "0.18.0"})
+	if err != nil || rt.pin.FabricLoader != "0.18.0" || rt.warning != "" {
+		t.Fatalf("the backup's own loader: %+v %v", rt, err)
+	}
+	pt, err := e.a.packTarget(t.Context(), software.Fabric, "26.2", "0.18.0")
+	if err != nil || pt.pin.FabricLoader != "0.18.0" {
+		t.Fatalf("the pack's own loader: %+v %v", pt, err)
+	}
+	if pt, err := e.a.packTarget(t.Context(), software.Fabric, "26.2", ""); err != nil || pt.pin.FabricLoader != "0.17.2" {
+		t.Fatalf("a pack that names no loader gets the list's recommended one: %+v %v", pt, err)
+	}
+
+	// The negative control: Fabric's own list, which doesn't offer 0.18.0,
+	// moves the restore to the recommended loader and refuses the pack.
+	live := newAgentEnv(t)
+	live.up.serveFabricLists()
+	rt, err = live.a.restoreTargetFor(t.Context(), backup.Manifest{Type: software.Fabric, MinecraftVersion: "26.2", Build: "0.18.0"})
+	if err != nil || rt.pin.FabricLoader != "0.17.2" || !strings.Contains(rt.warning, "0.17.2") {
+		t.Fatalf("with Fabric answering, the restore moves to its recommended loader: %+v %v", rt, err)
+	}
+	if _, err := live.a.packTarget(t.Context(), software.Fabric, "26.2", "0.18.0"); err == nil || !strings.Contains(err.Error(), "doesn't offer") {
+		t.Fatalf("with Fabric answering, a loader it doesn't offer is refused: %v", err)
+	}
+}
+
+// A build list whose upstream failed is served from what the machine has
+// for a minute, as the version lists are, so a dead host holds up one
+// build-picker load a minute, not every one.
+func TestABuildListUpstreamThatFailedIsAskedAgainOnlyAfterAMinute(t *testing.T) {
+	e := newAgentEnv(t)
+	e.fabricMetaDown()
+	ask := func() {
+		t.Helper()
+		if bs, _, err := e.a.typeBuilds(t.Context(), software.Fabric, "26.2"); err != nil || len(bs) != 1 {
+			t.Fatalf("the built-in builds: %+v %v", bs, err)
+		}
+	}
+	ask()
+	asked := e.up.hitCount(fabricGames)
+	ask()
+	if n := e.up.hitCount(fabricGames); n != asked || asked == 0 {
+		t.Fatalf("Fabric was asked %d times, then %d: once until a minute has passed", asked, n)
+	}
+	e.skew.Add(int64(upstreamRetry + time.Second))
+	ask()
+	if e.up.hitCount(fabricGames) == asked {
+		t.Fatal("a minute on, Fabric is asked again")
 	}
 }
 
