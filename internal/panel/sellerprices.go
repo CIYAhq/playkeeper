@@ -628,10 +628,10 @@ func (s *Server) hWhopSellerFix(w http.ResponseWriter, r *http.Request, store st
 	}
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
-	if st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); !ok {
+	switch st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); {
+	case !ok:
 		return
-	}
-	if st.ClosedWhy == "" {
+	case st.ClosedWhy == "":
 		writeErr(w, http.StatusConflict, api.CodeConflict, "Your store is open, so its plans stay as they are.", "")
 		return
 	}
