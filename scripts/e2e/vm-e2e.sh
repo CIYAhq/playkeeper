@@ -190,7 +190,7 @@ lab_ssh "$A" "cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes" | tee "$OUT/ho
 echo "install wall time: $(($(date +%s) - start)) s" | tee -a "$OUT/host-a-install.txt"
 lab_ssh "$A" 'sudo cat /var/lib/playkeeper/install-manifest.json' | tee "$OUT/host-a-install-manifest.json"
 code=$(grep -o 'setup code: [a-z0-9-]*' "$OUT/host-a-install.txt" | awk '{print $3}')
-fingerprint=$(grep -A1 'SHA-256 fingerprint' "$OUT/host-a-install.txt" | tail -1 | tr -d ' ')
+fingerprint=$(sed -n 's/.*SHA-256 fingerprint is \([0-9A-F:]*\).*/\1/p' "$OUT/host-a-install.txt")
 fetch_cert "$A" "$OUT/cert-$A.pem"
 got=$(openssl x509 -in "$OUT/cert-$A.pem" -noout -fingerprint -sha256 | cut -d= -f2)
 [ "$got" = "$fingerprint" ] && echo "certificate fingerprint matches the installer output: $got" | tee "$OUT/host-a-tls.txt"

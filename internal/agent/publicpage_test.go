@@ -242,7 +242,12 @@ func freePort(t *testing.T) int {
 // ports on free high ports and the machine up for up.
 func pageEnv(t *testing.T, up time.Duration, setup func(e *agentEnv)) (e *agentEnv, https, plain int) {
 	t.Helper()
+	// freePort lets its port go again, so the second call can pick the
+	// first's: with 16 shards each shard has only 625 ports to pick from.
 	https, plain = freePort(t), freePort(t)
+	for plain == https {
+		plain = freePort(t)
+	}
 	systemd := t.TempDir()
 	e = newAgentEnvWith(t, func(e *agentEnv) {
 		e.tweak = func(o *Options) {

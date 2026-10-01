@@ -108,7 +108,7 @@ A token can use 21 tools, each checked against its rights and servers. A Viewer 
 **Scans (2026-09-26).** `govulncheck` v1.8.0 (Go 1.27.1): 0 vulnerabilities affecting Playkeeper (one advisory for the unmaintained `golang.org/x/crypto/openpgp`, which is not imported). `npm audit` for the UI: 0 vulnerabilities.
 
 **Known limitations.**
-- At the IP address the certificate is self-signed; users must compare the fingerprint printed by the installer on first visit. Only a name (a free one or an own domain, from 0.4.0) gets a publicly trusted certificate.
+- At the IP address the certificate is self-signed. The installer tells people to click through the browser's warning, and prints the certificate's fingerprint for anyone who compares it on the first visit; whoever skips that comparison can't tell the dashboard from someone intercepting the connection. Only a name (a free one or an own domain, from 0.4.0) gets a publicly trusted certificate.
 - The two-factor secret is stored unencrypted in the panel database (`/var/lib/playkeeper/panel/panel.db`, readable by the panel user and root), since a key kept on the same host would not protect it: anyone who can read that file or a copy of it can make codes.
 - Free names rely on the names service and its operator, whose Cloudflare token can edit every free name in the `playkeeper.me` zone (see Free names above).
 - The RCON password is also present in the server's `server.properties` in its data folder (readable by the game user and root), because the Minecraft server reads it from there.
