@@ -11867,6 +11867,11 @@ control "Sign in with Whop's cookie never holds the state" internal/panel/whop_s
   'setHostCookie(w, whopSignInCookie, secret, ' \
   'setHostCookie(w, whopSignInCookie, state, ' \
   ./internal/panel '^TestSignInWithWhopOpensTheCustomersAccount$'
+control "a link back from Whop that matches no sign-in leaves the cookie, which may be another tab's" internal/panel/whop_signin.go \
+  '	state := q.Get("state")' \
+  '	setHostCookie(w, whopSignInCookie, "", -1, http.SameSiteLaxMode)
+	state := q.Get("state")' \
+  ./internal/panel '^TestASignInWithWhopThatMatchesNoneLeavesTheCookie$'
 control "every cookie the dashboard sets is for every path" internal/panel/cookies.go \
   'Path: "/", ' \
   'Path: "/api/", ' \
