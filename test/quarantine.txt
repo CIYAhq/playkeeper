@@ -8,7 +8,6 @@
 # PACKAGE OR SCRIPT      TEST OR CHECK                                          HOW IT FAILED
 ./internal/agent         TestLagCountsOnlyTheCurrentRunsGC                      after_a_restart, on siya/site-copy-hosting-6127 (run 36411806815)
 ./internal/agent         TestANewKeyReachesTheCopyBeingMade                     during_a_copy_that_saved_where_it_stopped, on siya/tools-hub-server-icon-c9c0 (run 36405712060)
-./internal/agent         TestUpdateIsVerifiedStagedAndHandedToTheUpdater        reads /v1/update the moment the operation succeeds, before the agent clears "installing"; ARM64 run on #99 (run 36432245229)
 ./internal/agent         TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor  console_and_allowlist_off: "2 restarts by Playkeeper, want 1", on #136, which changes no Go code (run 36467104524); passes on main
 ./internal/modpacks/share TestNewTokenIsUniform                                 its chi-squared bound of 110 fails by chance about once in 350 runs (run 36419888033)
 test/e2e/software.py     pregen                                                 Paper at 2048 MB is killed at its container's memory limit while it pre-generates (cause=oom in the agent's journal), which loses Chunky's task: 10 of 85 ARM runs on 28 Sep. A product bug to fix, not the test's
