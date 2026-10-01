@@ -80,6 +80,16 @@ func whopHostingIn(via string) string {
 	return whopAccess
 }
 
+// whopPaidIn is the condition, on a membership alias of a store reached
+// via, that the payment check counts it (whopPaidPlan): in an app store, a
+// payment of it carried Playkeeper's share; in the key store, always.
+func whopPaidIn(via, alias string) string {
+	if via != whopViaApp {
+		return "1"
+	}
+	return `EXISTS (SELECT 1 FROM whop_membership_checks k WHERE k.store_id = ` + alias + `.store_id AND k.membership_id = ` + alias + `.membership_id AND k.paid_mb > 0)`
+}
+
 // whopHostingSQL is the condition, on a membership m of any store, that its
 // status gives servers in its store (whopHosts).
 const whopHostingSQL = `(m.status IN ` + whopAppHosting + ` OR m.status = 'completed' AND NOT EXISTS (SELECT 1 FROM whop_stores hv WHERE hv.store_id = m.store_id AND hv.via = 'app'))`
@@ -889,14 +899,16 @@ func (s *Server) queueWhopMessage(ctx context.Context, store, whopUserID, kind, 
 // remindCancelled reminds a customer of the store who cancelled the plans
 // that keep their servers running to download their world before the last
 // one ends, once for those cancellations. Cancelling one plan while another
-// goes on stops nothing, so it says nothing.
+// goes on stops nothing, so it says nothing. In an app store only
+// memberships the payment check found paid keep servers running.
 func (s *Server) remindCancelled(ctx context.Context, st whopStore) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.membership_id, m.whop_user_id, m.period_end, m.told_cancel FROM whop_memberships m
 		JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id AND p.allowance_from != ''
 		JOIN whop_customers c ON c.store_id = m.store_id AND c.whop_user_id = m.whop_user_id AND c.applied != '' AND c.paused = 0
-		WHERE m.store_id = ? AND m.stale = 0 AND m.status IN `+whopHostingIn(st.Via)+` AND NOT EXISTS (
+		WHERE m.store_id = ? AND m.stale = 0 AND m.status IN `+whopHostingIn(st.Via)+` AND `+whopPaidIn(st.Via, "m")+` AND NOT EXISTS (
 			SELECT 1 FROM whop_memberships o JOIN whop_plans q ON q.store_id = o.store_id AND q.plan_id = o.plan_id AND q.allowance_from != ''
-			WHERE o.store_id = m.store_id AND o.whop_user_id = m.whop_user_id AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0)`, st.ID)
+			WHERE o.store_id = m.store_id AND o.whop_user_id = m.whop_user_id AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0
+			AND `+whopPaidIn(st.Via, "o")+`)`, st.ID)
 	if err != nil {
 		s.log.Error("could not list cancelled Whop memberships", "err", err)
 		return

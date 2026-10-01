@@ -8693,6 +8693,19 @@ control "payment check: only a paid payment" internal/whop/payments.go \
   'return p.MembershipID != membershipID || p.Status != "paid"' \
   'return p.MembershipID != membershipID' \
   ./internal/whop '^TestPaidPaymentsAreOnlyTheMembershipsOwn$'
+# shellcheck disable=SC2016
+control "payment check: an unpaid membership doesn't hold back a cancellation's reminder" internal/panel/whop_customers.go \
+  'AND `+whopPaidIn(st.Via, "o")+`)`' \
+  'AND 1)`' \
+  ./internal/panel '^TestACancellationIsRemindedThoughAnUnpaidMembershipGoesOn$'
+control "payment check: the migration keeps one membership of the plan a customer was given, or their only one" internal/panel/auth.go \
+  'AND (a.of_given = 1 AND h.plan_id = a.ids OR a.of_given = 0 AND a.n = 1);' \
+  ';' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
+control "payment check: the migration keeps a moved membership as paid for what was given" internal/panel/auth.go \
+  'COALESCE((SELECT q.title FROM whop_plans q WHERE q.store_id = a.store_id AND q.plan_id = a.ids), a.ids), a.servers, a.mb, a.disk' \
+  'h.title, h.servers, h.mb, h.disk' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
 control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
   's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
   '_ = whopUserID' \
