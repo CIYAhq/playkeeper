@@ -1,0 +1,143 @@
+{{/*
+path: /privacy
+title: Privacy policy: what Playkeeper keeps about you, and why
+description: What Playkeeper keeps about you and why: on playkeeper.io, in the software you run, for free names and on Playkeeper Cloud, and who else sees it.
+label: Privacy policy
+*/}}
+
+{{/* Linked from the footer of every page, the Cloud page, the seller terms
+     and the seller's page inside Whop. Each claim follows the code: a
+     change to what Playkeeper keeps changes this page, and its version. */}}
+
+{{define "main"}}
+<section class="band band-white" aria-labelledby="page-title">
+  <div class="container container-narrow prose">
+    <h1 id="page-title" class="h1-page">Privacy policy</h1>
+    <p class="lead">What Playkeeper keeps about you, why, for how long, and who else sees it.</p>
+    <p>Version of 1 October 2026.</p>
+
+    <h2 id="who-we-are">1. Who we are</h2>
+    <p>Playkeeper is run by CIYA TECHNOLOGIES LTD, Pyrrou 11, 4105 Limassol, Cyprus ("Playkeeper", "we"). We decide how the personal data in this policy is used, except where section 5 says we handle it for a store. Write to us at <a href="mailto:me@siya.digital">me@siya.digital</a>.</p>
+    <p>This policy covers:</p>
+    <ul>
+      <li><strong>playkeeper.io,</strong> its live demo and its install script;</li>
+      <li><strong>the Playkeeper software,</strong> where you run it yourself, but only what it sends us or the services it uses;</li>
+      <li><strong>free names</strong> under playkeeper.me;</li>
+      <li><strong>Playkeeper Cloud,</strong> where we run the machines, including for stores on Whop that sell through it;</li>
+      <li><strong>sellers</strong> who connect Playkeeper Cloud to their Whop business.</li>
+    </ul>
+
+    <h2 id="website">2. playkeeper.io</h2>
+    <ul>
+      <li><strong>Counting visits, without cookies.</strong> Every page but the template share page (<code>/t</code>) loads OpenAnalytics, an open-source visit counter we run on our own server. It records the page you're on and the page that sent you, any campaign in the address, your device and browser type, how fast the page loaded, a sample of clicks and scrolls, and a few things you do, such as copying the install command, opening the live demo or using a free tool. It never stores your IP address. It may work out your country and city from it, on our server. It counts you by a code made with a key that changes every night, so after a day nothing it kept can be tied back to you. In your browser it keeps a visit's ID in session storage, gone when you close the tab, and any events it couldn't send yet. It records nothing if your browser sends Global Privacy Control or Do Not Track.</li>
+      <li><strong>Counting copies of the install command.</strong> When you copy it, your browser tells our stats service that it was copied, and which campaign's command it was, and nothing else: no cookie, no referrer. We keep hourly counts for 400 days. Your browser sends nothing if it sends Global Privacy Control or Do Not Track.</li>
+      <li><strong>Downloading the install script.</strong> When a machine fetches it from playkeeper.io, we log the time, the address it came from (its IP address), the script it asked for and its user agent. The logs are deleted after 30 days. They count installs and help us stop abuse.</li>
+      <li><strong>GitHub's star count.</strong> Your browser asks GitHub how many stars Playkeeper has, so GitHub sees your IP address. The number is kept in your browser for an hour.</li>
+      <li><strong>Kept only in your browser:</strong> the address of your own dashboard, for Open in my dashboard, and the live demo's state. These never reach us.</li>
+      <li><strong>No forms, and no ads.</strong> Nothing on the site asks for your email address, and no advertising pixel or cookie is on any page.</li>
+    </ul>
+
+    <h2 id="software">3. The Playkeeper software, when you run it yourself</h2>
+    <p><strong>Your server's data stays yours.</strong> Your players, worlds, backups and logs stay on your machine. You decide what happens to them, and we don't receive them. The software sends us only the following.</p>
+    <ul>
+      <li><strong>Usage stats, which you can turn off.</strong> A random ID made on your machine, not linked to you; the Playkeeper version, your operating system and its version, and your CPU type; how Playkeeper got onto the machine, and which campaign's command, if any; whether the machine runs the dashboard or joined another; and how the install went, and the step that failed, if one did. Then, a minute after it starts and twice a day after that, the kind of address the machine has (a free name, your own domain or an IP address) and how many servers it has and runs. <strong>Never</strong> an IP address, a host or server name, or anything about players. Our stats service uses the IP address a report comes from only to limit how often it's sent, in memory, and doesn't log it. It forgets a machine 400 days after its last report. <strong>To turn them off,</strong> set <code>DO_NOT_TRACK</code>, set <code>PLAYKEEPER_USAGE_STATS=off</code>, or use Settings › Playkeeper › Usage stats.</li>
+      <li><strong>Update checks.</strong> About every 30 minutes, your machine asks playkeeper.io, then GitHub, for the latest release, saying only that it's "playkeeper-updater". They see its IP address. You can turn automatic checks off in Settings.</li>
+      <li><strong>Free names under playkeeper.me.</strong> If you take one, our names service keeps the name; your machine's public key, whose private half stays on your machine; its public IPv4 and IPv6 addresses; when it was claimed and last refreshed; and the records for your servers' ports. The name and its address are published in public DNS, through Cloudflare, as any address is. A name not refreshed for 30 days stops working, and 60 days later anyone can take it. A name you release is held from others for 30 days.</li>
+      <li><strong>Certificates.</strong> Your machine gets its certificates from Let's Encrypt, with no email address unless you set one.</li>
+      <li><strong>Other services your machine uses:</strong> for normal running, Docker Hub, PaperMC and Mojang, for server software, and Mojang for players' faces and to check the names you invite; when you browse add-ons, Modrinth and Hangar, and CurseForge; when you set up your own domain, Cloudflare's and Google's DNS lookups; and only if you connect them, Discord, Hetzner, Whop and backup storage elsewhere. Crash reports stay on your machine, and the software turns off Paper's own usage reporting (bStats).</li>
+    </ul>
+
+    <h2 id="cloud">4. Playkeeper Cloud</h2>
+    <p>Here we run the machines, so we hold what running your servers needs.</p>
+    <ul>
+      <li><strong>Your account:</strong> your username, and a password stored only as an argon2id hash; your two-factor secret, and recovery codes stored only as hashes; and the tokens you give AI agents, stored only as hashes. A session cookie, <code>__Host-playkeeper</code>, keeps you signed in, for up to 12 hours idle and 7 days in all.</li>
+      <li><strong>The audit log:</strong> who did what and when, such as starting a server or changing a setting. It keeps no IP address, and entries are deleted after a year.</li>
+      <li><strong>If you bought through Whop:</strong> your Whop user ID and username, the store you bought from, and your plan and its state. Signing in with Whop asks Whop only who you are and your username. We don't read or keep your email address, or Whop's sign-in tokens. We keep the messages we send you in the store's Whop chat for 30 days after they're sent.</li>
+      <li><strong>Payments,</strong> for stores that sell through Playkeeper Cloud: each payment's ID, the buyer's Whop user ID, the plan, the amount, any refund and Playkeeper's share, and the fee lines Whop shows us, to check our share was paid. When your account is deleted, your payments stay in the store's accounts without your Whop user.</li>
+      <li><strong>Your servers:</strong> their files, which hold what Minecraft keeps, such as worlds, players' Minecraft names and UUIDs and what they carry, the allowlist, operators and bans, including banned IP addresses if you ban by IP. The console shows the last 2,000 lines, with IP addresses hidden, and servers don't log players' IP addresses; chat does appear in the console and the server's logs. Players' visits, their names, UUIDs and times, are kept 180 days for your server's charts. Players' faces come from Mojang and are reused for 12 hours before they're fetched again. Backups hold worlds, player data and settings, not logs, and are kept as your backup rules say. Copies elsewhere are encrypted before they leave the machine, to storage you choose.</li>
+      <li><strong>Friends who ask to join:</strong> their Minecraft name, and their network address while the request waits. It's cleared once you answer.</li>
+      <li><strong>Your public server page</strong> is on unless you turn it off. It shows who's playing only if you turn that on.</li>
+      <li><strong>Our alerts:</strong> the dashboard posts about our machines and servers in a private channel of the Playkeeper Discord. A post can name your server and its players, a friend asking to join, or a team member whose two-factor sign-in changed.</li>
+      <li><strong>When your plan ends,</strong> your servers stop, and you can still sign in and download backups. 14 days later the servers are deleted, and a final backup is kept 30 more days. 30 days after your servers are deleted, your account and its records are deleted too. You can ask us to delete your account sooner; if you still have a plan, cancel it on Whop first.</li>
+      <li><strong>Who sees what:</strong> you and your team; for a store's customers, the store's seller, who sees your Whop username, your plan, since when you're a customer, and your status; and Playkeeper, to run the service. No other seller sees you. If we suspend you, the seller sees only that you're suspended, not why.</li>
+      <li><strong>Stores that sell through Playkeeper Cloud.</strong> If you bought your plan from another store on Whop that sells through Playkeeper Cloud, that store decides how your data is used, and we handle it for them, as our {{if exists "/cloud/seller-terms"}}<a href="/cloud/seller-terms">seller terms</a>{{else}}seller terms{{end}} set out. Ask the store about your data. If you write to us, we pass your request on and help them answer. We still decide ourselves on what we keep for our own purposes: the payment records that show our share was paid, the audit log, and what keeps the service safe.</li>
+    </ul>
+
+    <h2 id="sellers">5. Sellers who connect Playkeeper Cloud</h2>
+    <ul>
+      <li><strong>About your store:</strong> your business's Whop ID, name and address, and your plans and prices.</li>
+      <li><strong>Playkeeper's share:</strong> Playkeeper is your revenue share partner on Whop.</li>
+      <li><strong>Your store's payments:</strong> for your earnings, and to check our share.</li>
+      <li><strong>Your team:</strong> your page inside Whop checks with Whop, each time, that the person looking is on your business's team.</li>
+      <li><strong>Accepting our seller terms:</strong> who ticked the box (their Whop user), when, and which version, kept with your store's record.</li>
+      <li><strong>Your customers' data:</strong> we handle it for you, as our {{if exists "/cloud/seller-terms"}}<a href="/cloud/seller-terms">seller terms</a>{{else}}seller terms{{end}} set out.</li>
+    </ul>
+
+    <h2 id="sharing">6. Who we share personal data with</h2>
+    <p>We don't sell personal data. We use:</p>
+    <table>
+      <thead><tr><th scope="col">Who</th><th scope="col">For</th><th scope="col">Where</th></tr></thead>
+      <tbody>
+        <tr><td>Hetzner Online</td><td>the servers behind playkeeper.io, its visit counting, the stats and names services, and Playkeeper Cloud</td><td>EU</td></tr>
+        <tr><td>Cloudflare</td><td>DNS for playkeeper.io and playkeeper.me, and the store sites</td><td>USA</td></tr>
+        <tr><td>Whop</td><td>payments, sign-in, store data and messages to customers</td><td>USA</td></tr>
+        <tr><td>Discord</td><td>the alerts in our Discord, and for software you run yourself, only if you connect it</td><td>USA</td></tr>
+        <tr><td>GitHub (Microsoft)</td><td>releases and the star count</td><td>USA</td></tr>
+        <tr><td>Mojang (Microsoft)</td><td>server software, players' faces, checking player names</td><td>USA</td></tr>
+        <tr><td>Backup storage</td><td>only if you connect it</td><td>where you choose</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="transfers">7. Transfers outside the EU</h2>
+    <p>Cloudflare, Discord, GitHub and Mojang are certified under the EU–US Data Privacy Framework. Whop protects transfers with the European Commission's standard contractual clauses.</p>
+
+    <h2 id="why">8. Why we may use it</h2>
+    <ul>
+      <li><strong>To give you what you signed up for:</strong> your Cloud account and servers, their backups, messages about them, sign-in and free names, and for sellers, what our seller terms promise.</li>
+      <li><strong>Our legitimate interests,</strong> which you can object to: counting visits and installs without cookies; keeping the service secure, with the audit log and limits on how often things can be tried; alerts that keep our machines running; and usage stats, which you can turn off.</li>
+      <li><strong>The law:</strong> records we must keep, such as for tax.</li>
+    </ul>
+    <p>For a store's customers, the store decides why their data is used, and we follow its instructions.</p>
+
+    <h2 id="how-long">9. How long we keep it</h2>
+    <table>
+      <thead><tr><th scope="col">What</th><th scope="col">How long</th></tr></thead>
+      <tbody>
+        <tr><td>Install script logs (IP address, user agent)</td><td>30 days</td></tr>
+        <tr><td>Counts of install command copies</td><td>400 days</td></tr>
+        <tr><td>Visit counting</td><td>no IP address; after a day, nothing that can be tied back to you</td></tr>
+        <tr><td>Usage stats</td><td>400 days after a machine's last report</td></tr>
+        <tr><td>A free name, with its IP addresses</td><td>until 30 days after it's released, or 90 days after its last refresh</td></tr>
+        <tr><td>Signed-in sessions</td><td>12 hours idle, 7 days at most</td></tr>
+        <tr><td>Audit log</td><td>1 year</td></tr>
+        <tr><td>Messages sent in Whop chat</td><td>30 days after sending</td></tr>
+        <tr><td>Players' visits to a Cloud server</td><td>180 days</td></tr>
+        <tr><td>Players' faces</td><td>12 hours, then fetched again</td></tr>
+        <tr><td>A Cloud server after its plan ends</td><td>14 days, then a final backup for 30 more</td></tr>
+        <tr><td>A Cloud account after its servers are deleted</td><td>30 days</td></tr>
+        <tr><td>Payments</td><td>while you're a customer, then without your Whop user</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="rights">10. Your rights</h2>
+    <p>You can ask for a copy of your data; have it corrected, deleted or used less; take it elsewhere; and object to what we do for our legitimate interests. Write to <a href="mailto:me@siya.digital">me@siya.digital</a>. We answer within a month. You can also complain to Cyprus's <a href="https://www.dataprotection.gov.cy" rel="noopener">Commissioner for Personal Data Protection</a>, or to the authority where you live.</p>
+
+    <h2 id="children">11. Children</h2>
+    <p>Playkeeper Cloud accounts are for people aged 14 or older, and under 18 only with a parent's or guardian's agreement, as Whop's terms also ask. Servers our customers run may have younger players, whose Minecraft names and UUIDs the servers keep, as every Minecraft server does.</p>
+
+    <h2 id="safety">12. Keeping it safe</h2>
+    <ul>
+      <li>Passwords are argon2id hashes, and tokens and recovery codes are stored only as hashes.</li>
+      <li>Connections use HTTPS.</li>
+      <li>Backups sent elsewhere are encrypted first.</li>
+      <li>Consoles hide IP addresses.</li>
+    </ul>
+
+    <h2 id="channels">13. Our channels</h2>
+    <p>We talk about Playkeeper in the Playkeeper Discord and on X. What you post there is seen by us and others there, under Discord's and X's own policies.</p>
+
+    <h2 id="changes">14. Changes</h2>
+    <p>We date each version here and say what changed. When it changes, customers and sellers also see a notice on their pages.</p>
+  </div>
+</section>
+{{end}}
