@@ -70,7 +70,9 @@ func (a *Agent) takePagePorts(ctx context.Context, want api.PagePortsRequest) (a
 		}
 		return api.PublicPagePorts{HTTPS: out[0], HTTP: out[1]}
 	}
-	if st := a.publicPageState(); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {
+	st := a.publicPageState(nil)
+	joined := want.Joined && st.Host != ""
+	if !st.On && !st.Dashboard && !joined || !want.HTTPS && !want.HTTP {
 		return api.PublicPagePorts{HTTPS: out[0], HTTP: out[1]}, nil
 	}
 	if a.opts.Uptime() < pageSettle {
@@ -92,6 +94,11 @@ func (a *Agent) takePagePorts(ctx context.Context, want api.PagePortsRequest) (a
 		if f != nil {
 			files = append(files, f)
 		}
+	}
+	// A joined server's page changes no setting here and leaves no audit
+	// entry, so the ports going to the panel for it alone are logged.
+	if len(files) > 0 && !st.On && !st.Dashboard {
+		a.log.Info("the public page's ports go to the panel for a server on a joined machine", "https", out[0].State, "http", out[1].State)
 	}
 	return result(), files
 }

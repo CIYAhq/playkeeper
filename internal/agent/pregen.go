@@ -101,13 +101,29 @@ func (s *server) lastPregen() (*pregenTask, error) {
 }
 
 func (s *server) updatePregen(set string, args ...any) error {
-	_, err := s.db.Exec(`UPDATE pregen SET `+set+` WHERE server_id = ?`, append(args, s.id)...)
+	return s.updatePregenIn(s.db, set, args...)
+}
+
+func (s *server) updatePregenIn(ex execer, set string, args ...any) error {
+	_, err := ex.Exec(`UPDATE pregen SET `+set+` WHERE server_id = ?`, append(args, s.id)...)
 	return err
 }
 
+// pregenEntry is the audit entry a change to the task is stored with.
+type pregenEntry struct{ actor, action, result, detail string }
+
+// updatePregenAudited is updatePregen together with entry, the entry first,
+// so whoever sees the change finds it audited.
+func (s *server) updatePregenAudited(entry pregenEntry, world, set string, args ...any) error {
+	return s.execAudited(entry.actor, entry.action, world, entry.result, entry.detail, `UPDATE pregen SET `+set+` WHERE server_id = ?`, append(args, s.id)...)
+}
+
 // endPregen records that the task finished or was cancelled, with what
-// Chunky saved of it.
-func (s *server) endPregen(t *pregenTask, how string, saved *pregen.Task, bytesAfter any) error {
+// Chunky saved of it, together with entry, the entry first, so whoever sees
+// the task ended finds it audited and a crash can't keep one without the
+// other.
+func (s *server) endPregen(t *pregenTask, how string, saved *pregen.Task, bytesAfter any, entry pregenEntry) error {
+	defer s.pg.reset()
 	chunks, elapsed, rate := t.Chunks, t.Elapsed, t.Rate
 	if saved != nil {
 		chunks, elapsed = saved.Chunks, saved.ElapsedSeconds
@@ -115,14 +131,25 @@ func (s *server) endPregen(t *pregenTask, how string, saved *pregen.Task, bytesA
 	if chunks > 0 && elapsed > 0 {
 		rate = float64(chunks) / float64(elapsed)
 	}
-	err := s.updatePregen(`ended = ?, ended_at = ?, chunks = ?, elapsed_secs = ?, rate = ?, world_bytes_after = ?,
-		paused_by_user = 0, paused_by_policy = 0, paused_for = ''`, how, s.now().UnixMilli(), chunks, elapsed, rate, bytesAfter)
-	if err == nil && how == pregenFinished {
-		err = s.updatePregen(`done_radius = MAX(done_radius, radius),
-			done_border = CASE WHEN preset = ? THEN MAX(done_border, radius) ELSE done_border END`, api.MapAreaBorder)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
 	}
-	s.pg.reset()
-	return err
+	defer tx.Rollback()
+	if err := s.insertAudit(tx, s.id, entry.actor, entry.action, t.World, entry.result, entry.detail); err != nil {
+		return err
+	}
+	if err := s.updatePregenIn(tx, `ended = ?, ended_at = ?, chunks = ?, elapsed_secs = ?, rate = ?, world_bytes_after = ?,
+		paused_by_user = 0, paused_by_policy = 0, paused_for = ''`, how, s.now().UnixMilli(), chunks, elapsed, rate, bytesAfter); err != nil {
+		return err
+	}
+	if how == pregenFinished {
+		if err := s.updatePregenIn(tx, `done_radius = MAX(done_radius, radius),
+			done_border = CASE WHEN preset = ? THEN MAX(done_border, radius) ELSE done_border END`, api.MapAreaBorder); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // pregenCache is what Chunky reported last for the server's unfinished
@@ -494,11 +521,11 @@ func (s *server) pregenAfterRestart(ctx context.Context, p pregen.Platform, task
 		if err := ctrl.Configure(cctx, pregen.Config{ContinueOnRestart: false, UpdateInterval: pregenUpdateInterval}); err != nil {
 			s.log.Warn("could not keep the map pre-generation from resuming", "server", s.id, "err", err)
 		}
-		if err := s.updatePregen(`paused_by_user = 1, paused_by_policy = 0, paused_for = ?`, pregenPausedForMemory); err != nil {
+		paused := pregenEntry{"playkeeper", "pregen.paused", "succeeded", "the server ran out of memory twice while pre-generating"}
+		if err := s.updatePregenAudited(paused, task.World, `paused_by_user = 1, paused_by_policy = 0, paused_for = ?`, pregenPausedForMemory); err != nil {
 			s.log.Warn("could not pause the map pre-generation", "server", s.id, "err", err)
 			return false
 		}
-		s.audit("playkeeper", "pregen.paused", task.World, "succeeded", "the server ran out of memory twice while pre-generating")
 		s.pg.forget()
 		return true
 	}
@@ -521,11 +548,12 @@ func (s *server) pregenAfterRestart(ctx context.Context, p pregen.Platform, task
 
 // pregenMemoryKills is how many times the server ran out of memory since
 // task started, or since someone last resumed it, as after giving the
-// server more memory.
+// server more memory. A crash in the millisecond the start or the resume
+// was recorded counts: each is recorded once Chunky runs the task.
 func (s *server) pregenMemoryKills(task *pregenTask) int {
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE server_id = ? AND kind = 'server_crashed' AND (detail LIKE ? OR detail LIKE ?)
-		AND ts > MAX(?, COALESCE((SELECT MAX(ts) FROM audit WHERE server_id = ? AND action = ? AND actor != 'playkeeper'), 0))`,
+		AND ts >= MAX(?, COALESCE((SELECT MAX(ts) FROM audit WHERE server_id = ? AND action = ? AND actor != 'playkeeper'), 0))`,
 		s.id, oomCrash+"%", heapCrash+"%", task.StartedAt.UnixMilli(), s.id, pregenAudits["continue"]).Scan(&n); err != nil {
 		s.log.Warn("could not count the server's crashes", "server", s.id, "err", err)
 	}
@@ -574,15 +602,14 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 		if sc, _ := s.serverConfig(); sc != nil {
 			after = s.worldSize(s.levelName(*sc))
 		}
-		if err := s.endPregen(task, pregenFinished, saved, after); err != nil {
-			s.log.Warn("could not record the finished map pre-generation", "server", s.id, "err", err)
-			return nil, nil
-		}
 		detail := fmt.Sprintf("%d chunks", task.Total)
 		if saved != nil {
 			detail = fmt.Sprintf("%d chunks in %s", saved.Chunks, inWords(time.Duration(saved.ElapsedSeconds)*time.Second))
 		}
-		s.audit("playkeeper", "pregen.finished", task.World, "succeeded", detail)
+		if err := s.endPregen(task, pregenFinished, saved, after, pregenEntry{"playkeeper", "pregen.finished", "succeeded", detail}); err != nil {
+			s.log.Warn("could not record the finished map pre-generation", "server", s.id, "err", err)
+			return nil, nil
+		}
 		s.drawPregenerated(ctx)
 		return nil, nil
 	case pregen.StateCancelled, pregen.StateIdle:
@@ -605,9 +632,7 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 			if st.State == pregen.StateIdle {
 				result, detail = "failed", "Chunky no longer has the task"
 			}
-			if err := s.endPregen(task, pregenCancelled, st.Task, nil); err == nil {
-				s.audit("playkeeper", "pregen.cancelled", task.World, result, detail)
-			}
+			_ = s.endPregen(task, pregenCancelled, st.Task, nil, pregenEntry{"playkeeper", "pregen.cancelled", result, detail})
 			return nil, nil
 		}
 	default:
@@ -905,10 +930,8 @@ func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p p
 		if old != nil {
 			// Chunky dropped the old task when the new one started. Should
 			// this write fail too, pregenCheck finds the task gone.
-			if eerr := s.endPregen(old, pregenCancelled, nil, nil); eerr != nil {
+			if eerr := s.endPregen(old, pregenCancelled, nil, nil, pregenEntry{actor, "pregen.cancelled", "failed", "replaced by " + preset + ", which could not be recorded"}); eerr != nil {
 				s.log.Warn("could not record the replaced map pre-generation as cancelled", "server", s.id, "err", eerr)
-			} else {
-				s.audit(actor, "pregen.cancelled", old.World, "failed", "replaced by "+preset+", which could not be recorded")
 			}
 		}
 		return err
@@ -1055,6 +1078,7 @@ func (s *server) pregenAct(ctx context.Context, p pregen.Platform, actor, action
 		}
 		return pregen.WriteConfig(s.dataDir(), p, cfg, s.pregenOwner())
 	}
+	entry := pregenEntry{actor, pregenAudits[action], "succeeded", ""}
 	switch action {
 	case "pause":
 		if online {
@@ -1065,7 +1089,7 @@ func (s *server) pregenAct(ctx context.Context, p pregen.Platform, actor, action
 		if err := resume(false); err != nil {
 			return pregenError(err)
 		}
-		err = s.updatePregen(`paused_by_user = 1, paused_by_policy = 0, paused_for = ''`)
+		err = s.updatePregenAudited(entry, task.World, `paused_by_user = 1, paused_by_policy = 0, paused_for = ''`)
 	case "continue":
 		if err := resume(true); err != nil {
 			return pregenError(err)
@@ -1086,7 +1110,7 @@ func (s *server) pregenAct(ctx context.Context, p pregen.Platform, actor, action
 			s.pg.override = playing && task.PauseForPlayers
 			s.pg.mu.Unlock()
 		}
-		err = s.updatePregen(`paused_by_user = 0, paused_by_policy = 0, paused_for = ''`)
+		err = s.updatePregenAudited(entry, task.World, `paused_by_user = 0, paused_by_policy = 0, paused_for = ''`)
 	case "cancel":
 		if online {
 			if err := ctrl.Cancel(ctx, task.World); err != nil {
@@ -1099,7 +1123,7 @@ func (s *server) pregenAct(ctx context.Context, p pregen.Platform, actor, action
 		if t, found, rerr := pregen.ReadTask(s.dataDir(), p, task.World); rerr == nil && found {
 			saved = &t
 		}
-		err = s.endPregen(task, pregenCancelled, saved, nil)
+		err = s.endPregen(task, pregenCancelled, saved, nil, entry)
 	default:
 		return errInvalid("unknown action %q", action)
 	}
@@ -1107,7 +1131,6 @@ func (s *server) pregenAct(ctx context.Context, p pregen.Platform, actor, action
 		return err
 	}
 	s.pg.forget()
-	s.audit(actor, pregenAudits[action], task.World, "succeeded", "")
 	return nil
 }
 

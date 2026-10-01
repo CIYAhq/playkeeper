@@ -44,7 +44,16 @@ func (b *browser) visit(target string) (*http.Response, string) {
 		b.t.Fatal(err)
 	}
 	res.Body.Close()
+	checkHostOnly(b.t, res)
 	return res, res.Header.Get("Location")
+}
+
+// plant puts cookie c in the browser for every path on the dashboard, as
+// another name under its domain could, or as anyone can in their own
+// browser.
+func (b *browser) plant(c *http.Cookie) {
+	b.t.Helper()
+	b.c.Jar.SetCookies(mustURL(b.t, b.e.ts.URL+"/"), []*http.Cookie{{Name: c.Name, Value: c.Value, Path: "/", Secure: true}})
 }
 
 // signInWithWhop walks a sign-in as user through Whop, and answers with
@@ -74,6 +83,7 @@ func (b *browser) signedInAs() string {
 		b.t.Fatal(err)
 	}
 	defer res.Body.Close()
+	checkHostOnly(b.t, res)
 	var body struct {
 		User struct{ Username string } `json:"user"`
 	}
@@ -106,15 +116,12 @@ func TestSignInWithWhopOpensTheCustomersAccount(t *testing.T) {
 	}
 	b := newBrowser(t, e)
 	res, authorize := b.visit(whopSignInPath)
-	var state *http.Cookie
-	for _, c := range res.Cookies() {
-		if c.Name == whopSignInCookie {
-			state = c
-		}
-	}
-	if state == nil || state.Path != whopSignInPrefix || !state.HttpOnly || !state.Secure || state.SameSite != http.SameSiteLaxMode || state.MaxAge != 600 ||
-		res.Header.Get("Cache-Control") != "no-store" {
-		t.Fatalf("the sign-in's cookie: %+v", state)
+	// Lax, since Whop sends the browser back from its own site, and never
+	// the state, which goes to Whop and back in the link.
+	cookie := signInCookie(res)
+	if cookie == nil || notHostOnly(cookie) != "" || cookie.SameSite != http.SameSiteLaxMode || cookie.MaxAge != 600 ||
+		len(cookie.Value) < 43 || strings.Contains(authorize, cookie.Value) || res.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("the sign-in's cookie: %+v, leaving for %s", cookie, authorize)
 	}
 	if !strings.Contains(authorize, "client_id="+whopTestApp) || !strings.Contains(authorize, "redirect_uri="+url.QueryEscape(whopDashboard+whopSignInCallback)) {
 		t.Fatalf("sign-in link: %s", authorize)
@@ -209,16 +216,17 @@ func TestSignInWithWhopGoesBackWithWhyWhenItCant(t *testing.T) {
 	if _, to := b.visit(strings.Replace(cb, "state=", "state=x", 1)); to != back("expired") {
 		t.Fatalf("another state: %q", to)
 	}
-	// A state is used once, and within ten minutes.
+	// A sign-in is used once, and within ten minutes.
 	b = newBrowser(t, e)
-	_, authorize = b.visit(whopSignInPath)
+	left, authorize := b.visit(whopSignInPath)
+	kept := signInCookie(left)
 	cb = f.approve(t, authorize, "user_alex")
 	if _, to := b.visit(cb); to != "/" {
 		t.Fatalf("the first time: %q", to)
 	}
-	b.c.Jar.SetCookies(mustURL(t, e.ts.URL+whopSignInPath), []*http.Cookie{{Name: whopSignInCookie, Value: stateOf(t, cb), Path: whopSignInPrefix}})
+	b.plant(kept)
 	if _, to := b.visit(cb); to != back("expired") {
-		t.Fatalf("the same state again: %q", to)
+		t.Fatalf("the same sign-in again: %q", to)
 	}
 	b = newBrowser(t, e)
 	_, authorize = b.visit(whopSignInPath)
@@ -284,6 +292,86 @@ func TestSignInWithWhopGoesBackWithWhyWhenItCant(t *testing.T) {
 	if res.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("POST: %d", res.StatusCode)
 	}
+}
+
+// A joined machine owns a name under the dashboard's domain, so a
+// compromised one can set cookies for the dashboard's name too, all but
+// __Host- ones. Planting its own sign-in's cookies in a visitor's browser,
+// then sending the visitor back from Whop with its own code and state,
+// would sign the visitor in to its customer account (login CSRF).
+func TestASignInWithWhopCantBePlantedFromAnotherNameOfTheDomain(t *testing.T) {
+	f, e, _, core, _ := sellingWithSignIn(t)
+	mallory := addMember(t, e, "mallory", invites.RoleViewer, "*")
+	f.mu.Lock()
+	f.users["user_mallory"] = "mallorybuilds"
+	f.mu.Unlock()
+	core.mu.Lock()
+	core.accounts[testStore+"/user_mallory"] = CustomerAccountInfo{UserID: mallory.id, Username: "mallory", State: CustomerActive, SignIn: true}
+	core.mu.Unlock()
+	// Mallory leaves for Whop and says yes there, but keeps the link back.
+	left, authorize := newBrowser(t, e).visit(whopSignInPath)
+	back := f.approve(t, authorize, "user_mallory")
+	visitor := newBrowser(t, e)
+	for _, c := range left.Cookies() {
+		if !strings.HasPrefix(strings.ToLower(c.Name), "__host-") {
+			visitor.plant(c)
+		}
+	}
+	if _, to := visitor.visit(back); to != "/login?whop=expired" || visitor.signedInAs() != "" {
+		t.Fatalf("a visitor sent back from Whop with mallory's sign-in planted: to %q, signed in as %q", to, visitor.signedInAs())
+	}
+}
+
+// The state goes to Whop and comes back in the link, so it's no secret: a
+// sign-in finishes only in the browser that started it, by a secret in that
+// browser's cookie that never leaves it. A link back that leaks, opened in
+// another browser with the state as the cookie, signs nobody in, and leaves
+// the sign-in to its own browser.
+func TestASignInWithWhopFinishesOnlyInTheBrowserThatStartedIt(t *testing.T) {
+	f, e, _, _, _ := sellingWithSignIn(t)
+	b := newBrowser(t, e)
+	_, authorize := b.visit(whopSignInPath)
+	back := f.approve(t, authorize, "user_alex")
+	other := newBrowser(t, e)
+	other.plant(&http.Cookie{Name: whopSignInCookie, Value: stateOf(t, back)})
+	if _, to := other.visit(back); to != "/login?whop=expired" || other.signedInAs() != "" {
+		t.Fatalf("the link back in another browser, with the state as its cookie: to %q, signed in as %q", to, other.signedInAs())
+	}
+	if _, to := b.visit(back); to != "/" || b.signedInAs() != "alex" {
+		t.Fatalf("the link back in the browser that left for Whop: to %q, signed in as %q", to, b.signedInAs())
+	}
+}
+
+// A browser keeps one sign-in cookie: that of the tab that left for Whop
+// last. Coming back in an older tab, or through a link back from another
+// browser's sign-in, as one made to end someone's sign-in would be, finds no
+// sign-in and leaves the cookie, so the newest tab still finishes.
+func TestASignInWithWhopThatMatchesNoneLeavesTheCookie(t *testing.T) {
+	f, e, _, _, _ := sellingWithSignIn(t)
+	b := newBrowser(t, e)
+	_, older := b.visit(whopSignInPath)
+	_, newer := b.visit(whopSignInPath)
+	olderBack, newerBack := f.approve(t, older, "user_alex"), f.approve(t, newer, "user_alex")
+	if res, to := b.visit(olderBack); to != "/login?whop=expired" || len(res.Cookies()) != 0 {
+		t.Fatalf("coming back in the older tab: to %q, setting %q", to, res.Header.Values("Set-Cookie"))
+	}
+	_, theirs := newBrowser(t, e).visit(whopSignInPath)
+	if res, to := b.visit(f.approve(t, theirs, "user_alex")); to != "/login?whop=expired" || len(res.Cookies()) != 0 {
+		t.Fatalf("a link back from another browser's sign-in: to %q, setting %q", to, res.Header.Values("Set-Cookie"))
+	}
+	if _, to := b.visit(newerBack); to != "/" || b.signedInAs() != "alex" {
+		t.Fatalf("coming back in the newer tab after both: to %q, signed in as %q", to, b.signedInAs())
+	}
+}
+
+// signInCookie is the cookie a sign-in with Whop leaves with, or nil.
+func signInCookie(res *http.Response) *http.Cookie {
+	for _, c := range res.Cookies() {
+		if c.Name == whopSignInCookie {
+			return c
+		}
+	}
+	return nil
 }
 
 func TestSignInWithWhopNeedsAnAppAndTheMachinesAddress(t *testing.T) {

@@ -15,6 +15,7 @@ import { t } from '@/i18n'
 import { allowanceText } from '@/lib/access'
 import { formatMB, relativeTime } from '@/lib/format'
 import { linkProps } from '@/lib/router'
+import { CustomerRetention } from './whop-retention'
 import { StoreSuspensions } from './whop-stores'
 
 const whopDeveloper = 'https://whop.com/dashboard/developer'
@@ -322,6 +323,7 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
         </ul>
       )}
       <StoreSuspensions />
+      <CustomerRetention />
       <AllowanceDialog plan={editing} onClose={() => setEditing(undefined)} onSaved={onChange} />
       <DisconnectDialog open={disconnecting} account={store.account?.title ?? ''} onClose={() => setDisconnecting(false)} onDone={onChange} />
     </div>
@@ -427,6 +429,9 @@ function SignInWithWhop({ store, onChange }: { store: WhopStore; onChange: (s: W
 
 const noApp: WhopApp = { stores: 0, webhook: false }
 
+/** The days a renewal may be late that the owner can pick, besides the setting now. */
+const graceChoices = [0, 1, 2, 3, 5, 7, 10, 14, 21, 30]
+
 /**
  * The businesses that sell servers from this dashboard by installing the app
  * customers sign in through: the app's API key acts on each of them, and the
@@ -441,7 +446,7 @@ function AppStores({ store, app, onChange }: { store: WhopStore; app: string; on
   const [busy, setBusy] = useState(false)
   const state = store.app ?? noApp
 
-  async function send(body: { key?: string; webhookSecret?: string; shareUser?: string }, done: (s: WhopStore) => string) {
+  async function send(body: { key?: string; webhookSecret?: string; shareUser?: string; renewalGraceDays?: number }, done: (s: WhopStore) => string) {
     setBusy(true)
     try {
       const next = await put<WhopStore>('/api/whop/app', body)
@@ -469,6 +474,9 @@ function AppStores({ store, app, onChange }: { store: WhopStore; app: string; on
     e.preventDefault()
     void send({ shareUser: shareUser.trim() }, (s) => t('whop.app.shareSaved', { user: s.app?.shareUser ?? shareUser.trim() }))
   }
+
+  const grace = state.renewalGraceDays ?? 7
+  const graces = [...new Set([...graceChoices, grace])].sort((a, b) => a - b)
 
   return (
     <section aria-labelledby={`${id}-title`} className="mt-4">
@@ -515,6 +523,17 @@ function AppStores({ store, app, onChange }: { store: WhopStore; app: string; on
           {t('whop.app.shareSave')}
         </Button>
       </form>
+      <div className="mt-3 flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-stretch">
+        <span className="text-[13px] font-medium">{t('whop.app.graceLabel')}</span>
+        <ChoiceSelect
+          value={String(grace)}
+          onChange={(x) => void send({ renewalGraceDays: Number(x) }, () => t('whop.app.graceSaved', { count: Number(x) }))}
+          options={graces.map((n) => ({ value: String(n), label: t('whop.app.graceDays', { count: n }) }))}
+          label={t('whop.app.graceLabel')}
+          className="w-60 max-sm:w-full"
+        />
+      </div>
+      <p className="mt-1.5 text-xs text-muted-foreground">{t('whop.app.graceHint')}</p>
     </section>
   )
 }

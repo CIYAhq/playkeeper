@@ -177,19 +177,60 @@ func TestSetPlanStockLimitsThePlan(t *testing.T) {
 	}
 }
 
-func TestSetPlanPriceChargesItFirstAndOnEachRenewal(t *testing.T) {
+// Whop charges a plan's initial price plus its first renewal price at
+// checkout, so a plan that charges its price at checkout and on each
+// renewal has an initial price of 0.
+func TestSetPlanPriceChargesItOnceAtCheckoutAndOnEachRenewal(t *testing.T) {
 	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
 		"PATCH /variants/plan_a": func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"initial_price": 15.5, "renewal_price": 15.5}) {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"initial_price": 0.0, "renewal_price": 15.5}) {
 				t.Errorf("body %v, %v", body, err)
 			}
-			answer(map[string]any{"id": "plan_a", "plan_type": "renewal", "currency": "usd", "initial_price": 15.5, "renewal_price": 15.5, "billing_period": 30})(w, r)
+			answer(map[string]any{"id": "plan_a", "plan_type": "renewal", "currency": "usd", "initial_price": 0, "renewal_price": 15.5, "billing_period": 30})(w, r)
 		},
 	})
 	p, err := c.SetPlanPrice(context.Background(), "plan_a", 15.5)
-	if err != nil || p.ID != "plan_a" || p.InitialPrice != 15.5 || p.RenewalPrice != 15.5 {
+	if err != nil || p.ID != "plan_a" || p.InitialPrice != 0 || p.RenewalPrice != 15.5 {
 		t.Fatalf("the plan: %+v, %v", p, err)
+	}
+}
+
+// Fix my plans has a plan renew every month, in US dollars, with no free
+// trial and no initial price, which Whop would charge on top of the first
+// renewal, and leaves its renewal price as it is.
+func TestMakePlanMonthlyAsksForMonthlyInDollarsWithNoTrial(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"PATCH /variants/plan_a": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil ||
+				!reflect.DeepEqual(body, map[string]any{"currency": "usd", "billing_period": 30.0, "trial_period_days": 0.0, "initial_price": 0.0}) {
+				t.Errorf("body %v, %v", body, err)
+			}
+			answer(map[string]any{"id": "plan_a", "plan_type": "renewal", "currency": "usd", "renewal_price": 120, "billing_period": 30})(w, r)
+		},
+	})
+	p, err := c.MakePlanMonthly(context.Background(), "plan_a")
+	if err != nil || p.ID != "plan_a" || p.BillingPeriod != 30 || p.Currency != "usd" || p.RenewalPrice != 120 {
+		t.Fatalf("the plan: %+v, %v", p, err)
+	}
+}
+
+// Open the store hides the website's free product from the store's page.
+func TestHideProductAsksForHidden(t *testing.T) {
+	asked := false
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"PATCH /products/prod_site": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"visibility": "hidden"}) {
+				t.Errorf("body %v, %v", body, err)
+			}
+			asked = true
+			answer(map[string]any{"id": "prod_site", "visibility": "hidden"})(w, r)
+		},
+	})
+	if err := c.HideProduct(context.Background(), "prod_site"); err != nil || !asked {
+		t.Fatalf("hiding the product: asked %v, %v", asked, err)
 	}
 }
 
@@ -614,6 +655,26 @@ func TestPaymentsAndRefundsSinceATime(t *testing.T) {
 	}
 }
 
+// A plan is read by its id, archived or not, and one Whop doesn't have is
+// not found.
+func TestAPlanIsReadByItsID(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /variants/plan_old": answer(map[string]any{"id": "plan_old", "title": "Old", "visibility": "archived", "plan_type": "renewal", "billing_period": 30,
+			"renewal_price": 12, "product": map[string]any{"id": "prod_a"}}),
+		"GET /variants/plan_gone": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":{"type":"not_found","message":"No such variant"}}`)
+		},
+	})
+	p, err := c.Plan(context.Background(), "plan_old")
+	if err != nil || p.ID != "plan_old" || p.Visibility != "archived" || p.RenewalPrice != 12 || p.Product.ID != "prod_a" {
+		t.Fatalf("Plan = %+v, %v", p, err)
+	}
+	if _, err := c.Plan(context.Background(), "plan_gone"); !NotFound(err) {
+		t.Fatalf("a plan Whop doesn't have: %v", err)
+	}
+}
+
 // A membership's paid payments are read newest first, from its account,
 // whatever order Whop's answer comes in.
 func TestPaidPaymentsAreAMembershipsNewestFirst(t *testing.T) {
@@ -640,6 +701,24 @@ func TestPaidPaymentsAreAMembershipsNewestFirst(t *testing.T) {
 	}
 	if n, err := pays[0].Total.Minor(); err != nil || n != 1200 {
 		t.Fatalf("the newest payment's total: %d, %v", n, err)
+	}
+}
+
+// A membership's paid payments are only those Whop names it on and calls
+// paid, so a filter Whop ignores, or a membership it nests, finds none
+// rather than another membership's payment.
+func TestPaidPaymentsAreOnlyTheMembershipsOwn(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /payments": answer(map[string]any{"data": []map[string]any{
+			{"id": "pay_other", "status": "paid", "membership_id": "mem_2", "paid_at": "2026-10-30T12:00:00.000Z"},
+			{"id": "pay_open", "status": "open", "membership_id": "mem_1"},
+			{"id": "pay_nested", "status": "paid", "membership": map[string]any{"id": "mem_1"}, "paid_at": "2026-10-29T12:00:00.000Z"},
+			{"id": "pay_own", "status": "paid", "membership_id": "mem_1", "paid_at": "2026-09-30T12:00:00.000Z"},
+		}, "page_info": map[string]any{"has_next_page": false}}),
+	})
+	pays, err := c.PaidPayments(context.Background(), "biz_other", "mem_1")
+	if err != nil || len(pays) != 1 || pays[0].ID != "pay_own" {
+		t.Fatalf("PaidPayments = %+v, %v", pays, err)
 	}
 }
 

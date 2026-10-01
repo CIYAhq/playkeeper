@@ -798,11 +798,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 		ctx, cancel := opContext(a.ctx, kind)
 		defer cancel()
 		err := runOp(ctx, h, fn)
-		a.mopMu.Lock()
-		done := finishOp(op, h, err, a.now().UTC())
-		a.mop = nil
-		a.mopMu.Unlock()
-		a.finishOperation("", "machine", &done)
+		a.endOp("", "machine", &a.mopMu, op, h, err, func() { a.mop = nil })
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}
@@ -840,11 +836,7 @@ func (a *Agent) beginStagingOp(kind, actor string, fn func(ctx context.Context, 
 		ctx, cancel := opContext(a.ctx, kind)
 		defer cancel()
 		err := runOp(ctx, h, fn)
-		a.mopMu.Lock()
-		done := finishOp(op, h, err, a.now().UTC())
-		a.sop = nil
-		a.mopMu.Unlock()
-		a.finishOperation("", "machine", &done)
+		a.endOp("", "machine", &a.mopMu, op, h, err, func() { a.sop = nil })
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}
@@ -1118,6 +1110,9 @@ func (a *Agent) routeTable() []Route {
 		{"POST", pagePortsPath, a.hPublicPagePorts},
 		{"POST", "/v1/public-page/ports/retry", a.hPublicPagePortsRetry},
 		{"GET", "/v1/acme-challenge/{token}", a.hACMEChallenge},
+		// 0.4.14: what the page shows of a server, for the page the dashboard
+		// serves at the name of a server on a joined machine.
+		{"GET", "/v1/servers/{id}/public-page/shown", srv((*server).hPublicPageShown)},
 		// 0.4.11: the dashboard on the standard HTTPS port, which the page's
 		// hand-over opens port 443 for too.
 		{"PUT", dashboard443Path, a.hDashboard443},

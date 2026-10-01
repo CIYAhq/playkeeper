@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -168,6 +169,24 @@ func (a *Agent) insertAudit(ex execer, serverID, actor, action, target, result, 
 	return err
 }
 
+// execAudited runs the statement query that makes a change together with
+// the change's audit entry, the entry first, so whoever sees the change
+// finds it audited and a crash can't keep one without the other.
+func (s *server) execAudited(actor, action, target, result, detail, query string, args ...any) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.insertAudit(tx, s.id, actor, action, target, result, detail); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(query, args...); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (a *Agent) listAudit(limit int) ([]api.AuditEntry, error) {
 	rows, err := a.db.Query(`SELECT id, server_id, ts, actor, action, target, result, detail FROM audit ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
@@ -233,6 +252,20 @@ func (a *Agent) finishOperation(serverID, target string, op *api.Operation) {
 		a.saveOperation(op)
 		a.auditFor(serverID, op.Actor, op.Kind, target, op.Status, op.Error)
 	}
+}
+
+// endOp records how op ended with err and stores it, and only then clears
+// it from what runs with clear, so whoever sees no operation running finds
+// how the last one ended. mu guards op and what clear changes.
+func (a *Agent) endOp(serverID, target string, mu sync.Locker, op *api.Operation, h *opHandle, err error, clear func()) api.Operation {
+	mu.Lock()
+	done := finishOp(op, h, err, a.now().UTC())
+	mu.Unlock()
+	a.finishOperation(serverID, target, &done)
+	mu.Lock()
+	clear()
+	mu.Unlock()
+	return done
 }
 
 const operationColumns = `id, server_id, kind, status, phase, actor, started_at, finished_at, error, hint, detail`

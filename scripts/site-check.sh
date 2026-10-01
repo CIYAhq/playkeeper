@@ -357,19 +357,21 @@ grep -qE '<script src="/assets/js/t\.[0-9a-f]{8}\.js" defer></script>' "$page" |
 if grep -qF 'data-stars' "$page"; then fail "/t asks GitHub for the star count; the share page makes no requests"; fi
 check_files /t "$page"
 
-# /start, where the Meta ads land: only its policy lets Whop's ad pixel, the
-# worker it starts and the film in, it's kept out of search engines, and it
-# answers with its query string, where the pixel reads the ad's IDs.
+# /start, where the Meta ads land: its policy lets its film in, and nothing
+# else from another site than the others' do, with no ad pixel; it's kept out
+# of search engines, and it answers with its query string, for the visit
+# counter to read the ad's UTM tags.
 start=$work/start.html
-code=$(curl -sS -o "$start" -w '%{http_code}' "$base/start?utm_campaign=pk01-launch&wacid=1")
+code=$(curl -sS -o "$start" -w '%{http_code}' "$base/start?utm_campaign=pk01-launch&utm_source=fb")
 [ "$code" = 200 ] || fail "/start?utm_campaign=… answered $code, not 200"
 headers=$(curl -sS -D - -o /dev/null "$base/start?utm_campaign=pk01-launch")
 headers_ok /start "$headers"
-for h in "script-src 'self' https://analytics-c.ciya.so https://t.whop.tw;" "media-src 'self';" "worker-src blob:;" \
-  "connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://stats.playkeeper.io https://t.whop.tw;" 'x-robots-tag: noindex'; do
+for h in "script-src 'self' https://analytics-c.ciya.so;" "media-src 'self';" \
+  "connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://stats.playkeeper.io;" 'x-robots-tag: noindex'; do
   grep -qiF "$h" <<<"$headers" || fail "/start does not send '$h'"
 done
-if curl -sS -D - -o /dev/null "$base/" | grep -qiE 't\.whop\.tw|worker-src|media-src|^x-robots-tag'; then fail "/ lets in or says what only /start should"; fi
+if grep -qiE 'whop|worker-src|^set-cookie' <<<"$headers"; then fail "/start lets in an ad pixel or sets a cookie"; fi
+if curl -sS -D - -o /dev/null "$base/" | grep -qiE 'media-src|^x-robots-tag|^set-cookie'; then fail "/ lets in or says what only /start should"; fi
 for text in '<meta name="robots" content="noindex">' 'curl -fsSL https://playkeeper.io/install/start | sudo sh' "$analytics"; do
   grep -qF "$text" "$start" || fail "/start does not have '$text'"
 done

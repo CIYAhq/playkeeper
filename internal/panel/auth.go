@@ -398,7 +398,8 @@ CREATE INDEX whop_deliveries_received ON whop_deliveries(received_at);
 `,
 	// Sign in with Whop: the Whop app customers sign in through, with its
 	// secret when it has one, and each sign-in on its way through Whop, by
-	// the hash of its state, with its PKCE verifier.
+	// the hash of its state with its browser's secret (signInKey), with its
+	// PKCE verifier.
 	`
 ALTER TABLE whop_account ADD COLUMN oauth_client_id     TEXT NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN oauth_client_secret TEXT NOT NULL DEFAULT '';
@@ -798,6 +799,121 @@ CREATE TABLE fleet_cpu_days (
   posted     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (machine_id, day)
 );
+`,
+	// Deleting a customer (see erasure.go): when the owner asked for it, and
+	// who; and, for each customer deleted, a hash of who they were at their
+	// store, so the store's next read doesn't bring back a membership of
+	// theirs that ended.
+	`
+ALTER TABLE customers ADD COLUMN erase_requested_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN erase_actor        TEXT    NOT NULL DEFAULT '';
+CREATE TABLE erased_customers (
+  store_id     TEXT    NOT NULL,
+  subject_hash TEXT    NOT NULL,
+  erased_at    INTEGER NOT NULL,
+  PRIMARY KEY (store_id, subject_hash)
+);
+`,
+	// When a read of one app store's membership didn't find it, 0 while
+	// it's found: the store's next full read settles it (see
+	// refreshWhopMemberships).
+	`
+ALTER TABLE whop_memberships ADD COLUMN not_found_at INTEGER NOT NULL DEFAULT 0;
+`,
+	// What the payment check found for each app store's membership that
+	// gives servers (see whopPaidPlan): the plan it gave, and its servers,
+	// memory and disk, when a payment of it last carried Playkeeper's share,
+	// none yet with a memory of 0, and while it isn't paid for its plan,
+	// why, how often it looked and when it looks again; and whether it ever
+	// had Whop's answer, paid or not, rather than Whop failing to give one.
+	// A customer already
+	// started on an app store keeps what the core was given for them
+	// (applied), as found paid then: all their memberships when they hold
+	// just that; when it was one plan and they hold more or other now, the
+	// one membership of that plan, or their only one, as paid for what was
+	// given; otherwise none, so each is checked. A membership the payment
+	// check refused before, an extra one or one moved to more memory, isn't
+	// taken as paid. What they hold is compared with what they were given
+	// within an allowance's bounds, 10 servers and 64 GB, as the core was
+	// given it (capAllowance).
+	`
+CREATE TABLE whop_membership_checks (
+  store_id      TEXT    NOT NULL,
+  membership_id TEXT    NOT NULL,
+  paid_plan_id  TEXT    NOT NULL DEFAULT '',
+  paid_title    TEXT    NOT NULL DEFAULT '',
+  paid_servers  INTEGER NOT NULL DEFAULT 0,
+  paid_mb       INTEGER NOT NULL DEFAULT 0,
+  paid_disk_gb  INTEGER NOT NULL DEFAULT 0,
+  problem       TEXT    NOT NULL DEFAULT '',
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  next_check_at INTEGER NOT NULL DEFAULT 0,
+  checked_at    INTEGER NOT NULL DEFAULT 0,
+  answered      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (store_id, membership_id)
+);
+WITH given AS (
+  SELECT c.store_id, c.whop_user_id, substr(c.applied, 1, instr(c.applied, '|') - 1) AS ids, substr(c.applied, instr(c.applied, '|') + 1) AS rest
+  FROM whop_customers c JOIN whop_stores s ON s.store_id = c.store_id AND s.via = 'app'
+  WHERE c.applied != '' AND c.paused = 0
+), given_servers AS (
+  SELECT store_id, whop_user_id, ids, CAST(substr(rest, 1, instr(rest, '|') - 1) AS INTEGER) AS servers, substr(rest, instr(rest, '|') + 1) AS rest
+  FROM given
+), applied AS (
+  SELECT store_id, whop_user_id, ids, servers, CAST(substr(rest, 1, instr(rest, '|') - 1) AS INTEGER) AS mb, CAST(substr(rest, instr(rest, '|') + 1) AS INTEGER) AS disk
+  FROM given_servers
+), held AS (
+  SELECT m.store_id, m.whop_user_id, m.membership_id, p.plan_id, p.title, p.allowance_servers AS servers, p.allowance_memory_mb AS mb, p.disk_gb AS disk
+  FROM whop_memberships m JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id AND p.allowance_from != ''
+  WHERE m.stale = 0 AND m.status IN ('trialing', 'active', 'canceling', 'past_due')
+), holds AS (
+  SELECT store_id, whop_user_id, count(*) AS n, group_concat(plan_id, '+' ORDER BY plan_id) AS ids,
+    min(sum(servers), 10) AS servers, min(sum(mb), 65536) AS mb, CASE WHEN min(disk) > 0 THEN sum(disk) ELSE 0 END AS disk
+  FROM held GROUP BY store_id, whop_user_id
+), matched AS (
+  SELECT a.*, n.n, n.ids = a.ids AND n.servers = a.servers AND n.mb = a.mb AND n.disk = a.disk AS same,
+    (SELECT count(*) FROM held o WHERE o.store_id = a.store_id AND o.whop_user_id = a.whop_user_id AND o.plan_id = a.ids) AS of_given
+  FROM applied a JOIN holds n USING (store_id, whop_user_id)
+)
+INSERT INTO whop_membership_checks(store_id, membership_id, paid_plan_id, paid_title, paid_servers, paid_mb, paid_disk_gb, answered)
+  SELECT h.store_id, h.membership_id, h.plan_id, h.title, h.servers, h.mb, h.disk, 1
+  FROM held h JOIN matched a USING (store_id, whop_user_id) WHERE a.same
+  UNION ALL
+  SELECT h.store_id, h.membership_id, a.ids, COALESCE((SELECT q.title FROM whop_plans q WHERE q.store_id = a.store_id AND q.plan_id = a.ids), a.ids), a.servers, a.mb, a.disk, 1
+  FROM held h JOIN matched a USING (store_id, whop_user_id)
+  WHERE NOT a.same AND instr(a.ids, '+') = 0 AND (a.of_given = 1 AND h.plan_id = a.ids OR a.of_given = 0 AND a.n = 1);
+`,
+	// When the share check last found each app store's share right, 0 once
+	// it found it wrong (see whopShareFresh).
+	`
+ALTER TABLE whop_share_watch ADD COLUMN share_right_at INTEGER NOT NULL DEFAULT 0;
+`,
+	// Since when the share check has failed for each app store, without an
+	// answer from Whop, 0 while it gets one (see noteWhopShareUnchecked).
+	`
+ALTER TABLE whop_share_watch ADD COLUMN share_unchecked_since INTEGER NOT NULL DEFAULT 0;
+`,
+	// Whether each server is on the public page as the dashboard last set
+	// it, which a server on a joined machine needs beside its machine's word
+	// (see joinedpage.go).
+	`
+CREATE TABLE public_pages (
+  server_id  TEXT    PRIMARY KEY,
+  enabled    INTEGER NOT NULL,
+  changed_at INTEGER NOT NULL
+);
+`,
+	// Later payments (see whopPaidPlan): how many days a renewal may be late
+	// before its membership stops giving servers, the owner's to change; and
+	// when each membership's latest payment that carried Playkeeper's share
+	// was made, and which payment it was. A membership already found paid
+	// counts as paid on the day of the upgrade, so nobody's servers stop for
+	// it: its next renewal is read like any other.
+	`
+ALTER TABLE whop_app ADD COLUMN renewal_grace_days INTEGER NOT NULL DEFAULT 7;
+ALTER TABLE whop_membership_checks ADD COLUMN paid_at      INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_membership_checks ADD COLUMN paid_payment TEXT    NOT NULL DEFAULT '';
+UPDATE whop_membership_checks SET paid_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000 WHERE paid_mb > 0;
 `,
 }
 

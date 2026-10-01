@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,7 +28,7 @@ func ownDomainEnvWith(t *testing.T, tweak func(o *Options)) (e *addressEnv, surv
 	e.dns.setSRV("test.play.example.com", 25567, "play.example.com")
 	var v api.Address
 	check := map[string]any{"domain": "play.example.com", "acceptTerms": true, "panelHost": "203.0.113.10:8443", "actor": "admin"}
-	if code := e.callInto("POST", "/v1/address/check", check, &v); code != 200 || !v.Check.Ready || v.Operation == nil {
+	if code := e.callIntoWhenFree("POST", "/v1/address/check", check, &v); code != 200 || !v.Check.Ready || v.Operation == nil {
 		t.Fatalf("the machine's domain: %d %+v", code, v)
 	}
 	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
@@ -37,7 +39,9 @@ func ownDomainEnvWith(t *testing.T, tweak func(o *Options)) (e *addressEnv, surv
 
 func (e *addressEnv) setOwn(id, address string) (int, map[string]any) {
 	e.t.Helper()
-	return e.call("POST", "/v1/servers/"+id+"/own-address", map[string]any{"address": address, "actor": "admin"})
+	return e.whenFree(func() (int, map[string]any) {
+		return e.call("POST", "/v1/servers/"+id+"/own-address", map[string]any{"address": address, "actor": "admin"})
+	})
 }
 
 func joinOf(v api.Address, id string) api.JoinAddress {
@@ -77,7 +81,7 @@ func TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain(t *testing.T) {
 		t.Fatal("looking at the machine's name alone made the domain wait for the own address")
 	}
 	var clash api.Address
-	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "alex.example.com", "actor": "admin"}, &clash); code != 409 || e.address().Host != "play.example.com" {
+	if code := e.callIntoWhenFree("POST", "/v1/address/check", map[string]any{"domain": "alex.example.com", "actor": "admin"}, &clash); code != 409 || e.address().Host != "play.example.com" {
 		t.Fatalf("moving the machine to a server's own address: %d, now %q", code, e.address().Host)
 	}
 	var own []api.DNSRecord
@@ -201,7 +205,7 @@ func TestAnOwnAddressOpensOnlyItsServersPage(t *testing.T) {
 	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
 		t.Fatalf("setting it: %d %v", code, out)
 	}
-	if st := e.a.publicPageState(); st.Host != "play.example.com" || !slices.Equal(st.Hosts, []string{"alex.example.com"}) {
+	if st := e.a.publicPageState(nil); st.Host != "play.example.com" || !slices.Equal(st.Hosts, []string{"alex.example.com"}) {
 		t.Fatalf("the page's state: %+v", st)
 	}
 	code, page, _ := e.page("alex.example.com")
@@ -216,7 +220,7 @@ func TestAnOwnAddressOpensOnlyItsServersPage(t *testing.T) {
 			t.Errorf("%s: %d", host, code)
 		}
 	}
-	if e.a.pageServer("alex.example.com", "creative") == nil || e.a.pageServer("alex.example.com", "survival") != nil {
+	if e.a.pageServer("alex.example.com", "creative", nil) == nil || e.a.pageServer("alex.example.com", "survival", nil) != nil {
 		t.Fatal("the own address's page serves the wrong icons")
 	}
 	if v := e.a.serverByID(creative).publicPageView(); v.Host != "alex.example.com" {
@@ -229,11 +233,47 @@ func TestAnOwnAddressOpensOnlyItsServersPage(t *testing.T) {
 	if code, _, _ := e.page("alex.example.com"); code != 404 {
 		t.Fatalf("the own address of a server off the page: %d", code)
 	}
-	if e.a.pageServer("alex.example.com", "creative") != nil {
+	if e.a.pageServer("alex.example.com", "creative", nil) != nil {
 		t.Fatal("the own address of a server off the page serves its icon")
 	}
-	if st := e.a.publicPageState(); len(st.Hosts) != 0 {
+	if st := e.a.publicPageState(nil); len(st.Hosts) != 0 {
 		t.Fatalf("the page still answers %v", st.Hosts)
+	}
+}
+
+// The dashboard names the servers its machine's page leaves out, which the
+// agent can't tell apart: a copy a move is making or left here, and a
+// server the dashboard's own record has off the page. A hidden server's own
+// address answers like one nobody has, the machine's page leaves it out,
+// and with every server hidden nothing is on the page.
+func TestThePageLeavesOutTheServersTheDashboardHides(t *testing.T) {
+	e, survival, creative, test := ownDomainEnv(t)
+	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
+		t.Fatalf("setting it: %d %v", code, out)
+	}
+	hiding := func(ids ...string) string { return url.Values{"hidden": ids}.Encode() }
+	var st api.PublicPageState
+	if code := e.callInto("GET", "/v1/public-page/state?"+hiding(creative), nil, &st); code != 200 || !st.On || len(st.Hosts) != 0 {
+		t.Fatalf("the page's state with Creative hidden: %d %+v", code, st)
+	}
+	if code, _, _ := e.page("alex.example.com&" + hiding(creative)); code != 404 {
+		t.Fatalf("Creative's own address with Creative hidden: %d", code)
+	}
+	if code, page, raw := e.page("play.example.com&" + hiding(creative)); code != 200 || len(page.Servers) != 2 || strings.Contains(raw, "Creative") {
+		t.Fatalf("the machine's page with Creative hidden: %d %s", code, raw)
+	}
+	gone := map[string]bool{creative: true}
+	if e.a.pageServer("alex.example.com", "creative", gone) != nil || e.a.pageServer("play.example.com", "creative", gone) != nil {
+		t.Fatal("a hidden server's icon is served")
+	}
+	if code := e.callInto("GET", "/v1/public-page/state?"+hiding(survival, creative, test), nil, &st); code != 200 || st.On {
+		t.Fatalf("the page's state with every server hidden: %d %+v", code, st)
+	}
+	if code, _, _ := e.page("play.example.com&" + hiding(survival, creative, test)); code != 404 {
+		t.Fatalf("the machine's page with every server hidden: %d", code)
+	}
+	if code, page, _ := e.page("alex.example.com"); code != 200 || len(page.Servers) != 1 {
+		t.Fatalf("Creative's own address with nothing hidden: %d %+v", code, page)
 	}
 }
 
@@ -286,7 +326,7 @@ func TestTheManagedBetaMachineCanBeBetaPlaykeeperMe(t *testing.T) {
 	e.dns.set("beta.playkeeper.me", testIP.String())
 	var v api.Address
 	check := map[string]any{"domain": "beta.playkeeper.me", "acceptTerms": true, "panelHost": "203.0.113.10:8443", "actor": "admin"}
-	if code := e.callInto("POST", "/v1/address/check", check, &v); code != 200 || v.Host != "beta.playkeeper.me" || !v.Check.Ready || v.Operation == nil {
+	if code := e.callIntoWhenFree("POST", "/v1/address/check", check, &v); code != 200 || v.Host != "beta.playkeeper.me" || !v.Check.Ready || v.Operation == nil {
 		t.Fatalf("the machine's domain: %d %+v", code, v)
 	}
 	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {

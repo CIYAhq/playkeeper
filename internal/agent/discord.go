@@ -595,7 +595,7 @@ func (a *Agent) hDiscordNotify(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return
-	case api.DiscordMachineOff, api.DiscordMachineBack, api.DiscordLowRoom, api.DiscordDiskFilling, api.DiscordBusyCPU, api.DiscordSlowTicks:
+	case api.DiscordMachineOff, api.DiscordMachineBack, api.DiscordLowRoom, api.DiscordDiskFilling, api.DiscordBusyCPU, api.DiscordSlowTicks, api.DiscordOverbooked:
 		ev, ok := fleetEvent(req)
 		if !ok {
 			writeError(w, errInvalid("A fleet alert needs its machine's name, and numbers that fit what it says."))
@@ -657,6 +657,8 @@ func fleetEvent(req api.DiscordNotifyRequest) (discord.Event, bool) {
 		return discord.DiskFilling(machine, req.Percent), named && in(req.Percent, 0, 100)
 	case api.DiscordBusyCPU:
 		return discord.BusyCPU(machine, req.Percent, req.Days), named && in(req.Percent, 0, 100) && in(req.Days, 1, 366)
+	case api.DiscordOverbooked:
+		return discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 1, maxFleetMemory)
 	case api.DiscordSlowTicks:
 		name, err := validName(req.ServerName)
 		return discord.SlowTicks(name, machine, req.MSPT, req.Players, req.Minutes),

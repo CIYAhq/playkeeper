@@ -2080,6 +2080,8 @@ export interface WhopApp {
   webhookUrl?: string
   /** The username of the Whop account Playkeeper's share of their sales goes to, once the owner names one. */
   shareUser?: string
+  /** How many days a renewal may be late before its customer's servers stop. */
+  renewalGraceDays?: number
 }
 
 /** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */
@@ -2233,10 +2235,21 @@ export interface TeamMember {
   suspendReason?: string
   /** Whether the signed-in account may suspend this customer, or lift its own suspension of them. */
   canSuspend?: boolean
+  /** Whether the signed-in account may delete this customer's account and records, and whether that was asked for and is under way. */
+  canDelete?: boolean
+  deleting?: boolean
 }
 
 /** Where a customer's account stands: active, paused because its plan ended, or suspended by the owner. */
 export type CustomerState = 'active' | 'paused' | 'suspended'
+
+/** The owner's setting: how many days after a customer's servers were deleted the customer is deleted too, with its default, the fewest and the most. */
+export interface CustomerRetentionView {
+  days: number
+  default: number
+  min: number
+  max: number
+}
 
 /** A customer's account once the owner suspended it or lifted that. */
 export interface CustomerSuspension {
@@ -2311,14 +2324,17 @@ export interface SellerMonth {
   kept: number
 }
 
-/** A seller's store as they price it: its hosting plans, whether Open the store is theirs to press, and what's wrong with Playkeeper's share once a price changed, if anything. */
+/** A seller's store as they price it: its hosting plans, whether Open the store is theirs to press, or Update the store once it's open, what's wrong with Playkeeper's share once a price changed, if anything, whether Fix my plans has something to put right, and what it can't, a plain line each for the seller to change in Whop. */
 export interface SellerPrices {
   plans: SellerPrice[]
   canOpen: boolean
+  canUpdate: boolean
   problem?: string
+  fixable: boolean
+  blocked?: string[]
 }
 
-/** One hosting plan as its seller prices it: its monthly price in its currency's smallest unit, the floor and Playkeeper's share in US cents, whether its price can be set here, and what keeps it from selling. */
+/** One hosting plan as its seller prices it: its monthly price in its currency's smallest unit, the floor, Playkeeper's share and the price the page suggests in US cents, whether its price can be set here, and what keeps it from selling. */
 export interface SellerPrice {
   id: string
   title: string
@@ -2328,8 +2344,15 @@ export interface SellerPrice {
   currency: string
   floor: number
   share: number
+  suggested: number
   settable: boolean
   problem?: string
+}
+
+/** What Fix my plans did: what it changed, in a line, if anything, and the store's prices then. */
+export interface SellerFixed {
+  changed?: string
+  prices: SellerPrices
 }
 
 /** What pressing Open the store did: whether the store is open now, and if not, why it's still closed. */
@@ -3081,10 +3104,13 @@ export interface PublicPageSettings {
 
 export type PagePortState = 'open' | 'busy' | 'claimed' | 'waiting' | 'denied' | 'off'
 
-/** One port of the public page; holder names what uses it when Playkeeper can tell. */
+/**
+ * One port of the public page; holder names what uses it when Playkeeper can tell. From 0.4.14 port 443 is
+ * no_certificate for a server on a joined machine while it has no certificate for that server's address.
+ */
 export interface PagePort {
   port: number
-  state: PagePortState
+  state: PagePortState | 'no_certificate'
   holder?: string
 }
 

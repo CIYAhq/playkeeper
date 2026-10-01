@@ -394,8 +394,8 @@ func validMOTD(s string) (string, error) {
 	if s == "" {
 		return defaultMOTD, nil
 	}
-	if utf8.RuneCountInString(s) > 59 {
-		return "", errInvalid("The server description can be at most 59 characters.")
+	if utf8.RuneCountInString(s) > api.ServerMOTDMax {
+		return "", errInvalid("The server description can be at most %d characters.", api.ServerMOTDMax)
 	}
 	for _, r := range s {
 		if !unicode.IsPrint(r) || r == '§' {

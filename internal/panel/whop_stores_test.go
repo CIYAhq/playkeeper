@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -80,7 +81,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 			biz = b
 		case strings.HasPrefix(route, "GET /memberships/") && fb.memberships[id] != nil:
 			biz = b
-		case strings.HasPrefix(route, "PATCH /variants/") && fb.plan(id) != nil:
+		case (strings.HasPrefix(route, "PATCH /variants/") || strings.HasPrefix(route, "GET /variants/")) && fb.plan(id) != nil:
 			biz = b
 		case (strings.HasPrefix(route, "GET /products/") || strings.HasPrefix(route, "PATCH /products/")) && fb.products[id] != nil:
 			biz = b
@@ -93,6 +94,11 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b := f.installed[biz]
+	if b == nil && strings.HasPrefix(route, "GET /variants/") {
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such variant"}}`)
+		return
+	}
 	if b == nil {
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"You do not have permission to access this resource"}}`)
@@ -105,7 +111,8 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	}
 	switch {
-	case route == "GET /permissions" && f.permissionsDown, route == "GET /memberships" && f.membershipsDown:
+	case route == "GET /permissions" && f.permissionsDown, route == "GET /memberships" && f.membershipsDown,
+		route == "GET /affiliates/aff_"+biz+"/overrides" && b.sharesDown, route == "GET /payments" && b.paymentsDown:
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
 	case route == "GET /permissions":
@@ -126,11 +133,23 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 	case route == "GET /products":
 		var data []map[string]any
 		for _, p := range slices.Sorted(maps.Keys(b.products)) {
-			data = append(data, map[string]any{"id": p, "title": "Minecraft server", "metadata": b.products[p]})
+			visibility := "visible"
+			if b.hidden[p] {
+				visibility = "hidden"
+			}
+			data = append(data, map[string]any{"id": p, "title": cmpOr(b.titles[p], "Minecraft server"), "visibility": visibility, "metadata": b.products[p]})
 		}
 		page(data)
 	case route == "GET /variants":
-		page(b.plans)
+		var listed []map[string]any
+		for _, p := range b.plans {
+			if !b.unlistArchived || p["visibility"] != "archived" {
+				listed = append(listed, p)
+			}
+		}
+		page(listed)
+	case strings.HasPrefix(route, "GET /variants/"):
+		json.NewEncoder(w).Encode(b.plan(id))
 	case route == "GET /memberships":
 		plan := r.URL.Query().Get("plan_id")
 		var data []map[string]any
@@ -144,9 +163,16 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		page(data)
 	case strings.HasPrefix(route, "GET /memberships/"):
 		json.NewEncoder(w).Encode(b.memberships[id])
-	case strings.HasPrefix(route, "PATCH /products/") && f.marksDown:
+	case strings.HasPrefix(route, "PATCH /products/") && (f.marksDown || body["visibility"] != nil && b.hideDown):
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the access_pass:update scope."}}`)
+	case strings.HasPrefix(route, "PATCH /products/") && body["visibility"] != nil:
+		if b.hidden == nil {
+			b.hidden = map[string]bool{}
+		}
+		b.hidden[id] = body["visibility"] == "hidden"
+		b.hides = append(b.hides, id)
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": cmpOr(b.titles[id], "Minecraft server"), "visibility": body["visibility"], "metadata": b.products[id]})
 	case strings.HasPrefix(route, "PATCH /products/"):
 		meta := whop.Metadata{}
 		m, _ := body["metadata"].(map[string]any)
@@ -155,7 +181,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		}
 		b.products[id] = meta
 		json.NewEncoder(w).Encode(map[string]any{"id": id, "title": "Minecraft server", "metadata": meta})
-	case strings.HasPrefix(route, "PATCH /variants/") && (body["renewal_price"] != nil && f.priceDown || body["visibility"] != nil && f.showDown):
+	case strings.HasPrefix(route, "PATCH /variants/") && (body["renewal_price"] != nil && f.priceDown || body["visibility"] != nil && f.showDown || body["billing_period"] != nil && f.termsDown):
 		w.WriteHeader(http.StatusForbidden)
 		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the plan:update scope."}}`)
 	case strings.HasPrefix(route, "PATCH /variants/"):
@@ -171,12 +197,23 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		if vis, ok := body["visibility"]; ok {
 			p["visibility"] = vis
 		}
+		if _, ok := body["billing_period"]; ok {
+			for _, k := range []string{"currency", "billing_period", "trial_period_days", "initial_price"} {
+				if v, ok := body[k]; ok {
+					p[k] = v
+				}
+			}
+			f.termSets = append(f.termSets, id)
+		}
 		json.NewEncoder(w).Encode(p)
 	case route == "POST /affiliates":
 		b.partner, _ = body["user_identifier"].(string)
 		json.NewEncoder(w).Encode(map[string]any{"id": "aff_" + biz, "status": "active"})
 	case route == "GET /affiliates/aff_"+biz+"/overrides":
 		page(b.shares)
+	case f.shareDown && strings.HasPrefix(route, "POST /affiliates/aff_"+biz+"/overrides") || f.shareDown && strings.HasPrefix(route, "PATCH /affiliates/aff_"+biz+"/overrides/"):
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the affiliate:update scope."}}`)
 	case route == "POST /affiliates/aff_"+biz+"/overrides":
 		share := map[string]any{"id": fmt.Sprintf("ovr_%s_%d", biz, len(b.shares)+1)}
 		for _, k := range []string{"override_type", "product_id", "commission_type", "commission_value", "revenue_basis"} {
@@ -304,6 +341,27 @@ func (f *fakeWhop) buyAt(biz, id, user, plan, status string) map[string]any {
 	b.fees[pay] = []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
 		"settlement_amount": map[string]any{"amount": strings.TrimPrefix(dollarsOf(whopShareFor(memoryMB)), "$"), "currency": "usd", "decimals": 2}}}
 	return m
+}
+
+// askedSince is each request asked since the first from, as method and
+// path, that starts with any of routes.
+func (f *fakeWhop) askedSince(from int, routes ...string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, a := range f.asked[from:] {
+		if slices.ContainsFunc(routes, func(r string) bool { return strings.HasPrefix(a, r) }) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// askedSoFar is how many requests the dashboard has asked, for askedSince.
+func (f *fakeWhop) askedSoFar() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.asked)
 }
 
 // sentIn is what went to the support chat of the business that installed
@@ -717,6 +775,60 @@ func TestAStoreWhoseGrantIsGoneChangesNothing(t *testing.T) {
 	readOther()
 	if got, sent := core.got(), f.sentIn("biz_other", "user_alex"); len(got) != 3 || problem != "" || len(sent) != 2 {
 		t.Fatalf("once the grant could be checked: calls %q, problem %q, messages %q", got, problem, sent)
+	}
+}
+
+// One read of an app store's membership that doesn't find it pauses nobody,
+// since Whop answers an app 404 for a business that stopped approving it
+// too: the membership stays unconfirmed, so its customer is left as they
+// are, until the store's next pass reads every membership. If that read
+// lists it, it's back; if not, it's gone, and its customer is paused.
+func TestOne404OnAnAppStoresMembershipPausesNobody(t *testing.T) {
+	f, e, _ := twoStores(t)
+	ctx := context.Background()
+	core := useFakeCore(e)
+	f.buyAt("biz_other", "mem_a", "user_alex", "plan_other", "active")
+	e.reconcile()
+	if !calledFor(core.got(), "start ", "user_alex") {
+		t.Fatalf("alex didn't start: %q", core.got())
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such membership"}}`)
+	}))
+	t.Cleanup(srv.Close)
+	notFound := &whop.Client{APIURL: srv.URL, Key: "k", HTTP: srv.Client()}
+	unfound := func() {
+		t.Helper()
+		if _, err := e.srv.db.Exec(`UPDATE whop_memberships SET stale = 1 WHERE membership_id = 'mem_a'`); err != nil {
+			t.Fatal(err)
+		}
+		st, _, _ := e.srv.whopStoreByID(ctx, "biz_other")
+		if err := e.srv.refreshWhopMemberships(ctx, notFound, st, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		c, _ := e.srv.whopClientFor(ctx, st)
+		e.srv.syncWhopCustomers(ctx, c, st)
+	}
+	membership := func() (n, stale int, unfoundAt int64) {
+		e.srv.db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(stale), 0), COALESCE(MAX(not_found_at), 0) FROM whop_memberships WHERE membership_id = 'mem_a'`).Scan(&n, &stale, &unfoundAt)
+		return
+	}
+	unfound()
+	if n, _, _ := membership(); n != 1 || calledFor(core.got(), "pause ", "user_alex") {
+		t.Fatalf("one 404 on mem_a: %d kept, the core's calls %q", n, core.got())
+	}
+	e.reconcile()
+	if n, stale, unfoundAt := membership(); n != 1 || stale != 0 || unfoundAt != 0 || calledFor(core.got(), "pause ", "user_alex") {
+		t.Fatalf("the next full read lists mem_a: %d kept, stale %d, unfound at %d, the core's calls %q", n, stale, unfoundAt, core.got())
+	}
+	unfound()
+	f.mu.Lock()
+	delete(f.installed["biz_other"].memberships, "mem_a")
+	f.mu.Unlock()
+	e.reconcile()
+	if n, _, _ := membership(); n != 0 || !calledFor(core.got(), "pause ", "user_alex") {
+		t.Fatalf("mem_a gone from the next full read too: %d kept, the core's calls %q", n, core.got())
 	}
 }
 

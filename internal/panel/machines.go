@@ -36,6 +36,11 @@ func (linksOff) RoundTrip(r *http.Request) (*http.Response, error) {
 	return nil, errLinksOff
 }
 
+// linkRequestTimeout is how long a request to a joined machine that isn't a
+// stream waits for its answer; zero leaves machinelink's minute. Tests
+// shorten it.
+var linkRequestTimeout time.Duration
+
 // startHub loads the dashboard's link key (making it on first start) and
 // starts accepting machines. Every joined machine pins this key.
 func (s *Server) startHub(routes []machinelink.Route) error {
@@ -44,7 +49,7 @@ func (s *Server) startHub(routes []machinelink.Route) error {
 		return err
 	}
 	s.hub, err = machinelink.NewHub(machinelink.HubOptions{Identity: id, Store: &linkStore{db: s.db}, Routes: routes,
-		Version: version.Version, Now: s.now, Logger: s.log, OnEvent: s.onMachineEvent})
+		Version: version.Version, Now: s.now, Logger: s.log, OnEvent: s.onMachineEvent, RequestTimeout: linkRequestTimeout})
 	return err
 }
 

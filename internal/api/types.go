@@ -39,6 +39,12 @@ const (
 	TypePaper         = "paper"
 )
 
+// Bounds on a server's name and its description (MOTD), in characters.
+const (
+	ServerNameMax = 32
+	ServerMOTDMax = 59
+)
+
 // ServerStatus is one server's identity, desired and observed state.
 type ServerStatus struct {
 	ID              string          `json:"id"`
@@ -2516,8 +2522,9 @@ type DiscordNotifyRequest struct {
 	// shows it. Minutes it's been off, was off, or a server lagged; Percent
 	// its disk's share full or its CPU at its busiest hour, Days running;
 	// Room more servers of MemoryMB each across every store, and Waiting
-	// customers waiting for room; MSPT the milliseconds a tick of ServerName
-	// took, with Players playing.
+	// customers waiting for room; MemoryMB also how much more memory than
+	// its machine has an overbooked machine's customers' plans set aside;
+	// MSPT the milliseconds a tick of ServerName took, with Players playing.
 	Machine  string `json:"machine,omitempty"`
 	Minutes  int    `json:"minutes,omitempty"`
 	Percent  int    `json:"percent,omitempty"`
@@ -2542,6 +2549,7 @@ const (
 	DiscordDiskFilling      = "disk_filling"
 	DiscordBusyCPU          = "busy_cpu"
 	DiscordSlowTicks        = "slow_ticks"
+	DiscordOverbooked       = "overbooked"
 )
 
 // CodeAdminUnconfirmed refuses an admin action to an admin who turned on
@@ -3084,6 +3092,11 @@ const CodePortInUse = "port_in_use"
 type PagePortsRequest struct {
 	HTTPS bool `json:"https"`
 	HTTP  bool `json:"http"`
+	// Joined (from 0.4.14): a server on a joined machine is on the page at
+	// its name, which only the panel knows. The agent opens the ports for it
+	// as for a server of its own on the page, while the machine has an
+	// address.
+	Joined bool `json:"joined,omitempty"`
 }
 
 // PublicPagePorts says whether the page answers on ports 443 and 80.
@@ -3109,6 +3122,10 @@ const (
 	PortDenied = "denied"
 	// PortOff: the page is off, or the machine has no address.
 	PortOff = "off"
+	// PortNoCertificate (from 0.4.14): port 443 answers, but has no
+	// certificate for the address of a server on a joined machine, so
+	// browsers get its page on port 80 only.
+	PortNoCertificate = "no_certificate"
 )
 
 // PagePort is one port of the public page.
@@ -3169,6 +3186,18 @@ type PublicServer struct {
 	About  string        `json:"about,omitempty"`
 	Stream *PublicStream `json:"stream,omitempty"`
 	Board  *PublicBoard  `json:"board,omitempty"`
+}
+
+// PublicServerShown (from 0.4.14) is what the public page shows of one
+// server, for the page the dashboard serves at the name of a server on a
+// joined machine: where players join, Bedrock included, and the links'
+// addresses are the dashboard's to say, so Address, Bedrock, Map and Pack
+// are empty, and MapToken and PackToken are the tokens of the shared map's
+// and the friends' pack page's links while they're shared.
+type PublicServerShown struct {
+	PublicServer
+	MapToken  string `json:"mapToken,omitempty"`
+	PackToken string `json:"packToken,omitempty"`
 }
 
 // PublicPlayers is how many are online, of how many the server lets in.

@@ -92,7 +92,7 @@ const actViewMachines action = "machines.view"
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actCreateOwnServers, actManageTeam, actManageMachine, actViewAuditTrail,
 	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock, actTakeCustomers,
-	actViewMachines, actSuspendCustomers}
+	actViewMachines, actSuspendCustomers, actDeleteCustomers}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
@@ -990,6 +990,7 @@ func (s *Server) forgetDeletedServers(ids []string) {
 		`DELETE FROM join_requests WHERE ` + gone,
 		`DELETE FROM invites WHERE kind = 'player' AND ` + gone,
 		`DELETE FROM player_origins WHERE ` + gone,
+		`DELETE FROM public_pages WHERE ` + gone,
 	} {
 		if _, err := s.db.Exec(q, string(list)); err != nil {
 			s.log.Warn("could not forget a deleted server's invites", "err", err)

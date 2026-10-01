@@ -1,13 +1,43 @@
 package panel
 
 import (
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/whop"
 )
+
+// The payment check takes only the membership's own paid payment: a Whop
+// that ignores the membership filter and answers with another membership's
+// payment, which carried the share, starts nobody on it.
+func TestThePaymentCheckTakesOnlyTheMembershipsOwnPayment(t *testing.T) {
+	_, e, _ := twoStores(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/payments":
+			json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "pay_bob", "status": "paid", "membership_id": "mem_bob", "plan_id": "plan_other",
+				"product_id": "prod_other", "paid_at": "2026-09-24T12:00:00Z", "total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}},
+				"page_info": map[string]any{"has_next_page": false}})
+		case "/payments/pay_bob/fees":
+			json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"type": "affiliate_program_fee", "origin": whopShareOrigin, "label": "Revenue share",
+				"settlement_amount": map[string]any{"amount": "8.50", "currency": "usd", "decimals": 2}}}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	c := &whop.Client{APIURL: srv.URL, Key: "k", HTTP: srv.Client()}
+	st, _, _ := e.srv.whopStoreByID(t.Context(), "biz_other")
+	if _, err := e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_alex_free", 4096, time.Time{}); err == nil || !strings.Contains(err.Error(), "no paid payment") {
+		t.Fatalf("alex's unpaid membership on bob's payment: %v", err)
+	}
+}
 
 // shareEnv is twoStores with the owner's own Whop account, siyabuilt,
 // named to receive Playkeeper's share, and Other Hosting's app store.
@@ -133,8 +163,8 @@ func TestPlaykeepersShareIsSetOnEachHostingProductFromItsPrice(t *testing.T) {
 	if s := f.share("biz_other", "prod_other"); s["commission_value"] != 56.67 {
 		t.Fatalf("after the price went to $15: %v", s)
 	}
-	if s := f.share("biz_other", "prod_big"); s == nil || s["commission_value"] != 85.0 {
-		t.Fatalf("the product the seller added, whose first payment is $20 for 8 GB: %v", s)
+	if s := f.share("biz_other", "prod_big"); s == nil || s["commission_value"] != 70.84 {
+		t.Fatalf("the product the seller added, which renews at $24 for 8 GB after a first payment of $20 more: %v", s)
 	}
 	var bp int64
 	e.srv.db.QueryRow(`SELECT basis_points FROM whop_shares WHERE store_id = 'biz_other' AND product_id = 'prod_other'`).Scan(&bp)
@@ -144,8 +174,10 @@ func TestPlaykeepersShareIsSetOnEachHostingProductFromItsPrice(t *testing.T) {
 }
 
 // A product's share covers the neediest of its plans, from each plan's
-// memory and the least it charges; archived plans, plans that allow
-// nothing and plans of no product don't count.
+// memory and the least one payment charges. Every plan it's given counts,
+// archived or not; plans that allow nothing and plans of no product don't.
+// A plan Open the store wouldn't sell is a problem naming it, and doesn't
+// set its product's share.
 func TestAProductsShareCoversEachOfItsPlans(t *testing.T) {
 	plan := func(id, product string, first, renewal float64, gb string) whop.Plan {
 		p := whop.Plan{ID: id, Title: id, Visibility: "visible", PlanType: "renewal", BillingPeriod: 30, Currency: "usd", InitialPrice: first, RenewalPrice: renewal,
@@ -155,30 +187,112 @@ func TestAProductsShareCoversEachOfItsPlans(t *testing.T) {
 		}
 		return p
 	}
-	archived := plan("old", "prod_a", 0, 9, "4")
+	archived := plan("old", "prod_d", 0, 12, "4")
 	archived.Visibility = "archived"
 	wants, problems := whopShareWants([]whop.Plan{
-		plan("roomy", "prod_a", 0, 15, "6"),
-		plan("small", "prod_a", 0, 12, "4"),
+		plan("roomy", "prod_a", 0, 18, "6"),
+		plan("small", "prod_a", 0, 15, "4"),
 		archived,
 		plan("bare", "prod_a", 0, 9, ""),
 		plan("orphan", "", 0, 9, "4"),
 		plan("big", "prod_b", 20, 24, "8"),
 		plan("dear", "prod_c", 0, 2000, "4"),
 	})
-	if len(problems) != 0 || len(wants) != 3 || wants[0] != (whopShareWant{Product: "prod_a", Title: "prod_a", BasisPoints: 8500}) ||
-		wants[1] != (whopShareWant{Product: "prod_b", Title: "prod_b", BasisPoints: 8500}) || wants[2] != (whopShareWant{Product: "prod_c", Title: "prod_c", BasisPoints: 100}) {
+	if len(problems) != 0 || !slices.Equal(wants, []whopShareWant{
+		{Product: "prod_a", Title: "prod_a", BasisPoints: 7084},
+		{Product: "prod_b", Title: "prod_b", BasisPoints: 7084},
+		{Product: "prod_c", Title: "prod_c", BasisPoints: 100},
+		{Product: "prod_d", Title: "prod_d", BasisPoints: 7084},
+	}) {
 		t.Fatalf("wants %+v, problems %v", wants, problems)
 	}
-	if _, problems := whopShareWants([]whop.Plan{plan("free", "prod_c", 0, 0, "4")}); len(problems) != 1 || !strings.Contains(problems[0], "free charges") {
-		t.Fatalf("a free plan: %v", problems)
+	once, yearly, euros, trial, cheap, free := plan("once", "prod_e", 12, 0, "4"), plan("yearly", "prod_e", 0, 12, "4"), plan("euros", "prod_e", 0, 12, "4"),
+		plan("trial", "prod_e", 0, 12, "4"), plan("cheap", "prod_e", 0, 9, "4"), plan("free", "prod_e", 0, 0, "4")
+	once.PlanType, once.BillingPeriod = "one_time", 0
+	yearly.BillingPeriod = 365
+	euros.Currency = "eur"
+	trial.TrialDays = 3
+	crowded, roomy := plan("crowded", "prod_e", 0, 12, "4"), plan("roomy", "prod_e", 0, 400, "128")
+	crowded.Metadata[whop.MetaServers] = "20"
+	for _, c := range []struct {
+		p    whop.Plan
+		says string
+	}{
+		{crowded, "crowded: It allows 20 servers, and hosted plans allow 1 to 10"},
+		{roomy, "roomy: It allows 128 GB, and hosted plans allow 1 GB to 64 GB"},
+		{once, "once: It doesn't renew every month"},
+		{yearly, "yearly: It doesn't renew every month"},
+		{euros, "euros: It's priced in EUR"},
+		{trial, "trial: It has a free trial"},
+		{cheap, "cheap: It charges $9.00, under the $12.00 floor for 4 GB"},
+		{free, "free: It charges $0.00, under the $12.00 floor for 4 GB"},
+	} {
+		wants, problems := whopShareWants([]whop.Plan{c.p, plan("fine", "prod_e", 0, 12, "4")})
+		if len(problems) != 1 || !strings.HasPrefix(problems[0], c.says) || len(wants) != 1 || wants[0].BasisPoints != 7084 {
+			t.Errorf("%s: wants %+v, problems %v", c.p.ID, wants, problems)
+		}
+	}
+}
+
+// The least one payment of a plan charges is what Whop charges at once: a
+// renewing plan's renewal price, with its initial price charged on top of
+// the first one, or the initial price alone during a free trial, and a
+// one-time plan's initial price.
+func TestAPlansLeastChargeIsWhatOnePaymentCharges(t *testing.T) {
+	for _, c := range []struct {
+		p    whop.Plan
+		want float64
+	}{
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 0, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 5, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 12, RenewalPrice: 12}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 1, RenewalPrice: 12, TrialDays: 3}, 1},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 0, RenewalPrice: 12, TrialDays: 3}, 12},
+		{whop.Plan{PlanType: "renewal", BillingPeriod: 30, InitialPrice: 20, RenewalPrice: 0}, 0},
+		{whop.Plan{PlanType: "one_time", InitialPrice: 12}, 12},
+		{whop.Plan{PlanType: "one_time"}, 0},
+	} {
+		if got := whopLeastCharge(c.p); got != c.want {
+			t.Errorf("%+v: %v, not %v", c.p, got, c.want)
+		}
+	}
+}
+
+// A share can be set for a price that isn't on Whop yet, as the seller's
+// page does before lowering one: the share the new price needs comes
+// first, while the plan on Whop still charges the old price. With no new
+// price it's the share check as ever.
+func TestAShareIsSetForAPriceBeforeItsOnWhop(t *testing.T) {
+	f, e, _, st := shareEnv(t)
+	f.mu.Lock()
+	f.installed["biz_other"].plans[0]["renewal_price"] = 15
+	f.mu.Unlock()
+	if problem := e.syncShares(t, st, true); problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 56.67 {
+		t.Fatalf("at $15: %q, %v", problem, f.share("biz_other", "prod_other"))
+	}
+	c, err := e.srv.whopClientFor(t.Context(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problem, err := e.srv.syncWhopSharesAt(t.Context(), c, st, false, map[string]float64{"plan_other": 12}); err != nil || problem != "" ||
+		f.share("biz_other", "prod_other")["commission_value"] != 70.84 {
+		t.Fatalf("before the price goes down to $12: %q, %v, %v", problem, err, f.share("biz_other", "prod_other"))
+	}
+	f.mu.Lock()
+	price := f.installed["biz_other"].plans[0]["renewal_price"]
+	f.mu.Unlock()
+	if price != 15 {
+		t.Fatalf("the plan's price on Whop changed: %v", price)
+	}
+	if problem, err := e.srv.syncWhopSharesAt(t.Context(), c, st, false, nil); err != nil || problem != "" || f.share("biz_other", "prod_other")["commission_value"] != 56.67 {
+		t.Fatalf("with no new price, at $15 on Whop: %q, %v, %v", problem, err, f.share("biz_other", "prod_other"))
 	}
 }
 
 // A share the seller removes, lowers below what the price needs, or
 // changes from a percentage of the full price is a problem, and stays as
 // they left it until Open the store sets it right. One they raise stays,
-// even then. A plan that can't carry the share is a problem too.
+// even then. A plan under the floor is a problem too.
 func TestAShareTheSellerRemovesOrLowersIsAProblem(t *testing.T) {
 	f, e, _, st := shareEnv(t)
 	e.syncShares(t, st, true)
@@ -217,8 +331,8 @@ func TestAShareTheSellerRemovesOrLowersIsAProblem(t *testing.T) {
 		t.Fatalf("Open the store after the share was changed: %q, %v", problem, f.share("biz_other", "prod_other"))
 	}
 	edit(func(b *fakeBusiness) { b.shares[0]["revenue_basis"], b.plans[0]["renewal_price"] = "pre_fees", 8 })
-	if problem := e.syncShares(t, st, false); !strings.Contains(problem, "Other charges") || !strings.Contains(problem, "can't carry Playkeeper's share of $8.50") {
-		t.Fatalf("a plan cheaper than the share: %q", problem)
+	if problem := e.syncShares(t, st, false); !strings.Contains(problem, "Other: It charges $8.00, under the $12.00 floor for 4 GB") {
+		t.Fatalf("a plan under the floor: %q", problem)
 	}
 	if _, err := e.srv.db.Exec(`UPDATE whop_app SET share_user = '', share_username = ''`); err != nil {
 		t.Fatal(err)
@@ -228,9 +342,9 @@ func TestAShareTheSellerRemovesOrLowersIsAProblem(t *testing.T) {
 	}
 }
 
-// A customer starts only once their membership's latest paid payment
-// carried Playkeeper's share for their plan, in a revenue share line, and
-// every line it was checked with is kept.
+// A customer starts only once their membership's latest paid payment not
+// refunded in full carried Playkeeper's share for their plan, in a revenue
+// share line, and every line it was checked with is kept.
 func TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare(t *testing.T) {
 	f, e, _, st := shareEnv(t)
 	c, err := e.srv.whopClientFor(t.Context(), st)
@@ -238,7 +352,8 @@ func TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare(t *testing.T
 		t.Fatal(err)
 	}
 	paid := func(memoryMB int) error {
-		return e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_1", memoryMB)
+		_, err := e.srv.whopSharePaid(t.Context(), c, st, "user_alex", "mem_1", memoryMB, time.Time{})
+		return err
 	}
 	money := func(amount, currency string) map[string]any {
 		return map[string]any{"amount": amount, "currency": currency, "decimals": 2}
@@ -296,15 +411,26 @@ func TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare(t *testing.T
 	f.mu.Lock()
 	f.installed["biz_other"].payments[0]["refunded_amount"] = money("12.00", "usd")
 	f.mu.Unlock()
+	if err := paid(8192); err == nil || !strings.Contains(err.Error(), "(pay_good) didn't carry Playkeeper's share of $17.00") {
+		t.Fatalf("its latest payment refunded in full, so the one before, for an 8 GB plan: %v", err)
+	}
+	if err := paid(4096); err != nil {
+		t.Fatalf("its latest payment refunded in full, so the one before, for a 4 GB plan: %v", err)
+	}
+	f.mu.Lock()
+	for _, p := range f.installed["biz_other"].payments {
+		p["refunded_amount"] = money("12.00", "usd")
+	}
+	f.mu.Unlock()
 	if err := paid(8192); err == nil || !strings.Contains(err.Error(), "was refunded") {
-		t.Fatalf("a refunded payment: %v", err)
+		t.Fatalf("every payment refunded in full: %v", err)
 	}
 	var lines int
 	var origins string
 	e.srv.db.QueryRow(`SELECT COUNT(*), group_concat(line, ', ') FROM (SELECT origin || ' ' || amount || ' ' || currency AS line FROM whop_fee_lines
 		WHERE payment_id = 'pay_good' ORDER BY n)`).Scan(&lines, &origins)
 	if lines != 2 || origins != "whop_processing_fee 0.36 usd, revshare_percentage_fee 8.50 usd" {
-		t.Fatalf("the lines kept of pay_good, checked twice: %d, %q", lines, origins)
+		t.Fatalf("the lines kept of pay_good, checked more than once: %d, %q", lines, origins)
 	}
 	if whopShareFor(4096) != 850 || whopShareFor(8192) != 1700 || whopShareFor(6144) != 1275 || whopShareFor(512) != 107 {
 		t.Fatalf("the share for 4, 8, 6 and 0.5 GB: %d, %d, %d, %d", whopShareFor(4096), whopShareFor(8192), whopShareFor(6144), whopShareFor(512))

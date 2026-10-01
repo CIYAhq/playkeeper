@@ -513,6 +513,149 @@ func TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst(t *testing.T) {
 	}
 }
 
+// Whoever sees a copy recorded finds it counted and out of the queue: it is
+// stored with both, and last. The trigger notes, as each copy is recorded,
+// how many copies were made to the place and whether it was still queued.
+func TestARecordedCopyIsAlreadyCountedAndOutOfTheQueue(t *testing.T) {
+	dest := &fakeDest{stored: map[string]offsite.Copy{}}
+	prev := openOffsite
+	openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	for _, q := range []string{
+		`CREATE TABLE recorded(backup_id TEXT, made INTEGER, queued INTEGER)`,
+		`CREATE TRIGGER copy_recorded AFTER INSERT ON offsite_copies BEGIN
+			INSERT INTO recorded VALUES (NEW.backup_id,
+				(SELECT copies_made FROM offsite WHERE server_id = NEW.server_id),
+				(SELECT COUNT(*) FROM offsite_uploads WHERE server_id = NEW.server_id AND backup_id = NEW.backup_id));
+			END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.create()
+	id := e.backup()
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	e.waitFor("the copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM recorded`) == 1 })
+	var made, queued int
+	if err := e.a.db.QueryRow(`SELECT made, queued FROM recorded WHERE backup_id = ?`, id).Scan(&made, &queued); err != nil || made != 1 || queued != 0 {
+		t.Fatalf("the copy was recorded with %d copies made and %d uploads queued (%v), want 1 and 0", made, queued, err)
+	}
+}
+
+// Whoever sees a copy made, a copy's failed try, or a copy deleted by the
+// rules or by hand finds it audited: each is stored with its audit entry,
+// the entry first. The triggers note each one stored while its entry was
+// missing.
+func TestCopiesMadeFailedAndDeletedAreAlreadyAudited(t *testing.T) {
+	dest := &fakeDest{stored: map[string]offsite.Copy{}}
+	prev := openOffsite
+	openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	for _, q := range []string{
+		`CREATE TABLE unaudited(what TEXT)`,
+		`CREATE TRIGGER copy_unaudited AFTER INSERT ON offsite_copies
+			WHEN NOT EXISTS (SELECT 1 FROM audit WHERE action = 'offsite.copied' AND target = NEW.backup_id)
+			BEGIN INSERT INTO unaudited VALUES ('the copy of ' || NEW.backup_id); END`,
+		`CREATE TRIGGER try_unaudited AFTER UPDATE OF attempts ON offsite_uploads
+			WHEN NEW.attempts = 1 AND NOT EXISTS (SELECT 1 FROM audit WHERE action = 'offsite.copy_failed' AND target = NEW.backup_id)
+			BEGIN INSERT INTO unaudited VALUES ('the failed try of ' || NEW.backup_id); END`,
+		`CREATE TRIGGER deletion_unaudited AFTER DELETE ON offsite_copies
+			WHEN NOT EXISTS (SELECT 1 FROM audit WHERE action = 'offsite.copy_deleted' AND target = OLD.backup_id)
+			BEGIN INSERT INTO unaudited VALUES ('the deleted copy of ' || OLD.backup_id); END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.create()
+	first := e.backup()
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	e.waitFor("the first copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, first) == 1 })
+	rules := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"last": 1}, "includeManual": true}
+	if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+		t.Fatalf("rules: %d %v", code, out)
+	}
+	dest.mu.Lock()
+	dest.fail = &offsite.Error{Kind: offsite.KindNetwork, Msg: "Couldn't reach the storage.", Retry: true}
+	dest.mu.Unlock()
+	second := e.backup()
+	e.waitFor("the failed try", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ? AND attempts = 1`, second) == 1
+	})
+	if code, _ := e.call("POST", e.sp("/offsite/retry"), map[string]any{"actor": "admin"}); code != http.StatusOK {
+		t.Fatalf("retry: %d", code)
+	}
+	e.waitFor("the rules to delete the first copy", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, first) == 0
+	})
+	var file string
+	if err := e.a.db.QueryRow(`SELECT file_name FROM offsite_copies WHERE backup_id = ?`, second).Scan(&file); err != nil {
+		t.Fatal(err)
+	}
+	name := offsite.CopyName(file)
+	if code, out := e.callWhenFree("DELETE", e.sp("/offsite/copies/"+url.PathEscape(name))+"?actor=admin", nil); code != http.StatusOK || out["deleted"] != name {
+		t.Fatalf("delete by hand: %d %v", code, out)
+	}
+	rows, err := e.a.db.Query(`SELECT what FROM unaudited`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var unaudited []string
+	for rows.Next() {
+		var what string
+		if err := rows.Scan(&what); err != nil {
+			t.Fatal(err)
+		}
+		unaudited = append(unaudited, what)
+	}
+	if len(unaudited) != 0 {
+		t.Fatalf("stored before their audit entries: %s", strings.Join(unaudited, "; "))
+	}
+}
+
+// A backup that can never be copied leaves the queue with its audit entry,
+// the entry first: whoever sees it gone finds it audited. The trigger notes
+// a backup that left the queue while its entry was missing.
+func TestABackupThatCanNeverBeCopiedLeavesTheQueueAudited(t *testing.T) {
+	dest := &fakeDest{stored: map[string]offsite.Copy{}, fail: &offsite.Error{Kind: offsite.KindTooLarge, Msg: "The copy is larger than the storage takes."}}
+	prev := openOffsite
+	openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	for _, q := range []string{
+		`CREATE TABLE unaudited(backup_id TEXT)`,
+		`CREATE TRIGGER left_unaudited AFTER DELETE ON offsite_uploads
+			WHEN NOT EXISTS (SELECT 1 FROM audit WHERE action = 'offsite.copy_failed' AND target = OLD.backup_id)
+			BEGIN INSERT INTO unaudited VALUES (OLD.backup_id); END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.create()
+	id := e.backup()
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	e.waitFor("the backup to leave the queue", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ?`, id) == 0
+	})
+	if n := e.countRows(`SELECT COUNT(*) FROM unaudited`); n != 0 {
+		t.Fatal("the backup left the queue before its audit entry")
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copy_failed' AND target = ?`, id); n != 1 || dest.uploads() != 1 {
+		t.Fatalf("%d audit entries after %d uploads, want 1 after 1", n, dest.uploads())
+	}
+}
+
 func (e *agentEnv) staged() []string {
 	entries, _ := os.ReadDir(e.a.cfg.StagingDir())
 	var names []string

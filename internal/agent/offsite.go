@@ -1446,7 +1446,8 @@ func (s *server) noteCopyCheck(archive string, note func(cp *copyRecord)) {
 	}
 }
 
-// hOffsiteCopyDelete deletes a copy where it is kept, then its record.
+// hOffsiteCopyDelete deletes a copy where it is kept, then its record with
+// its audit entry.
 func (s *server) hOffsiteCopyDelete(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.URL.Query().Get("actor"))
 	if err != nil {
@@ -1480,11 +1481,11 @@ func (s *server) hOffsiteCopyDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, automationError(err))
 		return
 	}
-	if _, err := s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID); err != nil {
+	if err := s.execAudited(actor, "offsite.copy_deleted", backupID, "succeeded", name,
+		`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID); err != nil {
 		writeError(w, err)
 		return
 	}
-	s.audit(actor, "offsite.copy_deleted", backupID, "succeeded", name)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": name})
 }
 
@@ -1895,20 +1896,35 @@ func (s *server) uploadFailed(ctx context.Context, job uploadJob, err error) {
 		}
 		if oe.Kind == offsite.KindLocalChanged || oe.Kind == offsite.KindTooLarge {
 			// Trying again can't help: this backup is never copied.
-			s.dropUpload(job.backupID)
-			s.audit("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg)
+			if err := s.execAudited("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg,
+				`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, job.backupID); err != nil {
+				s.log.Warn("a backup that can never be copied could not leave the queue", "server", s.id, "backup", job.backupID, "err", err)
+			}
 			return
 		}
 	}
 	// The wait doubles from offsiteFirstBackoff with each failed try before
-	// this one, up to offsiteMaxBackoff; eight tries reach it.
+	// this one, up to offsiteMaxBackoff; eight tries reach it. The first
+	// failed try is stored with its audit entry, the entry first, so whoever
+	// sees the try finds it audited.
 	var attempts int
-	qerr := s.db.QueryRow(`UPDATE offsite_uploads SET state = COALESCE(?, state), attempts = attempts + 1, next_attempt = ? + MIN(? << MIN(attempts, 8), ?),
-			last_error = ?, error_hint = ?, error_kind = ?, error_params = ?
-		WHERE server_id = ? AND backup_id = ? AND NOT EXISTS (SELECT 1 FROM offsite WHERE server_id = ? AND updated_at >= ?)
-		RETURNING attempts`,
-		state, s.now().UnixMilli(), offsiteFirstBackoff.Milliseconds(), offsiteMaxBackoff.Milliseconds(), msg, hint, kind, params,
-		s.id, job.backupID, s.id, job.claimedAt).Scan(&attempts)
+	qerr := s.writeTx(func(tx lockedTx) error {
+		if err := tx.QueryRow(`SELECT attempts + 1 FROM offsite_uploads
+			WHERE server_id = ? AND backup_id = ? AND NOT EXISTS (SELECT 1 FROM offsite WHERE server_id = ? AND updated_at >= ?)`,
+			s.id, job.backupID, s.id, job.claimedAt).Scan(&attempts); err != nil {
+			return err
+		}
+		if attempts == 1 {
+			if err := s.insertAudit(tx, s.id, "playkeeper", "offsite.copy_failed", job.backupID, "failed", msg); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`UPDATE offsite_uploads SET state = COALESCE(?, state), attempts = attempts + 1, next_attempt = ? + MIN(? << MIN(attempts, 8), ?),
+				last_error = ?, error_hint = ?, error_kind = ?, error_params = ?
+			WHERE server_id = ? AND backup_id = ?`,
+			state, s.now().UnixMilli(), offsiteFirstBackoff.Milliseconds(), offsiteMaxBackoff.Milliseconds(), msg, hint, kind, params, s.id, job.backupID)
+		return err
+	})
 	switch {
 	case errors.Is(qerr, sql.ErrNoRows):
 		// The settings were saved since the claim, or the copy left the
@@ -1919,24 +1935,16 @@ func (s *server) uploadFailed(ctx context.Context, job uploadJob, err error) {
 		s.log.Warn("a failed copy somewhere else could not be recorded", "server", s.id, "backup", job.backupID, "err", qerr)
 		return
 	}
-	if attempts == 1 {
-		s.audit("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg)
-	}
 	s.log.Warn("a copy somewhere else failed", "server", s.id, "backup", job.backupID, "kind", kind, "attempt", attempts, "err", msg)
 }
 
 // copyDone records a finished copy, then applies the rules at the
 // destination and, when nothing else runs, on this machine.
 func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow, b *api.Backup, cp offsite.Copy) {
-	raw, _ := json.Marshal(cp)
-	if _, err := s.db.Exec(`INSERT OR REPLACE INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?)`, s.id, b.ID, b.Kind, b.CreatedAt.UnixMilli(), b.FileName, b.SizeBytes, b.MinecraftVersion, b.LevelName, string(raw), s.now().UnixMilli()); err != nil {
+	if err := s.recordCopy(b, cp, offsitePlace(row.cfg.Config)); err != nil {
 		s.log.Warn("a finished copy could not be recorded", "server", s.id, "backup", b.ID, "err", err)
 		return
 	}
-	_, _ = s.db.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id)
-	s.dropUpload(b.ID)
-	s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+offsitePlace(row.cfg.Config))
 	s.pruneOffsite(ctx, dest)
 	if !s.busy() {
 		if release, ok := s.holdOpLock(); ok {
@@ -1944,6 +1952,33 @@ func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow,
 			release()
 		}
 	}
+}
+
+// recordCopy stores a finished copy, made to place, together with its audit
+// entry, its count and its leaving the queue, the entry first and the copy
+// last, so whoever sees it recorded finds it audited, counted and no longer
+// queued, and a crash can't keep one without the others.
+func (s *server) recordCopy(b *api.Backup, cp offsite.Copy, place string) error {
+	raw, _ := json.Marshal(cp)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.insertAudit(tx, s.id, "playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+place); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, b.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, s.id, b.ID, b.Kind, b.CreatedAt.UnixMilli(), b.FileName, b.SizeBytes, b.MinecraftVersion, b.LevelName, string(raw), s.now().UnixMilli()); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // pruneOffsite deletes the copies the rules no longer keep, unless a copy is
@@ -1972,7 +2007,9 @@ func (s *server) pruneOffsite(ctx context.Context, dest offsiteDest) {
 			s.log.Warn("a copy the rules no longer keep could not be deleted", "server", s.id, "copy", name, "err", err)
 			continue
 		}
-		_, _ = s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, id)
-		s.audit(retentionActor, "offsite.copy_deleted", id, "succeeded", name)
+		if err := s.execAudited(retentionActor, "offsite.copy_deleted", id, "succeeded", name,
+			`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, id); err != nil {
+			s.log.Warn("a copy the rules deleted could not be recorded as deleted", "server", s.id, "copy", name, "err", err)
+		}
 	}
 }

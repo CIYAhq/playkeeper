@@ -2,13 +2,15 @@ package panel
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/whop"
@@ -144,35 +146,49 @@ type whopShareWant struct {
 	BasisPoints    int64
 }
 
-// whopLeastCharge is the least a plan charges a buyer, 0 for a free plan: a
-// plan that renews may charge its first payment apart.
+// whopLeastCharge is the least one payment of a plan charges its buyer, 0
+// for a free plan. Whop charges a renewing plan's initial price on top of
+// its first renewal price (its initial_price_due), so the least is the
+// renewal price; during a free trial the first payment is the initial
+// price alone. A one-time plan charges its initial price.
 func whopLeastCharge(p whop.Plan) float64 {
-	least := 0.0
-	for _, price := range []float64{p.InitialPrice, p.RenewalPrice} {
-		if price > 0 && (least == 0 || price < least) {
-			least = price
-		}
+	if p.PlanType != "renewal" {
+		return p.InitialPrice
 	}
-	return least
+	if p.TrialDays > 0 && p.InitialPrice > 0 {
+		return min(p.InitialPrice, p.RenewalPrice)
+	}
+	return p.RenewalPrice
 }
 
 // whopShareWants works out each hosting product's share from its plans,
-// each plan whose metadata allows servers and that isn't archived: the
-// most any of its plans needs, from the plan's memory and the least it
-// charges. A plan that can't carry Playkeeper's share, being free or
-// charging less, is a problem naming it.
+// each plan whose metadata allows servers (hostedPlan): the most any of
+// its plans needs, from the plan's memory and the least it charges. Every
+// plan it's given counts, archived or not, since an archived plan's
+// members go on renewing (whopSharePlans gives it those someone has). A
+// plan Open the store wouldn't sell, allowing more or less than the fleet
+// runs (allowanceProblem), or being one-time, yearly, in another currency,
+// on a free trial or under the floor, is a problem naming it, as is one
+// that can't carry Playkeeper's share, and neither sets its product's
+// share.
 func whopShareWants(plans []whop.Plan) ([]whopShareWant, []string) {
 	wants := map[string]*whopShareWant{}
 	var problems []string
 	for _, p := range plans {
-		_, memoryMB, ok := whop.PlanAllowance(p.Metadata)
-		if !ok || p.Visibility == "archived" || p.Product.ID == "" {
+		sp, ok := hostedPlan(p)
+		if !ok {
 			continue
 		}
-		share := whopShareFor(memoryMB)
-		pct, err := whop.SharePercent(float64(share)/100, whopLeastCharge(p))
+		if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {
+			sp.Problem = out
+		}
+		if sp.Problem != "" {
+			problems = append(problems, sp.Title+": "+strings.TrimSuffix(sp.Problem, "."))
+			continue
+		}
+		pct, err := whop.SharePercent(float64(sp.Share)/100, whopLeastCharge(p))
 		if err != nil {
-			problems = append(problems, fmt.Sprintf("%s charges %s, which can't carry Playkeeper's share of %s", cmpOr(p.Title, p.ID), p.Price(), dollarsOf(share)))
+			problems = append(problems, fmt.Sprintf("%s charges %s, which can't carry Playkeeper's share of %s", sp.Title, p.Price(), dollarsOf(sp.Share)))
 			continue
 		}
 		w := wants[p.Product.ID]
@@ -188,6 +204,88 @@ func whopShareWants(plans []whop.Plan) ([]whopShareWant, []string) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Product < out[j].Product })
 	return out, problems
+}
+
+// whopSharedNote is what's wrong with an app store's hosting plans on sale
+// that share a product with another plan on sale (sharedProductProblems),
+// among the plans its read listed, "" for nothing. It's the store's
+// problem, so it needs a look, but the store stays open: it costs
+// Playkeeper nothing, since the product's share is its neediest plan's
+// (see whopShareWants), but the seller's other plans on it pay that share
+// too, so it's theirs to put right, and Open the store refuses it.
+func whopSharedNote(plans []whop.Plan) string {
+	selling := slices.DeleteFunc(slices.Clone(plans), func(p whop.Plan) bool { return p.Visibility == "archived" })
+	shared := sharedProductProblems(selling)
+	var notes []string
+	for _, p := range selling {
+		if sp, ok := hostedPlan(p); ok && shared[p.ID] != "" {
+			notes = append(notes, sp.Title+": "+strings.TrimSuffix(shared[p.ID], "."))
+		}
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return strings.Join(notes, "; ") + "."
+}
+
+// whopSharePlans is the store's plans Playkeeper's share must cover: each
+// one Whop lists that isn't archived, and each archived one someone still
+// has a membership of that gives servers, since its members go on renewing.
+// One Whop no longer lists is read by its id; one gone from Whop
+// altogether is a problem, in gone, since nothing shows its share.
+func (s *Server) whopSharePlans(ctx context.Context, c *whop.Client, st whopStore) (plans []whop.Plan, gone []string, err error) {
+	listed, err := c.Plans(ctx, st.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	held, err := s.whopHeldPlans(ctx, st.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	seen := map[string]bool{}
+	for _, p := range listed {
+		seen[p.ID] = true
+		if p.Visibility != "archived" || held[p.ID] != "" {
+			plans = append(plans, p)
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(held)) {
+		if seen[id] {
+			continue
+		}
+		p, err := c.Plan(ctx, id)
+		if whop.NotFound(err) {
+			gone = append(gone, held[id]+", which customers still have, is gone from Whop, so nothing shows Playkeeper's share on it")
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		plans = append(plans, p)
+	}
+	return plans, gone, nil
+}
+
+// whopHeldPlans is the store's hosting plans someone has a membership of
+// that gives them servers in an app store (whopAppHosting), by id, each
+// with its title as the dashboard last read it.
+func (s *Server) whopHeldPlans(ctx context.Context, storeID string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT p.plan_id, p.title FROM whop_plans p
+		JOIN whop_memberships m ON m.store_id = p.store_id AND m.plan_id = p.plan_id
+		WHERE p.store_id = ? AND p.allowance_from != '' AND m.stale = 0 AND m.status IN `+whopAppHosting, storeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	held := map[string]string{}
+	for rows.Next() {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, err
+		}
+		held[id] = cmpOr(title, id)
+	}
+	return held, rows.Err()
 }
 
 // whopShareSet is a product's share as the dashboard last set it.
@@ -235,6 +333,15 @@ func (s *Server) keepWhopShare(ctx context.Context, storeID, product string, r w
 // An error is Whop or the dashboard failing, which says nothing about the
 // shares.
 func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStore, force bool) (string, error) {
+	return s.syncWhopSharesAt(ctx, c, st, force, nil)
+}
+
+// syncWhopSharesAt is syncWhopShares judging the plans in renewals as
+// though each already charged its price there at every renewal, with no
+// initial price on top, as a price set on the seller's page does. Called
+// before a price is lowered, it sets the share the new price needs first,
+// so no payment at that price pays less than Playkeeper's share.
+func (s *Server) syncWhopSharesAt(ctx context.Context, c *whop.Client, st whopStore, force bool, renewals map[string]float64) (string, error) {
 	app, err := s.readWhopApp(ctx)
 	if err != nil {
 		return "", err
@@ -246,11 +353,17 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 	if err != nil {
 		return "", err
 	}
-	plans, err := c.Plans(ctx, st.ID)
+	plans, gone, err := s.whopSharePlans(ctx, c, st)
 	if err != nil {
 		return "", err
 	}
+	for i, p := range plans {
+		if price, ok := renewals[p.ID]; ok {
+			plans[i].InitialPrice, plans[i].RenewalPrice = 0, price
+		}
+	}
 	wants, problems := whopShareWants(plans)
+	problems = append(problems, gone...)
 	shares, err := c.RevShares(ctx, partner)
 	if err != nil {
 		return "", err
@@ -313,35 +426,49 @@ func (s *Server) syncWhopShares(ctx context.Context, c *whop.Client, st whopStor
 	return strings.Join(problems, "; ") + ".", nil
 }
 
-// whopSharePaid checks that a membership's latest paid payment carried
-// Playkeeper's share for a plan that allows memoryMB, before its buyer,
-// whopUserID, starts. Every fee line it reads is kept, and the payment for
-// the seller's view (keepCheckedPayment). The error says why not: no paid
-// payment yet, or no line of Playkeeper's share (whopSharePaidIn).
-func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore, whopUserID, membershipID string, memoryMB int) error {
+// whopNotPaid is the payment check's answer that a membership wasn't paid
+// with Playkeeper's share, as against Whop failing to say.
+type whopNotPaid struct{ why string }
+
+func (e *whopNotPaid) Error() string { return e.why }
+
+// whopSharePaid checks that a membership's latest paid payment not refunded
+// in full carried Playkeeper's share for a plan that allows memoryMB, and
+// was made after since, before its buyer, whopUserID, starts or keeps its
+// servers, and returns it. Every fee line it reads is kept, and the payment
+// for the seller's view (keepCheckedPayment). The error says why not: a
+// *whopNotPaid when Whop's answer is that there's no paid payment yet, or
+// none since, or only refunded ones, or one with no line of Playkeeper's
+// share (whopSharePaidIn), or anything else when Whop or the dashboard
+// failed.
+func (s *Server) whopSharePaid(ctx context.Context, c *whop.Client, st whopStore, whopUserID, membershipID string, memoryMB int, since time.Time) (whop.Payment, error) {
 	pays, err := c.PaidPayments(ctx, st.ID, membershipID)
 	if err != nil {
-		return err
+		return whop.Payment{}, err
 	}
 	if len(pays) == 0 {
-		return errors.New("Whop has no paid payment for this membership yet, so its server waits")
+		return whop.Payment{}, &whopNotPaid{"Whop has no paid payment for this membership yet, so its server waits"}
 	}
-	pay := pays[0]
-	if whopRefundedInFull(pay) {
-		return fmt.Errorf("its payment on Whop (%s) was refunded, so its server waits", pay.ID)
+	kept := slices.DeleteFunc(slices.Clone(pays), whopRefundedInFull)
+	if len(kept) == 0 {
+		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) was refunded, so its server waits", pays[0].ID)}
+	}
+	pay := kept[0]
+	if at := pay.PaidTime(); !at.IsZero() && at.Before(since) {
+		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its latest payment on Whop (%s) was on %s, longer ago than it pays for, so its server waits", pay.ID, at.UTC().Format("2 January"))}
 	}
 	lines, err := c.PaymentFees(ctx, pay.ID)
 	if err != nil {
-		return err
+		return whop.Payment{}, err
 	}
 	if err := s.keepWhopFeeLines(ctx, st.ID, pay.ID, lines); err != nil {
-		return err
+		return whop.Payment{}, err
 	}
 	s.keepCheckedPayment(ctx, st, pay, lines, whopUserID)
 	if want := whopShareFor(memoryMB); !whopSharePaidIn(lines, want) {
-		return fmt.Errorf("its payment on Whop (%s) didn't carry Playkeeper's share of %s, so its server waits", pay.ID, dollarsOf(want))
+		return whop.Payment{}, &whopNotPaid{fmt.Sprintf("its payment on Whop (%s) didn't carry Playkeeper's share of %s, so its server waits", pay.ID, dollarsOf(want))}
 	}
-	return nil
+	return pay, nil
 }
 
 // whopRefundedInFull says whether all of a payment went back to its buyer.

@@ -1,9 +1,10 @@
 name: CI
 
 # The fast checks, on every pull request and every push to main: lint and
-# typecheck, the Go, agent, web and installer-script unit tests, and the
-# dashboard's first-load budget when the change touches its code, side by
-# side, then a job that checks they all passed. A pull request also crawls
+# typecheck, the Go, agent, web and installer-script unit tests, the
+# panel's unit tests under the race detector, and the dashboard's
+# first-load budget when the change touches its code, side by side, then a
+# job that checks they all passed. A pull request also crawls
 # the pages of the dashboard it changes, through their modules or the Go
 # code behind the API they call, and checks their accessibility and width
 # (clickthrough.yml, test/e2e/ui/plan.ts), and runs the parts of the
@@ -159,6 +160,26 @@ jobs:
       - name: make test-agent
         run: make test-agent OUT=/tmp/agent-tests
 
+  # Under the race detector the panel's tests keep a runner's cores busy for
+  # about 10 minutes, and a race build takes a minute more, so five runners
+  # each run four of 20 shards side by side and end with the other jobs.
+  panel-race:
+    name: Panel unit tests under the race detector — runner ${{ matrix.part }} of 5, every test run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: make test-panel-race
+        env:
+          PART: ${{ matrix.part }}/5
+        run: make test-panel-race JOBS=20 OUT=/tmp/panel-race
+
   # The web and installer-script unit tests, then the first-load budget: a
   # production build of the dashboard, about a second, which fails when a
   # page loads more than web/src/lib/first-load.ts allows. It runs on every
@@ -225,7 +246,7 @@ jobs:
 
   check:
     name: Lint, typecheck and unit tests — every job passed
-    needs: [lint, go-tests, agent-tests, web-tests, plugins]
+    needs: [lint, go-tests, agent-tests, panel-race, web-tests, plugins]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

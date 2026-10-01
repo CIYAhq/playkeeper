@@ -43,7 +43,8 @@ const messageDeleted = "deleted"
 var errNotLapsed = errors.New("the customer isn't paused past their grace period any more")
 
 // runLapsedCustomers deletes lapsed customers' servers every lapsedEvery,
-// until ctx ends.
+// and the customers due to be deleted then and whenever one is asked for
+// (see erasure.go), until ctx ends.
 func (s *Server) runLapsedCustomers(ctx context.Context) {
 	t := time.NewTicker(lapsedEvery)
 	defer t.Stop()
@@ -53,6 +54,9 @@ func (s *Server) runLapsedCustomers(ctx context.Context) {
 			return
 		case <-t.C:
 			s.deleteLapsedCustomers(ctx)
+			s.eraseDueCustomers(ctx)
+		case <-s.eraseKick:
+			s.eraseDueCustomers(ctx)
 		}
 	}
 }

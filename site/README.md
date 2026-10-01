@@ -82,13 +82,12 @@ The release workflow's check of `/install` after each release counts as one ther
 
 ### /start
 
-`/start` is where the Meta ads land (`pages/start.html`). It's kept out of search engines and the sitemap, and it answers with no redirect, so its query string stays: Whop's pixel reads the ad's IDs from it.
+`/start` is where the Meta ads land (`pages/start.html`). It's kept out of search engines and the sitemap, and it answers with no redirect, so its query string stays, for the visit counter to read the ad's UTM tags.
 
 - **Install command:** the page's `channel: start` setting makes every install command on it `curl -fsSL https://playkeeper.io/install/start | sudo sh`.
-- **Send to my computer:** the ads are seen on phones, where a command for a VPS is no use, so the page's `share: true` setting puts Send to my computer beside each Copy, on phones only. It opens the phone's share sheet with the page's address as it is, ad IDs included, so Whop can credit the ad when it's opened on a computer; where the browser can't share, it copies the address. Right under the hero's Copy, a line links to `/sizing` for anyone without a VPS.
-- **The film:** `static/film/launch.mp4` is a 10.8-second, 720-pixel cut of the launch film, stopping before its "0.4.0 is out" card. It plays muted while it's in view, and not with reduced motion.
-- **Whop's ad pixel:** `WhopPixel` in the settings names the Whop business. `js/start.js` loads the pixel with Whop's own snippet, on this page only. It sends a page view, then `install_copied`, `install_shared` and `demo_opened` whenever site.js counts one (the `playkeeper:count` event), each with the visit's one `event_id`, so Whop counts each once a visit. It doesn't load when the browser sends Global Privacy Control or Do Not Track.
-- **Content-Security-Policy:** only `/start`'s policy, set in its nginx location, lets in `https://t.whop.tw` and the pixel's `blob:` worker. It lets in the film too, as the location of a page with `film: true` does. The page ends with a note that says plainly what the pixel stores and sends. Keep forms, iframes and links to whop.com off the page: the pixel reads forms, posts to frames and tags those links.
+- **Send to my computer:** the ads are seen on phones, where a command for a VPS is no use, so the page's `share: true` setting puts Send to my computer beside each Copy, on phones only. It opens the phone's share sheet with the page's address as it is; where the browser can't share, it copies the address. Right under the hero's Copy, a line links to `/sizing` for anyone without a VPS.
+- **The film:** `static/film/launch.mp4` is a 10.8-second, 720-pixel cut of the launch film, stopping before its "0.4.0 is out" card. It plays muted while it's in view, and not with reduced motion. The page has `film: true`, and its nginx location sends the film policy with `X-Robots-Tag: noindex`.
+- **No ad pixel:** like every page, it loads none. An ad pixel or other tracker would need visitors' consent first, and the site asks for none: `TestNoPageLoadsAnAdPixel` fails on one, in a page, a script, nginx's config or a policy.
 
 ### Modpack pages
 

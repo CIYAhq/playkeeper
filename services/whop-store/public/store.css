@@ -100,10 +100,27 @@ h2 { margin-bottom: 28px; font-size: 38px; }
 .plan .btn, .sold-out { margin-top: auto; }
 .plan .btn { width: 100%; }
 .sold-out { padding: 10px; border: 1px dashed var(--input); border-radius: var(--radius-sm); color: var(--sage); font-weight: 600; text-align: center; }
-.closed { max-width: 640px; padding: 32px; background: var(--white); border: 1px solid var(--twine); border-radius: var(--radius); box-shadow: var(--shadow); }
-.closed h3 { margin-bottom: 10px; font-size: 24px; }
+.closed { max-width: 640px; margin-top: 8px; padding: 28px 32px; background: var(--white); border: 1px solid var(--twine); border-radius: var(--radius); box-shadow: var(--shadow); }
+.closed h2 { margin-bottom: 8px; font-size: 26px; }
+.closed > p { margin: 0; color: var(--sage); }
+.closed .yours { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--twine); color: var(--ink); font-weight: 600; }
 @media (max-width: 639.98px) {
   .closed { padding: 24px; }
+  .closed .yours .btn { width: 100%; }
+}
+
+/* Setting up a store */
+.setup { display: grid; gap: 16px; margin: 32px 0 0; padding: 0; list-style: none; counter-reset: setup; }
+.setup > li { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 16px; padding: 24px; background: var(--white); border: 1px solid var(--twine); border-radius: var(--radius); box-shadow: var(--shadow); counter-increment: setup; }
+.setup > li::before { content: counter(setup); grid-row: span 3; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 999px; background: var(--green); color: var(--white); font-size: 20px; font-weight: 800; }
+.setup h2 { margin: 8px 0 6px; font-size: 22px; letter-spacing: -0.02em; }
+.setup p { margin: 0 0 16px; color: var(--sage); }
+.setup .btn { justify-self: start; }
+@media (max-width: 519.98px) {
+  .setup > li { grid-template-columns: 36px minmax(0, 1fr); column-gap: 12px; padding: 20px; }
+  .setup > li::before { grid-row: span 2; width: 36px; height: 36px; font-size: 17px; }
+  .setup h2 { margin-top: 4px; font-size: 20px; }
+  .setup .btn { grid-column: 1 / -1; justify-self: stretch; }
 }
 
 /* How it works */

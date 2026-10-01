@@ -82,10 +82,7 @@ func write(out string, o *site.Output) error {
 func handler(o *site.Output) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		policy := o.Policy
-		switch p := path.Clean(r.URL.Path); {
-		case p == "/start":
-			policy = o.StartPolicy
-		case slices.Contains(o.Films, p):
+		if p := path.Clean(r.URL.Path); p == "/start" || slices.Contains(o.Films, p) {
 			policy = o.FilmPolicy
 		}
 		w.Header().Set("Content-Security-Policy", policy)

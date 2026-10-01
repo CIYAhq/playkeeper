@@ -378,7 +378,7 @@ func (e *agentEnv) waitOp(id string) *api.Operation {
 	e.t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		if cur := e.a.currentOp(); cur == nil || cur.ID != id {
+		if !e.showsOp(id) {
 			op, err := e.a.loadOperation(id)
 			if err == nil && op.Status != api.OpRunning {
 				return op
@@ -388,6 +388,22 @@ func (e *agentEnv) waitOp(id string) *api.Operation {
 	}
 	e.t.Fatalf("operation %s did not finish", id)
 	return nil
+}
+
+// showsOp reports whether operation id still shows as running: a server's,
+// the machine's, a staging one or the address's. Its end is stored a moment
+// before it stops showing, and a request in between finds Playkeeper busy.
+func (e *agentEnv) showsOp(id string) bool {
+	ops := []*api.Operation{e.a.machineOp(), e.a.stagingOp(), e.a.addressOp()}
+	for _, s := range e.a.serverList() {
+		ops = append(ops, s.currentOp())
+	}
+	for _, op := range ops {
+		if op != nil && op.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *agentEnv) waitFor(what string, cond func() bool) {
@@ -563,6 +579,63 @@ func TestAFinishedOperationIsAlreadyAudited(t *testing.T) {
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM unaudited`); n != 0 {
 		t.Fatalf("%d operations were stored as finished before their audit entry", n)
+	}
+}
+
+// Whoever sees no operation running finds how the last one ended: an
+// operation is stored as ended before it stops showing. The test holds the
+// database's write lock as each kind of operation ends, so its end can't be
+// stored yet, and the operation must still show.
+func TestAnOperationShowsUntilItsEndIsStored(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	type opFunc = func(context.Context, *opHandle) error
+	cases := []struct {
+		name    string
+		begin   func(fn opFunc) (*api.Operation, error)
+		current func() *api.Operation
+	}{
+		{"a server's", func(fn opFunc) (*api.Operation, error) { return s.beginOp("test", "admin", fn) }, s.currentOp},
+		{"the machine's", func(fn opFunc) (*api.Operation, error) { return e.a.beginMachineOp("test", "admin", fn) }, e.a.machineOp},
+		{"a staging", func(fn opFunc) (*api.Operation, error) { return e.a.beginStagingOp("test", "admin", fn) }, e.a.stagingOp},
+		{"the address's", func(fn opFunc) (*api.Operation, error) {
+			select {
+			case e.a.addr.lock <- struct{}{}:
+			case <-time.After(10 * time.Second):
+				return nil, errors.New("the address lock is held")
+			}
+			return e.a.startAddressOp("test", "admin", fn), nil
+		}, e.a.addressOp},
+	}
+	ctx := context.Background()
+	for _, c := range cases {
+		end := make(chan struct{})
+		op, err := c.begin(func(context.Context, *opHandle) error { <-end; return nil })
+		if err != nil {
+			t.Fatalf("%s operation: %v", c.name, err)
+		}
+		conn, err := e.a.db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+			t.Fatal(err)
+		}
+		close(end)
+		time.Sleep(300 * time.Millisecond)
+		cur := c.current()
+		if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+			t.Fatal(err)
+		}
+		conn.Close()
+		if cur == nil || cur.ID != op.ID {
+			t.Errorf("%s operation stopped showing before its end was stored", c.name)
+		}
+		e.waitFor(c.name+" operation to end", func() bool { return c.current() == nil })
+		if stored, err := e.a.loadOperation(op.ID); err != nil || stored.Status != api.OpSucceeded {
+			t.Errorf("%s operation is stored as %+v (%v), want it succeeded", c.name, stored, err)
+		}
 	}
 }
 
@@ -1143,12 +1216,14 @@ func TestLogRotationNeitherDuplicatesNorStalls(t *testing.T) {
 func TestCrashIsDetectedSessionMarkedIncompleteAndRecovered(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
+	e.rcon.setOnline("PkBotBuilder")
 	e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
 	e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 	e.fd.crash(137)
 	e.waitFor("crash handled", func() bool {
 		return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`) == 1
 	})
+	e.rcon.letGo("PkBotBuilder")
 	var reason string
 	var uncertain int
 	e.a.db.QueryRow(`SELECT end_reason, end_uncertain FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason, &uncertain)
@@ -1197,9 +1272,11 @@ func TestExitWhileTheAgentWasDownIsNotCounted(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newAgentEnv(t)
 			e.create()
+			e.rcon.setOnline("PkBotBuilder")
 			e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
 			e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 			e.stop()
+			e.rcon.letGo("PkBotBuilder")
 			tc.stop(e.fd)
 			e.fd.mu.Lock()
 			e.fd.logDelay = 300 * time.Millisecond
@@ -1333,9 +1410,11 @@ func TestAgentRestartBringsBackAServerThatShouldBeRunning(t *testing.T) {
 	t.Run("a container created but never started", func(t *testing.T) {
 		e := newAgentEnv(t)
 		e.create()
+		e.rcon.setOnline("PkBotBuilder")
 		e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
 		e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 		e.stop()
+		e.rcon.letGo("PkBotBuilder")
 		// The agent was killed after creating the container and before starting it.
 		e.fd.mu.Lock()
 		c := e.fd.byName[e.cname()]

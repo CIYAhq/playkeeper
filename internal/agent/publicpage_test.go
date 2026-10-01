@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
 const pageTestHost = "mc.example.com"
@@ -105,7 +107,7 @@ func TestAPublicPageThatIsOffAnswersLikeAnUnknownAddress(t *testing.T) {
 	if code != 404 || body != unknownBody {
 		t.Fatalf("a page that is off answers %d %s, an unknown address %d %s", code, body, unknown, unknownBody)
 	}
-	if st := e.a.publicPageState(); st.On || st.Host != pageTestHost {
+	if st := e.a.publicPageState(nil); st.On || st.Host != pageTestHost {
 		t.Fatalf("with every server off the page the state is %+v", st)
 	}
 	slug := e.status().Slug
@@ -122,7 +124,7 @@ func TestAPublicPageThatIsOffAnswersLikeAnUnknownAddress(t *testing.T) {
 func TestAMachineWithoutAnAddressHasNoPublicPage(t *testing.T) {
 	e := newAgentEnvWith(t, func(e *agentEnv) { e.cfg.Dev = false })
 	e.create()
-	if st := e.a.publicPageState(); st.On || st.Host != "" {
+	if st := e.a.publicPageState(nil); st.On || st.Host != "" {
 		t.Fatalf("the state without an address is %+v", st)
 	}
 	if code, _, _ := e.page("localhost"); code != 404 {
@@ -131,6 +133,68 @@ func TestAMachineWithoutAnAddressHasNoPublicPage(t *testing.T) {
 	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
 	if len(files) != 0 || ports.HTTPS.State != api.PortOff || ports.HTTP.State != api.PortOff {
 		t.Fatalf("without an address the agent opened %v: %+v", len(files), ports)
+	}
+}
+
+// The dashboard serves the page of a server on a joined machine at the
+// server's name, and asks the machine what the page shows of it: all the
+// machine's own page shows of it but where players join, which is the
+// dashboard's to say, and its shared links as tokens, not links under the
+// machine's own name. A server off the page is the page's 404.
+func TestThePageShowsTheDashboardAServerButNotTheMachinesAddress(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.nameWorks("play.example.com")
+	e.createWith(map[string]any{"name": "Survival"})
+	if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+		t.Fatalf("enable: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	code, out := e.call("POST", e.sp("/map/share"), map[string]any{"public": true, "actor": "admin"})
+	path, _ := out["path"].(string)
+	mapToken := strings.TrimPrefix(path, "/map/")
+	if code != 200 || !webmap.ValidShareToken(mapToken) {
+		t.Fatalf("share: %d %v", code, out)
+	}
+	const packToken = "Pk7uYt2wQz9mN4bV6cX1aL"
+	if _, err := e.a.db.Exec(`UPDATE servers SET packs_public = 1, packs_token = ? WHERE id = ?`, packToken, e.sid); err != nil {
+		t.Fatal(err)
+	}
+	e.rcon.setOnline("mara_k")
+	e.call("POST", e.sp("/public-page"), map[string]any{"players": true, "actor": "admin"})
+	var own api.PublicServer
+	e.waitFor("the machine's own page to name the player", func() bool {
+		code, p, _ := e.page("play.example.com")
+		if code != 200 || len(p.Servers) != 1 || p.Servers[0].Players == nil {
+			return false
+		}
+		own = p.Servers[0]
+		return len(own.Players.Names) == 1
+	})
+	if !strings.Contains(own.Map, "play.example.com") || !strings.Contains(own.Pack, "play.example.com") || own.Address == "" {
+		t.Fatalf("the machine's own page, under its own name: %+v", own)
+	}
+
+	code, _, raw := e.get(e.sp("/public-page/shown"))
+	var shown api.PublicServerShown
+	if code != 200 || json.Unmarshal(raw, &shown) != nil {
+		t.Fatalf("what the page shows of the server: %d %s", code, raw)
+	}
+	if shown.Name != "Survival" || shown.State != api.PublicOnline || shown.Players == nil || !slices.Equal(shown.Players.Names, []string{"mara_k"}) ||
+		shown.MapToken != mapToken || shown.PackToken != packToken {
+		t.Fatalf("the dashboard hears %s", raw)
+	}
+	if shown.Address != "" || shown.Bedrock != nil || shown.Map != "" || shown.Pack != "" {
+		t.Fatalf("the dashboard hears where players join or a link: %s", raw)
+	}
+	for _, leak := range []string{"play.example.com", testIP.String()} {
+		if strings.Contains(string(raw), leak) {
+			t.Errorf("what the page shows of the server holds %q: %s", leak, raw)
+		}
+	}
+
+	e.call("POST", e.sp("/public-page"), map[string]any{"enabled": false, "actor": "admin"})
+	if code, _, _ := e.get(e.sp("/public-page/shown")); code != 404 {
+		t.Fatalf("a server off the page answers %d", code)
 	}
 }
 
@@ -198,6 +262,54 @@ func pageEnv(t *testing.T, up time.Duration, setup func(e *agentEnv)) (e *agentE
 func closeAll(files []*os.File) {
 	for _, f := range files {
 		f.Close()
+	}
+}
+
+// A server on a joined machine on the page at its name is the panel's to
+// say, as the agent sees only its own servers' pages: with none of those on
+// it, the agent hands over the ports for the joined one, but only while the
+// machine has an address. That changes no setting and leaves no audit
+// entry, so the agent logs it.
+func TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt(t *testing.T) {
+	var logs logBuffer
+	e, https, _ := pageEnv(t, time.Hour, func(e *agentEnv) {
+		e.cfg.Dev = false
+		ports := e.tweak
+		e.tweak = func(o *Options) {
+			ports(o)
+			o.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+		}
+	})
+	const handedOver = "the public page's ports go to the panel for a server on a joined machine"
+	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	closeAll(files)
+	if len(files) != 2 || strings.Contains(logs.String(), handedOver) {
+		t.Fatalf("for a server of its own on the page the agent handed over %d and logged:\n%s", len(files), logs.String())
+	}
+	if code, _ := e.call("POST", e.sp("/public-page"), map[string]any{"enabled": false, "actor": "admin"}); code != 200 {
+		t.Fatal("turning the page off")
+	}
+	ports, files = e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	closeAll(files)
+	if len(files) != 0 || ports.HTTPS.State != api.PortOff {
+		t.Fatalf("with no server on the page the agent handed over %+v", ports)
+	}
+	joined := api.PagePortsRequest{HTTPS: true, HTTP: true, Joined: true}
+	ports, files = e.a.takePagePorts(context.Background(), joined)
+	closeAll(files)
+	if len(files) != 2 || ports.HTTPS.State != api.PortOpen || ports.HTTPS.Port != https {
+		t.Fatalf("for a joined server's page the agent handed over %d: %+v", len(files), ports)
+	}
+	if n := strings.Count(logs.String(), handedOver); n != 1 {
+		t.Fatalf("the ports went to the panel for a joined server's page, logged %d times:\n%s", n, logs.String())
+	}
+	if err := e.a.updateAddress(func(st *addressState) { st.Kind, st.Host = api.AddressNone, "" }); err != nil {
+		t.Fatal(err)
+	}
+	ports, files = e.a.takePagePorts(context.Background(), joined)
+	closeAll(files)
+	if len(files) != 0 || strings.Count(logs.String(), handedOver) != 1 {
+		t.Fatalf("without an address the agent handed over %+v for a joined server's page, and logged:\n%s", ports, logs.String())
 	}
 }
 

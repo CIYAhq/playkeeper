@@ -184,6 +184,10 @@ type Server struct {
 	// customersMu serialises what the hosting core does for customers, so
 	// two starts never take the same name (see customers.go).
 	customersMu sync.Mutex
+	// eraseKick has the deletion loop delete the customers due now, and
+	// erasingMu keeps two looks from deleting the same one (see erasure.go).
+	eraseKick chan struct{}
+	erasingMu sync.Mutex
 	// diskKick has the disk limits sent to the machines now, and diskUse
 	// is what each account's servers took when they were last counted (see
 	// disklimits.go).
@@ -270,6 +274,7 @@ func New(opts Options) (*Server, error) {
 		diskKick:     make(chan struct{}, 1),
 		roomKick:     make(chan struct{}, 1),
 		saleRoomKick: make(chan struct{}, 1),
+		eraseKick:    make(chan struct{}, 1),
 	}
 	s.movesCtx, s.movesCancel = context.WithCancel(context.Background())
 	jwks, _ := whop.JWKSURL(opts.Config.WhopAPIURL)
@@ -449,6 +454,9 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/customers/{uid}/move", needSessionCSRF, actTakeCustomers, s.hCustomerMove},
 		{"POST", "/api/customers/{uid}/suspension", needSessionCSRF, actSuspendCustomers, s.hCustomerSuspend},
 		{"DELETE", "/api/customers/{uid}/suspension", needSessionCSRF, actSuspendCustomers, s.hCustomerUnsuspend},
+		{"DELETE", "/api/customers/{uid}", needSessionCSRF, actDeleteCustomers, s.hCustomerDelete},
+		{"GET", "/api/customers/retention", needSession, actDeleteCustomers, s.hCustomerRetention},
+		{"PUT", "/api/customers/retention", needSessionCSRF, actDeleteCustomers, s.hSetCustomerRetention},
 		{"GET", "/api/whop/stores", needSession, actSuspendCustomers, s.hWhopStores},
 		{"POST", "/api/whop/stores/{store}/suspension", needSessionCSRF, actSuspendCustomers, s.hWhopStoreSuspend},
 		{"DELETE", "/api/whop/stores/{store}/suspension", needSessionCSRF, actSuspendCustomers, s.hWhopStoreUnsuspend},
@@ -583,7 +591,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/offsite/copies", "/v1/servers/{id}/offsite/copies"),
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/copies/{name}/check", "/v1/servers/{id}/offsite/copies/{name}/check"),
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/check/cancel", "/v1/servers/{id}/offsite/check/cancel"),
-		{"DELETE", "/api/servers/{id}/offsite/copies/{name}", needSessionCSRF, actManageBackupCopies, s.serverProxy("DELETE", "/v1/servers/{id}/offsite/copies/{name}")},
+		{"DELETE", "/api/servers/{id}/offsite/copies/{name}", needSessionCSRF, actManageBackupCopies, s.deleteLong("/v1/servers/{id}/offsite/copies/{name}")},
 		smAs(actRestore, "POST", "/api/servers/{id}/offsite/restore", "/v1/servers/{id}/offsite/restore"),
 		smAs(actRestore, "POST", "/api/servers/{id}/offsite/restore/cancel", "/v1/servers/{id}/offsite/restore/cancel"),
 		mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),
@@ -670,7 +678,7 @@ func (s *Server) Routes() []Route {
 	// ports (serverpage.go).
 	routes = append(routes, []Route{
 		view("/api/servers/{id}/public-page", s.hPublicPage),
-		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers/{id}/public-page", func(machine, *session, json.RawMessage) { s.pageChanged() })},
+		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.hPublicPageSet},
 		{"POST", "/api/servers/{id}/public-page/retry", needSessionCSRF, actManageServers, s.hPublicPagePortsRetry},
 		// A server's own address is DNS and certificates for the whole
 		// machine, so it needs the right to manage the machine.
@@ -810,11 +818,11 @@ func (s *Server) sessionFrom(r *http.Request) (session, error) {
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(s.opts.AbsoluteTimeout.Seconds())})
+	setHostCookie(w, cookieName, token, int(s.opts.AbsoluteTimeout.Seconds()), http.SameSiteStrictMode)
 }
 
 func clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	setHostCookie(w, cookieName, "", -1, http.SameSiteStrictMode)
 }
 
 // whopSellerCSP is a seller's page's Content-Security-Policy, which Whop

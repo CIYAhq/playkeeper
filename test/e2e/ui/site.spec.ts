@@ -237,19 +237,18 @@ test('a copy of the install command tells the stats service once a page view, wi
 })
 
 /**
- * Serves, in place of Whop's s.js, one that hands the test each call to the
- * pixel, queued before it loaded or made after, as [name, ...arguments], so
- * nothing reaches Whop. urls are the files the page asked Whop for.
+ * The hosts other than the site's that pages in ctx ask for anything. The
+ * site asks only the visit counter, the stats service and GitHub's API for
+ * the star count, and never an ad pixel.
  */
-async function recordWhop(ctx: BrowserContext) {
-  const calls: unknown[][] = []
-  const urls: string[] = []
-  await ctx.exposeFunction('recordWhop', (...call: unknown[]) => void calls.push(call))
-  await ctx.route('https://t.whop.tw/**', (route) => {
-    urls.push(route.request().url())
-    return route.fulfill({ contentType: 'text/javascript', body: 'whop.q.splice(0).forEach(function (c) { recordWhop.apply(null, c.slice(1)) }); whop.track = function () { recordWhop.apply(null, arguments) }' })
+function recordElsewhere(ctx: BrowserContext, baseURL: string | undefined) {
+  const hosts = new Set<string>()
+  const site = baseURL ? new URL(baseURL).host : ''
+  ctx.on('request', (r) => {
+    const host = new URL(r.url()).host
+    if (host !== site && !r.url().startsWith('data:') && !r.url().startsWith('blob:')) hosts.add(host)
   })
-  return { calls, urls }
+  return () => [...hosts].filter((h) => !['analytics-c.ciya.so', 'stats.playkeeper.io', 'api.github.com'].includes(h))
 }
 
 /**
@@ -273,12 +272,12 @@ async function fakeShareSheet(ctx: BrowserContext) {
   return shared
 }
 
-test('/start: the start channel’s command, Send to my computer on phones, Whop’s ad pixel on this page alone and not under Global Privacy Control, and our events too', async ({ browser, baseURL }) => {
+test('/start: the start channel’s command, Send to my computer on phones and our events, with no ad pixel', async ({ browser, baseURL }) => {
   const phone = { baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] }
   const ctx = await browser.newContext(phone)
   const { events, release } = await recordEvents(ctx)
   release()
-  const whop = await recordWhop(ctx)
+  const elsewhere = recordElsewhere(ctx, baseURL)
   const shared = await fakeShareSheet(ctx)
   /** The events sent since the last call are these, in order. */
   const sent = async (...want: unknown[][]) => {
@@ -288,13 +287,12 @@ test('/start: the start channel’s command, Send to my computer on phones, Whop
   const page = await ctx.newPage()
   const answer = (a: 'cancel' | 'refuse') => page.evaluate((a) => { (window as unknown as { shareAnswer: string }).shareAnswer = a }, a)
   const clipboard = () => page.evaluate(() => navigator.clipboard.readText())
-  const ad = '/start?utm_campaign=pk01-launch&utm_source=fb&wacid=1'
+  const ad = '/start?utm_campaign=pk01-launch&utm_source=fb'
   await page.goto(ad, { waitUntil: 'networkidle' })
-  expect(page.url(), 'the query string stays, for the pixel to read the ad’s IDs').toBe(baseURL + ad)
+  expect(page.url(), 'the query string stays, for the visit counter to read the ad’s UTM tags').toBe(baseURL + ad)
   const start = 'curl -fsSL https://playkeeper.io/install/start | sudo sh'
   await expect(page.locator('#install .install-line')).toHaveText(start)
   await expect(page.locator('[data-closing] .install-copy')).toHaveAttribute('data-copy', start)
-  expect(whop.urls).toEqual(['https://t.whop.tw/s.js'])
   // Nothing wider than the screen, and no serious accessibility violations: the page isn't in the sitemap the other checks visit.
   await page.evaluate(async () => {
     for (let y = 0; y < document.body.scrollHeight; y += 500) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 30)) }
@@ -308,8 +306,8 @@ test('/start: the start channel’s command, Send to my computer on phones, Whop
   await sent(['install_copied', { spot: 'box', channel: 'start', where: '/start' }], ['install_copied', { spot: 'closing', channel: 'start', where: '/start' }])
 
   // Send to my computer, beside both Copy buttons: the phone's share sheet
-  // with the page's address, ad IDs and all; nothing when it's cancelled; the
-  // address copied when sharing is refused or the browser can't share.
+  // with the page's address, its tags and all; nothing when it's cancelled;
+  // the address copied when sharing is refused or the browser can't share.
   const share = page.locator('#install .install-share')
   await expect(share).toHaveText('Send to my computer')
   await expect(page.locator('[data-closing] .install-share')).toBeVisible()
@@ -339,36 +337,17 @@ test('/start: the start channel’s command, Send to my computer on phones, Whop
   await page.waitForURL(/\/demo\/$/)
   await sent(['demo_opened', { spot: 'page', where: '/start' }], ['flush'])
 
-  // Whop heard the page view, then each copy, share and demo, with the visit's one id.
-  await expect.poll(() => whop.calls.length).toBe(8)
-  expect(whop.calls.slice(0, 2)).toEqual([['setScope', 'biz_bbmk63HMB3yZ4c'], ['page']])
-  const conversions = whop.calls.slice(2) as [string, { event_id: string }][]
-  expect(conversions.map(([name]) => name)).toEqual(['install_copied', 'install_copied', 'install_shared', 'install_shared', 'install_shared', 'demo_opened'])
-  expect(conversions[0]?.[1].event_id, 'an id for the visit').toMatch(/^[0-9a-f-]{36}$/)
-  expect(new Set(conversions.map(([, p]) => p.event_id)).size, 'one id for every event in a visit').toBe(1)
-
-  // A desktop has no Send to my computer, and no other page loads the pixel.
+  // A desktop has no Send to my computer.
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(ad, { waitUntil: 'networkidle' })
   await expect(page.locator('#install .install-copy')).toBeVisible()
   await expect(share).toBeHidden()
   await axe(page, '/start at desktop size')
-  const loads = whop.urls.length
-  await page.goto('/', { waitUntil: 'networkidle' })
-  expect(await page.evaluate(() => 'whop' in window), 'the landing page has no ad pixel').toBe(false)
-  expect(whop.urls).toHaveLength(loads)
-  await ctx.close()
 
-  // With Global Privacy Control, /start doesn't load it either.
-  const gpc = await browser.newContext(phone)
-  await recordEvents(gpc).then((r) => r.release())
-  const gpcWhop = await recordWhop(gpc)
-  await gpc.addInitScript(() => Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', { get: () => true }))
-  const private_ = await gpc.newPage()
-  await private_.goto('/start', { waitUntil: 'networkidle' })
-  expect(await private_.evaluate(() => 'whop' in window), 'no pixel under Global Privacy Control').toBe(false)
-  expect(gpcWhop.urls).toEqual([])
-  await gpc.close()
+  // No ad pixel, and nothing from another site but the visit counter, the stats service and GitHub's star count.
+  expect(await page.evaluate(() => 'whop' in window || 'fbq' in window), '/start has no ad pixel').toBe(false)
+  expect(elsewhere(), 'hosts /start asked for anything').toEqual([])
+  await ctx.close()
 })
 
 test('/templates/ai-build-battle, where /ai sends people from the videos: its clip plays muted while it shows and not with reduced motion, Send to my computer shares the address with the link’s tags, Open in my dashboard asks where the dashboard is, and our events', async ({ browser, baseURL }) => {

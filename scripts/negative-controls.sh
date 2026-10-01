@@ -777,6 +777,10 @@ control "a stopped run's log is read without following" internal/agent/collector
   'docker.LogsOptions{Follow: c.State.Running, Since: since}' \
   'docker.LogsOptions{Follow: true, Since: since}' \
   ./internal/agent '^TestARunStartedAsTheFollowerAttachesIsReadAsItsOwn$'
+control "a running container's log is read only while it has the run the follower saw" internal/agent/collector.go \
+  'if started, _ := again.State.Started(); err != nil || !started.Equal(runStart) {' \
+  'if started, _ := again.State.Started(); err != nil || false && !started.Equal(runStart) {' \
+  ./internal/agent '^TestARestartAsTheFollowerAttachesIsReadAsANewRun$'
 control "the crash helper reads the run's log from Docker" internal/agent/crash.go \
   'in.Console = s.runLog(ctx, id, runStart)' \
   'in.Console = s.runLog(ctx, id, runStart)[:0]' \
@@ -1136,6 +1140,20 @@ control "a restart does not start the handoff timeouts over" internal/agent/upda
   'since = st.ModTime()' \
   'since = a.now()' \
   ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "an update operation ends after its audit entry" internal/agent/update.go \
+  '		if err = a.insertAudit(tx, "", actor, action, target, result, detail); err == nil {
+			err = writeOperation(tx, op)
+		}' \
+  '		if err = writeOperation(tx, op); err == nil {
+			err = a.insertAudit(tx, "", actor, action, target, result, detail)
+		}' \
+  ./internal/agent '^TestAnUpdatesResultIsStoredWithWhatTheAgentSaysAboutIt$'
+control "an update's result is stored under the update's lock" internal/agent/update.go \
+  '	a.upd.mu.Lock()
+	defer a.upd.mu.Unlock()
+	var op *api.Operation' \
+  '	var op *api.Operation' \
+  ./internal/agent '^TestAnUpdatesResultIsStoredWithWhatTheAgentSaysAboutIt$'
 control "an updater that waited does not install over what the installer installed" internal/install/selfupdate.go \
   'if installed != current {' \
   'if false && installed != current {' \
@@ -1355,6 +1373,19 @@ control "a joined machine takes data packs bigger than a request" internal/agent
   '"POST /v1/servers/{id}/datapacks":                   true,' \
   '"POST /v1/servers/{id}/datapacks":                   false,' \
   ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
+control "a resource pack's upload over a link has the link's limits" internal/agent/link.go \
+  '"POST /v1/servers/{id}/datapacks":                   true,' \
+  '"POST /v1/servers/{id}/datapacks":                   true,
+	"POST /v1/servers/{id}/resourcepack":                true,' \
+  ./internal/panel '^TestAResourcePackUploadOverALinkHasTheLinksLimits$'
+control "a link waits for a copy's deletion as long as its store takes" internal/agent/link.go \
+  '"DELETE /v1/servers/{id}/offsite/copies/{name}":     true,' \
+  '"DELETE /v1/servers/{id}/offsite/copies/{name}":     false,' \
+  ./internal/panel '^TestASlowCopyDeleteOnAJoinedMachineWaitsForItsStore$'
+control "deleting a copy waits past the agent client's minute" internal/panel/server.go \
+  's.deleteLong("/v1/servers/{id}/offsite/copies/{name}")' \
+  's.serverProxy("DELETE", "/v1/servers/{id}/offsite/copies/{name}")' \
+  ./internal/panel '^(TestASlowCopyDeleteOnAJoinedMachineWaitsForItsStore|TestASlowCopyDeleteOnTheDashboardsMachineWaitsForItsStore)$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
 		network := ""' \
@@ -1494,6 +1525,10 @@ control "friends' pack links favour no letter" internal/modpacks/share/token.go 
   'if b < 248 && len(out) < TokenLen {' \
   'if len(out) < TokenLen {' \
   ./internal/modpacks/share '^TestNewToken(IsUniform|SkipsBiasedBytes)$'
+control "the uniformity bound still catches letters favoured by an unskipped byte" internal/modpacks/share/token.go \
+  'if b < 248 && len(out) < TokenLen {' \
+  'if len(out) < TokenLen {' \
+  ./internal/modpacks/share '^TestNewTokenIsUniform$'
 control "stopping sharing forgets the friends' pack link" internal/agent/packshare.go \
   "UPDATE servers SET packs_public = 0, packs_token = '' WHERE id = ?" \
   'UPDATE servers SET packs_public = 0 WHERE id = ?' \
@@ -2090,11 +2125,21 @@ control "operations: the audit entry is stored before the operation shows finish
 			err = a.insertAudit(tx, serverID, op.Actor, op.Kind, target, op.Status, op.Error)
 		}' \
   ./internal/agent '^TestAFinishedOperationIsAlreadyAudited$'
-control "operations: a server's operation stores its end with its audit entry" internal/agent/lifecycle.go \
-  's.finishOperation(s.id, "server", &done)' \
-  's.saveOperation(&done)
-		s.audit(done.Actor, kind, "server", done.Status, done.Error)' \
-  ./internal/agent '^TestAFinishedOperationIsAlreadyAudited$'
+control "operations: an operation stores its end with its audit entry" internal/agent/state.go \
+  '	a.finishOperation(serverID, target, &done)' \
+  '	a.saveOperation(&done)
+	a.auditFor(serverID, done.Actor, done.Kind, target, done.Status, done.Error)' \
+  ./internal/agent '^(TestAFinishedOperationIsAlreadyAudited|TestAFinishedAddressOperationIsAlreadyAudited)$'
+control "operations: an operation is stored as ended before it stops showing" internal/agent/state.go \
+  '	a.finishOperation(serverID, target, &done)
+	mu.Lock()
+	clear()
+	mu.Unlock()' \
+  '	mu.Lock()
+	clear()
+	mu.Unlock()
+	a.finishOperation(serverID, target, &done)' \
+  ./internal/agent '^TestAnOperationShowsUntilItsEndIsStored$'
 control "resource packs: a listed pack doesn't wait while the agent is asked about another" internal/panel/packs.go \
   'if wait == nil || known && !started {' \
   'if wait == nil || known && !started && false {' \
@@ -2349,6 +2394,10 @@ control "the Default Server Properties mod's marker says its file was used" inte
 control "a server a pack's mod started without the console and allowlist is restarted after an update" internal/agent/modpacks.go \
   'if off {' \
   'if false && off {' \
+  ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
+control "the settings check restarts a server once for each agent process" internal/agent/modpacks.go \
+  '	done := s.settingsChecked' \
+  '	done := false' \
   ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
 control "the settings check waits a minute after the pack's mod writes its marker" internal/agent/modpacks.go \
   'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {' \
@@ -3010,6 +3059,21 @@ shcontrol "the shards' check fails when shards listed other tests" scripts/go-te
 shcontrol "a shard runs the tests a panic kept from starting" scripts/go-test-shard.sh \
   'todo=$(grep -vxF -e "$started" <<<"$todo" || true)' \
   'todo=' \
+  scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "runners' parts of the shards side by side run every shard between them" scripts/go-test-shard.sh \
+  'ours=$(seq "$r" "$m" "$jobs")' \
+  'ours=$(seq "$r" "$m" "$((jobs - m + 1))")' \
+  scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "a runner's part fails when one of its shards didn't run all of its tests" scripts/go-test-shard.sh \
+  'missed=$(for k in $ours; do comm -23 <(sort -u "$out/mine-$k.txt") <(sort -u "$out/ran-$k.txt"); done)' \
+  'missed=' \
+  scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "a part past the runners or the shards is refused" scripts/go-test-shard.sh \
+  ' || [ "$r" -gt "$m" ] || [ "$m" -gt "$jobs" ]; then' \
+  '; then' \
   scripts/go-test-shard_test.sh
 shcontrol "a module download the proxy dropped is tried again" scripts/net-retry.sh \
   "transient='stream error|" \
@@ -3950,11 +4014,6 @@ control "free address: the name taken from the service is refreshed at once" int
   '			c.Name = held.Name
 ' \
   ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_released_and_the_service_holds_bob$'
-control "operations: an address operation stores its end with its audit entry" internal/agent/address.go \
-  'a.finishOperation("", "machine", &done)' \
-  'a.saveOperation(&done)
-		a.audit(actor, kind, "machine", done.Status, done.Error)' \
-  ./internal/agent '^TestAFinishedAddressOperationIsAlreadyAudited$'
 control "free address: publishing waits only for the servers it synced" internal/agent/address.go \
   'for !freePublished(a.address(), synced) && time.Since(start) < publishWait {' \
   'for !freePublished(a.address(), a.joinServers()) && len(synced) >= 0 && time.Since(start) < publishWait {' \
@@ -4948,6 +5007,73 @@ control "a new place counts its copies from none" internal/agent/offsite.go \
   'copies_made = 0 WHERE' \
   'copies_made = copies_made WHERE' \
   ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+# shellcheck disable=SC2016
+control "a finished copy is stored with its count and its leaving the queue" internal/agent/offsite.go \
+  '	if err := s.recordCopy(b, cp, offsitePlace(row.cfg.Config)); err != nil {' \
+  '	raw, _ := json.Marshal(cp)
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO offsite_copies(server_id, backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, s.id, b.ID, b.Kind, b.CreatedAt.UnixMilli(), b.FileName, b.SizeBytes, b.MinecraftVersion, b.LevelName, string(raw), s.now().UnixMilli())
+	if err == nil {
+		_, _ = s.db.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id)
+		s.dropUpload(b.ID)
+		s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+offsitePlace(row.cfg.Config))
+	}
+	if err != nil {' \
+  ./internal/agent '^TestARecordedCopyIsAlreadyCountedAndOutOfTheQueue$'
+control "a failed try of a copy is stored after its audit entry" internal/agent/offsite.go \
+  '		if attempts == 1 {
+			if err := s.insertAudit(tx, s.id, "playkeeper", "offsite.copy_failed", job.backupID, "failed", msg); err != nil {
+				return err
+			}
+		}' \
+  '		if attempts == 1 {
+			defer func() { _ = s.insertAudit(tx, s.id, "playkeeper", "offsite.copy_failed", job.backupID, "failed", msg) }()
+		}' \
+  ./internal/agent '^TestCopiesMadeFailedAndDeletedAreAlreadyAudited$'
+control "an audited change stores its audit entry first" internal/agent/state.go \
+  '	if err := s.insertAudit(tx, s.id, actor, action, target, result, detail); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(query, args...); err != nil {
+		return err
+	}' \
+  '	if _, err := tx.Exec(query, args...); err != nil {
+		return err
+	}
+	if err := s.insertAudit(tx, s.id, actor, action, target, result, detail); err != nil {
+		return err
+	}' \
+  ./internal/agent '^(TestCopiesMadeFailedAndDeletedAreAlreadyAudited|TestABackupThatCanNeverBeCopiedLeavesTheQueueAudited)$'
+# shellcheck disable=SC2016
+control "a copy the rules delete leaves its record with its audit entry" internal/agent/offsite.go \
+  '		if err := s.execAudited(retentionActor, "offsite.copy_deleted", id, "succeeded", name,
+			`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, id); err != nil {' \
+  '		_, err = s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, id)
+		s.audit(retentionActor, "offsite.copy_deleted", id, "succeeded", name)
+		if err != nil {' \
+  ./internal/agent '^TestCopiesMadeFailedAndDeletedAreAlreadyAudited$'
+# shellcheck disable=SC2016
+control "a backup that can never be copied leaves the queue with its audit entry" internal/agent/offsite.go \
+  '			if err := s.execAudited("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg,
+				`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, job.backupID); err != nil {' \
+  '			s.dropUpload(job.backupID)
+			s.audit("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg)
+			if false {' \
+  ./internal/agent '^TestABackupThatCanNeverBeCopiedLeavesTheQueueAudited$'
+control "a copy is recorded after its audit entry" internal/agent/offsite.go \
+  '	if err := s.insertAudit(tx, s.id, "playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+place); err != nil {
+		return err
+	}' \
+  '	defer s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+place)' \
+  ./internal/agent '^TestCopiesMadeFailedAndDeletedAreAlreadyAudited$'
+# shellcheck disable=SC2016
+control "a copy deleted by hand leaves its record with its audit entry" internal/agent/offsite.go \
+  '	if err := s.execAudited(actor, "offsite.copy_deleted", backupID, "succeeded", name,
+		`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID); err != nil {' \
+  '	_, err = s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID)
+	s.audit(actor, "offsite.copy_deleted", backupID, "succeeded", name)
+	if err != nil {' \
+  ./internal/agent '^TestCopiesMadeFailedAndDeletedAreAlreadyAudited$'
 control "a scheduled backup refused for want of a pause is recorded" internal/agent/schedules.go \
   's.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)' \
   '_ = why' \
@@ -6484,12 +6610,12 @@ control "a replaced area carries on as it was when the new one doesn't start" in
   '			_ = paused' \
   ./internal/agent '^TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts$'
 control "a replacement that can't be recorded ends the old area" internal/agent/pregen.go \
-  '			if eerr := s.endPregen(old, pregenCancelled, nil, nil); eerr != nil {' \
+  '			if eerr := s.endPregen(old, pregenCancelled, nil, nil, pregenEntry{actor, "pregen.cancelled", "failed", "replaced by " + preset + ", which could not be recorded"}); eerr != nil {' \
   '			if eerr := error(nil); eerr != nil {' \
   ./internal/agent '^TestAReplacementThatCantBeRecordedEndsTheOldArea$'
 control "a finished area stays done after a bigger one is stopped" internal/agent/pregen.go \
-  '	if err == nil && how == pregenFinished {' \
-  '	if false && err == nil && how == pregenFinished {' \
+  '	if how == pregenFinished {' \
+  '	if false && how == pregenFinished {' \
   ./internal/agent '^TestTheLargestFinishedAreaStaysDone$'
 control "the largest finished area is done, not the latest" internal/agent/pregen.go \
   'done_radius = MAX(done_radius, radius),' \
@@ -6544,6 +6670,25 @@ control "memory kills are counted from the last resume" internal/agent/pregen.go
   '(SELECT MAX(ts) FROM audit WHERE server_id = ?' \
   '(SELECT MAX(ts) FROM audit WHERE 0 AND server_id = ?' \
   ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "a crash in the millisecond a task started or was resumed counts for it" internal/agent/pregen.go \
+  'AND ts >= MAX(?, COALESCE(' \
+  'AND ts > MAX(?, COALESCE(' \
+  ./internal/agent '^TestACrashInTheMillisecondATaskStartedCountsForIt$'
+control "a pre-generation task ends after its audit entry" internal/agent/pregen.go \
+  '	if err := s.insertAudit(tx, s.id, entry.actor, entry.action, t.World, entry.result, entry.detail); err != nil {
+		return err
+	}' \
+  '	defer s.audit(entry.actor, entry.action, t.World, entry.result, entry.detail)' \
+  ./internal/agent '^TestAPregenTaskPausedContinuedOrEndedIsAlreadyAudited$'
+# shellcheck disable=SC2016
+control "a pre-generation task is paused or resumed after its audit entry" internal/agent/pregen.go \
+  '	return s.execAudited(entry.actor, entry.action, world, entry.result, entry.detail, `UPDATE pregen SET `+set+` WHERE server_id = ?`, append(args, s.id)...)' \
+  '	if err := s.updatePregen(set, args...); err != nil {
+		return err
+	}
+	s.audit(entry.actor, entry.action, world, entry.result, entry.detail)
+	return nil' \
+  ./internal/agent '^TestAPregenTaskPausedContinuedOrEndedIsAlreadyAudited$'
 control "only a task a restart dropped is sent again" internal/agent/pregen.go \
   '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
   '	if run.IsZero() || tried {' \
@@ -6673,8 +6818,8 @@ control "an HTTP-01 check goes ahead on a busy port only when its holder passes 
   'if errors.Is(err, syscall.EADDRINUSE) {' \
   ./internal/certs '^TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn$'
 control "the page's ports answer only the machine's address" internal/panel/serverpage.go \
-  'if !check && !s.page.answers(r.Host) {' \
-  'if false && !check && !s.page.answers(r.Host) {' \
+  'if !check && !s.pageAnswers(r.Context(), r.Host) {' \
+  'if false && !check && !s.pageAnswers(r.Context(), r.Host) {' \
   ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
 control "the page escapes what the owner typed" internal/panel/serverpage.go \
   'head := "<title>" + html.EscapeString(title) + "</title>"' \
@@ -6700,14 +6845,14 @@ control "visitors share one question to the agent" internal/panel/serverpage.go 
   '	if a, ok := lookup(); ok {
 		return a, a.ok
 	}
-	p.fetch.Lock()
-	defer p.fetch.Unlock()
+	c.fetch.Lock()
+	defer c.fetch.Unlock()
 	if a, ok := lookup(); ok {
 		return a, a.ok
 	}' \
   '	_ = lookup
-	p.fetch.Lock()
-	defer p.fetch.Unlock()' \
+	c.fetch.Lock()
+	defer c.fetch.Unlock()' \
   ./internal/panel '^TestManyVisitorsAskTheAgentOnceAndEachAddressIsLimited$'
 control "port 443 never serves the self-signed certificate" internal/panel/pageports.go \
   '	return s.pageCerts.GetCertificate(hello)
@@ -6724,11 +6869,11 @@ control "port 80 redirects only while port 443 serves the page" internal/panel/p
   'if _ = https; host == "" || s.pageCerts == nil {' \
   ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
 control "turning the page off gives the ports back" internal/panel/pageports.go \
-  'if !st.On && !dashboard {
+  'if !on && !dashboard {
 		s.closePagePorts(api.PortOff)
 		return
 	}' \
-  'if !st.On && !dashboard {
+  'if !on && !dashboard {
 		return
 	}' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
@@ -6737,8 +6882,8 @@ control "the keeper never asks for a port it holds" internal/panel/pageports.go 
   'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
 control "Let's Encrypt's check for a new address passes port 80 before the page follows it" internal/panel/serverpage.go \
-  'if !check && !s.page.answers(r.Host) {' \
-  'if !s.page.answers(r.Host) {' \
+  'if !check && !s.pageAnswers(r.Context(), r.Host) {' \
+  'if !s.pageAnswers(r.Context(), r.Host) {' \
   ./internal/panel '^TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp$'
 control "a changed address has the page's keeper look again" internal/panel/server.go \
   'if method != http.MethodGet {
@@ -6789,8 +6934,8 @@ control "turning the dashboard's port off forgets the visit" internal/agent/dash
   '		_ = ""' \
   ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
 control "the hand-over opens port 443 for the dashboard with the page off" internal/agent/pageports.go \
-  'if st := a.publicPageState(); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {' \
-  'if st := a.publicPageState(); !st.On || !want.HTTPS && !want.HTTP {' \
+  '	if !st.On && !st.Dashboard && !joined || !want.HTTPS && !want.HTTP {' \
+  '	if !st.On && !joined || !want.HTTPS && !want.HTTP {' \
   ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
 control "the dashboard wants port 443 only once the machine's name works" internal/agent/dashboardport.go \
   '	return a.namedHost()' \
@@ -6913,8 +7058,8 @@ control "the store's marks follow the dashboard's port at once" internal/panel/w
   'err == nil && false && dash != st.MarkedAs {' \
   ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
 control "a Whop refusing the marks is asked again a minute later, not every pass" internal/panel/whop_customers.go \
-  '	if st.Problem == "" || since >= time.Minute {' \
-  '	if true {' \
+  '	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {' \
+  '	if st.Via == whopViaKey {' \
   ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
 control "a new install leaves the dashboard on 8443 while something has port 443" internal/install/install.go \
   'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
@@ -6977,13 +7122,13 @@ webcontrol "Sell on Whop names the old redirect URL only while Whop lists it alo
   '{signIn.redirectUri && (' \
   src/pages/pages.test.tsx 'says when customers still come back through the dashboard'
 # What the owner adds to the page: About, a stream and a status board.
-control "a page's stream is only a Twitch or YouTube channel" internal/agent/publicblocks.go \
+control "a page's stream is only a Twitch or YouTube channel" internal/pagetext/pagetext.go \
   'case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
   'case len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
   ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
-control "the page's About keeps out control and direction-changing characters" internal/agent/publicblocks.go \
+control "the page's About keeps out control and direction-changing characters" internal/pagetext/pagetext.go \
   "return unicode.IsPrint(r) || r == '\\u200d'" \
-  'return r != 0' \
+  'return unicode.IsPrint(r) || r != 0' \
   ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
 control "a board with more numbers than the page shows is refused" internal/agent/publicblocks.go \
   'if len(req.Stats) > api.BoardStatsMax {' \
@@ -7001,6 +7146,334 @@ control "only the page's ports may frame the stream players" internal/panel/serv
   "\"+s.reachSource()+\"; font-src 'self'; object-src 'none';" \
   "\"+s.reachSource()+\"; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
   ./internal/panel '^TestThePageHasALiveShareCardAndMayFrameAStream$'
+# 0.4.14: the page of a server on a joined machine, which the dashboard's
+# machine serves at the server's name: only while both the dashboard's own
+# record and the machine say it's on the page, that server alone, within
+# the agent's own bounds, and nothing that says which machine runs it.
+control "joined page: a server's name answers only while its machine says it's on the page" internal/panel/joinedpage.go \
+  '		_, on := s.joinedPage(ctx, j)
+		return on' \
+  '		_, _ = s.joinedPage(ctx, j)
+		return true' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a server's name answers only while the dashboard's record says it's on the page" internal/panel/joinedpage.go \
+  '		case !public:
+			return pageAnswer{answered: true}, false' \
+  '		case !public && false:
+			return pageAnswer{answered: true}, false' \
+  ./internal/panel '^TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo$'
+control "joined page: the owner's off is recorded before the machine is asked" internal/panel/serverpage.go \
+  '	if req.Enabled != nil && !*req.Enabled {
+		s.setPageRecord(id, false)' \
+  '	if req.Enabled != nil && !*req.Enabled && false {
+		s.setPageRecord(id, false)' \
+  ./internal/panel '^TestAMachineThatRefusesTheOwnersOffLosesItsPage$'
+control "joined page: the owner's on waits for the machine to take it" internal/panel/serverpage.go \
+  '	if req.Enabled != nil && !*req.Enabled {
+		s.setPageRecord(id, false)' \
+  '	if req.Enabled != nil {
+		s.setPageRecord(id, *req.Enabled)' \
+  ./internal/panel '^TestAMachineThatRefusesTheOwnersOffLosesItsPage$'
+control "joined page: a machine that doesn't answer leaves the ports as they are" internal/panel/joinedpage.go \
+  '		case !ok:
+			return pageAnswer{}, false' \
+  '		case !ok:
+			return pageAnswer{answered: true}, false' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesThePortsHeld$'
+control "joined page: a machine that says its server is off the page is believed" internal/panel/joinedpage.go \
+  '		case status == http.StatusNotFound:
+			return pageAnswer{answered: true}, false' \
+  '		case status == http.StatusNotFound:
+			return pageAnswer{}, false' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: the record's off gives the ports back" internal/panel/joinedpage.go \
+  '		case !public:
+			return pageAnswer{answered: true}, false' \
+  '		case !public:
+			return pageAnswer{}, false' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesThePortsHeld$'
+control "joined page: the machine's word is taken only where the dashboard has no record" internal/panel/joinedpage.go \
+  'VALUES(?,?,?) ON CONFLICT(server_id) DO NOTHING`, id, machineSays' \
+  'VALUES(?,?,?) ON CONFLICT(server_id) DO UPDATE SET enabled = excluded.enabled`, id, machineSays' \
+  ./internal/panel '^(TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo|TestAMoveKeepsWhetherAServerWasOnThePage)$'
+control "joined page: Settings show a joined server on only while the record says so" internal/panel/serverpage.go \
+  'v.Enabled = s.pageRecordOr(id, v.Enabled) && v.Enabled' \
+  'v.Enabled = s.pageRecordOr(id, v.Enabled) || v.Enabled' \
+  ./internal/panel '^TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo$'
+control "joined page: a move records whether the server was on the page where it was" internal/panel/moves.go \
+  'if on, ok := movedPublicPage(state); ok {' \
+  'if on, ok := movedPublicPage(state); ok && false {' \
+  ./internal/panel '^TestAMoveKeepsWhetherAServerWasOnThePage$'
+# shellcheck disable=SC2016
+control "joined page: a deleted server's record of the page goes with it" internal/panel/workspace.go \
+  '		`DELETE FROM public_pages WHERE ` + gone,
+' \
+  '' \
+  ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
+# shellcheck disable=SC2016
+control "joined page: deleting a customer forgets whether their servers were on the page" internal/panel/erasure.go \
+  '`DELETE FROM public_pages WHERE server_id = ?`, ' \
+  '' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "joined page: only the machine the dashboard knows runs the server is asked" internal/panel/joinedpage.go \
+  'if err != nil || m.ID != j.machineID || m.Kind != remoteKind {' \
+  'if err != nil || m.Kind != remoteKind {' \
+  ./internal/panel '^TestAJoinedServersPageAsksOnlyTheMachineThatRunsIt$'
+control "joined page: the server's address is the name the zone gives it" internal/panel/joinedpage.go \
+  'sv := api.PublicServer{Slug: j.label, Address: j.address,' \
+  'sv := api.PublicServer{Slug: j.label, Address: in.Address,' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the server has no Bedrock address, which would be its machine's" internal/panel/joinedpage.go \
+  'InviteOnly: in.InviteOnly, HasIcon: in.HasIcon,' \
+  'InviteOnly: in.InviteOnly, HasIcon: in.HasIcon, Bedrock: in.Bedrock,' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the server's slug is the dashboard's" internal/panel/joinedpage.go \
+  'sv := api.PublicServer{Slug: j.label, Address: j.address,' \
+  'sv := api.PublicServer{Slug: in.Slug, Address: j.address,' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a state the page doesn't know reads as offline" internal/panel/joinedpage.go \
+  '		sv.State = api.PublicOffline' \
+  '		_ = api.PublicOffline' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: players count only while the server is online" internal/panel/joinedpage.go \
+  'if p := in.Players; p != nil && sv.State == api.PublicOnline {' \
+  'if p := in.Players; p != nil {' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the page lists only real players' names" internal/panel/joinedpage.go \
+  'if minecraft.ValidPlayerName(n) && len(names) < min(online, maxPageNames) {' \
+  'if (minecraft.ValidPlayerName(n) || true) && len(names) < min(online, maxPageNames) {' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: no more players are named than are playing" internal/panel/joinedpage.go \
+  'if minecraft.ValidPlayerName(n) && len(names) < min(online, maxPageNames) {' \
+  'if minecraft.ValidPlayerName(n) && len(names) < maxPageNames {' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a server's name is no longer than the agent allows" internal/panel/joinedpage.go \
+  'Name: shownLine(in.Name, api.ServerNameMax, nameRune)' \
+  'Name: shownLine(in.Name, 1<<20, nameRune)' \
+  ./internal/panel '^(TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows|TestAJoinedCardHoldsUpNoOtherPage)$'
+control "joined page: a server's name and description keep out control and formatting characters" internal/panel/joinedpage.go \
+  "return unicode.IsPrint(r) && r != '§'" \
+  'return unicode.IsPrint(r) || r != 0' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: About has no more lines than the agent allows" internal/panel/joinedpage.go \
+  'lines = lines[:min(len(lines), api.PublicAboutLines)]' \
+  'lines = lines[:len(lines)]' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a board has no more numbers than the agent allows" internal/panel/joinedpage.go \
+  'for _, st := range b.Stats[:min(len(b.Stats), api.BoardStatsMax)] {' \
+  'for _, st := range b.Stats {' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a board's next session is within a month" internal/panel/joinedpage.go \
+  'if b.Next != nil && !b.Next.Before(now.Add(-24*time.Hour)) && !b.Next.After(now.Add(api.BoardNextWithin)) {' \
+  'if b.Next != nil {' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a line the agent sets no bound on is bounded" internal/panel/joinedpage.go \
+  'MinecraftVersion: shownLine(in.MinecraftVersion, pageLineMax, pagetext.Printable)' \
+  'MinecraftVersion: in.MinecraftVersion' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a server type the page doesn't know is left out" internal/panel/joinedpage.go \
+  'if _, ok := minecraft.TypeByID(in.Type); ok {' \
+  'if _, ok := minecraft.TypeByID(in.Type); ok || true {' \
+  ./internal/panel '^TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows$'
+control "joined page: a stream is only a channel's page" internal/panel/joinedpage.go \
+  'if parsed, ok := pagetext.Stream(st.URL); ok && parsed == *st {
+			sv.Stream = &parsed' \
+  'if _, ok := pagetext.Stream(st.URL); ok || true {
+			sv.Stream = st' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: its links are the dashboard's, never the machine's" internal/panel/joinedpage.go \
+  '	sv.Map, sv.Pack = s.joinedPageLinks(ctx, shown, j)' \
+  '	_, _ = s.joinedPageLinks(ctx, shown, j)
+	sv.Map, sv.Pack = in.Map, in.Pack' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a link shows only for the server the dashboard saw it made for" internal/panel/publiclinks.go \
+  'return err == nil && sid == serverID && mid == machineID' \
+  'return err == nil && mid == machineID' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a joined server's card is drawn among its own machine's answers" internal/panel/serverpage.go \
+  'answers, cardKey = s.joinedAnswers(j.machineID), "card "+j.id' \
+  'answers, cardKey = s.page.local, "card "+j.id' \
+  ./internal/panel '^TestAJoinedCardHoldsUpNoOtherPage$'
+control "joined page: the zone answers ahead of a copy a move left on the dashboard's machine" internal/panel/joinedpage.go \
+  'func (s *Server) joinedAt(host string) (joinedName, bool) {
+	return s.zoneName(host)' \
+  'func (s *Server) joinedAt(host string) (joinedName, bool) {
+	if s.page.answers(host) {
+		return joinedName{}, false
+	}
+	return s.zoneName(host)' \
+  ./internal/panel '^TestTheZoneAnswersAheadOfACopyAMoveLeft$'
+control "joined page: the keeper holds the ports while a joined server is on the page" internal/panel/pageports.go \
+  '		on, known = s.anyJoinedPageOn(jctx)' \
+  '		_, known = s.anyJoinedPageOn(jctx)' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: the keeper gives the ports back once the joined server is off" internal/panel/joinedpage.go \
+  '					case on:
+						answers <- someOn' \
+  '					case on || true:
+						answers <- someOn' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: the keeper's asks end with its look's deadline" internal/panel/joinedpage.go \
+  '				case <-ctx.Done():
+					answers <- ended(names[i:])' \
+  '				case <-make(chan struct{}):
+					answers <- ended(names[i:])' \
+  ./internal/panel '^TestTheKeepersAsksEndWithItsDeadline$'
+control "joined page: a look the joined machines don't all answer in time keeps what the page holds" internal/panel/pageports.go \
+  '	if known {
+		p.on = on
+	}' \
+  '	if known || true {
+		p.on = on
+	}' \
+  ./internal/panel '^TestALookCutShortKeepsThePorts$'
+control "joined page: Settings offer HTTPS for a joined server only with a certificate for its name" internal/panel/serverpage.go \
+  'if ports.HTTPS.State == api.PortOpen && !s.pageCertified(v.Host) {' \
+  'if false && ports.HTTPS.State == api.PortOpen && !s.pageCertified(v.Host) {' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
+control "joined page: a change to a joined server's Settings never answers with an address its machine has" internal/panel/serverpage.go \
+  '	s.pageChanged()
+	s.pageView(m, id, &v)' \
+  '	s.pageChanged()' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
+control "joined page: a changed zone forgets the page and asks the keeper to look again" internal/panel/fleetdns.go \
+  '	if changed {
+		s.pageChanged()' \
+  '	if false && changed {
+		s.pageChanged()' \
+  ./internal/panel '^TestAChangedZoneForgetsThePageAndLooksAgain$'
+control "joined page: an unchanged zone leaves the page and the keeper alone" internal/panel/fleetdns.go \
+  'changed := !maps.Equal(s.zoneAddrs.byName, byName)' \
+  'changed := !maps.Equal(s.zoneAddrs.byName, byName) || true' \
+  ./internal/panel '^TestAChangedZoneForgetsThePageAndLooksAgain$'
+control "joined page: a joined server's name points at the dashboard's machine" internal/panel/fleetdns.go \
+  '		for _, m := range p.machine {
+			add = append(add, dnszone.Record{Name: j.label, Type: m.Type, Value: m.Value})
+		}' \
+  '		add = append(add, dnszone.Record{Name: j.label, Type: typ, Value: j.ip.String()})' \
+  ./internal/panel '^TestJoinedServersJoinTheZoneAtTheirMachine$'
+control "joined page: a joined server's Settings never give an address its machine has" internal/panel/serverpage.go \
+  '	if m.Kind != localKind {
+		v.Host = s.zoneAddress(id)' \
+  '	if false && m.Kind != localKind {
+		v.Host = s.zoneAddress(id)' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
+control "joined page: the dashboard hears nothing of a server off the page" internal/agent/publicpage.go \
+  'set := s.publicPageSettings()
+	if !set.Enabled {' \
+  'set := s.publicPageSettings()
+	if false && !set.Enabled {' \
+  ./internal/agent '^TestThePageShowsTheDashboardAServerButNotTheMachinesAddress$'
+control "joined page: the dashboard hears no link under the machine's own name" internal/agent/publicpage.go \
+  '	out := api.PublicServerShown{PublicServer: sh.server, PackToken: sh.packToken}' \
+  '	ps, _ := s.publicServer(r.Context(), s.pageHost(), api.JoinAddress{})
+	out := api.PublicServerShown{PublicServer: ps, PackToken: sh.packToken}' \
+  ./internal/agent '^TestThePageShowsTheDashboardAServerButNotTheMachinesAddress$'
+control "joined page: a server the dashboard hides doesn't count as on its machine's page" internal/agent/publicpage.go \
+  '		if rows.Scan(&id) == nil && !hidden[id] {' \
+  '		if rows.Scan(&id) == nil && (!hidden[id] || true) {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's own address isn't among the page's names" internal/agent/ownaddress.go \
+  '		if hidden[js.id] {' \
+  '		if hidden[js.id] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the page leaves a hidden server out, at the machine's name and at its own address" internal/agent/publicpage.go \
+  'j.ServerID != only.id || hidden[j.ServerID] {' \
+  'j.ServerID != only.id || hidden[j.ServerID] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's icon isn't served at its own address" internal/agent/publicpage.go \
+  's != nil && !hidden[s.id] {' \
+  's != nil && (!hidden[s.id] || true) {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: a hidden server's icon isn't served at the machine's name" internal/agent/publicpage.go \
+  '		if hidden[s.id] {' \
+  '		if hidden[s.id] && false {' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the agent reads which servers the dashboard hides" internal/agent/publicpage.go \
+  '		out[id] = true' \
+  '		out[id] = id == ""' \
+  ./internal/agent '^TestThePageLeavesOutTheServersTheDashboardHides$'
+control "joined page: the dashboard hides a copy a move is making or left on its machine" internal/panel/serverpage.go \
+  '		if copyHidden(copies, id, now) {' \
+  '		if copyHidden(copies, id, now) && false {' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the dashboard hides a server its record has off" internal/panel/serverpage.go \
+  'SELECT server_id FROM public_pages WHERE enabled = 0' \
+  'SELECT server_id FROM public_pages WHERE enabled = 0 AND 0' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the keeper's look tells the agent what the dashboard hides" internal/panel/pageports.go \
+  'url.Values{"hidden": hidden}, nil, &st)' \
+  'url.Values{"hidden": hidden[:0]}, nil, &st)' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the page's read tells the agent what the dashboard hides" internal/panel/serverpage.go \
+  'url.Values{"host": {host}, "hidden": hidden}' \
+  'url.Values{"host": {host}, "hidden": hidden[:0]}' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: an icon's read tells the agent what the dashboard hides" internal/panel/serverpage.go \
+  'url.Values{"host": {r.Host}, "hidden": hidden}' \
+  'url.Values{"host": {r.Host}, "hidden": hidden[:0]}' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: a move that left a copy has the page look again" internal/panel/moves.go \
+  '	s.pageChanged()
+	return nil
+}
+
+// leftCopy records' \
+  '	return nil
+}
+
+// leftCopy records' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: Settings show a server on the dashboard's machine off while its record has it off" internal/panel/serverpage.go \
+  '} else if on, known := s.pageRecord(id); known && !on {' \
+  '} else if on, known := s.pageRecord(id); known && !on && false {' \
+  ./internal/panel '^TestTheDashboardsMachineLeavesOffItsPageACopyAMoveLeftAndWhatItsRecordHasOff$'
+control "joined page: the agent opens the ports for a joined server's page with none of its own on it" internal/agent/pageports.go \
+  '	joined := want.Joined && st.Host != ""' \
+  '	joined := want.Joined && false' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "joined page: the agent opens the ports for a joined server's page only while the machine has an address" internal/agent/pageports.go \
+  '	joined := want.Joined && st.Host != ""' \
+  '	joined := want.Joined' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "joined page: the keeper tells the agent a joined server's page is on" internal/panel/pageports.go \
+  '	want.Joined = on && !st.On' \
+  '	want.Joined = on && !st.On && false' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: a server the record has on leaves a look its machine doesn't answer unknown" internal/panel/joinedpage.go \
+  '	return false, !s.pageHeldOn(j.id)' \
+  '	return false, true' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesThePortsHeld$'
+control "joined page: a server the record doesn't have on is off while its machine doesn't answer" internal/panel/joinedpage.go \
+  '	return false, !s.pageHeldOn(j.id)' \
+  '	return false, false' \
+  ./internal/panel '^TestAServerTheRecordDoesntHaveOnWhoseMachineNeverAnswersLetsThePortsGo$'
+control "joined page: at the look's end, a server the record has on that wasn't answered leaves it unknown" internal/panel/joinedpage.go \
+  '				if slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
+  '				if false && slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
+  ./internal/panel '^TestALookCutShortKeepsThePorts$'
+control "joined page: at the look's end, servers the record doesn't have on that weren't answered are off" internal/panel/joinedpage.go \
+  '				if slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
+  '				if true || slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
+  ./internal/panel '^TestAServerTheRecordDoesntHaveOnWhoseMachineNeverAnswersLetsThePortsGo$'
+control "joined page: the agent logs the ports it hands over for a joined server's page" internal/agent/pageports.go \
+  '	if len(files) > 0 && !st.On && !st.Dashboard {' \
+  '	if false && len(files) > 0 && !st.On && !st.Dashboard {' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "joined page: the agent logs only the hand-overs for a joined server's page alone" internal/agent/pageports.go \
+  '	if len(files) > 0 && !st.On && !st.Dashboard {' \
+  '	if len(files) > 0 {' \
+  ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
+control "the share card cuts a line too long at once" internal/sharecard/card.go \
+  '	keep := max(0, (w/scale+1)/advance-len("..."))
+	r := []rune(s)
+	return strings.TrimRight(string(r[:min(keep, len(r))]), " ") + "..."' \
+  '	r := []rune(s)
+	for len(r) > 0 && width(string(r)+"...", scale) > w {
+		r = r[:len(r)-1]
+	}
+	return strings.TrimRight(string(r), " ") + "..."' \
+  ./internal/sharecard '^TestALongLineIsCutOffAtOnce$'
 
 # Usage stats (internal/usage): nothing is sent that its check refuses, while
 # they're off, or before the installer has said so; root's choices outrank
@@ -7320,8 +7793,8 @@ control "own addresses get a few certificates a day" internal/agent/ownaddress.g
   'if false && a.ownCertsToday(st) >= ownCertsPerDay {' \
   ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
 control "an own address's page shows only its server" internal/agent/publicpage.go \
-  'if only != nil && j.ServerID != only.id {' \
-  'if false && only != nil && j.ServerID != only.id {' \
+  'if only != nil && j.ServerID != only.id || hidden[j.ServerID] {' \
+  'if false && only != nil && j.ServerID != only.id || hidden[j.ServerID] {' \
   ./internal/agent '^TestAnOwnAddressOpensOnlyItsServersPage$'
 control "an own address's page answers only while its server is on the page" internal/agent/ownaddress.go \
   'if s := a.serverByID(js.id); s != nil && s.publicPageSettings().Enabled {
@@ -7373,13 +7846,24 @@ control "giving a server its own address needs the right to manage the machine" 
 # once a page view and none with Global Privacy Control or Do Not Track, are
 # held by site.spec.ts, which this script doesn't run.
 control "pages reach the stats service only as the policy allows" internal/site/nginx.go \
-  'origin(s.Stats), ' \
-  '' \
+  ', origin(s.Stats))' \
+  ')' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
 control "the share page doesn't name the stats service" site/layouts/base.html \
   '{{if and (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<meta name="playkeeper-stats"' \
   '{{if true}}<meta name="playkeeper-stats"' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
+
+# playkeeper.io loads no ad pixel: one that comes back, in a policy or a
+# page, fails the build's test.
+control "no policy lets an ad pixel in" internal/site/nginx.go \
+  '"script-src " + sources("'"'"'self'"'"'", origin(s.Analytics.Script)),' \
+  '"script-src " + sources("'"'"'self'"'"'", origin(s.Analytics.Script), "https://t.whop.tw"),' \
+  ./internal/site '^TestNoPageLoadsAnAdPixel$'
+control "no page loads an ad pixel" site/pages/start.html \
+  '<section class="band-chalk start-hero" aria-labelledby="page-title">' \
+  '<section class="band-chalk start-hero" aria-labelledby="page-title" data-whop-pixel="biz_bbmk63HMB3yZ4c">' \
+  ./internal/site '^TestNoPageLoadsAnAdPixel$'
 
 # An own domain under playkeeper.me: only a name nobody can claim, and only
 # under the current base.
@@ -8146,8 +8630,8 @@ control "customers per store: a lapsed customer's message names their store" int
   'Scan(&info.customer.Provider, new(string), &info.customer.Subject' \
   ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
 control "customers per store: a sign-in keeps the store it's for" internal/panel/whop_signin.go \
-  'tokenHash(state), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
-  'tokenHash(state), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
+  'signInKey(state, secret), verifier, now.UnixMilli(), store, o.RedirectURI); err != nil {' \
+  'signInKey(state, secret), verifier, now.UnixMilli(), store[:0], o.RedirectURI); err != nil {' \
   ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
 control "customers per store: coming back from Whop opens the store's account" internal/panel/whop_signin.go \
   'acct, ok, err := s.signInAccount(ctx, store, who.Subject)' \
@@ -8186,8 +8670,8 @@ control "stores: reading a store leaves another's plans" internal/panel/whop.go 
   "DELETE FROM whop_plans WHERE ? != '' AND plan_id NOT IN" \
   ./internal/panel '^TestReadingOneStoreLeavesAnothersPlans$'
 control "stores: a store's customers have its own memberships" internal/panel/whop_customers.go \
-  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? ORDER BY' \
-  'LEFT JOIN whop_plans p ON p.store_id = m.store_id AND p.plan_id = m.plan_id WHERE m.store_id = ? OR 1 ORDER BY' \
+  'WHERE m.store_id = ? ORDER BY m.updated_at, m.membership_id' \
+  'WHERE m.store_id = ? OR 1 ORDER BY m.updated_at, m.membership_id' \
   ./internal/panel '^TestEachStoreStartsItsOwnCustomers$'
 control "stores: a store's customers are its own" internal/panel/whop_customers.go \
   'problem, updated_at FROM whop_customers WHERE store_id = ?`' \
@@ -8320,6 +8804,22 @@ control "app webhook: with it, an app store is read every ten minutes" internal/
   'return whopPollEvery' \
   'return whopPollUnhooked' \
   ./internal/panel '^TestAnAppStoreIsReadAtOnceWhenTheAppsWebhookComesThenEveryTenMinutes$'
+control "memberships: one 404 deletes nothing of an app store's" internal/panel/whop_customers.go \
+  'if whop.NotFound(err) && st.Via == whopViaApp {' \
+  'if whop.NotFound(err) && false {' \
+  ./internal/panel '^TestOne404OnAnAppStoresMembershipPausesNobody$'
+control "memberships: a 404 has the next pass read every membership" internal/panel/whop_customers.go \
+  'SET polled_at = 0 WHERE store_id = ?' \
+  'SET polled_at = polled_at WHERE store_id = ?' \
+  ./internal/panel '^TestOne404OnAnAppStoresMembershipPausesNobody$'
+control "memberships: one the full read lists again is found" internal/panel/whop_customers.go \
+  'updated_at = excluded.updated_at, not_found_at = 0,' \
+  'updated_at = excluded.updated_at,' \
+  ./internal/panel '^TestOne404OnAnAppStoresMembershipPausesNobody$'
+control "memberships: one the full read doesn't list either is gone" internal/panel/whop_customers.go \
+  'AND stale = 1 AND not_found_at > 0' \
+  'AND stale = 1 AND not_found_at < 0' \
+  ./internal/panel '^TestOne404OnAnAppStoresMembershipPausesNobody$'
 control "app key: Settings shows its ending alone" internal/panel/whop_app.go \
   'KeyEnding: whop.Ending(app.Key)' \
   'KeyEnding: app.Key' \
@@ -8409,6 +8909,18 @@ control "seller page: only Whop's frames show it" internal/panel/server.go \
   'frame-ancestors https://whop.com https://*.whop.com;' \
   'frame-ancestors *;' \
   ./internal/panel '^TestOnlyTheSellersPageMayBeFramedAndOnlyByWhop$'
+control "seller page: the limits are each seller's own" internal/panel/whop_sellerpage.go \
+  'if ok, wait := perMinute.allow(seller); !ok {' \
+  'if ok, wait := perMinute.allow("everyone"); !ok {' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
+control "seller page: a seller past their limit is refused" internal/panel/whop_sellerpage.go \
+  'if ok, wait := perMinute.allow(seller); !ok {' \
+  'if ok, wait := perMinute.allow(seller); !ok && false {' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
+control "seller page: one address is bounded only against floods" internal/panel/public.go \
+  '{prefix: whopSellerPrefix, limits: whopSellerProxyLimits,' \
+  '{prefix: whopSellerPrefix, limits: publicLimits{perMinute: 60, open: 8, read: whopCallsFor + 10*time.Second, write: whopCallsFor + 10*time.Second},' \
+  ./internal/panel '^TestOneSellersCallsDontHoldUpAnothers$'
 webcontrol "seller page: only a business's id reaches its call" web/src/lib/router.ts \
   'third && reWhopBusiness.test(third) && parts.length === 3' \
   'third && parts.length === 3' \
@@ -8473,10 +8985,14 @@ control "share: at least the 1% Whop takes" internal/whop/revshare.go \
   'max((d*10000+p-1)/p, 100)' \
   '(d*10000+p-1)/p' \
   ./internal/whop '^TestSharePercentPaysAtLeastTheFee$'
-control "share: from the least a plan charges" internal/panel/whop_share.go \
-  'if price > 0 && (least == 0 || price < least) {' \
-  'if price > 0 && (least == 0 || price > least) {' \
-  ./internal/panel '^TestAProductsShareCoversEachOfItsPlans$'
+control "share: from the least one payment charges, a renewal's initial price on top of its first" internal/panel/whop_share.go \
+  'if p.TrialDays > 0 && p.InitialPrice > 0 {' \
+  'if p.InitialPrice > 0 {' \
+  ./internal/panel '^(TestAPlansLeastChargeIsWhatOnePaymentCharges|TestPlaykeepersShareIsSetOnEachHostingProductFromItsPrice)$'
+control "share: a one-time plan charges its initial price" internal/panel/whop_share.go \
+  'if p.PlanType != "renewal" {' \
+  'if false {' \
+  ./internal/panel '^TestAPlansLeastChargeIsWhatOnePaymentCharges$'
 control "share: a product's covers its neediest plan" internal/panel/whop_share.go \
   'w.BasisPoints = max(w.BasisPoints, int64(math.Round(pct*100)))' \
   'w.BasisPoints = int64(math.Round(pct*100))' \
@@ -8505,6 +9021,65 @@ control "share: setting it again takes it as a percentage of the full price" int
   'map[string]any{"commission_type": "percentage", "commission_value": percent, "revenue_basis": "pre_fees"}' \
   'map[string]any{"commission_value": percent}' \
   ./internal/panel '^TestAShareTheSellerRemovesOrLowersIsAProblem$'
+control "share: an archived plan someone still has needs its share" internal/panel/whop_share.go \
+  'if p.Visibility != "archived" || held[p.ID] != "" {' \
+  'if p.Visibility != "archived" {' \
+  ./internal/panel '^TestAnArchivedPlanSomeoneStillHasNeedsItsShare$'
+control "share: a plan someone has that Whop no longer lists is read by its id" internal/panel/whop_share.go \
+  'if seen[id] {' \
+  'if true {' \
+  ./internal/panel '^TestAnArchivedPlanSomeoneStillHasNeedsItsShare$'
+control "share: a plan someone has that's gone from Whop is a problem" internal/panel/whop_share.go \
+  'problems = append(problems, gone...)' \
+  '_ = gone' \
+  ./internal/panel '^TestAPlanSomeoneHasThatsGoneFromWhopIsAProblem$'
+control "share: a one-time purchase doesn't make its plan one someone has" internal/panel/whop_share.go \
+  'AND m.status IN `+whopAppHosting' \
+  'AND m.status IN `+whopAccess' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+control "share: each hosting plan is held to Open the store's rules" internal/panel/whop_share.go \
+  'if sp.Problem != "" {' \
+  'if sp.Problem != "" && false {' \
+  ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "share: a plan past the fleet's limits is a problem" internal/panel/whop_share.go \
+  'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" {' \
+  'if out := allowanceProblem(sp.Servers, sp.MemoryMB); out != "" && false {' \
+  ./internal/panel '^(TestAPlanAddedAfterOpeningIsHeldToOpenTheStoresRules|TestAProductsShareCoversEachOfItsPlans)$'
+control "share: a price not on Whop yet is judged as Whop will charge it" internal/panel/whop_share.go \
+  'plans[i].InitialPrice, plans[i].RenewalPrice = 0, price' \
+  '_, _ = i, price' \
+  ./internal/panel '^TestAShareIsSetForAPriceBeforeItsOnWhop$'
+control "share: a hosting plan that shares its product needs a look" internal/panel/whop_customers.go \
+  'problem = whopSharedNote(plans)' \
+  '_ = plans' \
+  ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
+control "share: only plans on sale share a product" internal/panel/whop_share.go \
+  'func(p whop.Plan) bool { return p.Visibility == "archived" })' \
+  'func(p whop.Plan) bool { return false })' \
+  ./internal/panel '^TestAProductSharedWithAnotherPlanNeedsALookButStaysOpen$'
+control "hosting: a one-time purchase gives no servers in an app store" internal/panel/whop_customers.go \
+  'if via == whopViaApp && status == "completed" {' \
+  'if false && via == whopViaApp && status == "completed" {' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+control "hosting: an app store's one-time purchase gives no servers, in a query" internal/panel/whop_customers.go \
+  "OR m.status = 'completed' AND NOT EXISTS (SELECT 1 FROM whop_stores hv WHERE hv.store_id = m.store_id AND hv.via = 'app'))" \
+  "OR m.status = 'completed')" \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+# shellcheck disable=SC2016
+control "hosting: a one-time purchase keeps no servers running past a cancelled plan" internal/panel/whop_customers.go \
+  'AND o.stale = 0 AND o.status IN `+whopHostingIn(st.Via)+` AND o.cancel_at_period_end = 0' \
+  'AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0' \
+  ./internal/panel '^TestACancellationIsRemindedThoughAOneTimePurchaseGoesOn$'
+# shellcheck disable=SC2016
+control "hosting: signing in on a one-time purchase in an app store makes no account" internal/panel/whop_signin.go \
+  'AND m.stale = 0 AND `+whopHostingSQL, store, store, whopUserID)' \
+  'AND m.stale = 0 AND m.status IN `+whopAccess, store, store, whopUserID)' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
+# shellcheck disable=SC2016
+control "hosting: a one-time purchase in an app store holds no deletion" internal/panel/erasure.go \
+  'AND m.whop_user_id = ? AND `+whopHostingSQL+`' \
+  'AND m.whop_user_id = ? AND m.status IN `+whopAccess+`' \
+  ./internal/panel '^TestAOneTimePurchaseGivesNoServersInAnAppStore$'
 control "share paid: only Playkeeper's share line counts" internal/panel/whop_share.go \
   'if l.Origin != whopShareOrigin || l.Settled.Currency != "usd" {' \
   'if l.Settled.Currency != "usd" {' \
@@ -8517,13 +9092,13 @@ control "share paid: at least the plan's share" internal/panel/whop_share.go \
   'max(n, -n) >= want' \
   'max(n, -n) > 0' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
-control "share paid: a refunded payment doesn't count" internal/panel/whop_share.go \
-  'if whopRefundedInFull(pay) {' \
-  'if false {' \
+control "share paid: a refunded payment doesn't count, even the only one" internal/panel/whop_share.go \
+  'if len(kept) == 0 {' \
+  'if len(kept) == 0 { kept = pays }; if false {' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "share paid: the membership's latest payment" internal/panel/whop_share.go \
-  'pay := pays[0]' \
-  'pay := pays[len(pays)-1]' \
+  'pay := kept[0]' \
+  'pay := kept[len(kept)-1]' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "share paid: Whop is asked for the newest payments" internal/whop/payments.go \
   '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(paymentsRead)}}' \
@@ -8586,16 +9161,69 @@ control "grant watch: a grant Whop couldn't check counts neither way" internal/p
   'case problem == "":' \
   'default:' \
   ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
-control "payment check: before a customer starts" internal/panel/whop_customers.go \
-  'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
-  'if err := error(nil); err != nil {' \
+control "payment check: an app store's customer is hosted by their paid plan" internal/panel/whop_customers.go \
+  'wc.Plan, waits, unsure = s.whopPaidPlan(ctx, c, st, wc, grace)' \
+  '_, waits, unsure = s.whopPaidPlan(ctx, c, st, wc, grace)' \
   ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: a membership counts only as far as a payment of it carried the share" internal/panel/whop_share_hooks.go \
+  'if h.paidFor() {' \
+  'if true {' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: a membership not paid for its plan is checked while the store is open" internal/panel/whop_share_hooks.go \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) && false {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payment check: a membership moved to more memory gives what it was paid for" internal/panel/whop_share_hooks.go \
+  'if h.Paid.memoryMB > 0 {' \
+  'if false {' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: the customer's page says what waits" internal/panel/whop_customers.go \
+  's.noteWhopPaymentProblem(st.ID, wc.WhopUserID, waits)' \
+  '_ = waits' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: only the membership's own payment" internal/whop/payments.go \
+  'return p.MembershipID != membershipID || p.Status != "paid"' \
+  'return false' \
+  ./internal/panel '^TestThePaymentCheckTakesOnlyTheMembershipsOwnPayment$'
+control "payment check: only a paid payment" internal/whop/payments.go \
+  'return p.MembershipID != membershipID || p.Status != "paid"' \
+  'return p.MembershipID != membershipID' \
+  ./internal/whop '^TestPaidPaymentsAreOnlyTheMembershipsOwn$'
+# shellcheck disable=SC2016
+control "payment check: an unpaid membership doesn't hold back a cancellation's reminder" internal/panel/whop_customers.go \
+  'AND `+whopPaidIn(st.Via, "o")+`)`' \
+  'AND 1)`' \
+  ./internal/panel '^TestACancellationIsRemindedThoughAnUnpaidMembershipGoesOn$'
+control "payment check: the migration keeps one membership of the plan a customer was given, or their only one" internal/panel/auth.go \
+  'AND (a.of_given = 1 AND h.plan_id = a.ids OR a.of_given = 0 AND a.n = 1);' \
+  ';' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
+control "payment check: a started customer isn't given less while a membership of theirs has no answer" internal/panel/whop_customers.go \
+  'keep = unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)' \
+  'keep = false && unsure && wc.Applied != "" && !wc.Paused && whopGivesLess(wc.Plan, wc.Applied)' \
+  ./internal/panel '^TestAStartedCustomerIsntPausedWhileTheirPaymentCantBeChecked$'
+control "payment check: Whop's answer that a membership wasn't paid counts as an answer" internal/panel/whop_share_hooks.go \
+  'case errors.As(err, &np):' \
+  'case false && errors.As(err, &np):' \
+  ./internal/panel '^TestAnAppStoresCustomerIsHostedOnlyByPaidMemberships$'
+control "payment check: starting again tries a waiting payment check at once" internal/panel/whop_customers.go \
+  'UPDATE whop_membership_checks SET next_check_at = 0 WHERE next_check_at > 0' \
+  'UPDATE whop_membership_checks SET next_check_at = 0 WHERE 0' \
+  ./internal/panel '^TestAPaymentCheckWaitingIsTriedAtOnceOnStartingAgain$'
+control "payment check: the migration compares within an allowance's bounds" internal/panel/auth.go \
+  'min(sum(servers), 10) AS servers, min(sum(mb), 65536) AS mb' \
+  'sum(servers) AS servers, sum(mb) AS mb' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
+control "payment check: the migration keeps a moved membership as paid for what was given" internal/panel/auth.go \
+  'COALESCE((SELECT q.title FROM whop_plans q WHERE q.store_id = a.store_id AND q.plan_id = a.ids), a.ids), a.servers, a.mb, a.disk' \
+  'h.title, h.servers, h.mb, h.disk' \
+  ./internal/panel '^TestTheMigrationKeepsWhatEachStartedCustomerWasGivenAsPaid$'
 control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
   's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
   '_ = whopUserID' \
   ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
 control "payments: renewals are read on the share check's schedule" internal/panel/whop_share_hooks.go \
-  's.whopReadPayments(ctx, c, *st)' \
+  's.whopReadPayments(ctx, c, *st, problem == "")' \
   '' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payments: a refund keeps its payment again" internal/panel/whop_share_hooks.go \
@@ -8603,9 +9231,133 @@ control "payments: a refund keeps its payment again" internal/panel/whop_share_h
   '_ = pay' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
 control "payments: only the hosting products' payments are kept" internal/panel/whop_share_hooks.go \
-  'if _, ok := hosting[pay.ProductID]; !ok {' \
-  'if _, ok := hosting[pay.ProductID]; !ok && false {' \
+  'if _, ok := hosting[pay.ProductID]; !ok || s.whopPaymentKept(ctx, st.ID, pay) {' \
+  'if _, ok := hosting[pay.ProductID]; !ok && false || s.whopPaymentKept(ctx, st.ID, pay) {' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a payment kept isn't read again" internal/panel/whop_share_hooks.go \
+  'if _, ok := hosting[pay.ProductID]; !ok || s.whopPaymentKept(ctx, st.ID, pay) {' \
+  'if _, ok := hosting[pay.ProductID]; !ok {' \
+  ./internal/panel '^TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded$'
+control "payments: a payment refunded since it was kept is read again" internal/panel/whop_share_hooks.go \
+  'return err == nil && kept == min(refunded, amount)' \
+  'return err == nil && (kept == min(refunded, amount) || true)' \
+  ./internal/panel '^TestAPaymentsFeeLinesAreReadOnceUnlessMoreIsRefunded$'
+control "share fresh: a pass that didn't read the store checks the share when a payment waits on it" internal/panel/whop_customers.go \
+  '(plansRead || s.whopShareDue(ctx, st))' \
+  '(plansRead || false)' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: a payment counts only after the share was found right" internal/panel/whop_share_hooks.go \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" && s.whopShareRecent(ctx, st.ID) {' \
+  'if h.checkDue(now.UnixMilli()) && st.ClosedWhy == "" {' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: only a share found right recently counts" internal/panel/whop_share_hooks.go \
+  'return err == nil && at > 0 && s.now().Sub(time.UnixMilli(at)) < whopShareFresh' \
+  'return err == nil && at > 0' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: the share check notes when it found the share right" internal/panel/whop_share_hooks.go \
+  's.noteWhopShareRight(ctx, st.ID, problem == "")' \
+  's.noteWhopShareRight(ctx, st.ID, false)' \
+  ./internal/panel '^TestAPaymentCountsOnlyAfterTheShareWasFoundRight$'
+control "share fresh: the share is checked out of turn only for a payment check that's due" internal/panel/whop_share_hooks.go \
+  'if h.lapsed(since).checkDue(now.UnixMilli()) {' \
+  'if h.lapsed(since).checkDue(now.UnixMilli()) || true {' \
+  ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
+control "share unchecked: a share check that keeps failing closes the store" internal/panel/whop_share_hooks.go \
+  's.noteWhopShareUnchecked(ctx, st, err)' \
+  '_ = err' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "share unchecked: only after an hour" internal/panel/whop_share_hooks.go \
+  'if s.now().Sub(since) < whopShareUncheckedFor {' \
+  'if false && s.now().Sub(since) < whopShareUncheckedFor {' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "share unchecked: an answer from Whop starts the hour afresh" internal/panel/whop_share_hooks.go \
+  'if err := s.whopWatchClear(ctx, st.ID, "share_unchecked_since"); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAShareCheckThatKeepsFailingClosesTheStoreButNeverHasItLeave$'
+control "later payments: what a membership was paid for lapses with its payment" internal/panel/whop_customers.go \
+  'if h.Paid.memoryMB > 0 && h.PaidAt.Before(since) {' \
+  'if false && h.Paid.memoryMB > 0 && h.PaidAt.Before(since) {' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: the pass counts a payment only so long" internal/panel/whop_share_hooks.go \
+  'switch h = h.lapsed(since); {' \
+  'switch {' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: the payment check takes no payment older than it pays for" internal/panel/whop_share.go \
+  'if at := pay.PaidTime(); !at.IsZero() && at.Before(since) {' \
+  'if at := pay.PaidTime(); false && !at.IsZero() && at.Before(since) {' \
+  ./internal/panel '^(TestAMembershipNoRenewalPaidStopsPastItsGrace|TestARestartNeedsAPaymentFromItsBillingPeriod)$'
+control "later payments: a customer running keeps a membership through the grace" internal/panel/whop_share_hooks.go \
+  'return whopBillingPeriod + grace' \
+  'return whopBillingPeriod + grace*0' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: a restart needs a payment from its billing period" internal/panel/whop_share_hooks.go \
+  'if wc.Applied != "" && !wc.Paused {' \
+  'if wc.Applied != "" {' \
+  ./internal/panel '^TestARestartNeedsAPaymentFromItsBillingPeriod$'
+control "later payments: the pause says why" internal/panel/whop_customers.go \
+  'cmpOr(wc.Why, "their Whop membership is "+cmpOr(wc.Latest, "gone"))' \
+  '"their Whop membership is "+cmpOr(wc.Latest, "gone")' \
+  ./internal/panel '^TestAMembershipNoRenewalPaidStopsPastItsGrace$'
+control "later payments: renewals are read with the store's payments" internal/panel/whop_share_hooks.go \
+  's.noteWhopRenewal(ctx, st, pay, lines, shareRight)' \
+  '_ = lines' \
+  ./internal/panel '^TestARenewalThatCarriedTheShareKeepsItsMembership$'
+control "later payments: only while the share is right" internal/panel/whop_share_hooks.go \
+  's.whopReadPayments(ctx, c, *st, problem == "")' \
+  's.whopReadPayments(ctx, c, *st, true)' \
+  ./internal/panel '^TestARenewalReadWhileTheShareIsWrongDoesntCount$'
+control "later payments: a renewal without the share doesn't count" internal/panel/whop_share_hooks.go \
+  'if isNoRows(err) || err == nil && !whopSharePaidIn(lines, whopShareFor(part.memoryMB)) {' \
+  'if isNoRows(err) {' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund of a payment of a membership the upgrade counted as paid has it checked again" internal/panel/whop_share_hooks.go \
+  "WHERE store_id = ? AND membership_id = ? AND paid_payment IN (?, '')\`" \
+  "WHERE store_id = ? AND membership_id = ? AND paid_payment IN (?)\`" \
+  ./internal/panel '^TestARefundAfterTheUpgradeIsntLost$'
+control "later payments: a refund of the payment a membership was paid with has it checked again" internal/panel/whop_share_hooks.go \
+  'UPDATE whop_membership_checks SET paid_at = 0, next_check_at = 0' \
+  'UPDATE whop_membership_checks SET paid_at = paid_at, next_check_at = next_check_at' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund counts whatever the share check found" internal/panel/whop_share_hooks.go \
+  's.noteWhopRenewal(ctx, st, pay, lines, shareRight)' \
+  'if shareRight { s.noteWhopRenewal(ctx, st, pay, lines, shareRight) }' \
+  ./internal/panel '^TestARefundReadWhileTheShareIsWrongStillCounts$'
+control "later payments: the payment check skips payments refunded in full" internal/panel/whop_share.go \
+  'kept := slices.DeleteFunc(slices.Clone(pays), whopRefundedInFull)' \
+  'kept := pays' \
+  ./internal/panel '^TestARenewalWithoutTheShareOrRefundedDoesntCount$'
+control "later payments: a refund not checked since keeps a customer running as they are" internal/panel/whop_share_hooks.go \
+  '} else if !h.Answered || refunded {' \
+  '} else if !h.Answered || refunded && false {' \
+  ./internal/panel '^TestARefundReadWhileTheShareIsWrongStillCounts$'
+control "later payments: a lapsed membership the check refused gives nothing" internal/panel/whop_share_hooks.go \
+  'answered = MAX(answered, excluded.answered), paid_mb = CASE WHEN ? THEN 0 ELSE paid_mb END`' \
+  'answered = MAX(answered, excluded.answered), paid_mb = CASE WHEN ? AND 0 THEN 0 ELSE paid_mb END`' \
+  ./internal/panel '^TestAMembershipWhoseOnlyPaymentIsRefundedStops$'
+control "later payments: the owner sets the grace" internal/panel/whop_share_hooks.go \
+  'days = app.RenewalGraceDays' \
+  '_ = app' \
+  ./internal/panel '^TestTheRenewalGraceIsTheOwnersToSet$'
+control "later payments: the grace is 0 to 30 days" internal/panel/whop_app.go \
+  'if days < 0 || days > whopRenewalGraceMax {' \
+  'if days < 0 {' \
+  ./internal/panel '^TestTheRenewalGraceIsTheOwnersToSet$'
+control "later payments: the upgrade counts memberships found paid as paid that day" internal/panel/auth.go \
+  "UPDATE whop_membership_checks SET paid_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000 WHERE paid_mb > 0;" \
+  'SELECT 1;' \
+  ./internal/panel '^TestTheUpgradeCountsMembershipsFoundPaidAsPaidThatDay$'
+control "leaving: a store that comes back sheds the share check's closure" internal/panel/leaving.go \
+  'DELETE FROM whop_store_closures WHERE store_id = ? AND closed_by = ?' \
+  'DELETE FROM whop_store_closures WHERE 0 AND store_id = ? AND closed_by = ?' \
+  ./internal/panel '^TestAStoreThatComesBackStartsItsShareWatchAfresh$'
+control "leaving: a store that comes back counts a bad share from its next finding" internal/panel/leaving.go \
+  'UPDATE whop_share_watch SET share_bad_since = 0, grant_gone_since = 0' \
+  'UPDATE whop_share_watch SET grant_gone_since = 0' \
+  ./internal/panel '^TestAStoreThatComesBackStartsItsShareWatchAfresh$'
+control "app store cadence: an app store's products have no address to compare" internal/panel/whop_customers.go \
+  '	if st.Via == whopViaKey && (st.Problem == "" || since >= time.Minute) {' \
+  '	if st.Problem == "" || since >= time.Minute {' \
+  ./internal/panel '^TestAnAppStoreIsReadEveryTenMinutesNotEveryPass$'
 control "payments: Whop is asked for a store's payments newest paid first" internal/whop/payments.go \
   '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
   '"first": {strconv.Itoa(100)}}' \
@@ -8618,11 +9370,6 @@ control "payments: a refund still unsettled is read again once it settles" inter
   'r.Unsettled() && !at.IsZero()' \
   'false && r.Unsettled() && !at.IsZero()' \
   ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
-control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
-  'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
-  'if false {' \
-  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
-
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.
 control "pausing: a paused customer only looks, downloads and looks after their account" internal/panel/workspace.go \
@@ -8844,6 +9591,222 @@ webcontrol "suspending: a store's suspension says why" web/src/pages/whop-stores
   'await post(path, { reason })' \
   src/pages/pages.test.tsx 'lets the owner suspend one with a reason or lift it'
 
+# Deleting a customer (internal/panel/erasure.go, the privacy policy's
+# deletion): only the owner deletes one, on request with the account's name
+# typed, or some days after their servers were deleted, never sooner than
+# their final backups are kept; a customer with a plan isn't deleted, and one
+# who buys again keeps everything; their servers, backups, sign-ins and
+# records go at their store alone, their payments stay without who paid, and
+# the store's reads don't bring them back.
+control "deleting customers: only the owner deletes a customer" internal/panel/workspace.go \
+  'actManageTeam:       invites.RoleAdmin,' \
+  'actManageTeam:       invites.RoleAdmin, actDeleteCustomers: invites.RoleAdmin,' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: the account's name is typed to confirm" internal/panel/erasure.go \
+  'case req.Confirm != c.username:' \
+  'case false:' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: a customer with a plan isn't deleted" internal/panel/erasure.go \
+  'case plan:' \
+  'case plan && false:' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: nothing more of a customer who buys again is deleted" internal/panel/erasure.go \
+  'if plan {' \
+  'if plan && false {' \
+  ./internal/panel '^(TestACustomerWhoBuysAgainWhileBeingDeletedKeepsTheRest|TestOnlyTheOwnerDeletesACustomerWhosePlanEnded)$'
+control "deleting customers: each server's deletion starts only after another look" internal/panel/erasure.go \
+  'err := s.whileNoPlan(ctx, userID, func() error {' \
+  'err := func(start func() error) error { return start() }(func() error {' \
+  ./internal/panel '^TestACustomerWhoBuysAgainWhileBeingDeletedKeepsTheRest$'
+control "deleting customers: each kept backup's deletion starts only after another look" internal/panel/erasure.go \
+  'if err := s.whileNoPlan(ctx, userID, del); err != nil {' \
+  'if err := del(); err != nil {' \
+  ./internal/panel '^TestACustomerWhoBuysAgainWhileTheirBackupsAreListedKeepsThem$'
+control "deleting customers: buying again cancels a deletion that waits for a move" internal/panel/erasure.go \
+  'if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan {' \
+  'if plan, err := s.hasPlan(ctx, s.db, c); err != nil || plan && false {' \
+  ./internal/panel '^TestBuyingAgainCancelsADeletionWaitingForAMove$'
+control "deleting customers: a renewal Whop's API hasn't confirmed counts as a plan" internal/panel/erasure.go \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND ' \
+  'FROM whop_memberships m WHERE m.store_id = ? AND m.whop_user_id = ? AND m.stale = 0 AND ' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: a store that left holds no plan" internal/panel/erasure.go \
+  'WHERE st.store_id = m.store_id AND st.left_at != 0)' \
+  'WHERE st.store_id = m.store_id AND st.left_at != 0 AND 0)' \
+  ./internal/panel '^(TestACustomerOfAStoreThatLeftIsDeletedOnRequest|TestACustomerOfAStoreThatLeftIsDeletedDaysAfterTheirServers)$'
+control "deleting customers: buying again cancels the request" internal/panel/erasure.go \
+  "SET erase_requested_at = 0, erase_actor = ''" \
+  'SET erase_actor = erase_actor' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: a deletion refused for a plan is in the audit log" internal/panel/erasure.go \
+  's.audit(actor, "customer.erase", c.username, "refused",' \
+  '_ = fmt.Sprint(actor, "customer.erase", c.username, "refused",' \
+  ./internal/panel '^TestOnlyTheOwnerDeletesACustomerWhosePlanEnded$'
+control "deleting customers: the records transaction keeps one who bought again" internal/panel/erasure.go \
+  'if plan, err := s.hasPlan(ctx, tx, c); err != nil || plan {' \
+  'if _, err := s.hasPlan(ctx, tx, c); err != nil {' \
+  ./internal/panel '^TestACustomerWhoBuysAgainWhileBeingDeletedKeepsEverything$'
+control "deleting customers: the records transaction looks at the customer as they are now" internal/panel/erasure.go \
+  'SELECT state FROM customers WHERE user_id = ?' \
+  "SELECT 'paused' FROM customers WHERE user_id = ?" \
+  ./internal/panel '^TestACustomerWhoBuysAgainWhileBeingDeletedKeepsEverything$'
+control "deleting customers: a customer is signed out when it's asked for" internal/panel/erasure.go \
+  's.deleteUserSessions(uid)' \
+  '_ = uid' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: a customer's tokens stop when it's asked for" internal/panel/erasure.go \
+  's.revokeAccountTokens(uid, actor, "their account is being deleted")' \
+  '_ = actor' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: asking for it is in the audit log" internal/panel/erasure.go \
+  's.audit(actor, "customer.erase", c.username, "requested",' \
+  '_ = fmt.Sprint(actor, "customer.erase", c.username, "requested",' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: a deletion is in the audit log" internal/panel/erasure.go \
+  's.audit(actor, "customer.erase", c.username, "succeeded",' \
+  '_ = fmt.Sprint(actor, "customer.erase", c.username, "succeeded",' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their servers are deleted" internal/panel/erasure.go \
+  'for _, id := range ids {' \
+  'for _, id := range ids[:0] {' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: a deleted server takes its records along at once" internal/panel/erasure.go \
+  'if err := s.forgetErasedServer(ctx, id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: a deletion that stops once servers went is in the audit log" internal/panel/erasure.go \
+  's.audit(actor, "customer.erase", c.username, "failed",' \
+  '_ = fmt.Sprint(actor, "customer.erase", c.username, "failed",' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: no final backup of their servers is kept" internal/panel/erasure.go \
+  'req := api.DeleteServerRequest{Confirm: st.Name, Actor: placementActor, ForgetKey: true}' \
+  'req := api.DeleteServerRequest{Confirm: st.Name, Actor: placementActor, ForgetKey: true, KeepFinalBackupDays: finalBackupDays, KeptFor: keptFor(0)}' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: the backups machines keep for them are deleted" internal/panel/erasure.go \
+  'http.MethodDelete, "/v1/kept-backups/"' \
+  'http.MethodGet, "/v1/kept-backups/"' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: the backups kept for another account stay" internal/panel/erasure.go \
+  'if k.KeptFor != label {' \
+  'if false {' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their account goes" internal/panel/erasure.go \
+  'DELETE FROM users WHERE id = ?' \
+  'DELETE FROM users WHERE id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their invites go" internal/panel/erasure.go \
+  'DELETE FROM invites WHERE created_by = ?' \
+  'DELETE FROM invites WHERE created_by = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: the copies their moves left go from the records" internal/panel/erasure.go \
+  'DELETE FROM left_copies WHERE user_id = ?' \
+  'DELETE FROM left_copies WHERE user_id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their servers' join requests go" internal/panel/erasure.go \
+  'DELETE FROM join_requests WHERE server_id = ?' \
+  'DELETE FROM join_requests WHERE server_id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their servers' players' origins go" internal/panel/erasure.go \
+  'DELETE FROM player_origins WHERE server_id = ?' \
+  'DELETE FROM player_origins WHERE server_id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their servers' shared links go" internal/panel/erasure.go \
+  'DELETE FROM public_links WHERE server_id = ?' \
+  'DELETE FROM public_links WHERE server_id = ? AND 0' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: only their memberships at their store go" internal/panel/erasure.go \
+  'DELETE FROM whop_memberships WHERE store_id = ? AND whop_user_id = ?' \
+  'DELETE FROM whop_memberships WHERE (store_id = ? OR 1) AND whop_user_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: only their Whop row at their store goes" internal/panel/erasure.go \
+  'DELETE FROM whop_customers WHERE store_id = ? AND whop_user_id = ?' \
+  'DELETE FROM whop_customers WHERE (store_id = ? OR 1) AND whop_user_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: only their messages at their store go" internal/panel/erasure.go \
+  'DELETE FROM whop_messages WHERE store_id = ? AND whop_user_id = ?' \
+  'DELETE FROM whop_messages WHERE (store_id = ? OR 1) AND whop_user_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: only their payments at their store lose who paid" internal/panel/erasure.go \
+  "UPDATE whop_payments SET whop_user_id = '' WHERE store_id = ? AND whop_user_id = ?" \
+  "UPDATE whop_payments SET whop_user_id = '' WHERE (store_id = ? OR 1) AND whop_user_id = ?" \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their payments stay for the store's accounts" internal/panel/erasure.go \
+  "UPDATE whop_payments SET whop_user_id = '' WHERE store_id = ? AND whop_user_id = ?" \
+  'DELETE FROM whop_payments WHERE store_id = ? AND whop_user_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: their payments lose who paid" internal/panel/erasure.go \
+  "SET whop_user_id = '' WHERE store_id = ?" \
+  'SET whop_user_id = whop_user_id WHERE store_id = ?' \
+  ./internal/panel '^TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords$'
+control "deleting customers: the store remembers who it deleted" internal/panel/erasure.go \
+  'c.store, erasedSubject(c.store, c.subject), s.now().UnixMilli()' \
+  'c.store, erasedSubject(c.store, c.subject+"x"), s.now().UnixMilli()' \
+  ./internal/panel '^TestDeletingACustomerLeavesTheirOtherStoreAlone$'
+control "deleting customers: the store's reads leave out their ended memberships" internal/panel/whop_customers.go \
+  's.now().UnixMilli(), m.HasAccess()}' \
+  's.now().UnixMilli(), true}' \
+  ./internal/panel '^TestADeletedCustomersEndedMembershipIsntKeptAgain$'
+control "deleting customers: a membership that gives access is kept" internal/panel/whop_customers.go \
+  's.now().UnixMilli(), m.HasAccess()}' \
+  's.now().UnixMilli(), false}' \
+  ./internal/panel '^TestADeletedCustomersEndedMembershipIsntKeptAgain$'
+control "deleting customers: the store's reads leave out a deleted customer's ended memberships" internal/panel/erasure.go \
+  'erased_customers WHERE store_id = ? AND subject_hash = ?)' \
+  'erased_customers WHERE store_id = ? AND subject_hash = ? AND 0)' \
+  ./internal/panel '^TestDeletingACustomerLeavesTheirOtherStoreAlone$'
+control "deleting customers: the deletion waits while their servers move" internal/panel/erasure.go \
+  'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  'if s.leftCopiesPending(ctx, userID) {' \
+  ./internal/panel '^TestACustomersDeletionWaitsForTheirMoves$'
+control "deleting customers: the deletion waits for the copies their moves left" internal/panel/erasure.go \
+  'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  'if s.moveUnderWay(ctx, userID) {' \
+  ./internal/panel '^TestACustomersDeletionWaitsForTheirMoves$'
+control "deleting customers: a move that stopped on an error doesn't hold a deletion" internal/panel/erasure.go \
+  'if s.moveUnderWay(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  'if s.customerMoving(ctx, userID) || s.leftCopiesPending(ctx, userID) {' \
+  ./internal/panel '^TestAMoveThatStoppedOnAnErrorDoesntHoldADeletion$'
+control "deleting customers: a copy left on a removed machine doesn't hold a deletion" internal/panel/erasure.go \
+  'AND left_at = 0 AND machine_id IN (SELECT id FROM machines WHERE revoked_at = 0)' \
+  'AND left_at = 0 AND (machine_id IN (SELECT id FROM machines WHERE revoked_at = 0) OR 1)' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineDoesntHoldADeletion$'
+control "deleting customers: a membership of theirs stored since takes its end" internal/panel/whop_customers.go \
+  'OR EXISTS(SELECT 1 FROM whop_memberships WHERE membership_id = ?)' \
+  'OR 0 AND EXISTS(SELECT 1 FROM whop_memberships WHERE membership_id = ?)' \
+  ./internal/panel '^TestADeletedCustomerWhoBuysAgainAfterAFailedPaymentStarts$'
+control "deleting customers: a customer is deleted the owner's days after their servers" internal/panel/erasure.go \
+  'cutoff := s.now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()' \
+  'cutoff := s.now().Add(-time.Duration(days) * 0).UnixMilli()' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+control "deleting customers: the owner's days start at their final backups' days" internal/panel/erasure.go \
+  'req.Days < minCustomerRetention' \
+  'req.Days < 1' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+control "deleting customers: the owner's days have a most" internal/panel/erasure.go \
+  'req.Days > maxCustomerRetention' \
+  'req.Days > 1<<20' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+control "deleting customers: days stored under the floor count as the default" internal/panel/erasure.go \
+  'n < minCustomerRetention' \
+  'n < 1' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+control "deleting customers: the owner's days are in the audit log" internal/panel/erasure.go \
+  's.audit(sess.User.Username, "customer.retention",' \
+  '_ = fmt.Sprint(sess.User.Username, "customer.retention",' \
+  ./internal/panel '^TestACustomerIsDeletedSomeDaysAfterTheirServers$'
+webcontrol "deleting customers: the Team page asks for the account's name" web/src/pages/team.tsx \
+  "typed.trim() !== name ? t('team.deleteTypeFirst', { name }) : undefined" \
+  "false ? t('team.deleteTypeFirst', { name }) : undefined" \
+  src/pages/pages.test.tsx 'delete a customer whose plan ended once their name is typed'
+webcontrol "deleting customers: the Team page says a customer with a plan waits" web/src/pages/team.tsx \
+  "const hasPlan = m?.customerState === 'active'" \
+  'const hasPlan = false' \
+  src/pages/pages.test.tsx 'delete a customer whose plan ended once their name is typed'
+webcontrol "deleting customers: a customer being deleted isn't offered it again" web/src/pages/team.tsx \
+  'const deletable = !!m.canDelete && !m.deleting' \
+  'const deletable = !!m.canDelete' \
+  src/pages/pages.test.tsx 'delete a customer whose plan ended once their name is typed'
+
 # A store leaving (internal/panel/leaving.go, task 3.2 of the hosted
 # blueprint): only the Whop side's call makes a store leave; a store that
 # left ends its own customers' plans from what the dashboard kept, whether
@@ -9010,15 +9973,14 @@ control "seller view: the dashboard's own store has none" internal/panel/sellerv
   'case !ok || st.Via != whopViaApp:' \
   'case !ok:' \
   ./internal/panel '^TestASellersViewSaysHowTheStoreStands$'
-# shellcheck disable=SC2016
-webcontrol "seller view: the page reads its store through a relative address, which carries Whop's token" web/src/pages/whop-seller-view.tsx \
-  '`/api/public/whop/seller/${store}`' \
-  '`https://playkeeper.invalid/api/public/whop/seller/${store}`' \
-  src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
-webcontrol "seller view: earnings are counted in the currency's smallest unit" web/src/pages/whop-seller-view.tsx \
+webcontrol "seller view: the page reads its store through a relative address, which carries Whop's token" web/src/pages/whop-seller.tsx \
+  'get<SellerView>(' \
+  "get<SellerView>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller view: earnings are counted in the currency's smallest unit" web/src/pages/whop-seller-step.tsx \
   'return f.format(amount / 10 ** (f.resolvedOptions().maximumFractionDigits ?? 2))' \
   'return f.format(amount)' \
-  src/pages/whop-seller-view.test.tsx 'reads the store through a relative address'
+  src/pages/whop-seller-view.test.tsx 'shows what it earned, newest first'
 control "seller view: the view is read from the seller's page itself" internal/panel/sellerview.go \
   'if !fromSellerPage(r) {' \
   'if false {' \
@@ -9043,31 +10005,25 @@ control "seller view: nothing under the view's own address answers" internal/pan
   '!reWhopID.MatchString(store) || !known || sub && action == "" {' \
   '!reWhopID.MatchString(store) || !known || sub && len(action) < 0 {' \
   ./internal/panel '^TestOnlyTheBusinesssTeamReadsItsStoresView$'
-webcontrol "seller view: the seller's page shows the view once the store is open" web/src/pages/whop-seller.tsx \
-  '<SellerStoreView key={viewed} store={store} />' \
-  '' \
-  src/pages/whop-seller.test.tsx 'read through relative addresses'
-
-# Seller terms (the hosted blueprint's 3.3): the seller's page links
-# Playkeeper Cloud's seller terms where it asks the business to approve the
-# app, and once its store is connected.
-webcontrol "seller terms: the seller's page links the terms where it asks for approval" web/src/pages/whop-seller.tsx \
-  "{rich('whopSeller.termsApprove', { link: termsLink })}" \
-  '' \
-  src/pages/whop-seller.test.tsx 'sends a business that'
-webcontrol "seller terms: the seller's page links the terms once the store is connected" web/src/pages/whop-seller.tsx \
-  "{rich('whopSeller.terms', { link: termsLink })}" \
-  '' \
-  src/pages/whop-seller.test.tsx 'opens the store through a relative address'
+webcontrol "seller view: the seller's page shows an open store live straight away" web/src/pages/whop-seller.tsx \
+  "setScreen(next ?? (p.canUpdate ? 'live' : 'prices'))" \
+  "setScreen(next ?? 'prices')" \
+  src/pages/whop-seller.test.tsx 'shows an open store live straight away'
 
 # A seller's prices and Open the store (internal/panel/sellerprices.go, the
 # hosted blueprint's 2.3): only the business's team, from its page, prices
 # and opens its store, and not while it's suspended or gone. A price is at
 # least $12 a month for each 4 GB, set on a plan renewing monthly in US
 # dollars, and an open store's share follows it. Open the store needs every
-# hosting plan to sell as it is, sets Playkeeper's share first, putting
-# right one that pays too little, marks the hosting products for the store
-# site, and only then opens the store, for its seller's reason alone.
+# hosting plan to sell as it is, within what the fleet runs, before any
+# other problem, on a product that sells it alone, and says so in a line
+# for each plan, then once how to meet the rules. It sets Playkeeper's
+# share first, putting right one that pays too little, marks the hosting
+# products for the store site, hides the website's free product, and only
+# then opens the store, for its seller's reason alone. Fix my plans puts
+# right a closed store's renewals, currencies and free trials, and the
+# prices say plainly what it can't. The seller's page walks through it all
+# one step at a time, through relative addresses.
 control "seller prices: a call comes from the seller's page itself" internal/panel/sellerprices.go \
   'if !fromSellerPage(r) {' \
   'if false {' \
@@ -9077,13 +10033,25 @@ control "seller prices: only the business's team calls, with Whop's token" inter
   'user, err := "user_otherowner", error(nil)' \
   ./internal/panel '^TestOnlyTheBusinesssTeamPricesAndOpensItsStore$'
 control "seller prices: a suspended store doesn't change" internal/panel/sellerprices.go \
-  'case change && !st.SuspendedAt.IsZero():' \
+  'case !st.SuspendedAt.IsZero():' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: a store that left doesn't change" internal/panel/sellerprices.go \
-  'case change && !st.LeftAt.IsZero():' \
+  'case !st.LeftAt.IsZero():' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a price change looks at the store again once it holds the lock" internal/panel/sellerprices.go \
+  'if st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); !ok {' \
+  'if false {' \
+  ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
+control "seller prices: Open the store looks at the store again once it holds the lock" internal/panel/sellerprices.go \
+  'if st, ok = s.sellerStoreToChange(r.Context(), w, store); !ok {' \
+  'if false {' \
+  ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
+control "seller prices: Fix my plans looks at the store again once it holds the lock" internal/panel/sellerprices.go \
+  'switch st, ok = s.sellerStoreToChange(r.Context(), w, st.ID); {' \
+  'switch {' \
+  ./internal/panel '^TestASellersChangeThatWaitsSeesASuspensionOrLeaving$'
 control "seller prices: the floor is twelve dollars a month for each 4 GB" internal/panel/sellerprices.go \
   'const whopFloorPer4GB = 1200' \
   'const whopFloorPer4GB = 1100' \
@@ -9104,10 +10072,34 @@ control "seller prices: the price the seller set reaches Whop" internal/panel/se
   'c.SetPlanPrice(ctx, sp.ID, float64(price)/100)' \
   'c.SetPlanPrice(ctx, sp.ID, float64(sp.Price)/100)' \
   ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: a buyer pays the price once at checkout" internal/whop/store.go \
+  'map[string]any{"initial_price": 0, "renewal_price": price}' \
+  'map[string]any{"initial_price": price, "renewal_price": price}' \
+  ./internal/panel '^TestASellerPricesTheirPlansAtOrAboveTheFloor$'
+control "seller prices: Whop is asked for no initial price" internal/whop/store.go \
+  'map[string]any{"initial_price": 0, "renewal_price": price}' \
+  'map[string]any{"initial_price": price, "renewal_price": price}' \
+  ./internal/whop '^TestSetPlanPriceChargesItOnceAtCheckoutAndOnEachRenewal$'
 control "seller prices: an open store's share follows a new price at once" internal/panel/sellerprices.go \
-  'case len(set) > 0:' \
-  'case len(set) < 0:' \
+  'if len(set) > 0 && !shareFirst {' \
+  'if len(set) < 0 && !shareFirst {' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: a lower price has its share set first" internal/panel/sellerprices.go \
+  'shareFirst := len(set) > 0 && price < sp.Price' \
+  'shareFirst := len(set) > 0 && price < 0' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a higher price is set before its share" internal/panel/sellerprices.go \
+  'shareFirst := len(set) > 0 && price < sp.Price' \
+  'shareFirst := len(set) > 0 && price != sp.Price' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a lower price whose share Whop won't set is refused" internal/panel/sellerprices.go \
+  'problem, err := s.syncWhopSharesAt(ctx, c, st, true, map[string]float64{sp.ID: float64(price) / 100})' \
+  'problem, err := s.syncWhopSharesAt(ctx, c, st, true, map[string]float64{sp.ID: float64(price) / 100}); err = nil' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
+control "seller prices: a lower price is refused on a problem with the shares" internal/panel/sellerprices.go \
+  'case problem != "":' \
+  'case false:' \
+  ./internal/panel '^TestLoweringAPriceSetsTheShareFirst$'
 control "seller prices: a plan priced in another currency doesn't sell" internal/panel/sellerprices.go \
   'case !usd:' \
   'case false:' \
@@ -9124,12 +10116,40 @@ control "seller prices: a plan under the floor doesn't sell" internal/panel/sell
   'case least < sp.Floor:' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: a plan the fleet doesn't run doesn't sell" internal/panel/sellerprices.go \
+  'case (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:' \
+  'case true || (invites.Allowance{Servers: servers, MemoryMB: memoryMB}).Check() == nil:' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a plan's bounds come before its floor" internal/panel/sellerprices.go \
+  'if problem, issue := allowanceIssue(sp.Title, sp.Servers, sp.MemoryMB); problem != "" {' \
+  'if problem, issue := allowanceIssue(sp.Title, sp.Servers, sp.MemoryMB); problem != "" && sp.Problem == "" {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a plan with too many servers says so" internal/panel/sellerprices.go \
+  'case servers < 1 || servers > invites.MaxAllowanceServers:' \
+  'case servers < 1:' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a hosting product sells one plan" internal/panel/sellerprices.go \
+  'if len(same) < 2 {' \
+  'if len(same) < 2 || true {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a product's plan that isn't for hosting counts too" internal/panel/sellerprices.go \
+  'if p.Product.ID != "" {' \
+  'if _, _, hosting := whop.PlanAllowance(p.Metadata); hosting && p.Product.ID != "" {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: an archived plan doesn't share its product" internal/panel/sellerprices.go \
+  'return p.Visibility == "archived"' \
+  'return false' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a shared product comes on top of a plan's other problem" internal/panel/sellerprices.go \
+  'sp.Problem = strings.TrimSpace(sp.Problem + " " + sh.problem())' \
+  'sp.Problem = sh.problem()' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
 control "seller prices: Open the store isn't offered to a suspended store" internal/panel/sellerprices.go \
   'CanOpen: st.ClosedWhy != "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
   'CanOpen: st.ClosedWhy != ""' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: Open the store needs every hosting plan to sell as it is" internal/panel/sellerprices.go \
-  'case len(problems) > 0:' \
+  'case len(lines) > 0:' \
   'case false:' \
   ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
 control "seller prices: Open the store sets Playkeeper's share" internal/panel/sellerprices.go \
@@ -9184,18 +10204,270 @@ control "seller prices: Open the store opens its seller's reason alone" internal
   's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
   's.openWhopStore(ctx, st.ID, "share")' \
   ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: an open store offers Update the store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = false && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store is offered only once the store is open" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: Update the store isn't offered to a suspended store" internal/panel/sellerprices.go \
+  'v.CanUpdate = st.ClosedWhy == "" && st.SuspendedAt.IsZero() && st.LeftAt.IsZero()' \
+  'v.CanUpdate = st.ClosedWhy == "" && st.LeftAt.IsZero()' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: the audit log tells an update from an opening" internal/panel/sellerprices.go \
+  'pressed = "Update the store"' \
+  'pressed = "Open the store"' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: a refusal gives each plan a line of its own" internal/panel/sellerprices.go \
+  'strings.Join(lines, "\n")' \
+  'strings.Join(lines, " ")' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a plan's line has each of its problems" internal/panel/sellerprices.go \
+  'sp.issues = append(sp.issues, sh.issue())' \
+  'sp.issues = []planIssue{sh.issue()}' \
+  ./internal/panel '^TestOpenTheStoreRefusesAProductThatSellsAnotherPlan$'
+control "seller prices: a plan the fleet doesn't run has that in its line" internal/panel/sellerprices.go \
+  'sp.Problem, sp.issues = problem, []planIssue{issue}' \
+  'sp.Problem, sp.issues = problem, nil; _ = issue' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a refusal says how to meet only the rules its plans break" internal/panel/sellerprices.go \
+  'if broken[planRule(rule)] {' \
+  'if broken[planRule(rule)] || true {' \
+  ./internal/panel '^TestOpenTheStoreRefusesAPlanTheFleetDoesntRun$'
+control "seller prices: a refused update says it's an update" internal/panel/sellerprices.go \
+  'to = "update"' \
+  'to = "open"' \
+  ./internal/panel '^TestUpdateTheStorePutsAPlanAddedAfterOpeningOnTheStoreSite$'
+control "seller prices: the page suggests fifteen dollars a month for each 4 GB" internal/panel/sellerprices.go \
+  'const whopSuggestedPer4GB = 1500' \
+  'const whopSuggestedPer4GB = 1200' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: Fix my plans is offered for a plan that doesn't renew monthly" internal/panel/sellerprices.go \
+  'return r == ruleDollars || r == ruleMonthly || r == ruleNoTrial' \
+  'return r == ruleDollars || r == ruleNoTrial' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: Fix my plans is offered for a plan priced in another currency" internal/panel/sellerprices.go \
+  'return r == ruleDollars || r == ruleMonthly || r == ruleNoTrial' \
+  'return r == ruleMonthly || r == ruleNoTrial' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: Fix my plans is offered for a plan with a free trial" internal/panel/sellerprices.go \
+  'return r == ruleDollars || r == ruleMonthly || r == ruleNoTrial' \
+  'return r == ruleDollars || r == ruleMonthly' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: a plan charged only once isn't Fix my plans' to change" internal/panel/sellerprices.go \
+  'case p.PlanType != "renewal":' \
+  'case false:' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: plans sharing a product are the seller's to change" internal/panel/sellerprices.go \
+  'blocked: andList(sh.all) + " are on the same product. Give each its own product in Whop."}' \
+  '}' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: the prices say what Fix my plans can't change" internal/panel/sellerprices.go \
+  'v.Blocked = append(v.Blocked, is.blocked)' \
+  'v.Blocked = nil' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: what Fix my plans can't change is said once" internal/panel/sellerprices.go \
+  'case is.blocked != "" && !seen[is.blocked]:' \
+  'case is.blocked != "":' \
+  ./internal/panel '^TestTheSellersPricesSayWhatFixMyPlansCanChange$'
+control "seller prices: Fix my plans leaves an open store's plans as they are" internal/panel/sellerprices.go \
+  'case st.ClosedWhy == "":' \
+  'case false:' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans leaves a plan charged only once alone" internal/panel/sellerprices.go \
+  'if _, hosting := sellerPriceOf(p); !hosting || p.PlanType != "renewal" {' \
+  'if _, hosting := sellerPriceOf(p); !hosting {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans leaves a plan that isn't for hosting alone" internal/panel/sellerprices.go \
+  'if _, hosting := sellerPriceOf(p); !hosting || p.PlanType != "renewal" {' \
+  'if _, hosting := sellerPriceOf(p); !hosting && false || p.PlanType != "renewal" {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans leaves a plan that's right already alone" internal/panel/sellerprices.go \
+  'if len(now) == 0 {' \
+  'if false {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans says all it changed" internal/panel/sellerprices.go \
+  '" now "+andList(now)+"."' \
+  '" now "+now[0]+"."' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Whop refusing a plan's fix is Fix my plans' answer" internal/panel/sellerprices.go \
+  'updated, err := c.MakePlanMonthly(ctx, p.ID)' \
+  'updated, err := c.MakePlanMonthly(ctx, p.ID); err = nil' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans answers with the plans as Whop has them now" internal/panel/sellerprices.go \
+  'if updated.ID == p.ID {' \
+  'if false {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: what Fix my plans changed is in the audit log" internal/panel/sellerprices.go \
+  's.audit("whop:"+user, "whop.plan_fix", st.ID, "succeeded", line)' \
+  '_ = user' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Fix my plans asks Whop for no free trial" internal/whop/store.go \
+  '"trial_period_days": 0, "initial_price": 0}' \
+  '"initial_price": 0}' \
+  ./internal/whop '^TestMakePlanMonthlyAsksForMonthlyInDollarsWithNoTrial$'
+control "seller prices: Fix my plans asks Whop for no initial price on top of the first payment" internal/whop/store.go \
+  '"trial_period_days": 0, "initial_price": 0}' \
+  '"trial_period_days": 0}' \
+  ./internal/whop '^TestMakePlanMonthlyAsksForMonthlyInDollarsWithNoTrial$'
+control "seller prices: Fix my plans says it took a setup fee off" internal/panel/sellerprices.go \
+  'if len(now) > 0 && p.InitialPrice != 0 {' \
+  'if false {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: a setup fee alone isn't Fix my plans' to change" internal/panel/sellerprices.go \
+  'if len(now) > 0 && p.InitialPrice != 0 {' \
+  'if p.InitialPrice != 0 {' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: an open store's prices don't offer Fix my plans" internal/panel/sellerprices.go \
+  'v.Fixable = v.CanOpen' \
+  'v.Fixable = true' \
+  ./internal/panel '^TestFixMyPlansPutsRightWhatItCan$'
+control "seller prices: Open the store hides the website's free product" internal/panel/sellerprices.go \
+  'if err := hideWebsiteProduct(ctx, c, st, plans); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: the store opens only once the website's product is hidden" internal/panel/sellerprices.go \
+  'if err := hideWebsiteProduct(ctx, c, st, plans); err != nil {' \
+  'if err := hideWebsiteProduct(ctx, c, st, plans); false && err != nil {' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: only a product titled Playkeeper Hosting is hidden" internal/panel/sellerprices.go \
+  'if !strings.EqualFold(strings.TrimSpace(p.Title), whopWebsiteProduct) || sells[p.ID] ||' \
+  'if sells[p.ID] ||' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: a Playkeeper Hosting product that sells stays" internal/panel/sellerprices.go \
+  'whopWebsiteProduct) || sells[p.ID] || p.Visibility' \
+  'whopWebsiteProduct) || p.Visibility' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: a product that charges for anything sells" internal/panel/sellerprices.go \
+  '(hosting || !p.Free())' \
+  '(hosting)' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: a hidden website product isn't hidden again" internal/panel/sellerprices.go \
+  'sells[p.ID] || p.Visibility == "hidden" || p.Visibility == "archived" {' \
+  'sells[p.ID] || p.Visibility == "archived" {' \
+  ./internal/panel '^TestOpenTheStoreHidesTheWebsitesFreeProduct$'
+control "seller prices: Whop is asked to hide the website's product" internal/whop/store.go \
+  'map[string]any{"visibility": "hidden"}' \
+  'map[string]any{"visibility": "visible"}' \
+  ./internal/whop '^TestHideProductAsksForHidden$'
+webcontrol "seller flow: a plan under the floor is offered at the price the page suggests" web/src/pages/whop-seller-prices.tsx \
+  'const offered = (p: SellerPrice) => (p.price >= p.floor ? p.price : p.suggested)' \
+  'const offered = (p: SellerPrice) => p.price' \
+  src/pages/whop-seller-prices.test.tsx 'at the price it suggests'
 webcontrol "seller prices: the page sends the price the seller typed" web/src/pages/whop-seller-prices.tsx \
-  '{ plan: p.id, price: value.trim() }' \
+  '{ plan: p.id, price: typed(cents) }' \
   '{ plan: p.id, price: typed(p.price) }' \
-  src/pages/whop-seller-prices.test.tsx 'saves a new price'
-webcontrol "seller prices: the page offers Open the store only while the store can open" web/src/pages/whop-seller-prices.tsx \
-  '{prices.canOpen && (' \
-  '{(' \
-  src/pages/whop-seller-prices.test.tsx 'offers no Open the store'
-webcontrol "seller prices: Open the store goes once the store opened" web/src/pages/whop-seller-prices.tsx \
-  'setPrices((v) => v && { ...v, canOpen: !done.open })' \
-  'setPrices((v) => v)' \
-  src/pages/whop-seller-prices.test.tsx 'opens the store through a relative address'
+  src/pages/whop-seller-prices.test.tsx 'saves only the prices that changed'
+webcontrol "seller flow: only the prices that changed are saved" web/src/pages/whop-seller-prices.tsx \
+  'if (cents === p.price) continue' \
+  '' \
+  src/pages/whop-seller-prices.test.tsx 'saves only the prices that changed'
+webcontrol "seller flow: prices are saved through a relative address, which carries Whop's token" web/src/pages/whop-seller-prices.tsx \
+  'latest = await post<SellerPrices>(' \
+  "latest = await post<SellerPrices>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller-prices.test.tsx 'saves only the prices that changed'
+webcontrol "seller flow: a price under the floor is refused on the page" web/src/pages/whop-seller-prices.tsx \
+  "else if (cents < p.floor) wrong[p.id] = t('sellerFlow.prices.atLeast', { floor: money(p.floor, 'usd') })" \
+  '' \
+  src/pages/whop-seller-prices.test.tsx 'and saves nothing'
+webcontrol "seller flow: a wrong price saves nothing" web/src/pages/whop-seller-prices.tsx \
+  'if (Object.keys(wrong).length > 0) return' \
+  '' \
+  src/pages/whop-seller-prices.test.tsx 'and saves nothing'
+webcontrol "seller flow: Fix my plans is offered while a plan needs it" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.fixable) {' \
+  'if (false) {' \
+  src/pages/whop-seller-prices.test.tsx 'offers Fix my plans alone'
+webcontrol "seller flow: Change prices offers no Fix my plans, which an open store can't use" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.fixable) {' \
+  'if (prices.fixable) {' \
+  src/pages/whop-seller-prices.test.tsx 'even while a plan needs a fix'
+webcontrol "seller flow: Change prices isn't stopped by what to change in Whop" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.blocked?.length) {' \
+  'if (prices.blocked?.length) {' \
+  src/pages/whop-seller-prices.test.tsx 'even while a plan needs a fix'
+webcontrol "seller flow: the page lists and saves only the plans whose price it can set" web/src/pages/whop-seller-prices.tsx \
+  'const settable = prices.plans.filter((p) => p.settable)' \
+  'const settable = prices.plans' \
+  src/pages/whop-seller-prices.test.tsx 'lists only the plans whose price it can set'
+webcontrol "seller flow: Change prices can always go back" web/src/pages/whop-seller-prices.tsx \
+  'const back = onBack && (' \
+  'const back = false && (' \
+  src/pages/whop-seller-prices.test.tsx 'goes back from no plans too'
+webcontrol "seller flow: a price Whop refuses after one saved stays on screen with why" web/src/pages/whop-seller-prices.tsx \
+  'if (latest !== prices) onSaved(latest)' \
+  'if (latest !== prices) onPrices(latest)' \
+  src/pages/whop-seller.test.tsx 'keeps a price Whop refused on screen'
+webcontrol "seller flow: Fix my plans goes through a relative address, which carries Whop's token" web/src/pages/whop-seller-prices.tsx \
+  'const done = await post<SellerFixed>(' \
+  "const done = await post<SellerFixed>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller-prices.test.tsx 'offers Fix my plans alone'
+webcontrol "seller flow: the page says what Fix my plans changed" web/src/pages/whop-seller-prices.tsx \
+  'const told = notice && (' \
+  'const told = false && (' \
+  src/pages/whop-seller-prices.test.tsx 'says in a line what Fix my plans changed'
+webcontrol "seller flow: what Fix my plans can't change is said plainly" web/src/pages/whop-seller-prices.tsx \
+  'if (!edit && prices.blocked?.length) {' \
+  'if (false) {' \
+  src/pages/whop-seller-prices.test.tsx 'says plainly what to change in Whop'
+webcontrol "seller flow: Check again reads through a relative address, which carries Whop's token" web/src/pages/whop-seller-prices.tsx \
+  'onPrices(await get<SellerPrices>(' \
+  "onPrices(await get<SellerPrices>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller-prices.test.tsx 'says plainly what to change in Whop'
+webcontrol "seller flow: each step's heading takes the focus, so a screen reader reads it" web/src/pages/whop-seller-step.tsx \
+  'heading.current?.focus()' \
+  '' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: the steps say where the seller is" web/src/pages/whop-seller-step.tsx \
+  'current={step}' \
+  'current={0}' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: each line of a refusal stands alone" web/src/pages/whop-seller-step.tsx \
+  "lines: errorText(err).split('\\n')" \
+  'lines: [errorText(err)]' \
+  src/pages/whop-seller-view.test.tsx 'says so or why not'
+webcontrol "seller flow: Looks good goes on to Open your store" web/src/pages/whop-seller.tsx \
+  "setScreen('open')" \
+  "setScreen('prices')" \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: Open the store goes through a relative address, which carries Whop's token" web/src/pages/whop-seller.tsx \
+  'const done = await post<SellerOpened>(' \
+  "const done = await post<SellerOpened>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: the store goes live once it opened" web/src/pages/whop-seller.tsx \
+  'if (done.open) onOpened()' \
+  'if (false) onOpened()' \
+  src/pages/whop-seller.test.tsx 'walks a new seller through'
+webcontrol "seller flow: an open store says what it needs" web/src/pages/whop-seller.tsx \
+  '{open.store.problem && <p' \
+  '{false && <p' \
+  src/pages/whop-seller.test.tsx 'says what it needs'
+webcontrol "seller flow: a store Playkeeper suspended has nothing to press" web/src/pages/whop-seller.tsx \
+  "if (view.store.state === 'suspended')" \
+  'if (false)' \
+  src/pages/whop-seller.test.tsx 'with nothing to press'
+webcontrol "seller flow: a store that left has nothing to press" web/src/pages/whop-seller.tsx \
+  "if (view.store.state === 'left')" \
+  'if (false)' \
+  src/pages/whop-seller.test.tsx 'with nothing to press'
+webcontrol "seller flow: the live store links to its page on Whop" web/src/pages/whop-seller-view.tsx \
+  'https://whop.com/' \
+  'https://whop.invalid/' \
+  src/pages/whop-seller-view.test.tsx 'links to the store'
+webcontrol "seller flow: earnings show newest first" web/src/pages/whop-seller-view.tsx \
+  '[...view.earnings].sort((a, b) => b.month.localeCompare(a.month)).slice(0, monthsShown)' \
+  'view.earnings.slice(0, monthsShown)' \
+  src/pages/whop-seller-view.test.tsx 'newest first'
+webcontrol "seller flow: the page names a few customers and counts the rest" web/src/pages/whop-seller-view.tsx \
+  'view.customers.slice(0, customersShown).map(' \
+  'view.customers.map(' \
+  src/pages/whop-seller-view.test.tsx 'its customers, briefly'
+webcontrol "seller flow: Update the store goes through a relative address, which carries Whop's token" web/src/pages/whop-seller-view.tsx \
+  'await post<SellerOpened>(' \
+  "await post<SellerOpened>('https://playkeeper.invalid' + " \
+  src/pages/whop-seller-view.test.tsx 'says so or why not'
 control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
   'if err := access.onServer(s.act, c.server.ID); err != nil {' \
   'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
@@ -10740,8 +12012,47 @@ control "fleet watch: little room is posted again only after there was room for 
   '	case false:
 		f.low = false' \
   ./internal/panel '^TestRoomForFewerThanTwoStartersIsPostedOnceUntilThereIsRoomAgain$'
+control "fleet watch: an overbooked machine is posted" internal/panel/fleetwatch.go \
+  'case r.FreeMB < 0 && !f.over[r.ID]:' \
+  'case r.FreeMB < -4096 && !f.over[r.ID]:' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: an overbooked machine is posted once" internal/panel/fleetwatch.go \
+  'case r.FreeMB < 0 && !f.over[r.ID]:' \
+  'case r.FreeMB < 0:' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: an overbooked machine is posted again only after it had room" internal/panel/fleetwatch.go \
+  '		case r.FreeMB >= 0:
+			delete(f.over, r.ID)' \
+  '		case false:
+			delete(f.over, r.ID)' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: a machine that didn't answer says nothing about its room" internal/panel/fleetwatch.go \
+  '		case !r.Answered:
+		case r.FreeMB < 0' \
+  '		case false:
+		case r.FreeMB < 0' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: a machine that answered says so" internal/panel/placement.go \
+  '	r.Answered = true
+' \
+  '' \
+  ./internal/panel '^TestAMachineWhoseCustomersPlansOutgrowItIsPostedOnce$'
+control "fleet watch: the machines' room has the time the watch gives a machine" internal/panel/fleetwatch.go \
+  'rctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)' \
+  'rctx, cancel := context.WithCancel(ctx)' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerHoldsUpNoLook$'
+control "fleet watch: a machine that spends its time leaves the waiting customers to read" internal/panel/fleetwatch.go \
+  '	waiting, err := s.waitingMemory(ctx)
+	return rooms, waiting, err' \
+  '	waiting, err := s.waitingMemory(rctx)
+	return rooms, waiting, err' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerLeavesTheOthersRoomWatched$'
+control "fleet watch: an overbooked machine is short of some memory" internal/agent/discord.go \
+  'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 1, maxFleetMemory)' \
+  'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 0, maxFleetMemory)' \
+  ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
 control "fleet watch: the fleet's alerts go out whatever the switches say" internal/discord/alerts.go \
-  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks:' \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked:' \
   'case KindTwoFactor, KindAdminConfirmed, KindInStock:' \
   ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
 control "fleet watch: a machine's name can't format the alert" internal/discord/alerts.go \
@@ -11575,6 +12886,55 @@ control "a key saved while the container lacks the mount waits for a restart" in
   'out.Pending = set && s.secretsPending(ctx)' \
   'out.Pending = false' \
   ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
+
+# Host-only cookies: a joined machine owns a name under the dashboard's
+# domain, so every cookie the dashboard sets is one no other name of the
+# domain can set, and Sign in with Whop finishes only in its own browser.
+control "Sign in with Whop's cookie is one no other name of the domain can set" internal/panel/whop_signin.go \
+  'whopSignInCookie   = "__Host-playkeeper-whop"' \
+  'whopSignInCookie   = "pk_whop_signin"' \
+  ./internal/panel '^TestASignInWithWhopCantBePlantedFromAnotherNameOfTheDomain$'
+control "a sign-in with Whop finishes only in the browser that left for Whop" internal/panel/whop_signin.go \
+  'return tokenHash(state + "." + secret)' \
+  'return tokenHash(state)' \
+  ./internal/panel '^TestASignInWithWhopFinishesOnlyInTheBrowserThatStartedIt$'
+control "Sign in with Whop's cookie never holds the state" internal/panel/whop_signin.go \
+  'setHostCookie(w, whopSignInCookie, secret, ' \
+  'setHostCookie(w, whopSignInCookie, state, ' \
+  ./internal/panel '^TestSignInWithWhopOpensTheCustomersAccount$'
+control "a link back from Whop that matches no sign-in leaves the cookie, which may be another tab's" internal/panel/whop_signin.go \
+  '	state := q.Get("state")' \
+  '	setHostCookie(w, whopSignInCookie, "", -1, http.SameSiteLaxMode)
+	state := q.Get("state")' \
+  ./internal/panel '^TestASignInWithWhopThatMatchesNoneLeavesTheCookie$'
+control "every cookie the dashboard sets is for every path" internal/panel/cookies.go \
+  'Path: "/", ' \
+  'Path: "/api/", ' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "every cookie the dashboard sets is Secure" internal/panel/cookies.go \
+  'Secure: true, ' \
+  '' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "the dashboard sets cookies only through setHostCookie" internal/panel/server.go \
+  'setHostCookie(w, cookieName, "", -1, http.SameSiteStrictMode)' \
+  'http.SetCookie(w, &http.Cookie{Name: "playkeeper_signed_out", Value: "1", Path: "/"})' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+control "every cookie setHostCookie sets has a __Host- name" internal/panel/twofactor.go \
+  'pendingCookieName = "__Host-playkeeper-2fa"' \
+  'pendingCookieName = "playkeeper-2fa"' \
+  ./internal/panel '^TestEveryCookieTheDashboardSetsIsHostOnly$'
+webcontrol "a phone's select is a combobox, so its choice is read digits and all" web/src/components/app/controls.tsx \
+  '          role="combobox"' \
+  '          role={undefined}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
+webcontrol "a phone's select says when its sheet is open" web/src/components/app/controls.tsx \
+  'aria-expanded={open}' \
+  'aria-expanded={false}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
+webcontrol "a phone's select points at its list while it's open" web/src/components/app/controls.tsx \
+  'aria-controls={open ? listId : undefined}' \
+  'aria-controls={undefined}' \
+  web/src/components/app/controls.test.tsx 'holds its choice as a combobox on a phone too'
 
 if [ "$bad" != 0 ]; then
   echo

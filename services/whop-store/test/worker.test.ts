@@ -22,6 +22,10 @@ function store(catalogue: () => Catalogue, opts: { down?: () => boolean; env?: R
 
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
 
+/** The setup page's steps, each as its title, its sentence, its button's link and its button's label. */
+const stepsOf = (page: string) =>
+  [...page.matchAll(/<li>\n<h2>(.*?)<\/h2>\n<p>(.*?)<\/p>\n<a class="btn btn-primary" href="(.*?)">(.*?)<\/a>\n<\/li>/g)].map((m) => m.slice(1, 5))
+
 describe('markup', () => {
   it('escapes what it puts in, apart from other markup', () => {
     expect(escape(`<a href="x">'&'</a>`)).toBe('&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;')
@@ -53,32 +57,70 @@ describe('the store’s pages', () => {
     expect(page).not.toContain('Not taking orders yet')
   })
 
-  it('asks a fresh copy of the blueprint to connect Playkeeper Cloud, with the app’s install page', async () => {
+  it('tells visitors a fresh copy of the blueprint isn’t taking orders yet, at the top, with one way in for its owner', async () => {
     const page = await (await store(freshCopy).get('/')).text()
-    const words = text(page)
-    expect(words).toContain('Not taking orders yet Joe’s Hosting opens here soon.')
-    expect(page).toContain(`<a class="btn btn-outline btn-sm" href="https://whop.com/apps/${playkeeperCloudApp}/install">Connect Playkeeper Cloud</a>`)
-    expect(words).toContain('approve it for this business, picking it in Whop’s business picker.')
-    expect(words).toContain('By connecting, you accept Playkeeper Cloud’s seller terms')
-    expect(page).toContain('<a href="https://playkeeper.io/cloud/seller-terms">seller terms</a>')
-    expect(words).not.toContain('Install Playkeeper on your server')
+    expect(text(page)).toContain('Not taking orders yet Joe’s Hosting opens here soon. Is this your store? Set up my store')
+    expect(page).toContain('<a class="btn btn-primary" href="/setup">Set up my store</a>')
+    expect(page.indexOf('class="closed"')).toBeLessThan(page.indexOf('How it works'))
+    expect(page).not.toContain('id="plans-title"')
     expect(page).not.toContain('whop.com/checkout')
+    expect(page).not.toContain('whop.com/apps/')
+    expect(page).not.toContain('oauth:token_exchange')
     expect(page).not.toMatch(/>Sign in( to your dashboard)?<\/a>/)
     expect(page).not.toContain('See the plans')
-    const other = await (await store(freshCopy, { env: { PLAYKEEPER_CLOUD_APP: 'app_other0123' } }).get('/')).text()
-    expect(other).toContain('href="https://whop.com/apps/app_other0123/install"')
   })
 
-  it('tells a store that connects its own Playkeeper how to open it', async () => {
+  it('walks a fresh copy’s owner through connecting Playkeeper Cloud, one sentence and one button a step', async () => {
+    const res = await store(freshCopy).get('/setup')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('cache-control')).toBe('public, max-age=60')
+    const page = await res.text()
+    expect(page).toContain('<title>Set up your store: Joe’s Hosting</title>')
+    expect(page).toContain('<meta name="robots" content="noindex">')
+    expect(stepsOf(page)).toEqual([
+      ['Connect Playkeeper Cloud', 'Pick Joe’s Hosting and approve it.', `https://whop.com/apps/${playkeeperCloudApp}/install`, 'Connect Playkeeper Cloud'],
+      ['Open Playkeeper Cloud', 'Find it under Apps in your Whop dashboard.', 'https://whop.com/dashboard/biz_copy', 'Open my dashboard'],
+      ['Open your store', 'In Playkeeper Cloud, press Open the store.', '/', 'See my store'],
+    ])
+    expect(page).toContain('href="https://playkeeper.io/guides/start-a-minecraft-hosting-company"')
+    expect(page).not.toContain('whop.com/checkout')
+    expect((await (await store(freshCopy).get('/')).text())).not.toContain('<meta name="robots"')
+    const other = await (await store(freshCopy, { env: { PLAYKEEPER_CLOUD_APP: 'app_other0123' } }).get('/setup')).text()
+    expect(stepsOf(other)[0]?.[2]).toBe('https://whop.com/apps/app_other0123/install')
+  })
+
+  it('walks the owner of a store that connects its own Playkeeper through its three steps', async () => {
     for (const setting of ['off', 'app_x"><script>']) {
-      const page = await (await store(freshCopy, { env: { PLAYKEEPER_CLOUD_APP: setting } }).get('/')).text()
-      const words = text(page)
-      expect(words).toContain('Not taking orders yet Joe’s Hosting opens here soon.')
-      expect(words).toContain('connect this store in its Settings › Sell on Whop. Turn on Sign in with Whop there, with a Whop app that has oauth:token_exchange on its own Permissions tab, not on an API key. Then make your plans visible on Whop.')
-      expect(page).toContain('href="https://playkeeper.io/guides/start-a-minecraft-hosting-company"')
+      const s = store(freshCopy, { env: { PLAYKEEPER_CLOUD_APP: setting } })
+      expect(text(await (await s.get('/')).text())).toContain('Not taking orders yet Joe’s Hosting opens here soon. Is this your store? Set up my store')
+      const page = await (await s.get('/setup')).text()
+      expect(stepsOf(page)).toEqual([
+        ['Install Playkeeper', 'Put it on your own server.', 'https://playkeeper.io', 'Get Playkeeper'],
+        ['Connect this store', 'Paste a Whop API key in Playkeeper’s Settings › Sell on Whop.', 'https://whop.com/dashboard/developer', 'Get an API key'],
+        ['Show your plans', 'Make your plans visible on Whop.', 'https://whop.com/dashboard/biz_copy', 'Open my dashboard'],
+      ])
       expect(page).not.toContain('Connect Playkeeper Cloud')
-      expect(page).not.toContain('seller terms')
+      expect(page).not.toContain('<script>')
     }
+  })
+
+  it('sends the owner of a store taking orders from the setup steps to its plans', async () => {
+    const s = store(openStore)
+    const res = await s.get('/setup/')
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/')
+    expect(await (await s.get('/')).text()).not.toContain('Set up my store')
+  })
+
+  it('links the setup steps to Whop’s dashboard itself when Whop names the business oddly', async () => {
+    const page = await (await store(() => {
+      const c = freshCopy()
+      c.account = { ...c.account, id: 'biz_x"><b>', title: '' }
+      return c
+    }).get('/setup')).text()
+    expect(stepsOf(page)[0]?.[1]).toBe('Pick this business and approve it.')
+    expect(stepsOf(page)[1]?.[2]).toBe('https://whop.com/dashboard')
+    expect(page).not.toContain('<b>')
   })
 
   it('shows a store whose products each sell one plan as one row of plans, cheapest first', async () => {
@@ -105,6 +147,13 @@ describe('the store’s pages', () => {
     expect(page).not.toContain('<script>')
     expect(page).not.toContain('<img src=x')
     expect(page).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    const setup = await (await store(() => {
+      const c = freshCopy()
+      c.account = { ...c.account, title: `Joe ${hostile}` }
+      return c
+    }).get('/setup')).text()
+    expect(setup).not.toContain('<script>')
+    expect(stepsOf(setup)[0]?.[1]).toBe('Pick Joe &lt;script&gt;alert(1)&lt;/script&gt; and approve it.')
   })
 
   it('has terms with the business’s name, or links to the business’s own', async () => {
