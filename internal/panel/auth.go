@@ -813,6 +813,16 @@ CREATE TABLE erased_customers (
   PRIMARY KEY (store_id, subject_hash)
 );
 `,
+	// Whether each server is on the public page as the dashboard last set
+	// it, which a server on a joined machine needs beside its machine's word
+	// (see joinedpage.go).
+	`
+CREATE TABLE public_pages (
+  server_id  TEXT    PRIMARY KEY,
+  enabled    INTEGER NOT NULL,
+  changed_at INTEGER NOT NULL
+);
+`,
 }
 
 const (

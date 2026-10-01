@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"html"
 	"io"
 	"io/fs"
@@ -218,7 +219,7 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 		// only its pending checks, and after the address changes the page's
 		// name catches up only at the keeper's next look.
 		check := !tls && strings.HasPrefix(r.URL.Path, acmePrefix)
-		if !check && !s.page.answers(r.Host) && !s.joinedPageOn(r.Context(), r.Host) {
+		if !check && !s.pageAnswers(r.Context(), r.Host) {
 			w.Header().Set("Cache-Control", "no-store")
 			http.NotFound(w, r)
 			return
@@ -456,7 +457,9 @@ func (s *Server) hPageFace(w http.ResponseWriter, r *http.Request, name string) 
 }
 
 // hPageCard serves the page's share card: the picture link previews show,
-// drawn from what the page shows now.
+// drawn from what the page shows now. A server on a joined machine has its
+// card drawn among that machine's answers, so drawing it holds up no other
+// page.
 func (s *Server) hPageCard(w http.ResponseWriter, r *http.Request) {
 	page, ok := s.pageData(r.Context(), r.Host)
 	if !ok {
@@ -465,7 +468,11 @@ func (s *Server) hPageCard(w http.ResponseWriter, r *http.Request) {
 	}
 	card := shareCard(page)
 	key, _ := json.Marshal(card)
-	a, ok := s.pageCached(r.Context(), "card "+string(key), func(context.Context) (pageAnswer, bool) {
+	answers, cardKey := s.page.local, "card "+string(key)
+	if j, ok := s.joinedAt(r.Host); ok {
+		answers, cardKey = s.joinedAnswers(j.machineID), "card "+j.id
+	}
+	a, ok := answers.get(r.Context(), s.now, cardKey, func(context.Context) (pageAnswer, bool) {
 		b, err := sharecard.PNG(card)
 		if err != nil {
 			s.log.Warn("could not draw the public page's share card", "err", err)
@@ -610,9 +617,7 @@ func (s *Server) hPageACME(w http.ResponseWriter, r *http.Request) {
 // Dashboard routes.
 
 // hPublicPage is a server's public page for its Settings, with whether
-// browsers reach it. The dashboard's machine serves every server's page,
-// on its ports: a server on a joined machine has its page at the name the
-// zone gives it, never at an address its machine has of its own.
+// browsers reach it.
 func (s *Server) hPublicPage(w http.ResponseWriter, r *http.Request, _ *session) {
 	m, ok := s.target(w, r)
 	if !ok {
@@ -623,12 +628,50 @@ func (s *Server) hPublicPage(w http.ResponseWriter, r *http.Request, _ *session)
 		s.agentFailure(w, err)
 		return
 	}
+	s.pageView(m, r.PathValue("id"), &v)
+	writeJSON(w, http.StatusOK, v)
+}
+
+// hPublicPageSet changes a server's switches for the page, and records
+// whether its page is on as the dashboard set it, which a server on a
+// joined machine needs beside its machine's word (see joinedpage.go).
+func (s *Server) hPublicPageSet(w http.ResponseWriter, r *http.Request, sess *session) {
+	m, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	var req api.PublicPageRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Request body must be a JSON object.", "")
+		return
+	}
+	req.Actor = sess.User.Username
+	var v api.PublicPageView
+	if _, err := m.agent.Do(asActor(r.Context(), sess.User.Username), http.MethodPost, agentPath("/v1/servers/{id}/public-page", r), nil, req, &v); err != nil {
+		s.agentFailure(w, err)
+		return
+	}
+	id := r.PathValue("id")
+	if req.Enabled != nil {
+		s.setPageRecord(id, *req.Enabled)
+	}
+	s.pageChanged()
+	s.pageView(m, id, &v)
+	writeJSON(w, http.StatusOK, v)
+}
+
+// pageView is v, server id's page as its machine m says, as Settings show
+// it: on the dashboard's ports, which serve every server's page. A server on
+// a joined machine has its page at the name the zone gives it, never at an
+// address its machine has of its own, and is on it only while the
+// dashboard's record says so too (pageRecordOr).
+func (s *Server) pageView(m machine, id string, v *api.PublicPageView) {
 	if m.Kind != localKind {
-		v.Host = s.zoneAddress(r.PathValue("id"))
+		v.Host = s.zoneAddress(id)
+		v.Enabled = s.pageRecordOr(id, v.Enabled) && v.Enabled
 	}
 	ports := s.page.portsNow()
 	v.Ports = &ports
-	writeJSON(w, http.StatusOK, v)
 }
 
 // hPublicPagePortsRetry tries the ports found busy again, once the owner

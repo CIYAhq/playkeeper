@@ -455,12 +455,12 @@ func (s *Server) startErase(ctx context.Context, m machine, userID int64, id str
 }
 
 // forgetErasedServer forgets a server of a customer being deleted once it's
-// gone: its join requests, players' origins and shared links, then who
-// created it, last, so a deletion that stops midway still knows the server
-// when it's tried again.
+// gone: its join requests, players' origins, shared links and whether it was
+// on the public page, then who created it, last, so a deletion that stops
+// midway still knows the server when it's tried again.
 func (s *Server) forgetErasedServer(ctx context.Context, id string) error {
 	for _, q := range []string{`DELETE FROM join_requests WHERE server_id = ?`, `DELETE FROM player_origins WHERE server_id = ?`,
-		`DELETE FROM public_links WHERE server_id = ?`, `DELETE FROM creator_servers WHERE server_id = ?`} {
+		`DELETE FROM public_links WHERE server_id = ?`, `DELETE FROM public_pages WHERE server_id = ?`, `DELETE FROM creator_servers WHERE server_id = ?`} {
 		if _, err := s.db.ExecContext(ctx, q, id); err != nil {
 			return errDB
 		}

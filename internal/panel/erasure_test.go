@@ -75,6 +75,7 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 		`INSERT INTO join_requests(id, invite_id, server_id, player_uuid, player_name, state, created_at) VALUES('jr_steve', 'inv_own', '` + p.serverID + `', 'uuid-steve', 'Steve', 'pending', 1)`,
 		`INSERT INTO player_origins(server_id, player_uuid, player_name, invite_id, joined_at) VALUES('` + p.serverID + `', 'uuid-kai', 'Kai', 'inv_own', 1)`,
 		`INSERT INTO public_links(kind, token_hash, server_id, machine_id, created_at) VALUES('map', 'hash_map', '` + p.serverID + `', 'm_alex', 1)`,
+		`INSERT INTO public_pages(server_id, enabled, changed_at) VALUES('` + p.serverID + `', 1, 1)`,
 		`INSERT INTO left_copies(server_id, machine_id, user_id, keep_days, left_at) VALUES('` + p.serverID + `', 'm_old', ` + alexID + `, 7, 1)`,
 	} {
 		if _, err := e.srv.db.Exec(q); err != nil {
@@ -94,7 +95,7 @@ func TestDeletingACustomerOnRequestRemovesTheirAccountAndRecords(t *testing.T) {
 	if _, ok, _ := p.core.CustomerAccount(ctx, whopProvider, testStore, "user_alex"); !ok {
 		t.Fatal("alex was deleted though the backups kept for them couldn't be listed")
 	}
-	for _, table := range []string{"join_requests", "player_origins", "public_links", "creator_servers"} {
+	for _, table := range []string{"join_requests", "player_origins", "public_links", "public_pages", "creator_servers"} {
 		if n := e.count(t, `SELECT COUNT(*) FROM `+table+` WHERE server_id = ?`, p.serverID); n != 0 {
 			t.Errorf("%s still has alex's deleted server once the deletion stopped: %d", table, n)
 		}

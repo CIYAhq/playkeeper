@@ -678,7 +678,7 @@ func (s *Server) Routes() []Route {
 	// ports (serverpage.go).
 	routes = append(routes, []Route{
 		view("/api/servers/{id}/public-page", s.hPublicPage),
-		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers/{id}/public-page", func(machine, *session, json.RawMessage) { s.pageChanged() })},
+		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.hPublicPageSet},
 		{"POST", "/api/servers/{id}/public-page/retry", needSessionCSRF, actManageServers, s.hPublicPagePortsRetry},
 		// A server's own address is DNS and certificates for the whole
 		// machine, so it needs the right to manage the machine.

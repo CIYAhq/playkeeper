@@ -84,9 +84,14 @@ func (s *Server) lookAtPage(ctx context.Context) {
 		// holds stays: the agent is back in a moment after an update.
 		return
 	}
+	// The dashboard's machine's names are kept before joined machines are
+	// asked, which takes until the look's deadline at most.
+	p.mu.Lock()
+	p.host, p.hosts = st.Host, st.Hosts
+	p.mu.Unlock()
 	st.On = st.On || s.anyJoinedPageOn(ctx)
 	p.mu.Lock()
-	p.host, p.hosts, p.on = st.Host, st.Hosts, st.On
+	p.on = st.On
 	current := p.gen == gen
 	if current {
 		p.dashboard, p.reached = st.Dashboard, st.Dashboard && st.Reached

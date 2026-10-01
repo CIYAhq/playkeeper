@@ -985,7 +985,26 @@ func (s *Server) copyMoveState(ctx context.Context, id string, from, to machine)
 	if slices.Contains(res.Left, "ownAddress") {
 		s.audit(placementActor, "customer.move", id, "own address left out", fmt.Sprintf("its own address doesn't fit %s's address", machineLabel(to)))
 	}
+	if on, ok := movedPublicPage(state); ok {
+		s.pageRecordOr(id, on)
+	}
 	return nil
+}
+
+// movedPublicPage is whether a server's move state has it on the public
+// page.
+func movedPublicPage(state api.MoveState) (on, ok bool) {
+	rows := state.Rows["servers"]
+	if len(rows) != 1 {
+		return false, false
+	}
+	switch v := rows[0]["public_page"].(type) {
+	case float64:
+		return v != 0, true
+	case bool:
+		return v, true
+	}
+	return false, false
 }
 
 // discardUpload deletes upload rid on m, which no move-in took.

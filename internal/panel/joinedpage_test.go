@@ -11,6 +11,7 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/share"
@@ -63,6 +64,7 @@ func newJoinedPage(t *testing.T) *joinedPage {
 		MapToken: j.mapToken, PackToken: packToken,
 	})
 	j.ra.reply("GET /v1/servers", `[{"id":"`+cobblemonID+`","name":"Cobblemon","slug":"cobblemon","phase":"online","gamePort":25566}]`)
+	j.ra.reply("GET /v1/servers/"+cobblemonID+"/public-page", `{"enabled":true,"players":true,"about":"","stream":"","host":"home-server.example.com"}`)
 	j.ra.handle("GET /v1/servers/"+cobblemonID+"/public-page/shown", func(w http.ResponseWriter, r *http.Request) {
 		if !j.on.Load() {
 			writeErr(w, http.StatusNotFound, api.CodeNotFound, "There's no server page here.", "")
@@ -250,5 +252,248 @@ func TestAJoinedServersSettingsGiveItsPageAtItsName(t *testing.T) {
 	}
 	if r := j.e.do(t, "POST", path+"/retry", `{}`, auth(j.cookie, j.csrf)); r.status != 200 || !j.e.sawLocally("POST /v1/public-page/ports/retry") {
 		t.Fatalf("trying the ports again: %d %v", r.status, r.body)
+	}
+}
+
+// Whether a joined server is on the page rests on the dashboard's word as
+// well as its machine's: once the owner turns its page off through the
+// dashboard, its name gets the page's one 404 and its Settings say it's
+// off, whatever the machine says, until the owner turns it on again.
+func TestAJoinedServersPageIsOnOnlyWhileTheDashboardSetItSo(t *testing.T) {
+	j := newJoinedPage(t)
+	h := j.e.srv.pageHandler(true)
+	path := "/api/servers/" + cobblemonID + "/public-page"
+	j.ra.reply("POST /v1/servers/"+cobblemonID+"/public-page", `{"enabled":true,"players":false,"about":"","stream":""}`)
+	if resp, _ := pageGet(t, h, "GET", cobblemonName, "/"); resp.StatusCode != 200 {
+		t.Fatalf("the page before: %d", resp.StatusCode)
+	}
+	if r := j.e.do(t, "POST", path, `{"enabled":false}`, auth(j.cookie, j.csrf)); r.status != 200 || r.body["enabled"] != false {
+		t.Fatalf("turning the page off: %d %v", r.status, r.body)
+	}
+	_, unknown := pageGet(t, h, "GET", "other.beta.playkeeper.me", "/")
+	if resp, body := pageGet(t, h, "GET", cobblemonName, "/"); resp.StatusCode != 404 || body != unknown {
+		t.Fatalf("with the page turned off through the dashboard and the machine still showing it: %d %q", resp.StatusCode, body)
+	}
+	if r := j.e.do(t, "GET", path, "", auth(j.cookie, j.csrf)); r.status != 200 || r.body["enabled"] != false {
+		t.Fatalf("the Settings of a page the dashboard turned off: %d %v", r.status, r.body)
+	}
+	if r := j.e.do(t, "POST", path, `{"enabled":true}`, auth(j.cookie, j.csrf)); r.status != 200 || r.body["enabled"] != true {
+		t.Fatalf("turning the page on: %d %v", r.status, r.body)
+	}
+	if resp, _ := pageGet(t, h, "GET", cobblemonName, "/"); resp.StatusCode != 200 {
+		t.Fatalf("the page turned on again: %d", resp.StatusCode)
+	}
+}
+
+// For a joined server whose page the dashboard never set, it takes its
+// machine's word once, and keeps that: a machine that later puts the
+// server on the page by itself doesn't.
+func TestAJoinedServerNeverSetTakesItsMachinesWordOnce(t *testing.T) {
+	j := newJoinedPage(t)
+	settings := "GET /v1/servers/" + cobblemonID + "/public-page"
+	j.ra.reply(settings, `{"enabled":false,"players":false,"about":"","stream":""}`)
+	h := j.e.srv.pageHandler(true)
+	if resp, _ := pageGet(t, h, "GET", cobblemonName, "/"); resp.StatusCode != 404 {
+		t.Fatalf("a server its machine has off the page: %d", resp.StatusCode)
+	}
+	j.ra.reply(settings, `{"enabled":true,"players":false,"about":"","stream":""}`)
+	j.e.clock.add(pageCacheFor + time.Second)
+	if resp, _ := pageGet(t, h, "GET", cobblemonName, "/"); resp.StatusCode != 404 {
+		t.Fatalf("a server its machine put on the page by itself: %d", resp.StatusCode)
+	}
+	if on, known := j.e.srv.pageRecord(cobblemonID); on || !known {
+		t.Fatalf("the dashboard's record: on %v, known %v", on, known)
+	}
+}
+
+// A move gives the dashboard the page's switch a server had where it was,
+// unless the dashboard set it itself.
+func TestAMoveKeepsWhetherAServerWasOnThePage(t *testing.T) {
+	j := newJoinedPage(t)
+	ctx := context.Background()
+	local, err := j.e.srv.localMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := j.e.srv.machines()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var remote machine
+	for _, m := range list {
+		if m.ID == j.machineID {
+			remote = m
+		}
+	}
+	move := func(id, state string) {
+		t.Helper()
+		j.e.reply("GET", "/v1/servers/"+id+"/move-state", state)
+		j.ra.reply("PUT /v1/servers/"+id+"/move-state", `{}`)
+		if err := j.e.srv.copyMoveState(ctx, id, local, remote); err != nil {
+			t.Fatal(err)
+		}
+	}
+	move("abcdefghjk", `{"rows":{"servers":[{"public_page":0,"sleep":""}]}}`)
+	if on, known := j.e.srv.pageRecord("abcdefghjk"); on || !known {
+		t.Fatalf("a server moved off the page: on %v, known %v", on, known)
+	}
+	j.e.srv.setPageRecord("survzzzzz2", false)
+	move("survzzzzz2", `{"rows":{"servers":[{"public_page":1,"sleep":""}]}}`)
+	if on, known := j.e.srv.pageRecord("survzzzzz2"); on || !known {
+		t.Fatalf("a move overrode what the dashboard set: on %v, known %v", on, known)
+	}
+}
+
+// A joined machine's answer reaches the page only as the agent itself would
+// let it: names, description, About, board and lines within their bounds
+// and without control characters, a type the page knows, a next session
+// within a month, and no more players named than are playing.
+func TestAJoinedMachinesTextIsHeldToWhatTheAgentAllows(t *testing.T) {
+	j := newJoinedPage(t)
+	next := j.e.clock.now().Add(365 * 24 * time.Hour)
+	odd := *j.shown.Load()
+	odd.Name = "\u202e" + strings.Repeat("Ä", 40)
+	odd.MOTD = strings.Repeat("m", 100) + "§c"
+	odd.About = strings.Repeat("line\n", 30) + strings.Repeat("a", 1000)
+	odd.Type = "bukkit"
+	odd.MinecraftVersion = strings.Repeat("1", 200)
+	odd.Modpack = &api.PublicModpack{Name: strings.Repeat("p", 300), Version: "1.0"}
+	odd.Players = &api.PublicPlayers{Online: 1, Max: 20, Names: []string{"mara_k", "tobi2009"}}
+	odd.Board = &api.PublicBoard{Headline: strings.Repeat("h", 200), Next: &next}
+	for range 10 {
+		odd.Board.Stats = append(odd.Board.Stats, api.BoardStat{Label: strings.Repeat("l", 50), Value: strings.Repeat("v", 50)})
+	}
+	for range 30 {
+		odd.Board.Checklist = append(odd.Board.Checklist, api.BoardItem{Label: strings.Repeat("c", 80)})
+	}
+	j.shown.Store(&odd)
+	_, raw := pageGet(t, j.e.srv.pageHandler(true), "GET", cobblemonName, "/api/public/server-page")
+	var page api.PublicPage
+	if json.Unmarshal([]byte(raw), &page) != nil || len(page.Servers) != 1 {
+		t.Fatalf("the page: %.200s", raw)
+	}
+	sv := page.Servers[0]
+	runes := utf8.RuneCountInString
+	if runes(sv.Name) > api.ServerNameMax || strings.ContainsRune(sv.Name, '\u202e') || runes(sv.MOTD) > api.ServerMOTDMax || strings.ContainsRune(sv.MOTD, '§') {
+		t.Errorf("the name %q and description %q", sv.Name, sv.MOTD)
+	}
+	if runes(sv.About) > api.PublicAboutMax || strings.Count(sv.About, "\n")+1 > api.PublicAboutLines {
+		t.Errorf("About of %d characters on %d lines", runes(sv.About), strings.Count(sv.About, "\n")+1)
+	}
+	if sv.Type != "" || runes(sv.MinecraftVersion) > pageLineMax || sv.Modpack == nil || runes(sv.Modpack.Name) > pageLineMax {
+		t.Errorf("the type %q, version of %d characters and modpack %+v", sv.Type, runes(sv.MinecraftVersion), sv.Modpack)
+	}
+	if sv.Players == nil || !slices.Equal(sv.Players.Names, []string{"mara_k"}) {
+		t.Errorf("the players: %+v", sv.Players)
+	}
+	b := sv.Board
+	if b == nil || runes(b.Headline) > api.BoardHeadlineMax || b.Next != nil || len(b.Stats) > api.BoardStatsMax || len(b.Checklist) > api.BoardItemsMax {
+		t.Fatalf("the board: %+v", b)
+	}
+	for _, st := range b.Stats {
+		if runes(st.Label) > api.BoardStatLabelMax || runes(st.Value) > api.BoardStatValueMax {
+			t.Errorf("a number: %+v", st)
+		}
+	}
+	for _, it := range b.Checklist {
+		if runes(it.Label) > api.BoardItemLabelMax {
+			t.Errorf("a checklist item: %+v", it)
+		}
+	}
+}
+
+// A joined machine whose text would make a slow share card holds up no page
+// of the dashboard's own: the text is bounded, and its card is drawn among
+// its own machine's answers, not the dashboard's own agent's.
+func TestAJoinedCardHoldsUpNoOtherPage(t *testing.T) {
+	j := newJoinedPage(t)
+	long := *j.shown.Load()
+	long.Name = strings.Repeat("a", 16000)
+	long.Board = &api.PublicBoard{Headline: strings.Repeat("b", 16000)}
+	j.shown.Store(&long)
+	h := j.e.srv.pageHandler(true)
+	release := make(chan struct{})
+	j.e.agent.mu.Lock()
+	j.e.agent.gates["GET /v1/public-page"] = release
+	j.e.agent.mu.Unlock()
+	t.Cleanup(func() { close(release) })
+	go j.e.srv.pageData(context.Background(), "beta.playkeeper.me")
+	eventually(t, "the dashboard's own agent to be asked about its page", func() bool { return j.e.sawLocally("GET /v1/public-page") })
+	done := make(chan int, 1)
+	go func() {
+		resp, _ := pageGet(t, h, "GET", cobblemonName, "/api/public/server-page/card.png")
+		done <- resp.StatusCode
+	}()
+	select {
+	case code := <-done:
+		if code != 200 {
+			t.Fatalf("the joined server's card: %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the joined server's card waited on the dashboard's own agent")
+	}
+	start := time.Now()
+	j.e.srv.joinedAnswers(j.machineID).get(context.Background(), j.e.srv.now, "page other", func(context.Context) (pageAnswer, bool) { return pageAnswer{}, false })
+	if waited := time.Since(start); waited > time.Second {
+		t.Fatalf("the joined machine's answers waited %v after its card", waited)
+	}
+}
+
+// A copy a move left on the dashboard's machine keeps the server's name
+// there until it's deleted, while the zone sends the name to the machine
+// the server moved to: the page answers as the zone does.
+func TestTheZoneAnswersAheadOfACopyAMoveLeft(t *testing.T) {
+	j := newJoinedPage(t)
+	j.e.srv.page.mu.Lock()
+	j.e.srv.page.hosts = []string{cobblemonName}
+	j.e.srv.page.mu.Unlock()
+	h := j.e.srv.pageHandler(true)
+	if resp, body := pageGet(t, h, "GET", cobblemonName, "/"); resp.StatusCode != 200 || !strings.Contains(body, "<title>Cobblemon · Minecraft server</title>") {
+		t.Fatalf("the name while a copy on the dashboard's machine has it: %d %s", resp.StatusCode, body)
+	}
+	j.on.Store(false)
+	j.e.clock.add(pageCacheFor + time.Second)
+	_, unknown := pageGet(t, h, "GET", "other.beta.playkeeper.me", "/")
+	if resp, body := pageGet(t, h, "GET", cobblemonName, "/"); resp.StatusCode != 404 || body != unknown {
+		t.Fatalf("the name off the page while a copy has it: %d %q", resp.StatusCode, body)
+	}
+}
+
+// The port keeper asks a joined machine about its servers only until the
+// look's deadline: a machine slow to answer holds it up no longer.
+func TestTheKeepersAsksEndWithItsDeadline(t *testing.T) {
+	j := newJoinedPage(t)
+	var listed []map[string]any
+	var named []zoneServer
+	for i, id := range []string{cobblemonID, "rstuvwxyza", "rstuvwxyzb"} {
+		slug := []string{"cobblemon", "sky", "skyblock"}[i]
+		listed = append(listed, map[string]any{"id": id, "name": slug, "slug": slug, "phase": "online", "gamePort": 25566 + i})
+		named = append(named, zoneServer{id: id, label: slug, machineID: j.machineID})
+		j.ra.reply("GET /v1/servers/"+id+"/public-page", `{"enabled":true,"players":false,"about":"","stream":""}`)
+		j.ra.handle("GET /v1/servers/"+id+"/public-page/shown", func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(time.Second)
+			writeErr(w, http.StatusNotFound, api.CodeNotFound, "There's no server page here.", "")
+		})
+	}
+	b, _ := json.Marshal(listed)
+	j.ra.reply("GET /v1/servers", string(b))
+	var servers []map[string]any
+	j.e.get(t, "/api/servers", j.cookie, &servers)
+	j.e.srv.setZoneAddresses(named, "beta.playkeeper.me", true)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if j.e.srv.anyJoinedPageOn(ctx) {
+		t.Fatal("a joined page is on")
+	}
+	if took := time.Since(start); took > 700*time.Millisecond {
+		t.Fatalf("a look with a 300 ms deadline waited %v on a slow machine's three servers", took)
+	}
+	over, stop := context.WithCancel(context.Background())
+	stop()
+	start = time.Now()
+	j.e.srv.anyJoinedPageOn(over)
+	if took := time.Since(start); took > 500*time.Millisecond {
+		t.Fatalf("a look past its deadline waited %v", took)
 	}
 }
