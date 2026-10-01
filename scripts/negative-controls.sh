@@ -9589,6 +9589,10 @@ control "suspending: a suspended store's stock goes to 0" internal/panel/whop_cu
   's.stopWhopSales(ctx, st.ID)' \
   '_ = st.ID' \
   ./internal/panel '^TestASuspendedStoreSellsNothing$'
+control "suspending: a suspended store's hosting products are hidden on Whop" internal/panel/whop_customers.go \
+  's.listWhopProducts(ctx, c, st, false)' \
+  's.listWhopProducts(ctx, c, st, true)' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
 control "suspending: a lifted store is read again at once" internal/panel/suspension.go \
   "SET suspended_at = 0, suspend_reason = '', synced_at = 0, polled_at = 0 WHERE" \
   "SET suspended_at = 0, suspend_reason = '' WHERE" \
@@ -9920,6 +9924,42 @@ control "closing: a closed store's stock goes to 0" internal/panel/whop_customer
   'if st.ClosedWhy != "" {' \
   'if false {' \
   ./internal/panel '^TestANewAppStoreSellsNothingUntilItsSellerOpensIt$'
+control "closing: a closed store's hosting products are hidden on Whop" internal/panel/whop_customers.go \
+  's.listWhopProducts(ctx, c, st, st.ClosedWhy == "")' \
+  's.listWhopProducts(ctx, c, st, true)' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "closing: an open store's hosting products stay on Whop" internal/panel/whop_customers.go \
+  's.listWhopProducts(ctx, c, st, st.ClosedWhy == "")' \
+  's.listWhopProducts(ctx, c, st, false)' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "closing: only the hosting products are hidden" internal/panel/closing.go \
+  "WHERE p.store_id = ? AND p.allowance_from != '' AND p.visibility != 'archived' AND p.product_id != ''" \
+  "WHERE p.store_id = ? AND p.product_id != ''" \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "closing: a store that stays closed has its products read once" internal/panel/closing.go \
+  'AND NOT EXISTS (SELECT 1 FROM whop_unlisted_products u WHERE u.store_id = p.store_id AND u.product_id = p.product_id)' \
+  '' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "closing: a product its seller hid isn't kept as one the dashboard hid" internal/panel/closing.go \
+  'storeID, id, shown[id])' \
+  'storeID, id, true)' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "closing: a product Whop wouldn't hide is hidden on a later pass" internal/panel/closing.go \
+  'if err := c.HideProduct(ctx, id); err != nil {' \
+  'if err := c.HideProduct(ctx, id); false && err != nil {' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "closing: selling again shows only the products the dashboard hid" internal/panel/closing.go \
+  'if !hid[p.ID] || p.Visibility != "hidden" {' \
+  'if p.Visibility != "hidden" {' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "closing: a product archived meanwhile isn't shown again" internal/panel/closing.go \
+  'if !hid[p.ID] || p.Visibility != "hidden" {' \
+  'if !hid[p.ID] {' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "closing: a product Whop wouldn't show is shown on a later pass" internal/panel/closing.go \
+  'if err := c.ShowProduct(ctx, p.ID); err != nil {' \
+  'if err := c.ShowProduct(ctx, p.ID); false && err != nil {' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
 control "closing: a closed store starts nobody" internal/panel/whop_customers.go \
   'case has && (wc.Applied == "" || wc.Paused) && st.ClosedWhy != "":' \
   'case false:' \
@@ -10375,6 +10415,34 @@ control "seller prices: Whop is asked to hide the website's product" internal/wh
   'map[string]any{"visibility": "hidden"}' \
   'map[string]any{"visibility": "visible"}' \
   ./internal/whop '^TestHideProductAsksForHidden$'
+control "seller prices: Open the store shows the hosting products on Whop" internal/panel/sellerprices.go \
+  'if err := s.showHostedProducts(ctx, c, st, plans); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: only the hosting products are shown" internal/panel/sellerprices.go \
+  'if !hosting[p.ID] || p.Visibility == "visible" || p.Visibility == "archived" {' \
+  'if p.Visibility == "visible" || p.Visibility == "archived" {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: an archived hosting product stays archived" internal/panel/sellerprices.go \
+  'p.Visibility == "visible" || p.Visibility == "archived" {' \
+  'p.Visibility == "visible" {' \
+  ./internal/panel '^TestOpenTheStoreSetsPlaykeepersShareThenOpensIt$'
+control "seller prices: the store opens only once its products are shown" internal/panel/sellerprices.go \
+  'if err := s.showHostedProducts(ctx, c, st, plans); err != nil {' \
+  'if err := s.showHostedProducts(ctx, c, st, plans); false && err != nil {' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: the products are shown only once the shares are set" internal/panel/sellerprices.go \
+  'problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  '_ = s.showHostedProducts(ctx, c, st, plans); problem, err := s.syncWhopShares(ctx, c, st, true)' \
+  ./internal/panel '^TestOpenTheStoreKeepsItClosedWhileAnythingIsWrong$'
+control "seller prices: Open the store has the store's pass look at its products afresh" internal/panel/sellerprices.go \
+  'DELETE FROM whop_unlisted_products WHERE store_id = ?' \
+  'DELETE FROM whop_unlisted_products WHERE 0' \
+  ./internal/panel '^TestAStoreThatSellsNothingIsHiddenOnWhopUntilItSellsAgain$'
+control "seller prices: Whop is asked to show a product" internal/whop/store.go \
+  'url.PathEscape(productID), nil, map[string]any{"visibility": "visible"}' \
+  'url.PathEscape(productID), nil, map[string]any{"visibility": "hidden"}' \
+  ./internal/whop '^TestShowProductAsksForVisible$'
 webcontrol "seller flow: a plan under the floor is offered at the price the page suggests" web/src/pages/whop-seller-prices.tsx \
   'const offered = (p: SellerPrice) => (p.price >= p.floor ? p.price : p.suggested)' \
   'const offered = (p: SellerPrice) => p.price' \
@@ -10479,6 +10547,10 @@ webcontrol "seller flow: the live store links to its page on Whop" web/src/pages
   'https://whop.com/' \
   'https://whop.invalid/' \
   src/pages/whop-seller-view.test.tsx 'links to the store'
+webcontrol "seller flow: a store with no route yet links to its page by its business" web/src/pages/whop-seller-view.tsx \
+  '`https://whop.com/${route || store}`' \
+  '`https://whop.com/${route}`' \
+  src/pages/whop-seller-view.test.tsx 'before it has a route of its own'
 webcontrol "seller flow: earnings show newest first" web/src/pages/whop-seller-view.tsx \
   '[...view.earnings].sort((a, b) => b.month.localeCompare(a.month)).slice(0, monthsShown)' \
   'view.earnings.slice(0, monthsShown)' \
