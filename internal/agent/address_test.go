@@ -754,6 +754,22 @@ func (e *agentEnv) callInto(method, path string, body, out any) int {
 	return resp.StatusCode
 }
 
+// callIntoWhenFree is callInto, asked again while the agent answers that
+// it's busy with another operation (see whenFree): a request that changes
+// the address is refused at once while an address operation shows, even
+// one whose end is stored and whose result the test has seen.
+func (e *agentEnv) callIntoWhenFree(method, path string, body, out any) int {
+	e.t.Helper()
+	code, got := e.whenFree(func() (int, map[string]any) { return e.call(method, path, body) })
+	v := reflect.ValueOf(out).Elem()
+	v.Set(reflect.Zero(v.Type()))
+	b, _ := json.Marshal(got)
+	if err := json.Unmarshal(b, out); err != nil {
+		e.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	return code
+}
+
 func (e *agentEnv) address() api.Address {
 	e.t.Helper()
 	var v api.Address
