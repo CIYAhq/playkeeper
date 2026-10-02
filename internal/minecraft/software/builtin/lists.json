@@ -1,7 +1,7 @@
 {
   "types": {
     "fabric": {
-      "madeAt": "2026-10-02T01:10:34Z",
+      "madeAt": "2026-10-02T20:17:07Z",
       "releases": [
         {
           "id": "fabric-26.3",
@@ -2376,7 +2376,7 @@
       }
     },
     "forge": {
-      "madeAt": "2026-10-02T01:10:34Z",
+      "madeAt": "2026-10-02T20:17:07Z",
       "releases": [
         {
           "id": "forge-26.3",
@@ -3296,7 +3296,7 @@
       }
     },
     "neoforge": {
-      "madeAt": "2026-10-02T01:10:34Z",
+      "madeAt": "2026-10-02T20:17:07Z",
       "releases": [
         {
           "id": "neoforge-26.3",
@@ -3310,7 +3310,7 @@
           "pin": {
             "type": "neoforge",
             "minecraftVersion": "26.3",
-            "neoforgeVersion": "26.3.0.40-beta"
+            "neoforgeVersion": "26.3.0.42-beta"
           },
           "note": "experimental",
           "notes": "Experimental: NeoForge only has beta builds for Minecraft 26.3 so far. It may crash or damage your world, and a world opened with it cannot go back to an older version."
@@ -3344,7 +3344,7 @@
           "pin": {
             "type": "neoforge",
             "minecraftVersion": "26.1.2",
-            "neoforgeVersion": "26.1.2.112"
+            "neoforgeVersion": "26.1.2.114"
           },
           "note": "stable",
           "notes": "Stable. Java Edition 26.1.2 clients can join."
@@ -3389,7 +3389,7 @@
           "pin": {
             "type": "neoforge",
             "minecraftVersion": "26.3",
-            "neoforgeVersion": "26.3.0.40-beta"
+            "neoforgeVersion": "26.3.0.42-beta"
           },
           "java": 25,
           "server": {
@@ -3408,11 +3408,11 @@
             ]
           },
           "software": {
-            "url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.3.0.40-beta/neoforge-26.3.0.40-beta-installer.jar",
-            "path": "neoforge-26.3.0.40-beta-installer.jar",
+            "url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.3.0.42-beta/neoforge-26.3.0.42-beta-installer.jar",
+            "path": "neoforge-26.3.0.42-beta-installer.jar",
             "hash": {
               "algorithm": "sha512",
-              "value": "5940bdf51a5d1b4c25834f80c7954cacb3e45173f3e5ceee3048e0e80efa0d3bc352c6dc0b3d116ce61db72169d62579f009fad001105b3b1c1560babe23c4b6"
+              "value": "1ac17a5e6323e499ffd2dd072c98cae18a24ed5b47a34dfaf394c4fb73b4304c611e4c1eca4bb00fcd57de31e407b97d15799bbd6019fb4294c0b3b3d05f88c9"
             },
             "source": "NeoForge's Maven repository",
             "upstream": "NeoForge",
@@ -3461,7 +3461,7 @@
           "pin": {
             "type": "neoforge",
             "minecraftVersion": "26.1.2",
-            "neoforgeVersion": "26.1.2.112"
+            "neoforgeVersion": "26.1.2.114"
           },
           "java": 25,
           "server": {
@@ -3480,11 +3480,11 @@
             ]
           },
           "software": {
-            "url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.112/neoforge-26.1.2.112-installer.jar",
-            "path": "neoforge-26.1.2.112-installer.jar",
+            "url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.1.2.114/neoforge-26.1.2.114-installer.jar",
+            "path": "neoforge-26.1.2.114-installer.jar",
             "hash": {
               "algorithm": "sha512",
-              "value": "6f707a2899478ad15195f6108f1bb2004926943058af2dd42f5565e6bd64e839fcbb2fb0120873db97d0c6981c1cfa123b9d919b7dea0b6715fe16c7d15313cd"
+              "value": "4e4fd993cec94ba1d11fd14ba7208503c4e4d17edcb278cd106c1337ff18ff91a188330a468b94bf27ed7d483b71b85fe48d5eb936efeb8241962e2b91465e00"
             },
             "source": "NeoForge's Maven repository",
             "upstream": "NeoForge",
@@ -4263,9 +4263,17 @@
         ],
         "26.1.2": [
           {
-            "version": "26.1.2.112",
+            "version": "26.1.2.114",
             "channel": "stable",
             "recommended": true
+          },
+          {
+            "version": "26.1.2.113",
+            "channel": "stable"
+          },
+          {
+            "version": "26.1.2.112",
+            "channel": "stable"
           },
           {
             "version": "26.1.2.111",
@@ -5073,6 +5081,14 @@
         ],
         "26.3": [
           {
+            "version": "26.3.0.42-beta",
+            "channel": "beta"
+          },
+          {
+            "version": "26.3.0.41-beta",
+            "channel": "beta"
+          },
+          {
             "version": "26.3.0.40-beta",
             "channel": "beta"
           },
@@ -5232,7 +5248,7 @@
       }
     },
     "purpur": {
-      "madeAt": "2026-10-02T01:10:34Z",
+      "madeAt": "2026-10-02T20:17:07Z",
       "releases": [
         {
           "id": "purpur-26.3",
@@ -6112,7 +6128,7 @@
       }
     },
     "quilt": {
-      "madeAt": "2026-10-02T01:10:34Z",
+      "madeAt": "2026-10-02T20:17:07Z",
       "releases": [
         {
           "id": "quilt-26.3",
@@ -13182,7 +13198,7 @@
       }
     },
     "vanilla": {
-      "madeAt": "2026-10-02T01:10:34Z",
+      "madeAt": "2026-10-02T20:17:07Z",
       "releases": [
         {
           "id": "vanilla-26.3",
