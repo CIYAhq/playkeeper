@@ -138,7 +138,7 @@ From 0.4.4, Playkeeper counts how many machines run it, anonymously, so the proj
 | `channel` | the code of a `playkeeper.io/install/<code>` command, if one was used |
 | `kind` | `dashboard`, or `joined` for a machine connected to another dashboard |
 | `test` | marks the project's own test installs, which aren't counted |
-| `event`, `step` | from the installer: `started` once you accept its plan, then `succeeded`, or `failed` and the step that failed; or `refused` and the checks that turned it away, like `memory`, or `existing-service-stopped` for another Minecraft setup and its kind |
+| `event`, `step` | from the installer: `started` once you accept its plan, then `succeeded`, or `failed` and the step that failed; or `refused` and the checks that turned it away, like `memory`, or `existing-service-stopped` for another Minecraft setup and its kind, or `installed` when it runs where Playkeeper already does |
 | `address` | from a running machine: `free` (a playkeeper.me name), `own` (your own domain) or `ip` (none) |
 | `servers`, `running` | from a running machine: how many Minecraft servers it has, and how many run |
 

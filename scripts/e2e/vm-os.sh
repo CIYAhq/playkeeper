@@ -304,6 +304,20 @@ g 'sudo cat /var/lib/playkeeper/panel/tls/cert.pem' >"$OUT/cert.pem"
 g "sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d && printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\nEnvironment=PLAYKEEPER_E2E_BUILTIN_LISTS=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf >/dev/null && sudo systemctl daemon-reload && sudo systemctl restart playkeeper-agent"
 ok "Playkeeper $va in $took s, with Docker $docker ($(python3 -c 'import json, sys; print(" ".join(p for p in json.load(open(sys.argv[1]))["packagesInstalled"] if p.startswith("docker")))' "$OUT/install-manifest.json")); systemd knows every setting in its units"
 
+# People run the command again when the link didn't open. Onboarding below
+# then uses the new code it gives, which works only if the panel can read it.
+step "the install command again, where Playkeeper is installed"
+python3 "$root/test/e2e/tty_run.py" -- ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+  -i "$LAB_KEY" "pk@$G" "$oneliner" | tee "$OUT/install-again.txt"
+grep -qF "Playkeeper $va is already installed on this server." "$OUT/install-again.txt" || fail "the command run again didn't say Playkeeper is installed"
+again=$(grep -o 'setup code: [a-z0-9-]*' "$OUT/install-again.txt" | awk '{print $3}')
+{ [ -n "$again" ] && [ "$again" != "$code" ]; } || fail "the command run again gave no new setup code"
+for want in "/setup#code=$again" "Won't open? Open ports 8443 and 25565" "Settings › Playkeeper › Check for updates" "sudo playkeeper uninstall, then the install command again"; do
+  grep -qF "$want" "$OUT/install-again.txt" || fail "the command run again doesn't say: $want"
+done
+code=$again
+ok "it gives the setup link again, with a new code, which onboarding uses"
+
 step "keyboard-only onboarding in the browser"
 (cd "$UI" && PK_URL="https://$G:8443" PK_SETUP_CODE="$code" PK_SHOTS="$OUT/screenshots" PK_OUT="$OUT/ui" npx playwright test onboarding.spec.ts --reporter=list) | tee "$OUT/onboarding.txt"
 join=$(cat "$OUT/ui/join-address.txt")

@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.17
 
+- **Running the install command again:** where Playkeeper already runs, it said "Nothing to do" and stopped, which left someone whose link didn't open stuck. It now gives the dashboard's link again, with a new setup code while the admin account isn't made yet, what to do when the link won't open, how to update, and how to start over. With usage stats on, the run counts as an install refused because Playkeeper is installed, so those runs show apart from other refusals.
 - **When the installer finds another Minecraft setup:** it turned away most install runs with one long rule. It now says exactly what it found and whether it's running, and the one thing to do, with the command to paste: stop what runs, if Playkeeper is to take over, or install next to what doesn't run, which Playkeeper never touches. With usage stats on, a refusal also says which kind of setup it found: a service, a container, a running server or a panel's files.
 
 ## 0.4.16
