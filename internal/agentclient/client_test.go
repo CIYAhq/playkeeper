@@ -14,8 +14,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
@@ -123,13 +124,14 @@ func TestRawStreamsTheBodyBothWays(t *testing.T) {
 	}
 }
 
-type closeCounter struct {
+type closeSignal struct {
 	io.Reader
-	closed atomic.Int32
+	once   sync.Once
+	closed chan struct{}
 }
 
-func (c *closeCounter) Close() error {
-	c.closed.Add(1)
+func (c *closeSignal) Close() error {
+	c.once.Do(func() { close(c.closed) })
 	return nil
 }
 
@@ -147,7 +149,7 @@ func TestRawSendsTheSizeASizedBodyHas(t *testing.T) {
 		{"upload", -1, `-1 "upload"`},
 		{"", 0, `-1 ""`},
 	} {
-		body := &closeCounter{Reader: strings.NewReader(tc.body)}
+		body := &closeSignal{Reader: strings.NewReader(tc.body), closed: make(chan struct{})}
 		resp, err := c.Raw(context.Background(), "POST", "/v1/servers/abc/icon", nil, Sized(body, tc.size), nil, true)
 		if err != nil {
 			t.Fatalf("%d bytes: %v", tc.size, err)
@@ -157,7 +159,11 @@ func TestRawSendsTheSizeASizedBodyHas(t *testing.T) {
 		if string(got) != tc.want {
 			t.Errorf("a body of %d bytes reached the agent as %s, want %s", tc.size, got, tc.want)
 		}
-		if body.closed.Load() == 0 {
+		// The transport may close a body after RoundTrip returned, from the
+		// goroutine that sent it (see http.RoundTripper).
+		select {
+		case <-body.closed:
+		case <-time.After(10 * time.Second):
 			t.Errorf("a body of %d bytes was left open", tc.size)
 		}
 	}
