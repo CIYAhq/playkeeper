@@ -2962,6 +2962,19 @@ describe('Onboarding', () => {
       expect([...document.querySelectorAll('a')].find((l) => l.textContent === 'Finish it in Machine settings')?.getAttribute('href')).toBe('/machines/m2345abcde/settings')
     })
 
+    it('shows a claim that went through as being got, not the offer again, while the machine doesn’t show it yet', async () => {
+      answer({ '/preflight': preflight, '/address/available?name=admin': reserved, '/address/available': { available: true }, '/address': none })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      const name = /^Get (.+)\.playkeeper\.me$/.exec(offer()?.textContent ?? '')?.[1] ?? ''
+      answerPosts({ '/address/claim': { ...none, kind: 'playkeeper', host: `${name}.playkeeper.me` } })
+      // The machine's address still answers as before the claim, as a poll that left before it can.
+      await act(async () => offer()?.click())
+      expect(document.body.textContent).toContain(`Getting ${name}.playkeeper.me`)
+      expect(offer()).toBeUndefined()
+      expect(vi.mocked(client.post).mock.calls.filter(([path]) => path.endsWith('/address/claim'))).toHaveLength(1)
+    })
+
     it('isn’t offered while the names service can’t be reached, or the machine has an address', async () => {
       answer({ '/preflight': preflight, '/address/available': new client.ApiError(503, { error: 'Playkeeper couldn’t reach the free address service.', code: 'names_unreachable' }), '/address': none })
       await render(<Onboarding />, admin)

@@ -16,7 +16,7 @@ import { usePoll } from '@/lib/usePoll'
 const busyPollMs = 2000
 const idlePollMs = 60_000
 
-type Claim = { status: 'idle' } | { status: 'claiming'; name: string } | { status: 'claimed' } | { status: 'failed'; name: string; error: string }
+type Claim = { status: 'idle' } | { status: 'claiming'; name: string } | { status: 'claimed'; name: string } | { status: 'failed'; name: string; error: string }
 
 /**
  * The machine check's offer of a free name, which nobody has to take: a name
@@ -33,9 +33,10 @@ export function FreeNameOffer({ id }: { id: string }) {
   const poll = usePoll(() => get<Address>(machineApi(id, '/address')), busy || claim.status === 'claiming' ? busyPollMs : idlePollMs, id)
   const a = poll.data
   const running = !!a && !!runningOp(a)
-  useEffect(() => setBusy(running), [running])
-  // A claim the machine doesn't show yet leaves the offer as it was.
-  const offering = !!a && a.kind === '' && !a.names.unreachable && (claim.status === 'idle' || claim.status === 'claimed')
+  // A claim the machine doesn't show yet, as a poll that left before it can say, is still being got.
+  const unseen = claim.status === 'claimed' && a?.kind !== 'playkeeper'
+  useEffect(() => setBusy(running || unseen), [running, unseen])
+  const offering = !!a && a.kind === '' && !a.names.unreachable && claim.status === 'idle'
   const suggestion = useFreeSuggestion(id, a ? startingName(ws.me.user.username, a.base) : '', { round, off: !offering })
 
   async function take(name: string) {
@@ -43,7 +44,7 @@ export function FreeNameOffer({ id }: { id: string }) {
     try {
       await post<Address>(machineApi(id, '/address/claim'), { name, acceptTerms: true })
       await poll.refresh()
-      setClaim({ status: 'claimed' })
+      setClaim({ status: 'claimed', name })
     } catch (e) {
       setClaim({ status: 'failed', name, error: errorText(e) })
     }
@@ -54,9 +55,9 @@ export function FreeNameOffer({ id }: { id: string }) {
   }
 
   if (!a) return null
-  if (claim.status === 'claiming' || (claim.status === 'claimed' && a.kind === 'playkeeper')) {
-    const host = claim.status === 'claiming' ? `${claim.name}.${a.base}` : (a.host ?? '')
-    const settled = claim.status === 'claimed' && !running
+  if (claim.status === 'claiming' || claim.status === 'claimed') {
+    const host = claim.status === 'claimed' && !unseen && a.host ? a.host : `${claim.name}.${a.base}`
+    const settled = claim.status === 'claimed' && !unseen && !running
     const url = settled ? namedDashboard(a, now) : undefined
     // A publish that failed, or a certificate that didn't come, is Machine settings' to finish.
     const op = a.operation
