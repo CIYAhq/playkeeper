@@ -1092,6 +1092,27 @@ control "test installs don't ask the names service for the public address" inter
   'if !privateAddr(host) || sys.PublicIPv4 == nil || o.Usage.Test || testInstall(sys) {' \
   'if !privateAddr(host) || sys.PublicIPv4 == nil {' \
   ./internal/install '^TestTheSetupLinkUsesThePublicAddressBehindNAT$'
+control "the install command run again gives a new setup link before setup" internal/install/inplace.go \
+  '			res.ExistingAdm, res.SetupCode = setupState(ctx, sys, cfg)' \
+  '			_ = setupState' \
+  ./internal/install '^TestTheInstallCommandRunAgainGivesTheLinkAgain$'
+control "run again, it makes a new setup code only while the dashboard has no admin" internal/install/inplace.go \
+  '	if !needs {' \
+  '	if false && !needs {' \
+  ./internal/install '^TestTheInstallCommandRunAgainGivesTheLinkAgain$'
+control "run again, the new setup code's file is the panel's to read" internal/install/inplace.go \
+  '	if err != nil || sys.Chown(path, uid, gid) != nil {' \
+  '	if err != nil || uid < -1 || gid < -1 {' \
+  ./internal/install '^TestTheInstallCommandRunAgainGivesTheLinkAgain$'
+control "run again without root, it makes no setup code" internal/install/inplace.go \
+  '	if sys.NeedsSetup == nil || !sys.IsRoot() {' \
+  '	if sys.NeedsSetup == nil {' \
+  ./internal/install '^TestTheInstallCommandRunAgainGivesTheLinkAgain$'
+control "run again, the summary says what to do when the link won't open" cmd/playkeeper/main.go \
+  '	fmt.Fprintf(w, "     %s\n", wontOpen(res))
+	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
+  '	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
+  ./cmd/playkeeper '^TestTheInstallCommandRunAgainSaysHowToGetIn$'
 control "a failed Docker install removes the repository it added" internal/install/install.go \
   '				return removeFiles(sys, in.m.DockerRepoFiles)' \
   '				return nil' \

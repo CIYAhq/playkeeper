@@ -153,6 +153,62 @@ func TestInstallSummarySaysWhatToDoWhenTheLinkWontOpen(t *testing.T) {
 	}
 }
 
+// The install command run again where this version runs gives the way in
+// again: the link, with a new setup code before setup, what to do when it
+// won't open, how to update and how to start over.
+func TestTheInstallCommandRunAgainSaysHowToGetIn(t *testing.T) {
+	always := []string{
+		"\n     Won't open? Open ports 8443 and 25565 in Oracle Cloud's firewall: https://playkeeper.io/ports#oracle-cloud\n",
+		"  2. Your browser warns that the connection isn't private. Click Advanced, then Proceed:",
+		"\nTo update: in the dashboard, Settings › Playkeeper › Check for updates.\n",
+		"\nTo start over: sudo playkeeper uninstall, then run the install command again. Your worlds and backups stay; sudo playkeeper uninstall --purge deletes them too.\n",
+	}
+	for _, c := range []struct {
+		name      string
+		res       install.Result
+		want, not []string
+	}{
+		{"before setup", install.Result{SetupCode: "abc123"},
+			[]string{"\n  1. Open this link in your browser:\n       https://203.0.113.7:8443/setup#code=abc123\n     (a new setup code: abc123 — works once, expires in 24 hours)\n"},
+			[]string{"Forgot the password?", "Lost the setup code?"}},
+		{"with its admin", install.Result{ExistingAdm: true},
+			[]string{"\n  1. Open https://203.0.113.7:8443 and sign in.\n", "\nForgot the password? sudo playkeeper reset-password <username>\n"},
+			[]string{"setup#code", "Lost the setup code?"}},
+		{"not known", install.Result{},
+			[]string{"\n  1. Open https://203.0.113.7:8443 in your browser.\n", "\nLost the setup code? sudo playkeeper setup-code\n", "\nForgot the password? sudo playkeeper reset-password <username>\n"},
+			nil},
+	} {
+		c.res.UpToDate, c.res.URL, c.res.PanelPort, c.res.GamePort, c.res.Provider = true, "https://203.0.113.7:8443", 8443, 25565, install.Providers[3]
+		var b bytes.Buffer
+		writeInstalledSummary(&b, &c.res)
+		out := b.String()
+		for _, want := range append(c.want, always...) {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: the summary lacks %q:\n%s", c.name, want, out)
+			}
+		}
+		for _, bad := range c.not {
+			if strings.Contains(out, bad) {
+				t.Errorf("%s: the summary says %q:\n%s", c.name, bad, out)
+			}
+		}
+		if strings.Index(out, "Won't open?") > strings.Index(out, "  2. ") {
+			t.Errorf("%s: Won't open? isn't under the link:\n%s", c.name, out)
+		}
+	}
+
+	var joined bytes.Buffer
+	writeInstalledSummary(&joined, &install.Result{UpToDate: true, NoPanel: true})
+	for _, want := range []string{"its servers are in the dashboard it joined", "To update it: in that dashboard, Settings › Machines.", "To start over: sudo playkeeper uninstall, then connect it again"} {
+		if !strings.Contains(joined.String(), want) {
+			t.Errorf("a joined machine's summary lacks %q:\n%s", want, joined.String())
+		}
+	}
+	if strings.Contains(joined.String(), "Won't open?") {
+		t.Errorf("a joined machine's summary names a dashboard link:\n%s", joined.String())
+	}
+}
+
 func TestDevStaysOffTheRealNamesServiceAndLetsEncrypt(t *testing.T) {
 	cfg := config.Default()
 	devDefaults(&cfg)

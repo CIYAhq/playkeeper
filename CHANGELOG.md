@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.17
+
+- **Running the install command again:** where Playkeeper already runs, it said "Nothing to do" and stopped, which left someone whose link didn't open stuck. It now gives the dashboard's link again, with a new setup code while the admin account isn't made yet, what to do when the link won't open, how to update, and how to start over.
+
 ## 0.4.16
 
 - **When the setup link won't open:** right under it, the installer's last screen now says what to do: open ports 8443 and 25565 in the provider's firewall, with a link to that provider's steps on playkeeper.io/ports. It tells AWS, Google Cloud, Azure, Oracle Cloud, DigitalOcean, Hetzner, Vultr and Linode apart from what cloud-init or the machine's firmware says. The checks before the question no longer mention a cloud firewall, where the line scrolled away; a machine joining another dashboard, which prints no link, keeps it there.

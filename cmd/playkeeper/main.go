@@ -321,6 +321,7 @@ func runInstall(args []string) error {
 	}
 	switch {
 	case res.UpToDate:
+		writeInstalledSummary(os.Stdout, res)
 	case res.Upgraded:
 		writeUpgradeSummary(os.Stdout, res)
 	case res.NoPanel:
@@ -449,6 +450,43 @@ func wontOpen(res *install.Result) string {
 	return fmt.Sprintf("Won't open? Open ports %d and %d in %s: %s", res.PanelPort, res.GamePort, firewall, res.Provider.StepsURL())
 }
 
+// browserWarning is the step for the browser's warning about the dashboard's
+// own certificate, which is what a link to its address shows.
+const browserWarning = "Your browser warns that the connection isn't private. Click Advanced, then Proceed:\n     this warning is expected. (Safari: Show Details, then visit this website.)"
+
+// writeInstalledSummary is what the install command says where this version
+// already runs. People run it again when the link didn't open, or to update,
+// so it gives the link again, with a new setup code before setup, what to do
+// when it won't open, how to update, and how to start over.
+func writeInstalledSummary(w io.Writer, res *install.Result) {
+	if res.NoPanel {
+		fmt.Fprintf(w, "\nThis machine has no dashboard of its own: its servers are in the dashboard it joined (sudo playkeeper status says which).\n")
+		fmt.Fprintf(w, "To update it: in that dashboard, Settings › Machines.\n")
+		fmt.Fprintf(w, "To start over: sudo playkeeper uninstall, then connect it again from that dashboard's Settings › Machines.\n")
+		return
+	}
+	switch {
+	case res.SetupCode != "":
+		fmt.Fprintf(w, "\n  1. Open this link in your browser:\n       %s/setup#code=%s\n", res.URL, res.SetupCode)
+		fmt.Fprintf(w, "     (a new setup code: %s — works once, expires in 24 hours)\n", res.SetupCode)
+	case res.ExistingAdm:
+		fmt.Fprintf(w, "\n  1. Open %s and sign in.\n", res.URL)
+	default:
+		fmt.Fprintf(w, "\n  1. Open %s in your browser.\n", res.URL)
+	}
+	fmt.Fprintf(w, "     %s\n", wontOpen(res))
+	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)
+	writePrivateHost(w, res)
+	if res.SetupCode == "" && !res.ExistingAdm {
+		fmt.Fprintf(w, "Lost the setup code? sudo playkeeper setup-code\n")
+	}
+	if res.SetupCode == "" {
+		fmt.Fprintf(w, "Forgot the password? sudo playkeeper reset-password <username>\n")
+	}
+	fmt.Fprintf(w, "To update: in the dashboard, Settings › Playkeeper › Check for updates.\n")
+	fmt.Fprintf(w, "To start over: sudo playkeeper uninstall, then run the install command again. Your worlds and backups stay; sudo playkeeper uninstall --purge deletes them too.\n")
+}
+
 // writeInstallSummary tells the user what to do next. A reinstall that kept an
 // admin account gets sign-in instructions instead of a setup code.
 func writeInstallSummary(w io.Writer, res *install.Result) {
@@ -461,7 +499,7 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 		fmt.Fprintf(w, "  1. Open %s and sign in with your existing admin account.\n", res.URL)
 		fmt.Fprintf(w, "     %s\n", wontOpen(res))
 	}
-	fmt.Fprintf(w, "  2. Your browser warns that the connection isn't private. Click Advanced, then Proceed:\n     this warning is expected. (Safari: Show Details, then visit this website.)\n")
+	fmt.Fprintf(w, "  2. %s\n", browserWarning)
 	if res.SetupCode != "" {
 		fmt.Fprintf(w, "  3. Create your admin account, accept the Minecraft EULA and start your server.\n\n")
 	} else {

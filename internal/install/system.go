@@ -61,6 +61,9 @@ type System struct {
 	// machine's requests come from, for a machine whose own address is a
 	// private one behind the provider's NAT; nil asks nothing.
 	PublicIPv4 func(ctx context.Context) (string, error)
+	// NeedsSetup asks the panel whether it still waits for its first-run
+	// setup, with no admin account yet; nil asks nothing.
+	NeedsSetup func(ctx context.Context, certPath string, panelPort int) (bool, error)
 }
 
 type DockerInfo struct {
@@ -145,6 +148,7 @@ func Real() System {
 		Version:     binaryVersion,
 		Firewall:    netguard.Exec,
 		PublicIPv4:  namesIPv4,
+		NeedsSetup:  panelNeedsSetup,
 	}
 }
 
