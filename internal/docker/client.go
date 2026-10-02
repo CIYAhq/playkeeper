@@ -429,10 +429,11 @@ type ContainerJSON struct {
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
 	HostConfig struct {
-		Memory       int64                    `json:"Memory"`
-		NanoCPUs     int64                    `json:"NanoCpus"`
-		PortBindings map[string][]PortBinding `json:"PortBindings"`
-		Binds        []string                 `json:"Binds"`
+		Memory        int64                    `json:"Memory"`
+		NanoCPUs      int64                    `json:"NanoCpus"`
+		PortBindings  map[string][]PortBinding `json:"PortBindings"`
+		Binds         []string                 `json:"Binds"`
+		RestartPolicy RestartPolicy            `json:"RestartPolicy"`
 	} `json:"HostConfig"`
 	NetworkSettings struct {
 		Networks map[string]struct {

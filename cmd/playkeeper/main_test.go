@@ -153,6 +153,18 @@ func TestInstallSummarySaysWhatToDoWhenTheLinkWontOpen(t *testing.T) {
 	}
 }
 
+// An install next to old Minecraft setups says on its last screen, one line
+// each, that it left them alone.
+func TestInstallSummarySaysWhichOldSetupsItLeftAlone(t *testing.T) {
+	left := []string{"Left your old Minecraft service (minecraft.service) alone; it isn't running.", "Left your old Minecraft container (mc) alone; it's stopped and won't start by itself."}
+	var b bytes.Buffer
+	writeInstallSummary(&b, &install.Result{URL: "https://192.0.2.10:8443", SetupCode: "abc123", Fingerprint: "AA:BB", LeftAlone: left})
+	out := b.String()
+	if want := "\n" + strings.Join(left, "\n") + "\nUninstall any time:"; !strings.Contains(out, want) {
+		t.Errorf("the summary lacks %q:\n%s", want, out)
+	}
+}
+
 // The install command run again where this version runs gives the way in
 // again: the link, with a new setup code before setup, what to do when it
 // won't open, how to update and how to start over.

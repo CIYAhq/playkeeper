@@ -183,6 +183,9 @@ printf "%s\n" "*filter" ":INPUT ACCEPT [0:0]" ":FORWARD ACCEPT [0:0]" ":OUTPUT A
 sudo netfilter-persistent reload >/dev/null 2>&1
 echo "iptables as on Oracle Cloud: SSH gets in, then $(sudo iptables -S INPUT | tail -1 | cut -d" " -f3-), saved in /etc/iptables/rules.v4"'
       ;;
+    leftovers)
+      echo "old Minecraft setups come after the uninstall, for a second install next to them"
+      ;;
     *)
       echo "unknown OS_PREP '$OS_PREP'"
       return 1
@@ -443,6 +446,40 @@ if [ "${OS_PREP:-}" = oracle-iptables ]; then
   g 'sudo cat /etc/iptables/rules.v4' | diff "$OUT/rules.v4-before" - >"$OUT/rules.v4.diff" || fail "uninstall left /etc/iptables/rules.v4 changed: $(head -c 300 "$OUT/rules.v4.diff")"
   g 'sudo iptables -S INPUT' | diff "$OUT/input-before.txt" - >"$OUT/input.diff" || fail "uninstall left the INPUT chain changed: $(head -c 300 "$OUT/input.diff")"
   ok "/etc/iptables/rules.v4 and the running INPUT chain are what they were before the install; the dashboard opened through them, after the reboot too"
+fi
+
+if [ "${OS_PREP:-}" = leftovers ]; then
+  # A service that's neither running nor enabled, a stopped container
+  # without a restart policy, and a panel's folder whose panel doesn't run:
+  # the install goes next to each and never touches it.
+  step "old Minecraft setups that can't get in the way: the install goes next to them and leaves them alone"
+  theirs='sudo sha256sum /etc/systemd/system/minecraft.service /var/opt/minecraft/crafty/app/config/config.json; sudo docker ps -a --filter name=old-minecraft --format "{{.Names}} {{.Image}} {{.State}}"'
+  g 'set -e
+for try in 1 2 3; do sudo apt-get update -qq && break; sleep $((try * 15)); done
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io >/dev/null
+printf "[Unit]\nDescription=Old Minecraft server\n[Service]\nExecStart=/usr/bin/sleep infinity\n[Install]\nWantedBy=multi-user.target\n" | sudo tee /etc/systemd/system/minecraft.service >/dev/null
+sudo systemctl daemon-reload
+mkdir -p /tmp/empty && tar -C /tmp/empty -c . | sudo docker import - local/minecraft-leftover:1 >/dev/null
+sudo docker create --name old-minecraft --restart no local/minecraft-leftover:1 /nothing >/dev/null
+sudo mkdir -p /var/opt/minecraft/crafty/app/config
+echo "{\"crafty\":true}" | sudo tee /var/opt/minecraft/crafty/app/config/config.json >/dev/null' || fail "could not make the old setups"
+  g "$theirs" | tee "$OUT/leftovers-before.txt"
+  g 'sudo systemctl enable -q minecraft.service'
+  if g 'cd pk/playkeeper-* && sudo DO_NOT_TRACK=1 ./install.sh --yes' >"$OUT/leftovers-refused.txt" 2>&1; then
+    fail "the install went ahead next to a service that starts with the machine"
+  fi
+  grep -qF "To keep it off and install next to it: sudo systemctl disable minecraft.service" "$OUT/leftovers-refused.txt" || fail "the refusal doesn't say how to keep the service off: $(grep -m1 'Existing Minecraft' "$OUT/leftovers-refused.txt")"
+  g 'sudo systemctl disable -q minecraft.service'
+  g 'cd pk/playkeeper-* && sudo DO_NOT_TRACK=1 ./install.sh --yes' | tee "$OUT/leftovers-install.txt" || fail "the install didn't go next to the old setups"
+  for want in "Left your old Minecraft service (minecraft.service) alone; it isn't running." \
+    "Left your old Minecraft container (old-minecraft) alone; it's stopped and won't start by itself." \
+    "Left Crafty's old files (/var/opt/minecraft/crafty) alone; Crafty isn't running."; do
+    grep -qF "$want" "$OUT/leftovers-install.txt" || fail "the install doesn't say: $want"
+  done
+  g "$theirs" | diff "$OUT/leftovers-before.txt" - || fail "the install changed an old setup"
+  g 'sudo playkeeper uninstall --yes' >"$OUT/leftovers-uninstall.txt" 2>&1 || fail "the uninstall next to the old setups failed"
+  g "$theirs" | diff "$OUT/leftovers-before.txt" - || fail "the uninstall changed an old setup"
+  ok "a service that starts with the machine is refused with the step that keeps it off; next to a service, a container and a panel's folder that don't run, the install goes ahead, names each, and it and the uninstall leave them as they were"
 fi
 
 touch "$OUT/passed"

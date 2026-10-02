@@ -326,6 +326,9 @@ func runInstall(args []string) error {
 		writeUpgradeSummary(os.Stdout, res)
 	case res.NoPanel:
 		fmt.Printf("\nPlaykeeper is installed (in %s).\n", res.Duration.Round(time.Second))
+		for _, line := range res.LeftAlone {
+			fmt.Println(line)
+		}
 		if res.UsageOn {
 			fmt.Printf("Anonymous usage stats are on; Settings › Playkeeper on your dashboard turns them off.\n")
 		}
@@ -514,6 +517,9 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 		fmt.Fprintf(w, "Lost the setup code? sudo playkeeper setup-code\n")
 	} else {
 		fmt.Fprintf(w, "Forgot the password? sudo playkeeper reset-password <username>\n")
+	}
+	for _, line := range res.LeftAlone {
+		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintf(w, "Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)\n")
 	if res.Fingerprint != "" {

@@ -1121,42 +1121,84 @@ control "run again, the summary says what to do when the link won't open" cmd/pl
 	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
   '	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
   ./cmd/playkeeper '^TestTheInstallCommandRunAgainSaysHowToGetIn$'
-control "the existing-setup refusal tells a running service from a stopped one" internal/install/install.go \
+control "the existing-setup check tells a running service from a stopped one" internal/install/install.go \
   '	case slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
   '	case false && slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
-control "a stopped service that starts with the machine is disabled before installing next to it" internal/install/install.go \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "a stopped service that starts with the machine is refused, with the step that keeps it off" internal/install/install.go \
   '	case strings.HasPrefix(strings.TrimSpace(enabled), "enabled"):' \
   '	case false && strings.HasPrefix(strings.TrimSpace(enabled), "enabled"):' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
-control "the existing-setup refusal tells a running container from a stopped one" internal/install/install.go \
-  '	if c.State == "running" || c.State == "restarting" {' \
-  '	if false {' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
-control "a Minecraft server running outside what Playkeeper found gets no command to stop it" internal/install/install.go \
-  '	case unexplained && !running:' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "an old service that neither runs nor starts with the machine is left alone" internal/install/install.go \
+  '	return setup{what: "the service " + name + " (not running)", left:' \
+  '	return setup{blocks: true, stat: "existing-service-stopped", what: "the service " + name + " (not running)", left:' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "the existing-setup check tells a running container from a stopped one" internal/install/install.go \
+  '	case c.State == "running" || c.State == "restarting":' \
   '	case false:' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "a stopped container that Docker starts again is refused" internal/install/install.go \
+  '	again := !known || !slices.Contains([]string{"", "no", "unless-stopped"}, restart)' \
+  '	again := !known' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "a container whose restart policy can't be read counts as one that starts again" internal/install/install.go \
+  '	again := !known || !slices.Contains([]string{"", "no", "unless-stopped"}, restart)' \
+  '	again := !slices.Contains([]string{"", "no", "unless-stopped"}, restart)' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "a panel's folders are refused while the panel runs" internal/install/install.go \
+  '			panelRuns[p.panel] = panelRuns[p.panel] || slices.ContainsFunc(procs, p.proc.MatchString)' \
+  '			panelRuns[p.panel] = false' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "old setups that can't get in the way don't refuse the install" internal/install/install.go \
+  '	case len(stats) == 0:' \
+  '	case false:' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "the install names the old setups it left alone" internal/install/install.go \
+  '		f.LeftAlone = left' \
+  '		_ = left' \
+  ./internal/install '^TestAnInstallNextToOldSetupsNeverTouchesThem$'
+control "a server or panel running outside what Playkeeper found gets no command to stop it" internal/install/install.go \
+  '	case byHand != "" && !running:' \
+  '	case false:' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
 control "the command to install next to a setup keeps usage stats off" internal/install/install.go \
   '	if o.Usage.Choice == usage.Off {' \
   '	if false {' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
 control "the command that installs again keeps the run's other ports" internal/install/install.go \
   '	if o.GamePort != 0 && o.GamePort != config.DefaultGamePort {' \
   '	if false {' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
 control "a machine joining a dashboard is sent back to the dashboard's join command" internal/install/install.go \
-  '	join := "run the join command from your dashboard again, with " + flag + " at the end"' \
-  '	join := againWith(o, flag)' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+  '	if o.Join != "" {
+		return rerun{words: "run the join command from your dashboard again"}' \
+  '	if false {
+		return rerun{words: "run the join command from your dashboard again"}' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "a release's install.sh is named by its full path, quoted for the shell" internal/install/install.go \
+  '				cmd = strings.TrimSpace("sudo " + env + shellQuote(script) + " " + flags)' \
+  '				cmd = strings.TrimSpace("sudo " + env + "./install.sh " + flags)' \
+  ./internal/install '^TestTheCommandToRunAReleasesInstallerAgainNamesItByItsFullPath$'
+control "a binary with no install.sh beside it gets words, not a command for a file that isn't there" internal/install/install.go \
+  '			if _, err := os.Stat(script); err == nil {' \
+  '			if true {' \
+  ./internal/install '^TestTheCommandToRunAReleasesInstallerAgainNamesItByItsFullPath$'
+control "get.sh from a mirror gets words, not a command for the download get.sh deletes" internal/install/install.go \
+  '	case usage.SourceTarball:' \
+  '	case usage.SourceTarball, usage.SourceMirror:' \
+  ./internal/install '^TestTheCommandToRunAReleasesInstallerAgainNamesItByItsFullPath$'
 control "the release location in the command is quoted for the shell" internal/install/install.go \
   '		f = append(f, "--release-url", shellQuote(o.ReleaseURL))' \
   '		f = append(f, "--release-url", o.ReleaseURL)' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
 control "the stats say which kind of setup turned an install away" internal/install/install.go \
   '		f.Checks[len(f.Checks)-1].Stats = stats' \
   '		_ = stats' \
-  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "the last screen says which old setups the install left alone" cmd/playkeeper/main.go \
+  '		fmt.Fprintln(w, line)' \
+  '		_ = line' \
+  ./cmd/playkeeper '^TestInstallSummarySaysWhichOldSetupsItLeftAlone$'
 control "a failed Docker install removes the repository it added" internal/install/install.go \
   '				return removeFiles(sys, in.m.DockerRepoFiles)' \
   '				return nil' \
