@@ -107,7 +107,15 @@ label: Open your VPS's ports
       <li>On the VPS, <code>sudo playkeeper status</code> says whether Playkeeper is running.</li>
       <li><a href="{{.Settings.Community.URL}}">{{.Settings.Community.Ask}}</a>: someone has seen it before.</li>
     </ul>
-    <p>Later, a free name for your VPS uses TCP 443 and 80 too: open them the same way.</p>
+
+    <h2 id="more">More ports, only if you use them</h2>
+    <p>Open each one when you turn on what needs it, the same way as above:</p>
+    <ul>
+      <li>Bedrock friends (crossplay): UDP <code>19132</code>.</li>
+      <li>Voice chat: UDP <code>24454</code>.</li>
+      <li>A free name for your VPS: TCP <code>443</code> and <code>80</code>.</li>
+    </ul>
+    <p>For Bedrock friends and voice chat, pick <strong>UDP</strong> where the steps say TCP. Another server with crossplay or voice chat gets the next port, like <code>19133</code>, and the dashboard shows it.</p>
     </div>
   </div>
 </section>
