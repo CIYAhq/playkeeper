@@ -17,6 +17,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/panel"
+	"github.com/CIYAhq/playkeeper/internal/usage"
 )
 
 // People run the install command again where Playkeeper already runs when
@@ -125,4 +126,52 @@ func TestTheInstallCommandRunAgainGivesTheLinkAgain(t *testing.T) {
 			t.Errorf("asked %v; result %+v; changed %v", r.asked, r.res, r.changed)
 		}
 	})
+}
+
+// The install command run again where Playkeeper runs reports an install
+// refused because it's installed, once it has said usage stats are on, so
+// the stats tell those runs from the ones another check turned away. A
+// machine whose stats are off, or a run that turns them off, sends nothing.
+func TestTheInstallCommandRunAgainReportsItWasInstalled(t *testing.T) {
+	for _, c := range []struct {
+		name, setting string
+		joined, off   bool
+		want          []string
+		kind          string
+	}{
+		{name: "usage stats on", want: []string{"refused:installed"}, kind: usage.KindDashboard},
+		{name: "a joined machine", joined: true, want: []string{"refused:installed"}, kind: usage.KindJoined},
+		{name: "off on the machine", setting: "off"},
+		{name: "off for this run", off: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newFakeHost(t)
+			cfg := installedAt(t, h, "0.4.17", true)
+			cfg.UsageStats, cfg.NoPanel = c.setting, c.joined
+			if err := cfg.Save(filepath.Join(h.root, ConfigDir, "config.json")); err != nil {
+				t.Fatal(err)
+			}
+			var r reports
+			o := withUsage(opts(""), &r, func(u *Usage) {
+				if c.off {
+					u.Choice, u.Why = usage.Off, usage.EnvSwitch
+				}
+			})
+			if _, err := Run(context.Background(), h.system(t), o, "0.4.17"); err != nil {
+				t.Fatalf("running it again: %v\n%s", err, o.Out)
+			}
+			if got := r.events(); !slices.Equal(got, c.want) {
+				t.Fatalf("sent %v, want %v", got, c.want)
+			}
+			out := o.Out.(*bytes.Buffer).String()
+			if said := strings.Index(out, "Anonymous usage stats are "); said < 0 || said > strings.Index(out, "is already installed") {
+				t.Errorf("usage stats weren't named first:\n%s", out)
+			}
+			if c.want != nil {
+				if e := r.all()[0]; e.Kind != c.kind || e.Version != "0.4.17" || e.Source != usage.SourceSite || e.Test {
+					t.Errorf("report: %+v", e)
+				}
+			}
+		})
+	}
 }

@@ -4,7 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.17
 
-- **Running the install command again:** where Playkeeper already runs, it said "Nothing to do" and stopped, which left someone whose link didn't open stuck. It now gives the dashboard's link again, with a new setup code while the admin account isn't made yet, what to do when the link won't open, how to update, and how to start over.
+- **Running the install command again:** where Playkeeper already runs, it said "Nothing to do" and stopped, which left someone whose link didn't open stuck. It now gives the dashboard's link again, with a new setup code while the admin account isn't made yet, what to do when the link won't open, how to update, and how to start over. With usage stats on, the run counts as an install refused because Playkeeper is installed, so those runs show apart from other refusals.
 
 ## 0.4.16
 

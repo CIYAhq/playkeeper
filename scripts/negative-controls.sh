@@ -1104,6 +1104,14 @@ control "run again, the new setup code's file is the panel's to read" internal/i
   '	if err != nil || sys.Chown(path, uid, gid) != nil {' \
   '	if err != nil || uid < -1 || gid < -1 {' \
   ./internal/install '^TestTheInstallCommandRunAgainGivesTheLinkAgain$'
+control "the install command run again reports an install refused for installed" internal/install/inplace.go \
+  '		rep.send(ctx, usage.EventRefused, "installed")' \
+  '		_ = rep' \
+  ./internal/install '^TestTheInstallCommandRunAgainReportsItWasInstalled$'
+control "run again, it reports nothing while the machine's usage stats are off" internal/install/inplace.go \
+  '	if !on {' \
+  '	if false && !on {' \
+  ./internal/install '^TestTheInstallCommandRunAgainReportsItWasInstalled$'
 control "run again without root, it makes no setup code" internal/install/inplace.go \
   '	if sys.NeedsSetup == nil || !sys.IsRoot() {' \
   '	if sys.NeedsSetup == nil {' \

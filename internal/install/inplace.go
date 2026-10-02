@@ -15,7 +15,9 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/panel"
+	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/update"
+	"github.com/CIYAhq/playkeeper/internal/usage"
 )
 
 // runUpgrade upgrades an existing install to this binary in place, for
@@ -50,12 +52,19 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	}
 	switch {
 	case cmp == 0:
-		fmt.Fprintf(out, "Playkeeper %s is already installed on this server.\n", old)
+		on, why := o.Usage.upgradeState(ctx, sys, cfg)
+		for _, line := range o.Usage.notice(on, why) {
+			fmt.Fprintln(out, line)
+		}
+		fmt.Fprintf(out, "\nPlaykeeper %s is already installed on this server.\n", old)
+		rep := installedReporter(on, o, sys, cfg, newVersion)
+		rep.send(ctx, usage.EventRefused, "installed")
 		res.UpToDate = true
 		if !cfg.NoPanel {
 			res.link(ctx, sys, o, cfg)
 			res.ExistingAdm, res.SetupCode = setupState(ctx, sys, cfg)
 		}
+		rep.wait()
 		return res, nil
 	case cmp < 0:
 		return nil, fmt.Errorf("this installer is Playkeeper %s, older than the installed %s. Playkeeper does not go back to an older version, so nothing was changed", newVersion, old)
@@ -124,6 +133,25 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	res.Upgraded = true
 	res.Duration = sys.Now().Sub(start)
 	return res, nil
+}
+
+// installedReporter reports for the install command run where this version
+// already runs, as an install refused because Playkeeper is installed, so
+// the stats tell those runs from the ones another check turned away. It's
+// nil when the machine's usage stats are off.
+func installedReporter(on bool, o Options, sys System, cfg config.Config, version string) *reporter {
+	if !on {
+		return nil
+	}
+	kind := usage.KindDashboard
+	if cfg.NoPanel {
+		kind = usage.KindJoined
+	}
+	rep := newReporter(o.Usage, sys, platform.ReadOS(sys.P("/etc/os-release")), version, kind)
+	if rep != nil && cfg.UsageTest {
+		rep.sys.Test = true
+	}
+	return rep
 }
 
 // link puts the dashboard's link in res, at the machine's public address as
