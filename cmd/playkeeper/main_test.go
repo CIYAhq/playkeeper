@@ -161,7 +161,8 @@ func TestTheInstallCommandRunAgainSaysHowToGetIn(t *testing.T) {
 		"\n     Won't open? Open ports 8443 and 25565 in Oracle Cloud's firewall: https://playkeeper.io/ports#oracle-cloud\n",
 		"  2. Your browser warns that the connection isn't private. Click Advanced, then Proceed:",
 		"\nTo update: in the dashboard, Settings › Playkeeper › Check for updates.\n",
-		"\nTo start over: sudo playkeeper uninstall, then run the install command again. Your worlds and backups stay; sudo playkeeper uninstall --purge deletes them too.\n",
+		"\nTo start over: sudo playkeeper uninstall, then the install command again. Worlds and backups stay.\n",
+		"\nTo start over without them: sudo playkeeper uninstall --purge, then the install command again.\n",
 	}
 	for _, c := range []struct {
 		name      string

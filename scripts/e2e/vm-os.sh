@@ -312,7 +312,7 @@ python3 "$root/test/e2e/tty_run.py" -- ssh -tt -o StrictHostKeyChecking=no -o Us
 grep -qF "Playkeeper $va is already installed on this server." "$OUT/install-again.txt" || fail "the command run again didn't say Playkeeper is installed"
 again=$(grep -o 'setup code: [a-z0-9-]*' "$OUT/install-again.txt" | awk '{print $3}')
 { [ -n "$again" ] && [ "$again" != "$code" ]; } || fail "the command run again gave no new setup code"
-for want in "/setup#code=$again" "Won't open? Open ports 8443 and 25565" "Settings › Playkeeper › Check for updates" "sudo playkeeper uninstall, then run the install command again"; do
+for want in "/setup#code=$again" "Won't open? Open ports 8443 and 25565" "Settings › Playkeeper › Check for updates" "sudo playkeeper uninstall, then the install command again"; do
   grep -qF "$want" "$OUT/install-again.txt" || fail "the command run again doesn't say: $want"
 done
 code=$again

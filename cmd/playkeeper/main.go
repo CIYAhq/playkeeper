@@ -484,7 +484,8 @@ func writeInstalledSummary(w io.Writer, res *install.Result) {
 		fmt.Fprintf(w, "Forgot the password? sudo playkeeper reset-password <username>\n")
 	}
 	fmt.Fprintf(w, "To update: in the dashboard, Settings › Playkeeper › Check for updates.\n")
-	fmt.Fprintf(w, "To start over: sudo playkeeper uninstall, then run the install command again. Your worlds and backups stay; sudo playkeeper uninstall --purge deletes them too.\n")
+	fmt.Fprintf(w, "To start over: sudo playkeeper uninstall, then the install command again. Worlds and backups stay.\n")
+	fmt.Fprintf(w, "To start over without them: sudo playkeeper uninstall --purge, then the install command again.\n")
 }
 
 // writeInstallSummary tells the user what to do next. A reinstall that kept an
