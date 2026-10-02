@@ -3,7 +3,7 @@ import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { MachineView } from '@/api/types'
-import { OwnNameField, ownNameProblem, ownOperators } from '@/components/app/create'
+import { OwnNameField, ownNameProblem, ownOperators } from '@/components/app/own-name'
 
 // The walkthrough of 1 Oct 2026: new servers have the allowlist on, and
 // nobody asked for the owner's own Minecraft name, so their first join was

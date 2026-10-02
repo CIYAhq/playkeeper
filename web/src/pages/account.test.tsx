@@ -120,7 +120,7 @@ let root: Root | undefined
 async function show(status: TwoFactorStatus, path = '/account', over: Partial<Workspace> = {}) {
   answer(status)
   window.history.replaceState(null, '', path)
-  const ws = { me, signOut: vi.fn(async () => {}), reloadMe: vi.fn(async () => {}), ...over } as unknown as Workspace
+  const ws = { me, prefs: {}, setPrefs: vi.fn(async () => {}), signOut: vi.fn(async () => {}), reloadMe: vi.fn(async () => {}), ...over } as unknown as Workspace
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
   await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{<Routed />}</WorkspaceContext.Provider>))
@@ -342,6 +342,62 @@ describe('with two-factor on', () => {
     expect(button('Sign out everywhere')).toBeTruthy()
     await click(button('Turn off two-factor'))
     expect(text()).toContain('Turn off two-factor sign-in?')
+  })
+})
+
+// The walkthrough of 1 Oct 2026: setup asks for the owner's Minecraft name,
+// which every new server makes an operator, and Account is where to change it.
+describe('your Minecraft name', () => {
+  const dialogText = () => document.querySelector('[role="dialog"]')?.textContent ?? ''
+
+  it('shows the name new servers use, and changes it for new servers only', async () => {
+    const setPrefs = vi.fn(async () => {})
+    await show(off, '/account', { prefs: { 'minecraft.name': 'Steve_Builds' }, setPrefs })
+    expect(text()).toContain('Minecraft name')
+    expect(text()).toContain('Steve_Builds')
+    expect(text()).toContain('New servers you create put it on their allowlist, as an operator.')
+
+    await click(button('Change'))
+    expect(dialogText()).toContain('Changing it affects new servers only.')
+    expect(field('Your Minecraft name').value).toBe('Steve_Builds')
+    await type(field('Your Minecraft name'), 'bad name')
+    expect(button('Save').title).toBe('Minecraft usernames are 3–16 letters, numbers or underscores.')
+    await submit()
+    expect(setPrefs).not.toHaveBeenCalled()
+
+    await type(field('Your Minecraft name'), ' Alex_Builds ')
+    await submit()
+    expect(setPrefs).toHaveBeenCalledWith({ 'minecraft.name': 'Alex_Builds' })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('forgets the name when the field is left empty, and says why when it can’t be saved', async () => {
+    const setPrefs = vi.fn(async () => {}).mockRejectedValueOnce(refusal(500, 'internal', 'Database error.'))
+    await show(off, '/account', { prefs: { 'minecraft.name': 'Steve_Builds' }, setPrefs })
+    await click(button('Change'))
+    await type(field('Your Minecraft name'), '')
+    await submit()
+    expect(setPrefs).toHaveBeenLastCalledWith({ 'minecraft.name': '' })
+    expect(dialogText()).toContain('Database error.')
+    await submit()
+    expect(setPrefs).toHaveBeenCalledTimes(2)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('is a row on a phone that says when there is none', async () => {
+    asPhone()
+    await show(on)
+    const row = need([...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Minecraft name')), 'Minecraft name row')
+    expect(row.textContent).toBe('Minecraft nameNot set')
+    await click(row)
+    expect(dialogText()).toContain('Changing it affects new servers only.')
+    expect(field('Your Minecraft name').value).toBe('')
+  })
+
+  it('isn’t shown to someone who can’t create servers', async () => {
+    await show(off, '/account', { me: { ...me, access: { ...me.access, can: me.access.can.filter((a) => a !== 'servers.create') } } })
+    expect(text()).toContain('Two-factor sign-in')
+    expect(text()).not.toContain('Minecraft name')
   })
 })
 
