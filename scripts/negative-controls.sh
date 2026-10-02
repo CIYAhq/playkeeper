@@ -1484,6 +1484,10 @@ control "an upload passed on to an agent says the size it came with" internal/ag
   'req.ContentLength = s.size' \
   '_ = s.size' \
   ./internal/agentclient '^TestRawSendsTheSizeASizedBodyHas$'
+control "an upload passed on to an agent with its size is still closed once sent" internal/agentclient/client.go \
+  'return &sized{ReadCloser: body, size: size}' \
+  'return &sized{ReadCloser: io.NopCloser(body), size: size}' \
+  ./internal/agentclient '^TestRawSendsTheSizeASizedBodyHas$'
 control "an upload passed on to a joined machine says its size, so the link can refuse it unread" internal/panel/server.go \
   'agentclient.Sized(r.Body, r.ContentLength)' \
   'r.Body' \
