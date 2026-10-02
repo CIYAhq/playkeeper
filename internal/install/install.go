@@ -203,8 +203,10 @@ func setupsNext(found []setup, o Options) string {
 		running = running || s.running && s.stop != ""
 		unexplained = unexplained || s.running && s.stop == ""
 	}
-	cmd := strings.Join(append(stops, againWith(o, "--allow-existing-minecraft")), " && ")
+	cmd := runAgain(o, stops, "--allow-existing-minecraft")
 	switch {
+	case unexplained && !running && o.Join != "":
+		return "If Playkeeper is to take over, stop that server, then run the join command from your dashboard again."
 	case unexplained && !running:
 		return "If Playkeeper is to take over, stop that server, then run the install command again."
 	case running:
@@ -213,8 +215,22 @@ func setupsNext(found []setup, o Options) string {
 	return "None of it is running, so Playkeeper can install next to it and never touch it: " + cmd
 }
 
+// runAgain is how to run the install again with flag, after the commands
+// first: one command to paste, or, on a machine joining a dashboard, whose
+// join code the installer doesn't keep, the dashboard's join command.
+func runAgain(o Options, first []string, flag string) string {
+	if o.Join == "" {
+		return strings.Join(append(first, againWith(o, flag)), " && ")
+	}
+	join := "run the join command from your dashboard again, with " + flag + " at the end"
+	if len(first) == 0 {
+		return join
+	}
+	return strings.Join(first, " && ") + ", then " + join
+}
+
 // againWith is the install command run again with flag, the way this run
-// came, with usage stats kept off when they were.
+// came and with the flags it had, and usage stats kept off when they were.
 func againWith(o Options, flag string) string {
 	env := ""
 	if o.Usage.Choice == usage.Off {
@@ -223,17 +239,45 @@ func againWith(o Options, flag string) string {
 			env = usage.EnvSwitch + "=off "
 		}
 	}
+	args := strings.Join(append(rerunFlags(o), flag), " ")
 	switch o.Usage.Source {
 	case usage.SourceSite:
 		url := "https://playkeeper.io/install"
 		if o.Usage.Channel != "" {
 			url += "/" + o.Usage.Channel
 		}
-		return "curl -fsSL " + url + " | sudo " + env + "sh -s -- " + flag
+		return "curl -fsSL " + url + " | sudo " + env + "sh -s -- " + args
 	case usage.SourceGitHub:
-		return "curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo " + env + "sh -s -- " + flag
+		return "curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo " + env + "sh -s -- " + args
 	}
-	return "sudo " + env + "./install.sh " + flag
+	return "sudo " + env + "./install.sh " + args
+}
+
+// rerunFlags are the flags of this run that a command running it again
+// keeps: other ports, the release location and --allow-untested-os.
+func rerunFlags(o Options) []string {
+	var f []string
+	if o.PanelPort != 0 && o.PanelPort != config.DefaultPanelPort {
+		f = append(f, "--panel-port", strconv.Itoa(o.PanelPort))
+	}
+	if o.GamePort != 0 && o.GamePort != config.DefaultGamePort {
+		f = append(f, "--game-port", strconv.Itoa(o.GamePort))
+	}
+	if o.ReleaseURL != "" {
+		f = append(f, "--release-url", shellQuote(o.ReleaseURL))
+	}
+	if o.AllowUntestedOS {
+		f = append(f, "--allow-untested-os")
+	}
+	return f
+}
+
+// shellQuote quotes s for a shell, unless it needs none.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:=@%+,-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // Preflight inspects the host without changing anything.

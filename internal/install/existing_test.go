@@ -28,9 +28,27 @@ func TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo(t *testing.T) {
 		setup           func(h *fakeHost)
 		active, enabled string
 		usage           Usage
+		opts            func(o *Options)
 		detail, fix     string
 		stats           []string
 	}{
+		{name: "other ports and a release location", setup: unit, active: "inactive", enabled: "disabled", usage: site,
+			opts: func(o *Options) {
+				o.PanelPort, o.GamePort, o.ReleaseURL = 9443, 25566, "https://example.com/releases?channel=beta&x=1"
+			},
+			detail: "Found the service minecraft.service (not running).",
+			fix:    "None of it is running, so Playkeeper can install next to it and never touch it: curl -fsSL https://playkeeper.io/install | sudo sh -s -- --panel-port 9443 --game-port 25566 --release-url 'https://example.com/releases?channel=beta&x=1' --allow-existing-minecraft",
+			stats:  []string{"existing-service-stopped"}},
+		{name: "a machine joining a dashboard", setup: unit, active: "active", enabled: "enabled", usage: site,
+			opts:   func(o *Options) { o.Join = "203.0.113.5:8443" },
+			detail: "Found the service minecraft.service (running).",
+			fix:    "If Playkeeper is to take over, stop it and install next to its files: sudo systemctl disable --now minecraft.service, then run the join command from your dashboard again, with --allow-existing-minecraft at the end",
+			stats:  []string{"existing-service-running"}},
+		{name: "a machine joining a dashboard, next to a server running on its own", setup: func(h *fakeHost) { h.procs = []string{java} }, usage: site,
+			opts:   func(o *Options) { o.Join = "203.0.113.5:8443" },
+			detail: "Found a Minecraft server running: " + java + ".",
+			fix:    "If Playkeeper is to take over, stop that server, then run the join command from your dashboard again.",
+			stats:  []string{"existing-java"}},
 		{name: "a service that isn't running", setup: unit, active: "inactive", enabled: "disabled", usage: site,
 			detail: "Found the service minecraft.service (not running).",
 			fix:    "None of it is running, so Playkeeper can install next to it and never touch it: " + again,
@@ -92,6 +110,9 @@ func TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo(t *testing.T) {
 			}
 			o := opts("")
 			o.Usage = c.usage
+			if c.opts != nil {
+				c.opts(&o)
+			}
 			ch := check(Preflight(context.Background(), sys, o), "existing")
 			if ch == nil || ch.Status != "fail" {
 				t.Fatalf("check: %+v", ch)
