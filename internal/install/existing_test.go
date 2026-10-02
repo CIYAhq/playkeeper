@@ -51,10 +51,28 @@ func TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun(t *testing.T) {
 		name        string
 		setup       func(h *fakeHost)
 		usage       Usage
+		opts        func(o *Options)
 		status      string
 		detail, fix string
 		stats, left []string
 	}{
+		{name: "other ports and a release location", setup: func(h *fakeHost) { unitFile(h); h.units = map[string]string{"minecraft.service": "enabled"} }, usage: site, status: "fail",
+			opts: func(o *Options) {
+				o.PanelPort, o.GamePort, o.ReleaseURL = 9443, 25566, "https://example.com/releases?channel=beta&x=1"
+			},
+			detail: "Found the service minecraft.service (not running, but it starts with the machine)." + refuses,
+			fix:    "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: sudo systemctl disable minecraft.service && curl -fsSL https://playkeeper.io/install | sudo sh -s -- --panel-port 9443 --game-port 25566 --release-url 'https://example.com/releases?channel=beta&x=1'",
+			stats:  []string{"existing-service-enabled"}},
+		{name: "a machine joining a dashboard", setup: func(h *fakeHost) { unitFile(h); h.units = map[string]string{"minecraft.service": "running"} }, usage: site, status: "fail",
+			opts:   func(o *Options) { o.Join = "203.0.113.5:8443" },
+			detail: "Found the service minecraft.service (running)." + refuses,
+			fix:    "If Playkeeper is to take over, stop it and install next to its files: sudo systemctl disable --now minecraft.service, then run the join command from your dashboard again",
+			stats:  []string{"existing-service-running"}},
+		{name: "a machine joining a dashboard, next to a server running on its own", setup: func(h *fakeHost) { h.procs = []string{paper} }, usage: site, status: "fail",
+			opts:   func(o *Options) { o.Join = "203.0.113.5:8443" },
+			detail: "Found a Minecraft server running: " + paper + "." + refuses,
+			fix:    "If Playkeeper is to take over, stop that Minecraft server, then run the join command from your dashboard again.",
+			stats:  []string{"existing-java"}},
 		{name: "a service neither running nor enabled", setup: unitFile, usage: site, status: "info",
 			detail: "Found the service minecraft.service (not running)." + leaves,
 			left:   []string{"Left your old Minecraft service (minecraft.service) alone; it isn't running."}},
@@ -120,6 +138,9 @@ func TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun(t *testing.T) {
 			c.setup(h)
 			o := opts("")
 			o.Usage = c.usage
+			if c.opts != nil {
+				c.opts(&o)
+			}
 			f := Preflight(context.Background(), h.system(t), o)
 			ch := check(f, "existing")
 			if ch == nil || ch.Status != c.status {

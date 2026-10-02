@@ -1165,6 +1165,18 @@ control "the command to install next to a setup keeps usage stats off" internal/
   '	if o.Usage.Choice == usage.Off {' \
   '	if false {' \
   ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "the command that installs again keeps the run's other ports" internal/install/install.go \
+  '	if o.GamePort != 0 && o.GamePort != config.DefaultGamePort {' \
+  '	if false {' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "a machine joining a dashboard is sent back to the dashboard's join command" internal/install/install.go \
+  '		return "run the join command from your dashboard again"' \
+  '		return againCommand(o)' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "the release location in the command is quoted for the shell" internal/install/install.go \
+  '		f = append(f, "--release-url", shellQuote(o.ReleaseURL))' \
+  '		f = append(f, "--release-url", o.ReleaseURL)' \
+  ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
 control "the stats say which kind of setup turned an install away" internal/install/install.go \
   '		f.Checks[len(f.Checks)-1].Stats = stats' \
   '		_ = stats' \
