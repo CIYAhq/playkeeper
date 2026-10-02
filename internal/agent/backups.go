@@ -1665,7 +1665,7 @@ func (a *Agent) restoredConfigFor(m backup.Manifest, rt restoreTarget, mem int, 
 		MaxPlayers: manifestMaxPlayers(m), Whitelist: true, CreatedAt: now, EULAAcceptedAt: now, EULAAcceptedBy: actor,
 	})
 	if prev != nil {
-		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
+		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle, sc.PendingOperators = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle, prev.PendingOperators
 	}
 	return sc
 }

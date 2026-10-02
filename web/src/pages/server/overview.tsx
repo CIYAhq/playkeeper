@@ -24,7 +24,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { parseLine } from '@/lib/console'
-import { crashDetail, crashFixes, crashSummary, isMemoryCrash, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
+import { crashDetail, crashFixes, crashSummary, failureLine, isMemoryCrash, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
 import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, sameDay } from '@/lib/format'
 import { awayLong, joinOf, machineLabel, machineRoute } from '@/lib/machines'
 import { busyReason, createStepOf, failedJob, isSettingUp, packStepOf, phaseLabel, statusTone, templateStepOf, whyNot } from '@/lib/phase'
@@ -423,6 +423,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const tail = useTail(s, 3, 2000)
   const op = s.operation ?? s.lastOperation
   const failed = !s.operation && op?.status === 'failed'
+  const cause = failed && op ? failureLine(op, s, place.name) : undefined
   const [busy, setBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const cfg = s.config
@@ -498,8 +499,8 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
         <Pip pose={failed ? 'hurt' : 'hardhat'} size={64} />
         <div className="min-w-0 pt-1">
           <h2 className="text-lg font-bold">{failed ? t('creating.failedTitle', { server: s.name }) : t('creating.title', { server: s.name })}</h2>
-          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{failed ? (op?.error ?? '') : t(pack ? 'creating.leadPack' : 'creating.lead')}</p>
-          {failed && op?.hint && <p className="mt-1 text-[13px] text-muted-foreground">{op.hint}</p>}
+          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{failed ? (cause ?? '') : t(pack ? 'creating.leadPack' : 'creating.lead')}</p>
+          {failed && op?.hint && cause === op.error && <p className="mt-1 text-[13px] text-muted-foreground">{op.hint}</p>}
         </div>
       </div>
       <div className="mt-5 border-t border-border pt-5">

@@ -809,6 +809,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.keepDefaultProperties(sc); err != nil {
 		return err
 	}
+	if err := s.keepSpawnOpen(sc); err != nil {
+		return err
+	}
 	if takesPlugins(sc) {
 		if err := s.ensureTelemetryOff(); err != nil {
 			return err
@@ -877,7 +880,139 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	s.mu.Lock()
 	delete(s.intentional, id)
 	s.mu.Unlock()
-	return s.waitReady(ctx, h, id)
+	if err := s.waitReady(ctx, h, id); err != nil {
+		return err
+	}
+	actor := "playkeeper"
+	if h != nil && h.op != nil {
+		actor = h.op.Actor
+	}
+	s.admitPendingOperators(actor, pendingAddTries)
+	return nil
+}
+
+// keepSpawnOpen turns spawn protection off on a server whose create asked
+// for operators while it has none yet, before each start until they're
+// added. Minecraft protects the land around spawn only while a server has an
+// operator, so making its owner the first would otherwise stop their friends
+// building there. It's where the server starts, not a setting Playkeeper
+// keeps: once the operators are added it isn't written again, so spawn
+// protection can be turned back on.
+func (s *server) keepSpawnOpen(sc api.ServerConfig) error {
+	if sc.PendingOperators == "" {
+		return nil
+	}
+	if ops, err := s.operators(); err != nil || len(ops) > 0 {
+		return nil
+	}
+	d, err := s.gameFiles()
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if err := setProperties(d, map[string]string{"spawn-protection": "0"}); err != nil {
+		return gameFileError(err, "The server's spawn protection could not be turned off, so the server was not started.")
+	}
+	return nil
+}
+
+// pendingAddTries and pendingAddWait are how often a command for a player
+// its create asked for is tried over RCON as a start brings the server up,
+// which may not answer at that moment.
+const (
+	pendingAddTries = 3
+	pendingAddWait  = time.Second
+)
+
+// pendingRetryWait is how long players the server gave no answer about wait
+// before they're tried again; tests shorten it.
+var pendingRetryWait = time.Minute
+
+// admitPendingOperators puts the players the server's create asked for on
+// its allowlist and makes them operators, now that it runs, trying each
+// command up to tries times. A name that made it is forgotten, and so is one
+// Minecraft doesn't know, which goes in the audit log; one the server gave no
+// answer about stays, to be tried again after pendingRetryWait.
+func (s *server) admitPendingOperators(actor string, tries int) {
+	sc, err := s.serverConfig()
+	if err != nil || sc == nil || sc.PendingOperators == "" {
+		return
+	}
+	// What a try before got done needs no command again, nor a second line in the activity.
+	listed, _ := s.whitelist()
+	ops, _ := s.operators()
+	var left []string
+	for _, name := range strings.Fields(sc.PendingOperators) {
+		ok, answered := true, true
+		if !slices.ContainsFunc(listed, func(e api.WhitelistEntry) bool { return strings.EqualFold(e.Name, name) }) {
+			ok, answered = s.pendingCommand(actor, "whitelist.add", name, "whitelist add "+name, tries)
+		}
+		// A name that couldn't go on the allowlist can't be an operator either.
+		if ok && !slices.ContainsFunc(ops, func(e api.OperatorEntry) bool { return strings.EqualFold(e.Name, name) }) {
+			_, answered = s.pendingCommand(actor, "operator.add", name, "op "+name, tries)
+		}
+		if !answered {
+			left = append(left, name)
+		}
+	}
+	if len(left) > 0 {
+		s.mu.Lock()
+		s.admitAfter = s.now().Add(pendingRetryWait)
+		s.mu.Unlock()
+		s.log.Warn("the server didn't answer, so the players its create asked for are tried again later", "server", s.id, "players", strings.Join(left, " "))
+	}
+	if rest := strings.Join(left, " "); rest != sc.PendingOperators {
+		sc.PendingOperators = rest
+		if err := s.saveServerConfig(*sc); err != nil {
+			s.log.Warn("could not record which players a create asked for are left to add", "server", s.id, "err", err)
+		}
+	}
+}
+
+// admitWhenOnline adds the operators a create asked for to a server that is
+// online without a start that added them: one whose first start timed out
+// while it went on starting, which Start then finds already running, or one
+// that gave no answer about them before. It tries each command once, so the
+// server's operation lock is held only that long.
+func (s *server) admitWhenOnline(ctx context.Context, sc api.ServerConfig) {
+	s.mu.Lock()
+	later := s.now().Before(s.admitAfter)
+	s.mu.Unlock()
+	if sc.PendingOperators == "" || later || !s.online(ctx) {
+		return
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		return
+	}
+	defer release()
+	s.admitPendingOperators("playkeeper", 1)
+}
+
+// pendingCommand runs a command about one of those players, up to tries
+// times while the server gives no answer. An answer is audited as action. It
+// says whether the command worked, and whether the server answered at all.
+func (s *server) pendingCommand(actor, action, name, cmd string, tries int) (ok, answered bool) {
+	var out string
+	var err error
+	for try := range tries {
+		if out, err = s.rconCommand(cmd); err == nil {
+			break
+		}
+		if try < tries-1 {
+			time.Sleep(pendingAddWait)
+		}
+	}
+	if err != nil {
+		return false, false
+	}
+	out = minecraft.StripANSI(out)
+	if unknownPlayer(out) {
+		s.audit(actor, action, name, "failed", out)
+		return false, true
+	}
+	s.audit(actor, action, name, "succeeded", out)
+	return true, true
 }
 
 func classifyStartError(err error, port int) error {
@@ -1097,6 +1232,7 @@ func (s *server) reconcile(ctx context.Context) {
 	s.resumeSaving(ctx, c, c.State.Running)
 	if c.State.Running {
 		s.checkSettingsOnce(*sc)
+		s.admitWhenOnline(ctx, *sc)
 		return
 	}
 	// A container that never started has the zero finish time.

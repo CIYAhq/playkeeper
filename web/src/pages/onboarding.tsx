@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, InfoIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
-import type { LogsResponse, Me, Operation, Preflight, PreflightCheck, ServerStatus } from '@/api/types'
+import type { LogsResponse, Me, Operation, OperatorEntry, Preflight, PreflightCheck, ServerStatus, WhitelistEntry } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
+import { serverAction } from '@/components/app/server-action'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
+import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, OwnNameField, ownNameKey, ownNameProblem, ownOperators, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
 import { PasswordField } from '@/components/app/password-field'
 import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
@@ -20,12 +21,14 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatMB, serverJoinAddress } from '@/lib/format'
+import { failureLine } from '@/lib/crash'
 import { createStepOf, isSettingUp } from '@/lib/phase'
 import { useAppearAtOnce } from '@/lib/presence'
 import { navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { preset } from '@/lib/styles'
 import { cn } from '@/lib/utils'
+import { FreeNameOffer } from './onboarding-name'
 import { ConsoleTail } from './server/overview'
 
 function codeFromHash(): string {
@@ -135,16 +138,20 @@ export function Onboarding() {
   const ws = useWorkspace()
   const [stage, setStage] = useState<Stage>('check')
   const [serverId, setServerId] = useState<string>()
+  const [owner, setOwner] = useState<string>()
   const server = ws.servers?.find((s) => s.id === serverId)
+  // Back on the page while the first server is set up: its create sent the name the account keeps.
+  const keptOwner = ownOperators(ws.prefs[ownNameKey], ws.machine, ws.me.version).operators?.[0]
 
   useEffect(() => {
     if (serverId || !ws.servers || ws.servers.length === 0) return
     const first = ws.servers[0]
     if (first && isSettingUp(first)) {
       setServerId(first.id)
+      setOwner(keptOwner)
       setStage('creating')
     } else navigate({ name: 'home' }, true)
-  }, [serverId, ws.servers])
+  }, [serverId, ws.servers, keptOwner])
 
   useEffect(() => {
     if (stage === 'creating' && server && server.phase === 'online' && !server.operation) setStage('online')
@@ -160,14 +167,15 @@ export function Onboarding() {
         {stage === 'style' && (
           <StyleStage
             onBack={() => setStage('first')}
-            onCreated={(op) => {
+            onCreated={(op, ownName) => {
               setServerId(op.serverId)
+              setOwner(ownName)
               setStage('creating')
             }}
           />
         )}
         {stage === 'creating' && server && <CreatingStage server={server} />}
-        {stage === 'online' && server && <OnlineStage server={server} />}
+        {stage === 'online' && server && <OnlineStage server={server} owner={owner} />}
       </div>
     </Frame>
   )
@@ -256,7 +264,6 @@ function CheckStage({ onNext }: { onNext: () => void }) {
     if (!pre) return []
     const out = pre.checks.map((c) => ({ key: c.id, status: c.status, ...checkText(c, live?.memoryTotalMB, live?.diskFreeBytes, port) }))
     if (live) out.splice(3, 0, { key: 'os', status: 'pass' as const, title: t('onboarding.check.os', { os: live.os, arch: live.arch }), hint: t('onboarding.check.osHint') })
-    out.push({ key: 'firewall', status: 'info' as const, title: t('onboarding.check.firewall'), hint: t('onboarding.check.firewallHint', { port }) })
     return out
   }, [pre, live, port])
   const ok = rows.filter((r) => r.status === 'pass').length
@@ -287,20 +294,29 @@ function CheckStage({ onNext }: { onNext: () => void }) {
               <span className="min-w-0">
                 <span className="block text-[13px] font-semibold max-sm:text-[15px]">{r.title}</span>
                 {r.hint && <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{r.hint}</span>}
-                {r.key === 'firewall' && (
-                  <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                    {t('onboarding.check.firewallLink')}
-                    <ExternalLinkIcon className="size-3" aria-hidden="true" />
-                  </a>
-                )}
               </span>
             </li>
           ))}
         </ul>
       ) : (
-        !error && <ListSkeleton rows={7} face="mt-px size-[18px] rounded-full" rowClassName={checkRowClass} className={checkListClass} label={t('onboarding.checking')} />
+        !error && <ListSkeleton rows={6} face="mt-px size-[18px] rounded-full" rowClassName={checkRowClass} className={checkListClass} label={t('onboarding.checking')} />
+      )}
+      {/* The provider's firewall can't be seen from the VPS, so it's a note, not a check that counts. */}
+      {pre && (
+        <div className="mt-3 flex gap-3 rounded-2xl border border-border bg-muted/40 px-3 py-3 max-sm:rounded-3xl max-sm:bg-white max-sm:px-4">
+          <InfoIcon className="mt-px size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold max-sm:text-[15px]">{t('onboarding.check.portNote', { port })}</span>
+            <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{t('onboarding.check.portNoteHint')}</span>
+            <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex min-h-6 items-center gap-1 text-xs font-medium text-primary hover:underline max-sm:text-[13px]">
+              {t('onboarding.check.firewallLink')}
+              <ExternalLinkIcon className="size-3" aria-hidden="true" />
+            </a>
+          </span>
+        </div>
       )}
       {pre && !pre.ok && <p className="mt-3 text-[13px] text-destructive-foreground">{t('onboarding.checkBlocked')}</p>}
+      {pre && id && <FreeNameOffer id={id} />}
       {phone ? (
         <PhoneActions>
           <Button size="touch" onClick={onNext} disabledReason={checkBlocked}>
@@ -388,7 +404,7 @@ function FirstStage({ onCreate }: { onCreate: () => void }) {
   )
 }
 
-function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op: Operation) => void }) {
+function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op: Operation, ownName?: string) => void }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const { catalog, error, reload } = useCatalog(ws.machine?.id, { fresh: true })
@@ -400,6 +416,8 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
   // Pressing Create before it can say why next to what's missing.
   const [explained, setExplained] = useState(false)
   const eulaBox = useRef<HTMLElement>(null)
+  const ownNameBox = useRef<HTMLInputElement>(null)
+  const [ownName, setOwnName] = useState(() => ws.prefs[ownNameKey] ?? '')
 
   useEffect(() => {
     if (!catalog || c) return
@@ -414,9 +432,12 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
     setBusy(true)
     setCreateError(undefined)
     try {
-      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), createRequest(c))
+      const own = ownName.trim()
+      const asked = ownOperators(own, ws.machine, ws.me.version)
+      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), { ...createRequest(c), ...asked })
+      if (own !== (ws.prefs[ownNameKey] ?? '')) await ws.setPrefs({ [ownNameKey]: own }).catch(() => undefined)
       await ws.refresh()
-      onCreated(op)
+      onCreated(op, asked.operators ? own : undefined)
     } catch (e) {
       setCreateError(errorText(e))
     } finally {
@@ -462,13 +483,15 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
   const summary = phone
     ? t('onboarding.summaryPhone', { type: typeName(c.type), version: version?.minecraftVersion ?? '', world: t(`style.world.${c.levelType}`).toLowerCase(), memory: formatMB(c.memoryMB) })
     : t('style.summary', { type: typeName(c.type), version: version?.minecraftVersion ?? '', memory: formatMB(c.memoryMB), total: formatMB(catalog.hostMemoryMB), name: c.name })
-  const blocked = createBlocked(c, version)
+  const blocked = createBlocked(c, version) ?? ownNameProblem(ownName)
   const eulaMissing = !!blocked && !versionBlocked(c, version) && !!c.name.trim() && !c.eula
+  // Only the Minecraft name is wrong, and its field already says why.
+  const ownNameWrong = !createBlocked(c, version) && !!ownNameProblem(ownName)
   const explain = () => {
     setExplained(true)
-    if (!eulaMissing) return
-    eulaBox.current?.focus()
-    eulaBox.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const box = eulaMissing ? eulaBox.current : ownNameWrong ? ownNameBox.current : null
+    box?.focus()
+    box?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }
   const { cards, older } = versionCards(catalog.versions, ws.servers)
   const versionChoices = [...cards.map((x) => x.entry), ...older].map((e) => ({ value: e.id, label: e.minecraftVersion, hint: e.experimental ? t('common.experimental') : e.recommended ? t('new.latestStable') : t('new.build', { build: e.paperBuild }) }))
@@ -487,6 +510,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           phone={phone}
         />
         <MoreOptions hardcore={c.hardcore} onHardcore={(hardcore) => update({ hardcore })} level={c.levelType} onLevel={(levelType) => update({ levelType })} phone={phone} />
+        <OwnNameField value={ownName} onChange={setOwnName} inputRef={ownNameBox} className={cn(phone ? 'rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')} />
         <EulaCheck
           checked={c.eula}
           onChange={(eula) => {
@@ -499,7 +523,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           className={cn(phone ? 'min-h-14 rounded-2xl border border-border bg-white px-4 py-3' : 'px-1 pt-1')}
         />
         <VersionsFrom catalog={catalog} className="px-1" />
-        {explained && blocked && !eulaMissing && (
+        {explained && blocked && !eulaMissing && !ownNameWrong && (
           <p className="text-[13px] text-destructive-foreground" role="alert">
             {blocked}
           </p>
@@ -616,9 +640,15 @@ function CreatingStage({ server: s }: { server: ServerStatus }) {
       window.clearInterval(id)
     }
   }, [s.id])
+  const [retrying, setRetrying] = useState(false)
   const op = s.operation ?? s.lastOperation
   const failed = !s.operation && op?.status === 'failed'
   const at = createStepOf(failed ? (op?.phase ?? '') : s.phase)
+  const retry = async () => {
+    setRetrying(true)
+    if (await serverAction(s, 'start')) await ws.refresh()
+    setRetrying(false)
+  }
   const state = (i: number): StepState => (i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : 'todo')
   const pct = /(\d{1,3})\s*%/.exec(s.phaseDetail ?? '')?.[1]
   const type = typeName(s.type)
@@ -629,7 +659,7 @@ function CreatingStage({ server: s }: { server: ServerStatus }) {
         <Pip pose={failed ? 'hurt' : 'hardhat'} size={64} />
         <div className="pt-1">
           <h1 className="text-lg font-bold">{failed ? t('creating.failedTitle', { server: s.name }) : t('creating.title', { server: s.name })}</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">{failed ? op?.error : t('creating.lead')}</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">{failed && op ? failureLine(op, s, ws.machineName) : t('creating.lead')}</p>
         </div>
       </div>
       <div className="mt-5 border-t border-border pt-5">
@@ -648,11 +678,17 @@ function CreatingStage({ server: s }: { server: ServerStatus }) {
           <ConsoleTail lines={tail} className="mt-2" />
         </div>
       )}
-      <div className="mt-5 flex justify-end">
-        <Button variant={failed ? 'default' : 'outline'} onClick={() => navigate({ name: 'server', slug: s.slug, tab: 'overview' })}>
+      <div className="mt-5 flex flex-wrap justify-end gap-3 max-sm:flex-col-reverse">
+        <Button variant="outline" onClick={() => navigate({ name: 'server', slug: s.slug, tab: 'overview' })}>
           {t('onboarding.toDashboard')}
           <ArrowRightIcon />
         </Button>
+        {failed && (
+          <Button loading={retrying} onClick={() => void retry()}>
+            <RefreshCwIcon />
+            {t('common.tryAgain')}
+          </Button>
+        )}
       </div>
     </FrameCard>
   )
@@ -681,13 +717,35 @@ function Confetti() {
   )
 }
 
-function OnlineStage({ server: s }: { server: ServerStatus }) {
+function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: string }) {
   const phone = useIsPhone()
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [added, setAdded] = useState<string[]>([])
+  // Whether the owner's own name made it onto the allowlist, and is an operator; one Minecraft doesn't know is offered to add again.
+  const [owned, setOwned] = useState<{ listed: boolean; operator: boolean }>()
+  // The agent is still to add it, as after a first start that timed out but came up after all.
+  const adding = !!s.config?.pendingOperators
   const address = serverJoinAddress(s)
   const dashboard = () => navigate({ name: 'server', slug: s.slug, tab: 'overview' }, true)
+
+  useEffect(() => {
+    if (!owner || adding) return
+    let stopped = false
+    const theirs = (e: { name: string }) => e.name.toLowerCase() === owner.toLowerCase()
+    Promise.all([get<WhitelistEntry[]>(serverApi(s.id, '/whitelist')), get<OperatorEntry[]>(serverApi(s.id, '/operators')).catch((): OperatorEntry[] => [])]).then(
+      ([list, operators]) => {
+        if (stopped) return
+        const listed = list.some(theirs)
+        setOwned({ listed, operator: listed && operators.some(theirs) })
+        if (!listed) setName(owner)
+      },
+      () => undefined,
+    )
+    return () => {
+      stopped = true
+    }
+  }, [owner, adding, s.id])
 
   async function invite(e: FormEvent) {
     e.preventDefault()
@@ -725,6 +783,12 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint')}</p>
       </div>
+      {owner && owned && (
+        <p className={cn('mt-4 flex items-start justify-center gap-1.5 text-[13px]', !owned.listed && 'text-destructive-foreground')} role="status">
+          {owned.listed ? <CircleCheckIcon className="mt-px size-4 shrink-0 text-success-foreground" aria-hidden="true" /> : <CircleAlertIcon className="mt-px size-4 shrink-0" aria-hidden="true" />}
+          {t(owned.operator ? 'onboarding.ownerOperator' : owned.listed ? 'onboarding.ownerListed' : 'onboarding.ownerMissing', { name: owner })}
+        </p>
+      )}
       <form onSubmit={invite} className="mt-5 text-left">
         <label htmlFor="invite" className="text-[13px] font-semibold">
           {t('onboarding.inviteFirst')}

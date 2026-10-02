@@ -531,6 +531,14 @@ describe('crash helper', () => {
     }
   })
 
+  // The fresh-install walkthrough of 1 Oct 2026: Paperclip couldn't download
+  // Mojang's server, and crash help said the log didn't say why.
+  it('says a start that couldn’t download Minecraft did so, and to try again', () => {
+    expect(crashSummary(crash({ kind: 'download_failed', start: true, params: { reason: 'tls', file: 'mojang_26.2.jar' } }), 'Survival', 'my-vps')).toBe('Couldn’t download Minecraft from Mojang. Check this VPS’s internet, then try again.')
+    expect(crashSummary(crash({ kind: 'download_failed', start: true, params: { reason: 'http', status: 503 } }), 'Survival', 'my-vps')).toBe('Mojang’s downloads aren’t working right now. Try again in a few minutes.')
+    expect(titles(crash({ kind: 'download_failed', fixes: [{ kind: 'restart', title: 'Start the server again', recommended: true }] }))).toEqual([['Start Survival again', 'start']])
+  })
+
   it('tells a port taken on the machine from one taken inside the server', () => {
     const port = crash({ kind: 'port_in_use', params: { port: 25565 }, fixes: [{ kind: 'change_port', params: { port: 25565 }, title: 'Change the port', recommended: true }, { kind: 'restart', title: 'Start again' }] })
     expect(crashSummary(port, 'Survival', 'my-vps')).toBe('Another program on my-vps is using port 25565.')

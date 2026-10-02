@@ -29,7 +29,8 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
 
   await expect(page.getByRole('heading', { name: 'Checking this VPS' })).toBeVisible()
   await expect(page.getByText('Docker is running')).toBeVisible()
-  await expect(page.getByText('Your provider’s firewall')).toBeVisible()
+  await expect(page.getByText(/^Friends join on port \d+$/)).toBeVisible()
+  await expect(page.getByRole('link', { name: 'How to open a port' })).toHaveAttribute('href', 'https://playkeeper.io/ports')
   const cont = page.getByRole('button', { name: 'Looks good, continue' })
   await expect(cont).toBeEnabled({ timeout: 60_000 })
   await shot(page, 'onboarding-2-check-desktop')
@@ -70,6 +71,9 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await expect(dialog).toBeHidden()
   await expect(page.getByText(/Paper 26\.1\.2 · /)).toBeVisible()
 
+  // The owner's own name goes on the allowlist, as an operator, once the server runs.
+  await tabTo(page, page.getByLabel('Your Minecraft name'))
+  await page.keyboard.type('PkBotOwner')
   // Create pressed before the EULA is accepted says so at the box, and moves there.
   await tabTo(page, create)
   await page.keyboard.press('Enter')
@@ -89,6 +93,7 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await shot(page, 'onboarding-5-setting-up-desktop')
   await expect(page.getByRole('heading', { name: 'Survival is online!' })).toBeVisible({ timeout: 20 * 60_000 })
   screens++
+  await expect(page.getByText('PkBotOwner is on the allowlist and an operator.')).toBeVisible()
   await shot(page, 'onboarding-5-online-desktop')
   expect(screens, 'screens from first sign-in to joinable').toBeLessThanOrEqual(5)
 

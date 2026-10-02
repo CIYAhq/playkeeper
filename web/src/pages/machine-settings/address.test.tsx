@@ -143,7 +143,7 @@ function asPhone() {
 }
 
 let current: Address | client.ApiError = none
-let names: Record<string, NameAvailability | client.ApiError> = {}
+let names: Record<string, NameAvailability | client.ApiError | Promise<NameAvailability>> = {}
 let dns: DNSAnswers | undefined
 let root: Root | undefined
 
@@ -153,6 +153,7 @@ function answerGets() {
     const name = decodeURIComponent(path.match(/\/address\/available\?name=(.*)$/)?.[1] ?? '')
     if (name) {
       const r = names[name] ?? { name, address: `${name}.playkeeper.me`, available: true }
+      if (r instanceof Promise) return r
       return r instanceof client.ApiError ? Promise.reject(r) : Promise.resolve(r)
     }
     if (path === '/api/machines/m1/address/plan?domain=play.example.com') return Promise.resolve(plan)
@@ -161,12 +162,12 @@ function answerGets() {
   }) as typeof client.get)
 }
 
-async function show(a: Address | client.ApiError, { phone = false, kind = 'local' } = {}) {
+async function show(a: Address | client.ApiError, { phone = false, kind = 'local', username = me.user.username } = {}) {
   if (phone) asPhone()
   current = a
   answerGets()
   const m = { ...machine, kind } as MachineView
-  const ws = { me, machines: [m], machine: m, servers, machineName: 'my-vps' } as unknown as Workspace
+  const ws = { me: { ...me, user: { ...me.user, username } }, machines: [m], machine: m, servers, machineName: 'my-vps' } as unknown as Workspace
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
   await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{<MachineSettingsPage id="m1" />}</WorkspaceContext.Provider>))
@@ -208,6 +209,47 @@ describe('choosing an address', () => {
     expect(text()).toContain('https://siya.playkeeper.me:8443')
     expect(text()).toContain('By continuing you accept Let’s Encrypt’s terms.')
     expect(button('Claim siya.playkeeper.me').disabled).toBe(false)
+  })
+
+  // The walkthrough of 1 Oct 2026: setup's username starts as admin, which the
+  // names service reserves, so the page opened on "admin.playkeeper.me is reserved".
+  it('never starts with a reserved name, and starts with a free one the service suggests for a taken one', async () => {
+    names = { admin: { name: 'admin', address: 'admin.playkeeper.me', available: false, code: 'name_reserved', message: 'Reserved.' } }
+    await show(none, { username: 'admin' })
+    await settle()
+    const offered = field('Pick a name').value
+    expect(offered).toMatch(/^[a-z]+-[a-z]+-\d{2}$/)
+    expect(text()).toContain(`${offered}.playkeeper.me is free`)
+    expect(text()).not.toContain('reserved')
+    expect(button(`Claim ${offered}.playkeeper.me`).disabled).toBe(false)
+    act(() => root?.unmount())
+    root = undefined
+
+    names = { ...names, siya: { name: 'siya', address: 'siya.playkeeper.me', available: false, code: 'name_taken', message: 'Taken.', suggestions: ['siya-mc', 'siyacraft'] } }
+    await show(none)
+    await settle()
+    expect(field('Pick a name').value).toBe('siya-mc')
+    expect(text()).toContain('siya-mc.playkeeper.me is free')
+    // What's typed stays as typed.
+    await type(field('Pick a name'), 'admin')
+    await settle()
+    expect(field('Pick a name').value).toBe('admin')
+    expect(text()).toContain('admin.playkeeper.me is reserved. Pick another name.')
+  })
+
+  // Not even for the moment the names service takes to answer.
+  it('shows no name while it finds a free one, rather than the reserved one it starts from', async () => {
+    let reply: (v: NameAvailability) => void = () => {}
+    names = { admin: new Promise<NameAvailability>((r) => (reply = r)) }
+    await show(none, { username: 'admin' })
+    expect(field('Pick a name').value).toBe('')
+    expect(text()).toContain('Finding a free name…')
+    expect(text()).not.toContain('admin.playkeeper.me')
+    expect(button('Claim').title).toBe('Finding a free name…')
+    await act(async () => reply({ name: 'admin', address: 'admin.playkeeper.me', available: false, code: 'name_reserved', message: 'Reserved.' }))
+    await settle()
+    expect(field('Pick a name').value).toMatch(/^[a-z]+-[a-z]+-\d{2}$/)
+    expect(text()).not.toContain('Finding a free name…')
   })
 
   it('names the domain free names live under as the agent says it', async () => {
@@ -329,7 +371,7 @@ describe('choosing an address', () => {
     expect(text()).toContain('The free address service couldn’t reach my-vps')
     expect(text()).toContain('Open port 8443 in your VPS provider’s firewall, then try again.')
     expect(text()).not.toContain('stays off')
-    expect(link('How to open a port').getAttribute('href')).toBe('https://github.com/CIYAhq/playkeeper#install-on-your-vps')
+    expect(link('How to open a port').getAttribute('href')).toBe('https://playkeeper.io/ports')
     await click(button('Try again'))
     expect(client.post).toHaveBeenCalledTimes(2)
     expect(client.post).toHaveBeenLastCalledWith('/api/machines/m1/address/claim', { name: 'siya', acceptTerms: true })
@@ -702,7 +744,7 @@ describe('an own domain', () => {
     await show(own({ certificate: { names: ['play.example.com'], challenge: 'http-01', problem: { code: 'port80_unreachable', message: 'Let’s Encrypt couldn’t reach port 80.', hint: 'Open it.' } } }))
     expect(text()).toContain('Couldn’t get a certificate')
     expect(text()).toContain('Open port 80 in your VPS provider’s firewall, then try again.')
-    expect(link('How to open a port').getAttribute('href')).toBe('https://github.com/CIYAhq/playkeeper#install-on-your-vps')
+    expect(link('How to open a port').getAttribute('href')).toBe('https://playkeeper.io/ports')
     await click(button('Try again'))
     expect(client.post).toHaveBeenCalledWith('/api/machines/m1/address/certificate', { acceptTerms: true })
   })

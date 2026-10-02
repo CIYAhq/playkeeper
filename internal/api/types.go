@@ -482,6 +482,11 @@ type ServerConfig struct {
 	// published from the container with the same number (from 0.4.4); 0
 	// while crossplay is off.
 	CrossplayPort int `json:"crossplayPort,omitempty"`
+	// PendingOperators (from 0.4.16) are the Minecraft names its create
+	// asked to put on the allowlist and make operators, separated by spaces,
+	// until a start brings the server up and adds them. A string keeps
+	// ServerConfig comparable.
+	PendingOperators string `json:"pendingOperators,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -515,6 +520,10 @@ type CreateServerRequest struct {
 	// VersionID, Build, Modpack, PlayStyle, Gameplay, MOTD and MaxPlayers
 	// stay empty.
 	Template *TemplateRef `json:"template,omitempty"`
+	// Operators (from 0.4.16) go on the allowlist and are made operators
+	// once the server first runs: the dashboard sends the Minecraft name of
+	// whoever creates it, so they can join it and run its commands.
+	Operators []string `json:"operators,omitempty"`
 }
 
 type SettingsRequest struct {
@@ -3037,6 +3046,12 @@ type PublicPageState struct {
 	// outside the machine opened it there (see Dashboard443).
 	Dashboard bool `json:"dashboard,omitempty"`
 	Reached   bool `json:"reached,omitempty"`
+	// HTTPClaimed (from 0.4.16), while the machine has no address, names
+	// what wants port 80: a Docker container that publishes it or names it
+	// in its settings, or a web server set to start with the machine. The
+	// panel then gives back the port it holds to send browsers at the IP
+	// address to the dashboard (see PagePortsRequest.Pointer).
+	HTTPClaimed string `json:"httpClaimed,omitempty"`
 }
 
 // Dashboard443 is the switch Serve the dashboard on the standard HTTPS port
@@ -3103,6 +3118,12 @@ type PagePortsRequest struct {
 	// as for a server of its own on the page, while the machine has an
 	// address.
 	Joined bool `json:"joined,omitempty"`
+	// Pointer (from 0.4.16): while the machine has no address, the panel
+	// wants port 80 to send a browser that typed the machine's IP address,
+	// which goes to port 80, to the dashboard on its own port. The agent
+	// opens port 80 alone for it, never 443, which would have only the
+	// self-signed certificate to show.
+	Pointer bool `json:"pointer,omitempty"`
 }
 
 // PublicPagePorts says whether the page answers on ports 443 and 80.

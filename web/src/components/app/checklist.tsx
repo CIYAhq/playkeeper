@@ -202,6 +202,8 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
   if (complete(steps) || prefs[hiddenKey(server)] === '1') return null
   const p = progress(steps)
   const left = p.total - p.done
+  // "is up" only while it is: not asleep, starting, stopped, or after a start that failed.
+  const up = server.phase === 'online'
   const hide = () => {
     setPrefs({ [hiddenKey(server)]: '1' }).catch((e: unknown) => toastManager.add({ title: t('checklist.hideFailed'), description: errorText(e), type: 'error' }))
   }
@@ -243,7 +245,7 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
       <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(200px,0.8fr)_2.2fr]">
         <div className="flex flex-col">
           <Pip pose="letter" size={64} />
-          <h2 className="mt-3 text-[17px] leading-6 font-bold">{p.done === 0 ? t(server.phase === 'asleep' ? 'checklist.headlineStartAsleep' : 'checklist.headlineStart', { server: server.name }) : t(server.phase === 'asleep' ? 'checklist.headlineAsleep' : 'checklist.headline', { server: server.name, count: left })}</h2>
+          <h2 className="mt-3 text-[17px] leading-6 font-bold">{p.done === 0 ? t(up ? 'checklist.headlineStart' : 'checklist.headlineStartNotUp', { server: server.name }) : t(up ? 'checklist.headline' : 'checklist.headlineNotUp', { server: server.name, count: left })}</h2>
           <div className="mt-auto flex items-center gap-3 pt-4">
             <Progress value={(p.done / p.total) * 100} className="max-w-[120px]" label={t('checklist.progressDone', { done: p.done, total: p.total })} />
             <span className="text-xs text-muted-foreground tabular-nums">{t('checklist.progressDone', { done: p.done, total: p.total })}</span>

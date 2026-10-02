@@ -747,6 +747,19 @@ describe('Overview', () => {
     expect(text).toContain('mara_k is on the allowlist.')
   })
 
+  // The walkthrough of 1 Oct 2026: "Survival is up" under "Starting Survival failed".
+  it('says the server is up in its first steps only while it is', async () => {
+    const start = failed('start', 'starting', 'The server stopped while starting (exit code 1).')
+    for (const s of [server({ phase: 'stopped', lastOperation: start }), server({ phase: 'starting', operation: { ...start, status: 'running' } })]) {
+      const text = await render(<Overview server={s} />)
+      expect(text, s.phase).toContain('Here’s how to make Survival yours.')
+      expect(text, s.phase).not.toContain('is up')
+    }
+    const later = await render(<Overview server={server({ phase: 'stopped', firstSteps: { invited: 'mara_k', backedUp: false, downloaded: false } })} />)
+    expect(later).toContain('3 small steps left for Survival.')
+    expect(later).not.toContain('is up')
+  })
+
   // Regression for items 62 and 86: after a failed create the steps must
   // point at the step the job failed in, not at the server's own phase.
   it('marks the step a failed create stopped at', async () => {
@@ -849,6 +862,8 @@ describe('Overview', () => {
     expect(steps[1]).toContain('Downloaded Paper 26.1.2 and checked it')
     expect(steps[2]).toContain('Downloading the template’s plugins')
     expect(steps[2]).toContain('2 of 5 files · each one checked · 1 skipped: Simple Voice Chat')
+    // The agent checks the port from the VPS itself, which says nothing of a provider's firewall.
+    expect(steps[4]).toBe('Checking the server answers on port 25565')
     expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40')
   })
 
@@ -2674,7 +2689,7 @@ describe('Modpacks', () => {
   })
 
   it('says what a pack’s server downloads, not Paper', () => {
-    expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
+    expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you once it’s running.')
     expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')
     expect(createNote(4, 'modpack', 'forge')).toContain('downloads Forge and the pack’s mods')
     expect(createNote(4, 'modpack', '')).not.toContain('Paper')
@@ -2872,6 +2887,220 @@ describe('Onboarding', () => {
   }
   const checkAgain = () => [...document.querySelectorAll('button')].find((b) => /^(Check again|Checked)$/.test(b.textContent ?? ''))
 
+  // The walkthrough of 1 Oct 2026: the card said "exit code 1" over a Java
+  // stack trace, and offered only "Go to my dashboard".
+  it('says in plain words why setting up the first server failed, and tries again from there', async () => {
+    const crash = { at: new Date().toISOString(), start: true, kind: 'download_failed' as const, params: { reason: 'tls', file: 'mojang_26.2.jar' }, certain: true, title: '', explanation: '', evidence: [], fixes: [], lines: [], roomMB: 0 }
+    const s = server({ phase: 'stopped', desired: 'stopped', startedAt: undefined, lastOperation: failed('create', 'starting', 'The server stopped while starting (exit code 1).'), crash })
+    answer({ '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
+    const started = vi.fn(() => ({}))
+    answerPosts({ '/start': started })
+    const text = await render(<Onboarding />, workspace({ servers: [s] }))
+    expect(text).toContain('Setting up Survival didn’t finish')
+    expect(text).toContain('Couldn’t download Minecraft from Mojang. Check this VPS’s internet, then try again.')
+    expect(text).not.toContain('exit code 1')
+    const retry = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Try again')
+    await act(async () => retry?.click())
+    expect(started).toHaveBeenCalledOnce()
+    expect(vi.mocked(client.post).mock.calls.at(-1)?.[0]).toBe('/api/servers/abcdefghjk/start')
+  })
+
+  // The walkthrough of 1 Oct 2026: the free name cures the browser warning,
+  // but setup never offered it.
+  describe('the free name it offers', () => {
+    const none: Address = { kind: '', ip: '198.51.100.10', panelPort: 8443, base: 'playkeeper.me', servers: [], names: { url: 'https://names.playkeeper.io' } }
+    const admin = workspace({ servers: [], me: { ...me, user: { ...me.user, username: 'admin' } } })
+    const reserved = { name: 'admin', address: 'admin.playkeeper.me', available: false, code: 'name_reserved', message: 'Reserved.' }
+    const offer = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Get '))
+
+    it('is a free one, never a reserved one, and one button claims it while setup goes on', async () => {
+      answer({ '/preflight': preflight, '/address/available?name=admin': reserved, '/address/available': { available: true }, '/address': none })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      expect(document.body.textContent).toContain('A free name for this VPS')
+      expect(document.body.textContent).toContain('Your browser stops warning you.')
+      expect(document.body.textContent).toContain('By continuing you accept Let’s Encrypt’s terms.')
+      const name = /^Get ([a-z]+-[a-z]+-\d{2})\.playkeeper\.me$/.exec(offer()?.textContent ?? '')?.[1]
+      expect(name, offer()?.textContent).toBeDefined()
+
+      // Another name offers a different free one.
+      await act(async () => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Another name')?.click())
+      await act(async () => {})
+      const next = /^Get (.+)\.playkeeper\.me$/.exec(offer()?.textContent ?? '')?.[1]
+      expect(next).toBeDefined()
+      expect(next).not.toBe(name)
+
+      const claimed: Address = { ...none, kind: 'playkeeper', host: `${next}.playkeeper.me`, free: { name: next ?? '', state: 'active', dns: 'pending', claimedAt: new Date().toISOString(), refreshedAt: new Date().toISOString(), checkedAt: new Date().toISOString(), holdDays: 30 }, operation: { id: 'op1', kind: 'address.publish', status: 'running', phase: 'pointing', actor: 'admin', startedAt: new Date().toISOString() } }
+      answerPosts({ '/address/claim': claimed })
+      answer({ '/preflight': preflight, '/address': claimed })
+      await act(async () => offer()?.click())
+      expect(client.post).toHaveBeenCalledWith('/api/machines/m2345abcde/address/claim', { name: next, acceptTerms: true })
+      expect(document.body.textContent).toContain(`Getting ${next}.playkeeper.me`)
+      expect(document.body.textContent).toContain('You can carry on meanwhile.')
+      expect([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Looks good, continue'))?.disabled).toBe(false)
+    })
+
+    it('says when the name couldn’t be finished, and where to finish it, rather than getting it for ever', async () => {
+      answer({ '/preflight': preflight, '/address/available?name=admin': reserved, '/address/available': { available: true }, '/address': none })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      const name = /^Get (.+)\.playkeeper\.me$/.exec(offer()?.textContent ?? '')?.[1] ?? ''
+      const at = new Date().toISOString()
+      const failedPublish: Address = {
+        ...none,
+        kind: 'playkeeper',
+        host: `${name}.playkeeper.me`,
+        free: { name, state: 'active', dns: 'pending', claimedAt: at, refreshedAt: at, checkedAt: at, holdDays: 30 },
+        operation: { id: 'op1', kind: 'address.publish', status: 'failed', phase: 'certificate', actor: 'admin', startedAt: at, finishedAt: at, error: 'Let’s Encrypt didn’t answer.' },
+      }
+      answerPosts({ '/address/claim': failedPublish })
+      answer({ '/preflight': preflight, '/address': failedPublish })
+      await act(async () => offer()?.click())
+      expect(document.body.textContent).toContain(`Couldn’t finish ${name}.playkeeper.me`)
+      expect(document.body.textContent).toContain('Let’s Encrypt didn’t answer.')
+      expect(document.body.textContent).not.toContain('Getting')
+      expect([...document.querySelectorAll('a')].find((l) => l.textContent === 'Finish it in Machine settings')?.getAttribute('href')).toBe('/machines/m2345abcde/settings')
+    })
+
+    it('shows a claim that went through as being got, not the offer again, while the machine doesn’t show it yet', async () => {
+      answer({ '/preflight': preflight, '/address/available?name=admin': reserved, '/address/available': { available: true }, '/address': none })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      const name = /^Get (.+)\.playkeeper\.me$/.exec(offer()?.textContent ?? '')?.[1] ?? ''
+      answerPosts({ '/address/claim': { ...none, kind: 'playkeeper', host: `${name}.playkeeper.me` } })
+      // The machine's address still answers as before the claim, as a poll that left before it can.
+      await act(async () => offer()?.click())
+      expect(document.body.textContent).toContain(`Getting ${name}.playkeeper.me`)
+      expect(offer()).toBeUndefined()
+      expect(vi.mocked(client.post).mock.calls.filter(([path]) => path.endsWith('/address/claim'))).toHaveLength(1)
+    })
+
+    it('isn’t offered while the names service can’t be reached, or the machine has an address', async () => {
+      answer({ '/preflight': preflight, '/address/available': new client.ApiError(503, { error: 'Playkeeper couldn’t reach the free address service.', code: 'names_unreachable' }), '/address': none })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      expect(document.body.textContent).toContain('Checking this VPS')
+      expect(document.body.textContent).not.toContain('A free name for this VPS')
+
+      answer({ '/preflight': preflight, '/address': { ...none, kind: 'own', host: 'play.example.com' } })
+      await render(<Onboarding />, admin)
+      await act(async () => {})
+      expect(document.body.textContent).not.toContain('A free name for this VPS')
+      expect(vi.mocked(client.get).mock.calls.some(([p]) => p.includes('/address/available'))).toBe(true)
+    })
+  })
+
+  // The walkthrough of 1 Oct 2026: the allowlist is on, and nobody asked for
+  // the owner's own Minecraft name, so their first join was refused.
+  describe('your own Minecraft name', () => {
+    const catalog: Catalog = {
+      type: 'paper',
+      types: [{ id: 'paper', name: 'Paper', available: true }],
+      versions: [{ id: 'paper-26.2-12', label: '26.2', minecraftVersion: '26.2', paperBuild: 12, jarSha256: 'cd'.repeat(32), java: 25, recommended: true, notes: '', channel: 'STABLE', experimental: false, supported: true }],
+      memoryOptionsMB: [2048, 3072],
+      recommendedMemoryMB: 3072,
+      hostMemoryMB: 16384,
+      maxMemoryMB: 3072,
+      systemReserveMB: 1536,
+      memoryFreeMB: 10752,
+      servers: [],
+      image: '',
+    }
+    const steve = { name: 'Steve_Builds', uuid: '00000000-0000-0000-0000-0000000000a1' }
+    const field = () => document.getElementById([...document.querySelectorAll('label')].find((l) => l.textContent === 'Your Minecraft name')?.htmlFor ?? '') as HTMLInputElement | null
+    const typeName = async (v: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field(), v)
+        field()?.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    const create = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Create my server'))
+    /** Goes to "How will you play?" and accepts the EULA. */
+    const toStyle = async (ws: Workspace) => {
+      answer({ '/preflight': preflight, '/catalog': catalog })
+      answerPosts({ '/servers': { id: 'op1', kind: 'create', status: 'running', serverId: 'abcdefghjk', phase: '', actor: 'siya', startedAt: new Date().toISOString() } })
+      await render(<Onboarding />, ws)
+      await press('Looks good, continue')
+      await press('Create a server')
+      await act(async () => [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith('I accept the Minecraft'))?.click())
+    }
+    /** The server runs: the online stage reads the lists the agent added the name to, as they answer here. */
+    const online = async (ws: Workspace, lists: Record<string, unknown>, over: Partial<ServerStatus> = {}) => {
+      answer({ ...lists, '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
+      await act(async () => root?.render(<WorkspaceContext.Provider value={{ ...ws, servers: [server(over)] }}>{<Onboarding />}</WorkspaceContext.Provider>))
+      await act(async () => {})
+    }
+
+    it('is asked for, made an operator on the new server, and said to be one once it runs', async () => {
+      const setPrefs = vi.fn(async () => {})
+      const ws = workspace({ servers: [], setPrefs })
+      await toStyle(ws)
+      expect(field()?.placeholder).toBe('Optional')
+      await typeName('bad name')
+      expect(create()?.title).toBe('Minecraft usernames are 3–16 letters, numbers or underscores.')
+      // Create pressed now moves to the name, whose hint already says why, rather than saying it again.
+      await press('Create my server')
+      expect(document.activeElement).toBe(field())
+      expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0)
+      expect(vi.mocked(client.post).mock.calls.some(([path]) => path.endsWith('/servers'))).toBe(false)
+      await typeName('Steve_Builds')
+      expect(create()?.title).toBe('')
+      await press('Create my server')
+      expect(vi.mocked(client.post).mock.calls.at(-1)).toEqual(['/api/machines/m2345abcde/servers', expect.objectContaining({ acceptEula: true, operators: ['Steve_Builds'] })])
+      expect(setPrefs).toHaveBeenCalledWith({ 'minecraft.name': 'Steve_Builds' })
+
+      await online(ws, { '/whitelist': [steve], '/operators': [{ ...steve, level: 4 }] })
+      expect(page()).toContain('Survival is online!')
+      expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
+    })
+
+    // Setting up says you can leave the page: back on it, the server is still
+    // being set up, and the name it was created with is the account's.
+    it('is still confirmed after leaving the page while the server was set up', async () => {
+      const settingUp = server({ phase: 'starting', startedAt: undefined, operation: { id: 'op1', kind: 'create', status: 'running', phase: 'starting', actor: 'siya', startedAt: new Date().toISOString() } })
+      const ws = workspace({ servers: [settingUp], prefs: { 'minecraft.name': 'Steve_Builds' } })
+      answer({ '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
+      await render(<Onboarding />, ws)
+      expect(page()).toContain('Setting up Survival')
+      await online(ws, { '/whitelist': [steve], '/operators': [{ ...steve, level: 4 }] })
+      expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
+    })
+
+    // A first start that timed out but came up after all: the agent adds the
+    // name once it sees the server online.
+    it('waits for the agent to add it before saying how it went', async () => {
+      const ws = workspace({ servers: [] })
+      await toStyle(ws)
+      await typeName('Steve_Builds')
+      await press('Create my server')
+      const lists = { '/whitelist': [steve], '/operators': [{ ...steve, level: 4 }] }
+      await online(ws, lists, { config: { ...config, pendingOperators: 'Steve_Builds' } })
+      expect(page()).toContain('Survival is online!')
+      expect(page()).not.toContain('Steve_Builds is on the allowlist')
+      expect(page()).not.toContain('Couldn’t add')
+      expect(vi.mocked(client.get).mock.calls.some(([path]) => path.includes('/whitelist'))).toBe(false)
+
+      await online(ws, lists)
+      expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
+    })
+
+    it('says only what the server’s lists show, and offers to add a name that didn’t get on', async () => {
+      const outcomes = [
+        { lists: { '/whitelist': [steve], '/operators': [] }, says: 'Steve_Builds is on the allowlist.', offered: '' },
+        { lists: { '/whitelist': [], '/operators': [] }, says: 'Couldn’t add Steve_Builds. Check the spelling, then add it below.', offered: 'Steve_Builds' },
+      ]
+      for (const { lists, says, offered } of outcomes) {
+        const ws = workspace({ servers: [] })
+        await toStyle(ws)
+        await typeName('Steve_Builds')
+        await press('Create my server')
+        await online(ws, lists)
+        expect(page()).toContain(says)
+        expect(page()).not.toContain('an operator.')
+        expect((document.getElementById('invite') as HTMLInputElement | null)?.value).toBe(offered)
+      }
+    })
+  })
+
   it('says the checks ran again, but not when they could not be run', async () => {
     answer({ '/preflight': preflight })
     await render(<Onboarding />, workspace({ servers: [] }))
@@ -2885,15 +3114,20 @@ describe('Onboarding', () => {
     expect(checkAgain()?.textContent).toBe('Check again')
   })
 
-  it('checks the machine in plain words, with the provider firewall to do by hand', async () => {
+  it('checks the machine in plain words, with the provider firewall a note that doesn’t count against it', async () => {
     answer({ '/preflight': preflight })
     const text = await render(<Onboarding />, workspace({ servers: [] }))
     expect(text).toContain('Checking this VPS')
     expect(text).toContain('Memory: 16 GB')
     expect(text).toContain('Ubuntu 24.04 on x86-64')
     expect(text).toContain('Port 25565 is free')
-    expect(text).toContain('Your provider’s firewall')
-    expect(text).toContain('6 of 7 look good')
+    expect(text).toContain('6 of 6 look good')
+    // The VPS can't see its provider's firewall, so the note neither warns nor counts.
+    expect(text).toContain('Friends join on port 25565')
+    expect(text).not.toContain('friends can’t join')
+    const how = [...document.querySelectorAll('a')].find((a) => a.textContent === 'How to open a port')
+    expect(how?.getAttribute('href')).toBe('https://playkeeper.io/ports')
+    expect(document.querySelectorAll('li .text-warning')).toHaveLength(0)
   })
 })
 

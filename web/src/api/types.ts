@@ -85,6 +85,8 @@ export interface ServerConfig {
   voiceChatPort?: number
   /** The UDP port Bedrock players join on, while crossplay is on. */
   crossplayPort?: number
+  /** The Minecraft names its create asked to make operators, separated by spaces, until the server is up and they're added. */
+  pendingOperators?: string
 }
 
 export interface Operation {
@@ -330,6 +332,7 @@ export type CrashKind =
   | 'world_locked'
   | 'disk_full'
   | 'eula'
+  | 'download_failed'
   | 'permission_denied'
   | 'killed'
   | 'unknown'

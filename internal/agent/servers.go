@@ -121,6 +121,9 @@ type server struct {
 	// settingsChecked is set once this agent process has checked the running
 	// server's console and allowlist (checkSettingsOnce).
 	settingsChecked bool
+	// admitAfter is when the reconciler may try again to add the players a
+	// create asked for, after the server gave no answer about them.
+	admitAfter time.Time
 
 	// rconLock holds the console connection; a channel, so waiting for it
 	// honours a command's deadline.

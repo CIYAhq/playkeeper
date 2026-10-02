@@ -5,11 +5,11 @@ import type { Address } from '@/api/types'
 import { Card, copyText, CopyButton, Notice, Spinner } from '@/components/app/bits'
 import { Pip, type PipPose } from '@/components/app/art'
 import { useIsPhone } from '@/components/app/controls'
+import { TermsLine } from '@/components/app/terms-line'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogPopup } from '@/components/ui/dialog'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { rich } from '@/i18n/rich'
 import { certValid, dashboardURL } from '@/lib/address'
 import { formatDate, formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -125,21 +125,6 @@ export function OutLink({ href, children, className }: { href: string; children:
   )
 }
 
-/** Let's Encrypt's terms, accepted by the button next to it until an admin has. */
-export function TermsLine({ a, className }: { a: Address; className?: string }) {
-  if (a.termsAccepted) return null
-  return (
-    <p className={cn('text-xs text-muted-foreground', className)}>
-      {rich('address.terms', {
-        link: (chunk) => (
-          <a href={t('address.termsUrl')} target="_blank" rel="noreferrer" className="font-medium text-success-foreground hover:underline max-sm:text-success-strong">
-            {chunk}
-          </a>
-        ),
-      })}
-    </p>
-  )
-}
 
 export type Tone = 'default' | 'green' | 'amber' | 'red'
 

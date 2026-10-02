@@ -19,6 +19,7 @@ var crashRules = []struct {
 	{(*crashCtx).containerMemory, true},
 	{(*crashCtx).diskFull, true},
 	{(*crashCtx).eula, true},
+	{(*crashCtx).download, true},
 	{(*crashCtx).javaMemory, true},
 	{(*crashCtx).serverJava, true},
 	{(*crashCtx).worldLocked, true},
@@ -45,6 +46,14 @@ var (
 
 	reNoSpace = regexp.MustCompile(`No space left on device`)
 	reEULA    = regexp.MustCompile(`^You need to agree to the EULA in order to run the server`)
+
+	// Paperclip, which starts Paper, Purpur and Folia, downloads Mojang's
+	// server first and stops when it can't: this line, then the exception.
+	// A download that doesn't match Mojang's checksum throws instead.
+	reMojangDownload = regexp.MustCompile(`^Failed to download (mojang_[\w.+-]{1,60}\.jar)$`)
+	reMojangHash     = regexp.MustCompile(`^(?:Caused by: |Exception in thread "main" )?java\.lang\.IllegalStateException: Hash check failed for downloaded file (mojang_[\w.+-]{1,60}\.jar)$`)
+	reDownloadCause  = regexp.MustCompile(`^(?:Caused by: )?(?:java\.net\.|javax\.net\.ssl\.|java\.io\.|java\.nio\.channels\.)([A-Za-z]{1,60}(?:Exception|Error))(?:: (.{0,300}))?$`)
+	reHTTPStatus     = regexp.MustCompile(`^Server returned HTTP response code: (\d{3}) for URL`)
 
 	// Java prints the short "thrown from the UncaughtExceptionHandler" form
 	// when the heap is too full to build the usual message.
@@ -210,6 +219,73 @@ func (c *crashCtx) eula() (CrashDiagnosis, bool) {
 		Explanation: "Minecraft only starts once its end-user licence agreement (EULA) is accepted, and the server found it wasn't.",
 		Evidence:    c.evidenceOf(f),
 		Fixes:       []Action{{Kind: ActionAcceptEULA, Title: "Read and accept the Minecraft EULA", Recommended: true}},
+	}, true
+}
+
+var reHostName = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
+
+// download catches Paperclip failing to download Mojang's server before the
+// server starts, and says what stood in the way from the exception after
+// it: a name that didn't resolve, a TLS connection something tampered with,
+// an error page from Mojang, a file that didn't match, or no connection.
+func (c *crashCtx) download() (CrashDiagnosis, bool) {
+	var cause found
+	reason := "network"
+	f, ok := c.console(reMojangDownload)
+	if ok {
+		cause, _ = c.firstIn(reDownloadCause, f.idx+1, f.idx+4)
+	} else if f, ok = c.console(reMojangHash); ok {
+		reason = "hash"
+	} else {
+		return CrashDiagnosis{}, false
+	}
+	params := map[string]any{"file": f.groups[1]}
+	host := "Mojang's download server"
+	status := 0
+	if cause.line != "" {
+		name, msg := cause.groups[1], cause.groups[2]
+		switch {
+		case name == "UnknownHostException":
+			reason = "dns"
+			if h, _, _ := strings.Cut(strings.TrimSpace(msg), ":"); reHostName.MatchString(h) {
+				params["host"], host = h, h
+			}
+		case strings.HasPrefix(name, "SSL"):
+			reason = "tls"
+		case name == "FileNotFoundException":
+			// Java's HTTP client throws it for a 404, naming the URL.
+			reason, status = "http", 404
+		default:
+			if m := reHTTPStatus.FindStringSubmatch(msg); m != nil {
+				reason = "http"
+				status, _ = strconv.Atoi(m[1])
+			}
+		}
+	}
+	params["reason"] = reason
+	if status != 0 {
+		params["status"] = status
+	}
+	lead := c.typeName() + " downloads Minecraft from Mojang before it starts, and "
+	var explanation string
+	switch reason {
+	case "dns":
+		explanation = lead + "this VPS couldn't look up " + host + ". Check that the VPS can reach the internet, then start it again."
+	case "tls":
+		explanation = lead + "the secure connection to Mojang didn't work: something between this VPS and Mojang, such as a proxy or a firewall, got in its way. Check this VPS's internet, then start it again."
+	case "http":
+		explanation = lead + fmt.Sprintf("Mojang's download server answered with an error (HTTP %d), as it does while it's down. Start it again in a few minutes.", status)
+	case "hash":
+		explanation = lead + "the file that arrived didn't match Mojang's checksum, so it was cut off or changed on the way. Start it again to download it once more."
+	default:
+		explanation = lead + "this VPS couldn't connect to Mojang's download server. Check this VPS's internet, then start it again."
+	}
+	return CrashDiagnosis{
+		Kind: CrashDownloadFailed, Params: params,
+		Title:       upperFirst(c.server()) + " couldn't download Minecraft",
+		Explanation: explanation,
+		Evidence:    c.evidenceOf(f, cause),
+		Fixes:       []Action{restartFix()},
 	}, true
 }
 
