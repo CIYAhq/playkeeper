@@ -1092,6 +1092,30 @@ control "test installs don't ask the names service for the public address" inter
   'if !privateAddr(host) || sys.PublicIPv4 == nil || o.Usage.Test || testInstall(sys) {' \
   'if !privateAddr(host) || sys.PublicIPv4 == nil {' \
   ./internal/install '^TestTheSetupLinkUsesThePublicAddressBehindNAT$'
+control "the existing-setup refusal tells a running service from a stopped one" internal/install/install.go \
+  '	case slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
+  '	case false && slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
+  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+control "a stopped service that starts with the machine is disabled before installing next to it" internal/install/install.go \
+  '	case strings.HasPrefix(strings.TrimSpace(enabled), "enabled"):' \
+  '	case false && strings.HasPrefix(strings.TrimSpace(enabled), "enabled"):' \
+  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+control "the existing-setup refusal tells a running container from a stopped one" internal/install/install.go \
+  '	if c.State == "running" || c.State == "restarting" {' \
+  '	if false {' \
+  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+control "a Minecraft server running outside what Playkeeper found gets no command to stop it" internal/install/install.go \
+  '	case unexplained && !running:' \
+  '	case false:' \
+  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+control "the command to install next to a setup keeps usage stats off" internal/install/install.go \
+  '	if o.Usage.Choice == usage.Off {' \
+  '	if false {' \
+  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
+control "the stats say which kind of setup turned an install away" internal/install/install.go \
+  '		f.Checks[len(f.Checks)-1].Stats = stats' \
+  '		_ = stats' \
+  ./internal/install '^TestTheExistingSetupRefusalSaysWhatItFoundAndWhatToDo$'
 control "a failed Docker install removes the repository it added" internal/install/install.go \
   '				return removeFiles(sys, in.m.DockerRepoFiles)' \
   '				return nil' \

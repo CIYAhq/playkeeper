@@ -200,19 +200,26 @@ func (r *reporter) wait() {
 }
 
 // refusedChecks are the failed checks that turned an install away, as the
-// service counts them: "memory+port".
+// service counts them: "memory+port", or the check's own Stats, like
+// "existing-service-stopped".
 func refusedChecks(f Facts) string {
 	var ids []string
 	for _, c := range f.Checks {
 		if c.Status != "fail" {
 			continue
 		}
-		id := c.ID
-		if strings.HasPrefix(id, "port-") {
-			id = "port"
+		names := c.Stats
+		if len(names) == 0 {
+			id := c.ID
+			if strings.HasPrefix(id, "port-") {
+				id = "port"
+			}
+			names = []string{id}
 		}
-		if !slices.Contains(ids, id) {
-			ids = append(ids, id)
+		for _, id := range names {
+			if !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
 		}
 	}
 	slices.Sort(ids)

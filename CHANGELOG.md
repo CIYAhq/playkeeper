@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.17
+
+- **When the installer finds another Minecraft setup:** it turned away most install runs with one long rule. It now says exactly what it found and whether it's running, and the one thing to do, with the command to paste: stop what runs, if Playkeeper is to take over, or install next to what doesn't run, which Playkeeper never touches. With usage stats on, a refusal also says which kind of setup it found: a service, a container, a running server or a panel's files.
+
 ## 0.4.16
 
 - **When the setup link won't open:** right under it, the installer's last screen now says what to do: open ports 8443 and 25565 in the provider's firewall, with a link to that provider's steps on playkeeper.io/ports. It tells AWS, Google Cloud, Azure, Oracle Cloud, DigitalOcean, Hetzner, Vultr and Linode apart from what cloud-init or the machine's firmware says. The checks before the question no longer mention a cloud firewall, where the line scrolled away; a machine joining another dashboard, which prints no link, keeps it there.
