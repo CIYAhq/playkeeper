@@ -1,7 +1,7 @@
 {
   "types": {
     "fabric": {
-      "madeAt": "2026-10-01T15:07:08Z",
+      "madeAt": "2026-10-02T01:10:34Z",
       "releases": [
         {
           "id": "fabric-26.3",
@@ -2376,7 +2376,7 @@
       }
     },
     "forge": {
-      "madeAt": "2026-10-01T15:07:08Z",
+      "madeAt": "2026-10-02T01:10:34Z",
       "releases": [
         {
           "id": "forge-26.3",
@@ -3296,7 +3296,7 @@
       }
     },
     "neoforge": {
-      "madeAt": "2026-10-01T15:07:08Z",
+      "madeAt": "2026-10-02T01:10:34Z",
       "releases": [
         {
           "id": "neoforge-26.3",
@@ -3310,7 +3310,7 @@
           "pin": {
             "type": "neoforge",
             "minecraftVersion": "26.3",
-            "neoforgeVersion": "26.3.0.39-beta"
+            "neoforgeVersion": "26.3.0.40-beta"
           },
           "note": "experimental",
           "notes": "Experimental: NeoForge only has beta builds for Minecraft 26.3 so far. It may crash or damage your world, and a world opened with it cannot go back to an older version."
@@ -3389,7 +3389,7 @@
           "pin": {
             "type": "neoforge",
             "minecraftVersion": "26.3",
-            "neoforgeVersion": "26.3.0.39-beta"
+            "neoforgeVersion": "26.3.0.40-beta"
           },
           "java": 25,
           "server": {
@@ -3408,11 +3408,11 @@
             ]
           },
           "software": {
-            "url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.3.0.39-beta/neoforge-26.3.0.39-beta-installer.jar",
-            "path": "neoforge-26.3.0.39-beta-installer.jar",
+            "url": "https://maven.neoforged.net/releases/net/neoforged/neoforge/26.3.0.40-beta/neoforge-26.3.0.40-beta-installer.jar",
+            "path": "neoforge-26.3.0.40-beta-installer.jar",
             "hash": {
               "algorithm": "sha512",
-              "value": "324c0a8591ad7bbd40edaa2945ef4c2ecc725ad6d7afe76bf2e9133e997d558eb90f91a4552fbecca9524de6d34e18a7611f3afe0dee381198a457ae1350726b"
+              "value": "5940bdf51a5d1b4c25834f80c7954cacb3e45173f3e5ceee3048e0e80efa0d3bc352c6dc0b3d116ce61db72169d62579f009fad001105b3b1c1560babe23c4b6"
             },
             "source": "NeoForge's Maven repository",
             "upstream": "NeoForge",
@@ -5073,6 +5073,10 @@
         ],
         "26.3": [
           {
+            "version": "26.3.0.40-beta",
+            "channel": "beta"
+          },
+          {
             "version": "26.3.0.39-beta",
             "channel": "beta"
           },
@@ -5228,7 +5232,7 @@
       }
     },
     "purpur": {
-      "madeAt": "2026-10-01T15:07:08Z",
+      "madeAt": "2026-10-02T01:10:34Z",
       "releases": [
         {
           "id": "purpur-26.3",
@@ -6108,7 +6112,7 @@
       }
     },
     "quilt": {
-      "madeAt": "2026-10-01T15:07:08Z",
+      "madeAt": "2026-10-02T01:10:34Z",
       "releases": [
         {
           "id": "quilt-26.3",
@@ -13178,7 +13182,7 @@
       }
     },
     "vanilla": {
-      "madeAt": "2026-10-01T15:07:08Z",
+      "madeAt": "2026-10-02T01:10:34Z",
       "releases": [
         {
           "id": "vanilla-26.3",
