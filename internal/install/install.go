@@ -1399,6 +1399,28 @@ func panelVersion(ctx context.Context, certPath string, port int, want string) e
 	return nil
 }
 
+// panelNeedsSetup reads, on the panel's public setup route, whether it still
+// waits for its first-run setup.
+func panelNeedsSetup(ctx context.Context, certPath string, port int) (bool, error) {
+	hc, err := panelClient(certPath)
+	if err != nil {
+		return false, err
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://127.0.0.1:%d/api/setup/status", port), nil)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	var body struct {
+		NeedsSetup *bool `json:"needsSetup"`
+	}
+	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body) != nil || body.NeedsSetup == nil {
+		return false, fmt.Errorf("the panel's setup status returned %d", resp.StatusCode)
+	}
+	return *body.NeedsSetup, nil
+}
+
 func panelHealth(ctx context.Context, certPath string, port int) error {
 	hc, err := panelClient(certPath)
 	if err != nil {

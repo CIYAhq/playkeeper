@@ -8,7 +8,7 @@ The problems people hit most, with what to check first. If none of this helps, a
 - Allow TCP 8443 in your provider's firewall, the one in its web console ([each provider's steps](https://playkeeper.io/ports)). The installer allows it in ufw or firewalld when one is on, but a provider's cloud firewall sits in front of the VPS and needs its own rule. So does another firewall on the VPS itself, such as nftables on Debian: the installer's check names the one it found and the command that allows the port.
 - On Oracle Cloud, the VM's Ubuntu image also rejects every port but SSH with its own iptables rules, besides the security list in Oracle's console. Allow the dashboard there too: `sudo iptables -I INPUT -p tcp --dport 8443 -j ACCEPT && sudo netfilter-persistent save`, and the same with `--dport 80` if you give it your own domain.
 - On the VPS, `sudo playkeeper status` shows whether Playkeeper's services are running.
-- Lost the setup link before creating the admin account? `sudo playkeeper setup-code` makes a new one. Forgot the password? `sudo playkeeper reset-password <user>`.
+- Lost the setup link before creating the admin account? Run the install command again: it prints the link with a new code. (`sudo playkeeper setup-code` makes one too.) Forgot the password? `sudo playkeeper reset-password <user>`.
 
 ## The dashboard still has its port
 
