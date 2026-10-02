@@ -5,6 +5,7 @@ import type { TwoFactorStatus } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, Marker } from '@/components/app/bits'
 import { SettingRow, useIsPhone } from '@/components/app/controls'
+import { OwnNameField, ownNameKey, ownNameProblem } from '@/components/app/own-name'
 import { PasswordField } from '@/components/app/password-field'
 import { Avatar, PageBody, PageHeader, PhoneBackHeader, roleLabel } from '@/components/app/shell'
 import { InlineSkeleton, LoadingLabel } from '@/components/app/skeletons'
@@ -13,15 +14,16 @@ import { Dialog, DialogPopup } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { canCreate } from '@/lib/access'
 import { formatDate, relativeAge } from '@/lib/format'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import { Group } from './more'
 import { DialogButtons, DialogHeading, ErrorLine, NewCodesDialog, recoveryCodeCount, refusal, SetupDialog, SetupPage, TurnOffDialog } from './two-factor'
 
-type AccountDialog = 'password' | 'new-codes' | 'turn-off'
+type AccountDialog = 'password' | 'minecraft-name' | 'new-codes' | 'turn-off'
 
-/** The signed-in user: their password, two-factor sign-in and recovery codes. */
+/** The signed-in user: their Minecraft name, password, two-factor sign-in and recovery codes. */
 export function AccountPage({ section }: { section?: 'two-factor' }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
@@ -94,6 +96,9 @@ export function AccountPage({ section }: { section?: 'two-factor' }) {
 
   const name = ws.me.user.username
   const role = roleLabel(ws.me)
+  // The servers someone creates use it, so only whoever can create servers sees it.
+  const creates = canCreate(ws.me)
+  const ownName = ws.prefs[ownNameKey] ?? ''
   const changedAt = ws.me.passwordChangedAt
   const left = status?.recoveryCodesLeft ?? 0
   const retry = (
@@ -116,6 +121,11 @@ export function AccountPage({ section }: { section?: 'two-factor' }) {
                   <span className="block text-[13px] text-muted-foreground">{role}</span>
                 </span>
               </li>
+              {creates && (
+                <li>
+                  <PhoneRow title={t('account.minecraftName')} hint={ws.prefsLoading ? undefined : ownName || t('account.minecraftNameNone')} chevron onClick={() => setDialog('minecraft-name')} />
+                </li>
+              )}
             </Group>
             <Group label={t('account.signingIn')}>
               <li>
@@ -154,6 +164,20 @@ export function AccountPage({ section }: { section?: 'two-factor' }) {
               <div className="mt-1">
                 <SettingRow label={t('account.username')} control={<span className="text-sm font-semibold">{name}</span>} />
                 <SettingRow label={t('account.role')} control={<span className="text-sm font-semibold">{role}</span>} />
+                {creates && (
+                  <SettingRow
+                    label={t('account.minecraftName')}
+                    hint={t('account.minecraftNameHint')}
+                    control={
+                      <span className="flex items-center gap-3">
+                        {ws.prefsLoading ? <InlineSkeleton className="h-4 w-20" /> : <span className={cn('text-sm', ownName ? 'font-semibold' : 'text-muted-foreground')}>{ownName || t('account.minecraftNameNone')}</span>}
+                        <Button variant="outline" size="sm" onClick={() => setDialog('minecraft-name')}>
+                          {t('common.change')}
+                        </Button>
+                      </span>
+                    }
+                  />
+                )}
               </div>
             </Card>
             <Card aria-labelledby="account-signing-in">
@@ -236,6 +260,7 @@ export function AccountPage({ section }: { section?: 'two-factor' }) {
       </PageBody>
       {!phone && status && <SetupDialog open={section === 'two-factor' && !on} pending={status.state === 'pending'} onClose={closeSetup} onDone={finishSetup} />}
       <ChangePasswordDialog {...dialogProps('password')} />
+      <MinecraftNameDialog {...dialogProps('minecraft-name')} />
       <NewCodesDialog {...dialogProps('new-codes')} left={left} onChanged={() => void refresh()} />
       <TurnOffDialog {...dialogProps('turn-off')} onChanged={() => void refresh()} />
     </>
@@ -279,6 +304,66 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         <ChangePassword onClose={() => onOpenChange(false)} />
       </DialogPopup>
     </Dialog>
+  )
+}
+
+function MinecraftNameDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const phone = useIsPhone()
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="sm:max-w-[480px]" showCloseButton={phone}>
+        <MinecraftName onClose={() => onOpenChange(false)} />
+      </DialogPopup>
+    </Dialog>
+  )
+}
+
+/** The Minecraft name the account keeps for the servers it creates; left empty, it's forgotten. */
+function MinecraftName({ onClose }: { onClose: () => void }) {
+  const ws = useWorkspace()
+  const phone = useIsPhone()
+  const kept = ws.prefs[ownNameKey] ?? ''
+  const [value, setValue] = useState(kept)
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const reason = ownNameProblem(value)
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (reason || busy) return
+    const next = value.trim()
+    if (next === kept) {
+      onClose()
+      return
+    }
+    setBusy(true)
+    setError(undefined)
+    try {
+      await ws.setPrefs({ [ownNameKey]: next })
+      onClose()
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} noValidate className="overflow-y-auto px-6 pt-6 max-sm:px-5 max-sm:pt-4">
+      <DialogHeading title={t('account.minecraftName')}>{t('account.minecraftNameNewOnly')}</DialogHeading>
+      <OwnNameField value={value} onChange={setValue} className="mt-4" />
+      <ErrorLine text={error} />
+      <DialogButtons>
+        {!phone && (
+          <Button type="button" variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+        )}
+        <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={reason}>
+          {t('common.save')}
+        </Button>
+      </DialogButtons>
+    </form>
   )
 }
 
