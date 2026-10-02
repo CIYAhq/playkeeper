@@ -63,6 +63,11 @@ func TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun(t *testing.T) {
 			detail: "Found the service minecraft.service (not running, but it starts with the machine)." + refuses,
 			fix:    "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: sudo systemctl disable minecraft.service && curl -fsSL https://playkeeper.io/install | sudo sh -s -- --panel-port 9443 --game-port 25566 --release-url 'https://example.com/releases?channel=beta&x=1'",
 			stats:  []string{"existing-service-enabled"}},
+		{name: "a build that isn't a release, next to a server running on its own", setup: func(h *fakeHost) { h.procs = []string{paper} },
+			usage: Usage{Source: usage.SourceBuild}, status: "fail",
+			detail: "Found a Minecraft server running: " + paper + "." + refuses,
+			fix:    "If Playkeeper is to take over, stop that Minecraft server, then run the install command you used again.",
+			stats:  []string{"existing-java"}},
 		{name: "a machine joining a dashboard", setup: func(h *fakeHost) { unitFile(h); h.units = map[string]string{"minecraft.service": "running"} }, usage: site, status: "fail",
 			opts:   func(o *Options) { o.Join = "203.0.113.5:8443" },
 			detail: "Found the service minecraft.service (running)." + refuses,
@@ -127,11 +132,6 @@ func TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun(t *testing.T) {
 			detail: "Found the service minecraft.service (not running, but it starts with the machine)." + refuses,
 			fix:    "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: sudo systemctl disable minecraft.service && curl -fsSL https://playkeeper.io/install/hn | sudo sh",
 			stats:  []string{"existing-service-enabled"}},
-		{name: "a release's installer, with usage stats off", setup: func(h *fakeHost) { unitFile(h); h.units = map[string]string{"minecraft.service": "enabled"} },
-			usage: Usage{Source: usage.SourceTarball, Choice: usage.Off, Why: usage.EnvDoNotTrack}, status: "fail",
-			detail: "Found the service minecraft.service (not running, but it starts with the machine)." + refuses,
-			fix:    "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: sudo systemctl disable minecraft.service && sudo DO_NOT_TRACK=1 ./install.sh",
-			stats:  []string{"existing-service-enabled"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newFakeHost(t)
@@ -156,6 +156,41 @@ func TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun(t *testing.T) {
 				t.Errorf("stats %v, want %v; left alone %q, want %q", ch.Stats, c.stats, f.LeftAlone, c.left)
 			}
 		})
+	}
+}
+
+// The README runs a release's install.sh from outside the release's folder,
+// so the command that runs it again names it by its full path, quoted for
+// the shell. get.sh's download has an install.sh beside the binary too, but
+// get.sh deletes it when the install ends; that, and a binary with no
+// install.sh beside it, get words instead of a command.
+func TestTheCommandToRunAReleasesInstallerAgainNamesItByItsFullPath(t *testing.T) {
+	h := newFakeHost(t)
+	unitFile(h)
+	h.units = map[string]string{"minecraft.service": "enabled"}
+	release := filepath.Join(t.TempDir(), "my downloads", "playkeeper-0.4.17-linux-amd64")
+	os.MkdirAll(release, 0o755)
+	sys := h.system(t)
+	sys.Executable = func() (string, error) { return filepath.Join(release, "playkeeper"), nil }
+	fix := func(source string) string {
+		o := opts("")
+		o.Usage = Usage{Source: source, Choice: usage.Off, Why: usage.EnvDoNotTrack}
+		ch := check(Preflight(context.Background(), sys, o), "existing")
+		if ch == nil {
+			t.Fatal("no existing-setups check")
+		}
+		return ch.Fix
+	}
+	const keepOff = "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: sudo systemctl disable minecraft.service"
+	if got, want := fix(usage.SourceTarball), keepOff+", then run the install command you used again"; got != want {
+		t.Errorf("a binary with no install.sh beside it:\n got %q\nwant %q", got, want)
+	}
+	os.WriteFile(filepath.Join(release, "install.sh"), []byte("#!/bin/sh\n"), 0o755)
+	if got, want := fix(usage.SourceTarball), keepOff+" && sudo DO_NOT_TRACK=1 '"+filepath.Join(release, "install.sh")+"'"; got != want {
+		t.Errorf("a release's install.sh:\n got %q\nwant %q", got, want)
+	}
+	if got, want := fix(usage.SourceMirror), keepOff+", then run the install command you used again"; got != want {
+		t.Errorf("get.sh from a mirror:\n got %q\nwant %q", got, want)
 	}
 }
 

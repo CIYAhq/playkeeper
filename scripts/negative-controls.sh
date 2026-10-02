@@ -1170,9 +1170,23 @@ control "the command that installs again keeps the run's other ports" internal/i
   '	if false {' \
   ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
 control "a machine joining a dashboard is sent back to the dashboard's join command" internal/install/install.go \
-  '		return "run the join command from your dashboard again"' \
-  '		return againCommand(o)' \
+  '	if o.Join != "" {
+		return rerun{words: "run the join command from your dashboard again"}' \
+  '	if false {
+		return rerun{words: "run the join command from your dashboard again"}' \
   ./internal/install '^TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun$'
+control "a release's install.sh is named by its full path, quoted for the shell" internal/install/install.go \
+  '				cmd = strings.TrimSpace("sudo " + env + shellQuote(script) + " " + flags)' \
+  '				cmd = strings.TrimSpace("sudo " + env + "./install.sh " + flags)' \
+  ./internal/install '^TestTheCommandToRunAReleasesInstallerAgainNamesItByItsFullPath$'
+control "a binary with no install.sh beside it gets words, not a command for a file that isn't there" internal/install/install.go \
+  '			if _, err := os.Stat(script); err == nil {' \
+  '			if true {' \
+  ./internal/install '^TestTheCommandToRunAReleasesInstallerAgainNamesItByItsFullPath$'
+control "get.sh from a mirror gets words, not a command for the download get.sh deletes" internal/install/install.go \
+  '	case usage.SourceTarball:' \
+  '	case usage.SourceTarball, usage.SourceMirror:' \
+  ./internal/install '^TestTheCommandToRunAReleasesInstallerAgainNamesItByItsFullPath$'
 control "the release location in the command is quoted for the shell" internal/install/install.go \
   '		f = append(f, "--release-url", shellQuote(o.ReleaseURL))' \
   '		f = append(f, "--release-url", o.ReleaseURL)' \

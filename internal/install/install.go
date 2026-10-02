@@ -229,7 +229,7 @@ func panelSetup(panel string, dirs []string, running bool) setup {
 // what runs, if Playkeeper is to take over, or keep off what starts again by
 // itself, and install next to it. A server or panel running outside a
 // service or container Playkeeper found is one it can't name a way to stop.
-func setupsNext(found []setup, o Options) string {
+func setupsNext(found []setup, again rerun) string {
 	var stops []string
 	running, byHand := false, ""
 	for _, s := range found {
@@ -242,41 +242,43 @@ func setupsNext(found []setup, o Options) string {
 			byHand = s.byHand
 		}
 	}
-	cmd := runAgain(o, stops)
+	cmd := again.after(stops)
 	switch {
 	case byHand != "" && !running:
-		return "If Playkeeper is to take over, stop " + byHand + ", then " + againWords(o) + "."
+		return "If Playkeeper is to take over, stop " + byHand + ", then " + again.words + "."
 	case running:
 		return "If Playkeeper is to take over, stop it and install next to its files: " + cmd
 	}
 	return "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: " + cmd
 }
 
-// runAgain is how to run the install again after the commands first: one
-// command to paste, or, on a machine joining a dashboard, whose join code
-// the installer doesn't keep, the dashboard's join command.
-func runAgain(o Options, first []string) string {
-	if o.Join == "" {
-		return strings.Join(append(first, againCommand(o)), " && ")
+// rerun is how to run the install again: the command to paste, "" when
+// Playkeeper can't give it, and the same in words.
+type rerun struct{ cmd, words string }
+
+// after is the install run again after the commands first: one command to
+// paste, or words for the one Playkeeper can't give.
+func (r rerun) after(first []string) string {
+	if r.cmd != "" {
+		return strings.Join(append(first, r.cmd), " && ")
 	}
 	if len(first) == 0 {
-		return againWords(o)
+		return r.words
 	}
-	return strings.Join(first, " && ") + ", then " + againWords(o)
+	return strings.Join(first, " && ") + ", then " + r.words
 }
 
-// againWords says to run the install again: the install command, or a
-// joining machine's dashboard's join command.
-func againWords(o Options) string {
+// rerunOf is how to run this install again: the way it came, with the flags
+// it had, and usage stats kept off when they were. Playkeeper can't give the
+// command on a machine joining a dashboard, whose join code the installer
+// doesn't keep; from get.sh on a mirror or a build that isn't a release,
+// whose download get.sh deletes when the install ends; or from a binary with
+// no install.sh beside it. A release's install.sh is named by its full path:
+// the README runs it from outside the release's folder.
+func rerunOf(sys System, o Options) rerun {
 	if o.Join != "" {
-		return "run the join command from your dashboard again"
+		return rerun{words: "run the join command from your dashboard again"}
 	}
-	return "run the install command again"
-}
-
-// againCommand is the install command run again, the way this run came and
-// with the flags it had, and usage stats kept off when they were.
-func againCommand(o Options) string {
 	env := ""
 	if o.Usage.Choice == usage.Off {
 		env = o.Usage.Why + "=1 "
@@ -289,17 +291,28 @@ func againCommand(o Options) string {
 	if flags != "" {
 		sh = "sh -s -- " + flags
 	}
+	cmd := ""
 	switch o.Usage.Source {
 	case usage.SourceSite:
 		url := "https://playkeeper.io/install"
 		if o.Usage.Channel != "" {
 			url += "/" + o.Usage.Channel
 		}
-		return "curl -fsSL " + url + " | sudo " + env + sh
+		cmd = "curl -fsSL " + url + " | sudo " + env + sh
 	case usage.SourceGitHub:
-		return "curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo " + env + sh
+		cmd = "curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo " + env + sh
+	case usage.SourceTarball:
+		if exe, err := sys.Executable(); err == nil {
+			script := filepath.Join(filepath.Dir(exe), "install.sh")
+			if _, err := os.Stat(script); err == nil {
+				cmd = strings.TrimSpace("sudo " + env + shellQuote(script) + " " + flags)
+			}
+		}
 	}
-	return strings.TrimSpace("sudo " + env + "./install.sh " + flags)
+	if cmd == "" {
+		return rerun{words: "run the install command you used again"}
+	}
+	return rerun{cmd: cmd, words: "run the install command again"}
 }
 
 // rerunFlags are the flags of this run that a command running it again
@@ -486,7 +499,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		add("existing", "Existing Minecraft setups", "info", "Found "+strings.Join(whats, "; ")+". None of it runs or starts again by itself, so Playkeeper installs next to it and leaves it alone.", "")
 		f.LeftAlone = left
 	default:
-		add("existing", "Existing Minecraft setups", "fail", "Found "+strings.Join(whats, "; ")+". Playkeeper installs next to another Minecraft setup only when none of it runs or starts again by itself.", setupsNext(found, o))
+		add("existing", "Existing Minecraft setups", "fail", "Found "+strings.Join(whats, "; ")+". Playkeeper installs next to another Minecraft setup only when none of it runs or starts again by itself.", setupsNext(found, rerunOf(sys, o)))
 		f.Checks[len(f.Checks)-1].Stats = stats
 	}
 	if _, err := os.Stat(sys.P(ConfigDir + "/config.json")); err == nil {
