@@ -132,6 +132,11 @@ func TestTheInstallerGoesNextToOldSetupsAndRefusesOnesThatRun(t *testing.T) {
 			detail: "Found the service minecraft.service (not running, but it starts with the machine)." + refuses,
 			fix:    "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: sudo systemctl disable minecraft.service && curl -fsSL https://playkeeper.io/install/hn | sudo sh",
 			stats:  []string{"existing-service-enabled"}},
+		{name: "usage stats off", setup: func(h *fakeHost) { unitFile(h); h.units = map[string]string{"minecraft.service": "enabled"} },
+			usage: Usage{Source: usage.SourceSite, Choice: usage.Off, Why: usage.EnvDoNotTrack}, status: "fail",
+			detail: "Found the service minecraft.service (not running, but it starts with the machine)." + refuses,
+			fix:    "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: sudo systemctl disable minecraft.service && curl -fsSL https://playkeeper.io/install | sudo DO_NOT_TRACK=1 sh",
+			stats:  []string{"existing-service-enabled"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newFakeHost(t)
