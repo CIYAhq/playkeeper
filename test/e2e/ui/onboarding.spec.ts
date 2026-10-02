@@ -28,7 +28,10 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await page.keyboard.press('Enter')
 
   await expect(page.getByRole('heading', { name: 'Checking this VPS' })).toBeVisible()
-  await expect(page.getByText('Docker is running')).toBeVisible()
+  // The checks answer together, after the download services' (checkEgress in
+  // internal/agent/host.go), which they wait up to 8 s for; PaperMC's and
+  // Mojang's have taken 5 to answer, on any system.
+  await expect(page.getByText('Docker is running')).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText(/^Friends join on port \d+$/)).toBeVisible()
   await expect(page.getByRole('link', { name: 'How to open a port' })).toHaveAttribute('href', 'https://playkeeper.io/ports')
   const cont = page.getByRole('button', { name: 'Looks good, continue' })
