@@ -471,7 +471,8 @@ func readOnly(cmd string) bool {
 			return true
 		}
 	}
-	return strings.HasPrefix(cmd, "rpm -qa ") || strings.HasPrefix(cmd, "firewall-cmd --get-")
+	return strings.HasPrefix(cmd, "rpm -qa ") || strings.HasPrefix(cmd, "firewall-cmd --get-") ||
+		strings.HasPrefix(cmd, "systemctl is-active ") || strings.HasPrefix(cmd, "systemctl is-enabled ")
 }
 
 func TestExistingMinecraftCanBeAllowedButIsNeverTouched(t *testing.T) {
@@ -500,7 +501,7 @@ func TestExistingMinecraftCanBeAllowedButIsNeverTouched(t *testing.T) {
 		t.Fatal("the existing Minecraft service or world changed")
 	}
 	for _, cmd := range h.cmds {
-		if strings.Contains(cmd, "minecraft.service") {
+		if strings.Contains(cmd, "minecraft.service") && !readOnly(cmd) {
 			t.Fatalf("installer touched the existing unit: %q", cmd)
 		}
 	}

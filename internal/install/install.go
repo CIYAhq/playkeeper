@@ -26,6 +26,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
+	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/panel"
 	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/usage"
@@ -88,6 +89,9 @@ type Check struct {
 	Status string `json:"status"` // pass | warn | fail | info
 	Detail string `json:"detail"`
 	Fix    string `json:"fix,omitempty"`
+	// Stats are what usage stats call the check when it fails, where they
+	// say more than its ID (refusedChecks).
+	Stats []string `json:"-"`
 }
 
 // Facts are what preflight learned; the plan and steps depend on them.
@@ -134,7 +138,147 @@ func (f Facts) OK() bool {
 var unitPattern = regexp.MustCompile(`(?i)(minecraft|crafty|pterodactyl|wings|pufferpanel|ampinstmgr|papermc|spigot|bukkit|mcserver)`)
 var javaMC = regexp.MustCompile(`(?i)java\b.*(server\.jar|paper|spigot|bukkit|forge|fabric|minecraft|craftbukkit|purpur)`)
 
-var panelDirs = []string{"/var/opt/minecraft/crafty", "/opt/crafty", "/opt/crafty-4", "/etc/pterodactyl", "/var/lib/pterodactyl", "/etc/pufferpanel", "/var/lib/pufferpanel", "/home/amp/.ampdata", "/opt/pelican"}
+// panelDirs are where other game panels keep their files, with the panel's
+// name.
+var panelDirs = []struct{ dir, panel string }{
+	{"/var/opt/minecraft/crafty", "Crafty"}, {"/opt/crafty", "Crafty"}, {"/opt/crafty-4", "Crafty"},
+	{"/etc/pterodactyl", "Pterodactyl"}, {"/var/lib/pterodactyl", "Pterodactyl"},
+	{"/etc/pufferpanel", "PufferPanel"}, {"/var/lib/pufferpanel", "PufferPanel"},
+	{"/home/amp/.ampdata", "AMP"}, {"/opt/pelican", "Pelican"},
+}
+
+// setup is another Minecraft setup Preflight found on the machine.
+type setup struct {
+	// what says what it is, in plain words, and whether it runs.
+	what    string
+	running bool
+	// stop stops it and keeps it from starting with the machine, when
+	// Playkeeper knows how.
+	stop string
+	// stat is what usage stats call it, as a check that turned an install
+	// away.
+	stat string
+}
+
+// serviceSetup is the Minecraft service name, as systemd says it stands.
+func serviceSetup(sys System, name string) setup {
+	active, _ := sys.Run("systemctl", "is-active", name)
+	enabled, _ := sys.Run("systemctl", "is-enabled", name)
+	s := setup{what: "the service " + name + " (not running)", stat: "existing-service-stopped"}
+	switch {
+	case slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):
+		s.what, s.running, s.stat = "the service "+name+" (running)", true, "existing-service-running"
+	case strings.HasPrefix(strings.TrimSpace(enabled), "enabled"):
+		s.what = "the service " + name + " (not running, but it starts with the machine)"
+	default:
+		return s
+	}
+	s.stop = "sudo systemctl disable --now " + name
+	return s
+}
+
+// containerSetup is a Docker container of a Minecraft image.
+func containerSetup(c docker.ContainerSummary) setup {
+	name := c.ID
+	if len(c.Names) > 0 {
+		name = strings.TrimPrefix(c.Names[0], "/")
+	}
+	if c.State == "running" || c.State == "restarting" {
+		return setup{what: "the Docker container " + name + " (" + c.Image + ", running)", running: true, stop: "sudo docker stop " + name, stat: "existing-container-running"}
+	}
+	return setup{what: "the Docker container " + name + " (" + c.Image + ", stopped)", stat: "existing-container-stopped"}
+}
+
+// setupsNext is the one thing to do about the setups found: stop what runs,
+// if Playkeeper is to take over, or install next to what doesn't run, never
+// touching it. A Minecraft server running outside a service or container
+// Playkeeper found is one it can't name a way to stop.
+func setupsNext(found []setup, o Options) string {
+	var stops []string
+	running, unexplained := false, false
+	for _, s := range found {
+		if s.stop != "" {
+			stops = append(stops, s.stop)
+		}
+		running = running || s.running && s.stop != ""
+		unexplained = unexplained || s.running && s.stop == ""
+	}
+	cmd := runAgain(o, stops, "--allow-existing-minecraft")
+	switch {
+	case unexplained && !running && o.Join != "":
+		return "If Playkeeper is to take over, stop that server, then run the join command from your dashboard again."
+	case unexplained && !running:
+		return "If Playkeeper is to take over, stop that server, then run the install command again."
+	case running:
+		return "If Playkeeper is to take over, stop it and install next to its files: " + cmd
+	}
+	return "None of it is running, so Playkeeper can install next to it and never touch it: " + cmd
+}
+
+// runAgain is how to run the install again with flag, after the commands
+// first: one command to paste, or, on a machine joining a dashboard, whose
+// join code the installer doesn't keep, the dashboard's join command.
+func runAgain(o Options, first []string, flag string) string {
+	if o.Join == "" {
+		return strings.Join(append(first, againWith(o, flag)), " && ")
+	}
+	join := "run the join command from your dashboard again, with " + flag + " at the end"
+	if len(first) == 0 {
+		return join
+	}
+	return strings.Join(first, " && ") + ", then " + join
+}
+
+// againWith is the install command run again with flag, the way this run
+// came and with the flags it had, and usage stats kept off when they were.
+func againWith(o Options, flag string) string {
+	env := ""
+	if o.Usage.Choice == usage.Off {
+		env = o.Usage.Why + "=1 "
+		if o.Usage.Why == usage.EnvSwitch {
+			env = usage.EnvSwitch + "=off "
+		}
+	}
+	args := strings.Join(append(rerunFlags(o), flag), " ")
+	switch o.Usage.Source {
+	case usage.SourceSite:
+		url := "https://playkeeper.io/install"
+		if o.Usage.Channel != "" {
+			url += "/" + o.Usage.Channel
+		}
+		return "curl -fsSL " + url + " | sudo " + env + "sh -s -- " + args
+	case usage.SourceGitHub:
+		return "curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo " + env + "sh -s -- " + args
+	}
+	return "sudo " + env + "./install.sh " + args
+}
+
+// rerunFlags are the flags of this run that a command running it again
+// keeps: other ports, the release location and --allow-untested-os.
+func rerunFlags(o Options) []string {
+	var f []string
+	if o.PanelPort != 0 && o.PanelPort != config.DefaultPanelPort {
+		f = append(f, "--panel-port", strconv.Itoa(o.PanelPort))
+	}
+	if o.GamePort != 0 && o.GamePort != config.DefaultGamePort {
+		f = append(f, "--game-port", strconv.Itoa(o.GamePort))
+	}
+	if o.ReleaseURL != "" {
+		f = append(f, "--release-url", shellQuote(o.ReleaseURL))
+	}
+	if o.AllowUntestedOS {
+		f = append(f, "--allow-untested-os")
+	}
+	return f
+}
+
+// shellQuote quotes s for a shell, unless it needs none.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:=@%+,-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // Preflight inspects the host without changing anything.
 func Preflight(ctx context.Context, sys System, o Options) Facts {
@@ -210,7 +354,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	if o.Join == "" {
 		f.Port443 = port443Taken(sys)
 	}
-	var existing []string
+	var found []setup
 	// /lib is /usr/lib on the RHEL family and on newer Ubuntu and Debian.
 	units := map[string]bool{}
 	for _, dir := range []string{"/etc/systemd/system", "/lib/systemd/system", "/usr/lib/systemd/system"} {
@@ -221,18 +365,18 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 			}
 			if strings.HasSuffix(e.Name(), ".service") && unitPattern.MatchString(e.Name()) {
 				units[e.Name()] = true
-				existing = append(existing, "service "+e.Name())
+				found = append(found, serviceSetup(sys, e.Name()))
 			}
 		}
 	}
-	for _, d := range panelDirs {
-		if _, err := os.Stat(sys.P(d)); err == nil {
-			existing = append(existing, "directory "+d)
+	for _, p := range panelDirs {
+		if _, err := os.Stat(sys.P(p.dir)); err == nil {
+			found = append(found, setup{what: p.panel + "'s files in " + p.dir, stat: "existing-panel"})
 		}
 	}
 	for _, p := range sys.Processes() {
 		if javaMC.MatchString(p) {
-			existing = append(existing, "running process: "+truncate(p, 80))
+			found = append(found, setup{what: "a Minecraft server running: " + truncate(p, 80), running: true, stat: "existing-java"})
 		}
 	}
 	di, derr := sys.Docker(ctx)
@@ -247,7 +391,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 				continue
 			}
 			if strings.Contains(strings.ToLower(c.Image), "minecraft") {
-				existing = append(existing, "Docker container "+strings.TrimPrefix(strings.Join(c.Names, ","), "/")+" ("+c.Image+")")
+				found = append(found, containerSetup(c))
 			}
 			for _, p := range c.Ports {
 				if p.PublicPort == 443 && p.Type == "tcp" && f.Port443 == "" && o.Join == "" {
@@ -256,15 +400,23 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 			}
 		}
 	}
-	sort.Strings(existing)
+	slices.SortFunc(found, func(a, b setup) int { return strings.Compare(a.what, b.what) })
+	var whats, stats []string
+	for _, s := range found {
+		whats = append(whats, s.what)
+		if !slices.Contains(stats, s.stat) {
+			stats = append(stats, s.stat)
+		}
+	}
+	slices.Sort(stats)
 	switch {
-	case len(existing) == 0:
+	case len(found) == 0:
 		add("existing", "Existing Minecraft setups", "pass", "None found.", "")
 	case o.AllowExistingMinecraft:
-		add("existing", "Existing Minecraft setups", "warn", "Found "+strings.Join(existing, "; ")+". Playkeeper will not touch them (--allow-existing-minecraft).", "")
+		add("existing", "Existing Minecraft setups", "warn", "Found "+strings.Join(whats, "; ")+". Playkeeper won't touch it (--allow-existing-minecraft).", "")
 	default:
-		add("existing", "Existing Minecraft setups", "fail", "Found "+strings.Join(existing, "; ")+". Playkeeper will not take over or run next to an existing Minecraft setup by default.",
-			"Leave that server alone and use a different VPS, or, if you are sure the two will not conflict, re-run with --allow-existing-minecraft (Playkeeper never modifies it) and a free --game-port.")
+		add("existing", "Existing Minecraft setups", "fail", "Found "+strings.Join(whats, "; ")+". Playkeeper installs next to another Minecraft setup only when you say so.", setupsNext(found, o))
+		f.Checks[len(f.Checks)-1].Stats = stats
 	}
 	if _, err := os.Stat(sys.P(ConfigDir + "/config.json")); err == nil {
 		add("installed", "Existing Playkeeper", "fail", "Playkeeper is already installed.", "To upgrade it, run the one-line installer (or install.sh from a newer release) again: it upgrades in place and keeps worlds, backups and settings.")
