@@ -35,11 +35,16 @@ type fakeHost struct {
 	listening     map[int]bool
 	procs         []string
 	containers    []docker.ContainerSummary
-	memMB         int
-	freeBytes     int64
-	healthErr     error
-	failCmd       string
-	fw4, fw6      *fakeFirewall
+	// units are services' states as systemctl says them: "running", or
+	// "enabled" for one that starts with the machine. restart are
+	// containers' restart policies by ID; one that isn't there can't be read.
+	units     map[string]string
+	restart   map[string]string
+	memMB     int
+	freeBytes int64
+	healthErr error
+	failCmd   string
+	fw4, fw6  *fakeFirewall
 	// ufwActive turns ufw on; ufwRules are its rules, set up front for
 	// rules the admin added.
 	ufwActive bool
@@ -128,6 +133,16 @@ func (h *fakeHost) system(t *testing.T) System {
 			switch {
 			case name == "rpm" || name == "dnf" || name == "firewall-cmd" || name == "modinfo" || name == "uname":
 				return h.runEL(name, args)
+			case name == "systemctl" && len(args) == 2 && args[0] == "is-active":
+				if h.units[args[1]] == "running" {
+					return "active\n", nil
+				}
+				return "inactive\n", errors.New("exit status 3")
+			case name == "systemctl" && len(args) == 2 && args[0] == "is-enabled":
+				if h.units[args[1]] != "" {
+					return "enabled\n", nil
+				}
+				return "disabled\n", errors.New("exit status 1")
 			case name == "systemctl" && len(args) > 1 && args[0] == "start" && args[1] == AgentUnit:
 				if h.onStart != nil {
 					h.onStart()
@@ -237,6 +252,12 @@ func (h *fakeHost) system(t *testing.T) System {
 		DiskFree:   func(string) int64 { return h.freeBytes },
 		Listening:  func(p int) bool { return h.listening[p] },
 		Processes:  func() []string { return h.procs },
+		RestartPolicy: func(_ context.Context, id string) (string, error) {
+			if p, ok := h.restart[id]; ok {
+				return p, nil
+			}
+			return "", errors.New("no such container: " + id)
+		},
 		LookupUser: func(name string) (int, int, bool) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
@@ -411,12 +432,16 @@ func TestPreflightRefusesEachCollisionWithAFix(t *testing.T) {
 		"panel port in use": {func(h *fakeHost) { h.listening[8443] = true }, "port-8443"},
 		"minecraft.service": {func(h *fakeHost) {
 			os.WriteFile(filepath.Join(h.root, "/etc/systemd/system/minecraft.service"), []byte("[Service]\n"), 0o644)
+			h.units = map[string]string{"minecraft.service": "running"}
 		}, "existing"},
-		"crafty install":      {func(h *fakeHost) { os.MkdirAll(filepath.Join(h.root, "/var/opt/minecraft/crafty"), 0o755) }, "existing"},
+		"crafty install": {func(h *fakeHost) {
+			os.MkdirAll(filepath.Join(h.root, "/var/opt/minecraft/crafty"), 0o755)
+			h.procs = []string{"/var/opt/minecraft/crafty/crafty-4/.venv/bin/python3 main.py"}
+		}, "existing"},
 		"running java server": {func(h *fakeHost) { h.procs = []string{"java -Xmx2G -jar paper-1.21.11.jar nogui"} }, "existing"},
 		"other mc container": {func(h *fakeHost) {
 			h.dockerPresent = true
-			h.containers = []docker.ContainerSummary{{Names: []string{"/mc"}, Image: "itzg/minecraft-server"}}
+			h.containers = []docker.ContainerSummary{{ID: "c0ffee", Names: []string{"/mc"}, Image: "itzg/minecraft-server", State: "running"}}
 		}, "existing"},
 		"low disk":   {func(h *fakeHost) { h.freeBytes = 1 << 30 }, "disk"},
 		"low memory": {func(h *fakeHost) { h.memMB = 1900 }, "memory"},

@@ -64,6 +64,9 @@ type System struct {
 	// NeedsSetup asks the panel whether it still waits for its first-run
 	// setup, with no admin account yet; nil asks nothing.
 	NeedsSetup func(ctx context.Context, certPath string, panelPort int) (bool, error)
+	// RestartPolicy reads a Docker container's restart policy, like "always"
+	// or "no"; nil reads nothing.
+	RestartPolicy func(ctx context.Context, id string) (string, error)
 }
 
 type DockerInfo struct {
@@ -149,6 +152,10 @@ func Real() System {
 		Firewall:    netguard.Exec,
 		PublicIPv4:  namesIPv4,
 		NeedsSetup:  panelNeedsSetup,
+		RestartPolicy: func(ctx context.Context, id string) (string, error) {
+			j, err := docker.New("/var/run/docker.sock").ContainerInspect(ctx, id)
+			return j.HostConfig.RestartPolicy.Name, err
+		},
 	}
 }
 

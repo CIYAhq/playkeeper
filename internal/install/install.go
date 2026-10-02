@@ -96,7 +96,10 @@ type Check struct {
 
 // Facts are what preflight learned; the plan and steps depend on them.
 type Facts struct {
-	Checks        []Check
+	Checks []Check
+	// LeftAlone are lines for the old Minecraft setups the install goes next
+	// to, which none of it touches.
+	LeftAlone     []string
 	OS            platform.OS
 	DockerPresent bool
 	DockerVersion string
@@ -139,83 +142,119 @@ var unitPattern = regexp.MustCompile(`(?i)(minecraft|crafty|pterodactyl|wings|pu
 var javaMC = regexp.MustCompile(`(?i)java\b.*(server\.jar|paper|spigot|bukkit|forge|fabric|minecraft|craftbukkit|purpur)`)
 
 // panelDirs are where other game panels keep their files, with the panel's
-// name.
-var panelDirs = []struct{ dir, panel string }{
-	{"/var/opt/minecraft/crafty", "Crafty"}, {"/opt/crafty", "Crafty"}, {"/opt/crafty-4", "Crafty"},
-	{"/etc/pterodactyl", "Pterodactyl"}, {"/var/lib/pterodactyl", "Pterodactyl"},
-	{"/etc/pufferpanel", "PufferPanel"}, {"/var/lib/pufferpanel", "PufferPanel"},
-	{"/home/amp/.ampdata", "AMP"}, {"/opt/pelican", "Pelican"},
+// name and how its programs show in the process list, which tells a panel
+// that runs from the files of one that's gone.
+var panelDirs = []struct {
+	dir, panel string
+	proc       *regexp.Regexp
+}{
+	{"/var/opt/minecraft/crafty", "Crafty", craftyProc}, {"/opt/crafty", "Crafty", craftyProc}, {"/opt/crafty-4", "Crafty", craftyProc},
+	{"/etc/pterodactyl", "Pterodactyl", wingsProc}, {"/var/lib/pterodactyl", "Pterodactyl", wingsProc},
+	{"/etc/pufferpanel", "PufferPanel", pufferProc}, {"/var/lib/pufferpanel", "PufferPanel", pufferProc},
+	{"/home/amp/.ampdata", "AMP", ampProc}, {"/opt/pelican", "Pelican", pelicanProc},
 }
+
+var (
+	craftyProc  = regexp.MustCompile(`(?i)crafty`)
+	wingsProc   = regexp.MustCompile(`(?i)(^|/)wings(\s|$)`)
+	pufferProc  = regexp.MustCompile(`(?i)pufferpanel`)
+	ampProc     = regexp.MustCompile(`(?i)ampinstmgr|AMP_Linux`)
+	pelicanProc = regexp.MustCompile(`(?i)pelican|(^|/)wings(\s|$)`)
+)
 
 // setup is another Minecraft setup Preflight found on the machine.
 type setup struct {
-	// what says what it is, in plain words, and whether it runs.
-	what    string
+	// what says what it is, in plain words, and how it stands.
+	what string
+	// blocks says it runs, or starts again by itself, so Playkeeper doesn't
+	// install next to it unless told to.
+	blocks  bool
 	running bool
-	// stop stops it and keeps it from starting with the machine, when
-	// Playkeeper knows how.
-	stop string
-	// stat is what usage stats call it, as a check that turned an install
-	// away.
+	// stop stops it and keeps it off, when Playkeeper knows how; byHand
+	// names what to stop otherwise, like "that Minecraft server".
+	stop, byHand string
+	// stat is what usage stats call it when it turns an install away.
 	stat string
+	// left is the install's line for it when it doesn't block.
+	left string
 }
 
 // serviceSetup is the Minecraft service name, as systemd says it stands.
 func serviceSetup(sys System, name string) setup {
 	active, _ := sys.Run("systemctl", "is-active", name)
 	enabled, _ := sys.Run("systemctl", "is-enabled", name)
-	s := setup{what: "the service " + name + " (not running)", stat: "existing-service-stopped"}
 	switch {
 	case slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):
-		s.what, s.running, s.stat = "the service "+name+" (running)", true, "existing-service-running"
+		return setup{what: "the service " + name + " (running)", blocks: true, running: true, stop: "sudo systemctl disable --now " + name, stat: "existing-service-running"}
 	case strings.HasPrefix(strings.TrimSpace(enabled), "enabled"):
-		s.what = "the service " + name + " (not running, but it starts with the machine)"
-	default:
-		return s
+		return setup{what: "the service " + name + " (not running, but it starts with the machine)", blocks: true, stop: "sudo systemctl disable " + name, stat: "existing-service-enabled"}
 	}
-	s.stop = "sudo systemctl disable --now " + name
-	return s
+	return setup{what: "the service " + name + " (not running)", left: "Left your old Minecraft service (" + name + ") alone; it isn't running."}
 }
 
-// containerSetup is a Docker container of a Minecraft image.
-func containerSetup(c docker.ContainerSummary) setup {
+// containerSetup is a Docker container of a Minecraft image, whose restart
+// policy, when known, is restart. Docker starts a stopped one again by
+// itself unless it has none or it's unless-stopped.
+func containerSetup(c docker.ContainerSummary, restart string, known bool) setup {
 	name := c.ID
 	if len(c.Names) > 0 {
 		name = strings.TrimPrefix(c.Names[0], "/")
 	}
-	if c.State == "running" || c.State == "restarting" {
-		return setup{what: "the Docker container " + name + " (" + c.Image + ", running)", running: true, stop: "sudo docker stop " + name, stat: "existing-container-running"}
+	again := !known || !slices.Contains([]string{"", "no", "unless-stopped"}, restart)
+	keepOff := "sudo docker update --restart=no " + name
+	switch {
+	case c.State == "running" || c.State == "restarting":
+		stop := "sudo docker stop " + name
+		if again {
+			stop = keepOff + " && " + stop
+		}
+		return setup{what: "the Docker container " + name + " (" + c.Image + ", running)", blocks: true, running: true, stop: stop, stat: "existing-container-running"}
+	case again:
+		return setup{what: "the Docker container " + name + " (" + c.Image + ", stopped, but Docker starts it again)", blocks: true, stop: keepOff, stat: "existing-container-restarts"}
 	}
-	return setup{what: "the Docker container " + name + " (" + c.Image + ", stopped)", stat: "existing-container-stopped"}
+	return setup{what: "the Docker container " + name + " (" + c.Image + ", stopped)", left: "Left your old Minecraft container (" + name + ") alone; it's stopped and won't start by itself."}
 }
 
-// setupsNext is the one thing to do about the setups found: stop what runs,
-// if Playkeeper is to take over, or install next to what doesn't run, never
-// touching it. A Minecraft server running outside a service or container
-// Playkeeper found is one it can't name a way to stop.
+// panelSetup is a panel's folders, which block while one of its programs
+// runs.
+func panelSetup(panel string, dirs []string, running bool) setup {
+	where := strings.Join(dirs, " and ")
+	if running {
+		return setup{what: panel + "'s files in " + where + " (" + panel + " is running)", blocks: true, running: true, byHand: panel, stat: "existing-panel-running"}
+	}
+	return setup{what: panel + "'s files in " + where + " (" + panel + " isn't running)", left: "Left " + panel + "'s old files (" + where + ") alone; " + panel + " isn't running."}
+}
+
+// setupsNext is the one thing to do about the setups found that block: stop
+// what runs, if Playkeeper is to take over, or keep off what starts again by
+// itself, and install next to it. A server or panel running outside a
+// service or container Playkeeper found is one it can't name a way to stop.
 func setupsNext(found []setup, o Options) string {
 	var stops []string
-	running, unexplained := false, false
+	running, byHand := false, ""
 	for _, s := range found {
-		if s.stop != "" {
+		switch {
+		case !s.blocks:
+		case s.stop != "":
 			stops = append(stops, s.stop)
+			running = running || s.running
+		case byHand == "":
+			byHand = s.byHand
 		}
-		running = running || s.running && s.stop != ""
-		unexplained = unexplained || s.running && s.stop == ""
 	}
-	cmd := strings.Join(append(stops, againWith(o, "--allow-existing-minecraft")), " && ")
+	cmd := strings.Join(append(stops, againCommand(o)), " && ")
 	switch {
-	case unexplained && !running:
-		return "If Playkeeper is to take over, stop that server, then run the install command again."
+	case byHand != "" && !running:
+		return "If Playkeeper is to take over, stop " + byHand + ", then run the install command again."
 	case running:
 		return "If Playkeeper is to take over, stop it and install next to its files: " + cmd
 	}
-	return "None of it is running, so Playkeeper can install next to it and never touch it: " + cmd
+	return "It starts again by itself, so it could get in Playkeeper's way. To keep it off and install next to it: " + cmd
 }
 
-// againWith is the install command run again with flag, the way this run
-// came, with usage stats kept off when they were.
-func againWith(o Options, flag string) string {
+// againCommand is the install command run again, the way this run came,
+// with usage stats kept off when they were.
+func againCommand(o Options) string {
 	env := ""
 	if o.Usage.Choice == usage.Off {
 		env = o.Usage.Why + "=1 "
@@ -229,11 +268,11 @@ func againWith(o Options, flag string) string {
 		if o.Usage.Channel != "" {
 			url += "/" + o.Usage.Channel
 		}
-		return "curl -fsSL " + url + " | sudo " + env + "sh -s -- " + flag
+		return "curl -fsSL " + url + " | sudo " + env + "sh"
 	case usage.SourceGitHub:
-		return "curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo " + env + "sh -s -- " + flag
+		return "curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo " + env + "sh"
 	}
-	return "sudo " + env + "./install.sh " + flag
+	return "sudo " + env + "./install.sh"
 }
 
 // Preflight inspects the host without changing anything.
@@ -325,14 +364,25 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 			}
 		}
 	}
+	procs := sys.Processes()
+	var panels []string
+	dirs := map[string][]string{}
+	panelRuns := map[string]bool{}
 	for _, p := range panelDirs {
 		if _, err := os.Stat(sys.P(p.dir)); err == nil {
-			found = append(found, setup{what: p.panel + "'s files in " + p.dir, stat: "existing-panel"})
+			if dirs[p.panel] == nil {
+				panels = append(panels, p.panel)
+			}
+			dirs[p.panel] = append(dirs[p.panel], p.dir)
+			panelRuns[p.panel] = panelRuns[p.panel] || slices.ContainsFunc(procs, p.proc.MatchString)
 		}
 	}
-	for _, p := range sys.Processes() {
+	for _, panel := range panels {
+		found = append(found, panelSetup(panel, dirs[panel], panelRuns[panel]))
+	}
+	for _, p := range procs {
 		if javaMC.MatchString(p) {
-			found = append(found, setup{what: "a Minecraft server running: " + truncate(p, 80), running: true, stat: "existing-java"})
+			found = append(found, setup{what: "a Minecraft server running: " + truncate(p, 80), blocks: true, running: true, byHand: "that Minecraft server", stat: "existing-java"})
 		}
 	}
 	di, derr := sys.Docker(ctx)
@@ -347,7 +397,12 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 				continue
 			}
 			if strings.Contains(strings.ToLower(c.Image), "minecraft") {
-				found = append(found, containerSetup(c))
+				restart, known := "", false
+				if sys.RestartPolicy != nil {
+					r, err := sys.RestartPolicy(ctx, c.ID)
+					restart, known = r, err == nil
+				}
+				found = append(found, containerSetup(c, restart, known))
 			}
 			for _, p := range c.Ports {
 				if p.PublicPort == 443 && p.Type == "tcp" && f.Port443 == "" && o.Join == "" {
@@ -357,10 +412,13 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		}
 	}
 	slices.SortFunc(found, func(a, b setup) int { return strings.Compare(a.what, b.what) })
-	var whats, stats []string
+	var whats, stats, left []string
 	for _, s := range found {
 		whats = append(whats, s.what)
-		if !slices.Contains(stats, s.stat) {
+		switch {
+		case !s.blocks:
+			left = append(left, s.left)
+		case !slices.Contains(stats, s.stat):
 			stats = append(stats, s.stat)
 		}
 	}
@@ -370,8 +428,11 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		add("existing", "Existing Minecraft setups", "pass", "None found.", "")
 	case o.AllowExistingMinecraft:
 		add("existing", "Existing Minecraft setups", "warn", "Found "+strings.Join(whats, "; ")+". Playkeeper won't touch it (--allow-existing-minecraft).", "")
+	case len(stats) == 0:
+		add("existing", "Existing Minecraft setups", "info", "Found "+strings.Join(whats, "; ")+". None of it runs or starts again by itself, so Playkeeper installs next to it and leaves it alone.", "")
+		f.LeftAlone = left
 	default:
-		add("existing", "Existing Minecraft setups", "fail", "Found "+strings.Join(whats, "; ")+". Playkeeper installs next to another Minecraft setup only when you say so.", setupsNext(found, o))
+		add("existing", "Existing Minecraft setups", "fail", "Found "+strings.Join(whats, "; ")+". Playkeeper installs next to another Minecraft setup only when none of it runs or starts again by itself.", setupsNext(found, o))
 		f.Checks[len(f.Checks)-1].Stats = stats
 	}
 	if _, err := os.Stat(sys.P(ConfigDir + "/config.json")); err == nil {
@@ -719,6 +780,9 @@ type Result struct {
 	// setup link.
 	PanelPort, GamePort int
 	Provider            Provider
+	// LeftAlone says which old Minecraft setups the install went next to
+	// and left as they were (Facts.LeftAlone).
+	LeftAlone []string
 }
 
 // Run installs Playkeeper, or upgrades an existing install in place. On any
@@ -1059,7 +1123,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
-	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on", PanelPort: cfg.PanelPort, GamePort: cfg.GamePort, Provider: in.f.Provider}
+	res := &Result{NoPanel: cfg.NoPanel, Dashboard443: cfg.Dashboard443 == "on", PanelPort: cfg.PanelPort, GamePort: cfg.GamePort, Provider: in.f.Provider, LeftAlone: in.f.LeftAlone}
 	if !cfg.NoPanel {
 		host := publicHost(ctx, sys, in.o, in.f.PanelURLHost)
 		res.URL, res.ExistingAdm, res.PrivateHost = fmt.Sprintf("https://%s:%d", host, cfg.PanelPort), in.f.ExistingAdmin, privateAddr(host)
