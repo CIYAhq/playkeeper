@@ -890,7 +890,7 @@ control "preflight port collision" internal/install/install.go \
   'if false && sys.Listening(p.port) {' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
 control "preflight existing Minecraft setups" internal/install/install.go \
-  'case len(existing) == 0:' \
+  'case len(found) == 0:' \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
 control "a later release of a supported distribution counts as newer, not unsupported" internal/platform/platform.go \
