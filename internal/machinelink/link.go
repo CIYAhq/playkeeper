@@ -311,7 +311,7 @@ type LinkOptions struct {
 	// HandshakeTimeout bounds connecting and the hello (10s).
 	HandshakeTimeout time.Duration
 	// MaxRequestBytes bounds the body of a request that is not a stream
-	// (1 MiB).
+	// (1 MiB); one that says it's larger is refused before any of it is read.
 	MaxRequestBytes int64
 }
 
@@ -679,6 +679,11 @@ func (l *Link) handler(act *activity) http.Handler {
 			writeAPIError(rw, http.StatusNotFound, errRouteNotAllowed(r.Method, r.URL.Path))
 		case !actorOK && mutating(r.Method):
 			writeAPIError(rw, http.StatusBadRequest, errActorRequired("this machine"))
+		case !route.Stream && r.ContentLength > l.o.MaxRequestBytes:
+			// Refused unread: Go's HTTP/2 server can drop the whole connection
+			// when a handler answers while the rest of a body is still arriving
+			// (golang/go#56940).
+			writeAPIError(rw, http.StatusRequestEntityTooLarge, errRequestTooLarge(l.o.MaxRequestBytes))
 		default:
 			rec.Route = route.Method + " " + route.Pattern
 			if !route.Stream {

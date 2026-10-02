@@ -221,10 +221,14 @@ type runningLink struct {
 	err    error
 }
 
-func (e *env) runLink(t *testing.T, d machinelink.Dashboard, id *machinelink.Identity, h http.Handler) *runningLink {
+func (e *env) runLink(t *testing.T, d machinelink.Dashboard, id *machinelink.Identity, h http.Handler, mods ...func(*machinelink.LinkOptions)) *runningLink {
 	t.Helper()
-	l, err := machinelink.NewLink(machinelink.LinkOptions{Dashboard: d, Identity: id, Handler: h, Routes: agent.LinkRoutes(),
-		Version: version.Version, Now: e.clock.now, MinBackoff: 10 * time.Millisecond, MaxBackoff: 50 * time.Millisecond})
+	o := machinelink.LinkOptions{Dashboard: d, Identity: id, Handler: h, Routes: agent.LinkRoutes(),
+		Version: version.Version, Now: e.clock.now, MinBackoff: 10 * time.Millisecond, MaxBackoff: 50 * time.Millisecond}
+	for _, mod := range mods {
+		mod(&o)
+	}
+	l, err := machinelink.NewLink(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1633,7 +1637,7 @@ func (e *env) joined(t *testing.T, cookie, csrf string, h http.Handler) (string,
 
 // joinedAs is joined, returning what the machine joined with too, so that
 // it can leave as `playkeeper leave` does.
-func (e *env) joinedAs(t *testing.T, cookie, csrf string, h http.Handler) (machinelink.Dashboard, *machinelink.Identity, *runningLink) {
+func (e *env) joinedAs(t *testing.T, cookie, csrf string, h http.Handler, mods ...func(*machinelink.LinkOptions)) (machinelink.Dashboard, *machinelink.Identity, *runningLink) {
 	t.Helper()
 	addr := e.sharePort(t)
 	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
@@ -1644,7 +1648,7 @@ func (e *env) joinedAs(t *testing.T, cookie, csrf string, h http.Handler) (machi
 	if err != nil {
 		t.Fatalf("join: %v", err)
 	}
-	link := e.runLink(t, d, id, h)
+	link := e.runLink(t, d, id, h, mods...)
 	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
 	return d, id, link
 }

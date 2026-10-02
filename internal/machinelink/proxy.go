@@ -2,6 +2,7 @@ package machinelink
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -35,6 +36,11 @@ func AgentProxy(socket string) http.Handler {
 		ErrorLog:      log.New(io.Discard, "", 0),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if r.Context().Err() != nil {
+				return
+			}
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				writeAPIError(w, http.StatusRequestEntityTooLarge, errRequestTooLarge(tooLarge.Limit))
 				return
 			}
 			writeAPIError(w, http.StatusBadGateway, errAgentDown(err))

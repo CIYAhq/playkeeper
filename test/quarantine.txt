@@ -7,4 +7,3 @@
 #
 # PACKAGE OR SCRIPT      TEST OR CHECK                                          HOW IT FAILED
 test/e2e/software.py     pregen                                                 Paper at 2048 MB is killed at its container's memory limit while it pre-generates (cause=oom in the agent's journal), which loses Chunky's task: 10 of 85 ARM runs on 28 Sep. A product bug to fix, not the test's
-./internal/panel         TestAResourcePackUploadOverALinkHasTheLinksLimits      "dropped before it answered" (unexpected EOF): the machine's HTTP/2 server panics "attempt to send frame on a closed stream ... writeWindowUpdate" when it answers 413 after the dashboard sent the whole body (Go 1.26.0, golang/go#56940), which closes the link. 12 of 900 runs on this PR, 15 of 900 on main (c94d70c4); runs 36920916661 and 36921257090. A product bug to fix in machinelink, not the test's

@@ -300,15 +300,37 @@ func TestLinkReportsBrokenReplies(t *testing.T) {
 func TestLinkLimitsRequestBodies(t *testing.T) {
 	th := startHub(t, nil)
 	m := th.linkMachine(t, "home", func(o *LinkOptions) { o.MaxRequestBytes = 1 << 10 })
-	for size, want := range map[int]int{4 << 10: http.StatusRequestEntityTooLarge, 1 << 10: http.StatusNoContent} {
-		resp, err := send(m.rt, "POST", "/v1/servers/abc/settings", "alice", strings.NewReader(strings.Repeat("x", size)))
+	settings := func(body io.Reader) (int, apiError) {
+		t.Helper()
+		resp, err := send(m.rt, "POST", "/v1/servers/abc/settings", "alice", body)
 		if err != nil {
-			t.Fatalf("%d bytes: %v", size, err)
+			t.Fatal(err)
 		}
-		resp.Body.Close()
-		if resp.StatusCode != want {
-			t.Errorf("%d bytes: status %d, want %d", size, resp.StatusCode, want)
-		}
+		defer resp.Body.Close()
+		var e apiError
+		json.NewDecoder(resp.Body).Decode(&e)
+		return resp.StatusCode, e
+	}
+
+	// A body that says it's larger than the limit never reaches the agent.
+	status, e := settings(strings.NewReader(strings.Repeat("x", 4<<10)))
+	if status != http.StatusRequestEntityTooLarge || e.Code != CodeTooLarge || e.Params["limit"] != "1 KiB" || e.Error == "" {
+		t.Fatalf("4 KiB that says so: %d %+v", status, e)
+	}
+	if n := m.agent.calls.Load(); n != 0 {
+		t.Fatalf("a body too large by its stated size reached the agent: %d calls", n)
+	}
+	eventually(t, "the machine records the refusal", func() bool { return len(m.link.records.all()) == 1 })
+	if r := m.link.records.all()[0]; r.Status != http.StatusRequestEntityTooLarge || r.Route != "" || r.Actor != "alice" {
+		t.Fatalf("record %+v", r)
+	}
+
+	// One that doesn't say its size is cut off where it passes the limit.
+	if status, _ := settings(io.MultiReader(strings.NewReader(strings.Repeat("x", 4<<10)))); status != http.StatusRequestEntityTooLarge || m.agent.calls.Load() != 1 {
+		t.Fatalf("4 KiB that doesn't say so: %d, %d calls", status, m.agent.calls.Load())
+	}
+	if status, _ := settings(strings.NewReader(strings.Repeat("x", 1<<10))); status != http.StatusNoContent {
+		t.Fatalf("1 KiB: status %d", status)
 	}
 
 	// A body that fails on the dashboard's side is the caller's error, not
@@ -537,7 +559,7 @@ func TestAgentProxy(t *testing.T) {
 
 	th := startHub(t, nil)
 	d, id := th.join(t, th.addr, "home")
-	startLink(t, d, id, AgentProxy(sock), nil)
+	startLink(t, d, id, AgentProxy(sock), func(o *LinkOptions) { o.MaxRequestBytes = 1 << 10 })
 	eventually(t, "connected", func() bool { return th.Connected(d.MachineID) })
 	rt := th.Transport(d.MachineID)
 
@@ -552,14 +574,27 @@ func TestAgentProxy(t *testing.T) {
 		t.Fatalf("the proxy added X-Forwarded-For: %v", h)
 	}
 
-	srv.Close()
-	resp, err := send(rt, "GET", "/v1/machine", "", nil)
-	if err != nil {
-		t.Fatal(err)
+	// A body that doesn't say its size and passes the limit on its way to
+	// the agent is too large; the agent is fine.
+	answer := func(method, path string, body io.Reader) (int, apiError) {
+		t.Helper()
+		resp, err := send(rt, method, path, "alice", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var e apiError
+		if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+			t.Fatalf("%s %s: %d, %v", method, path, resp.StatusCode, err)
+		}
+		return resp.StatusCode, e
 	}
-	defer resp.Body.Close()
-	var e apiError
-	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil || resp.StatusCode != http.StatusBadGateway || e.Code != CodeAgentDown || e.Hint == "" {
-		t.Fatalf("with the agent down: %d %+v, %v", resp.StatusCode, e, err)
+	if status, e := answer("POST", "/v1/servers/abc/settings", io.MultiReader(strings.NewReader(strings.Repeat("x", 4<<10)))); status != http.StatusRequestEntityTooLarge || e.Code != CodeTooLarge || e.Params["limit"] != "1 KiB" {
+		t.Fatalf("4 KiB that doesn't say so, through the agent's socket: %d %+v", status, e)
+	}
+
+	srv.Close()
+	if status, e := answer("GET", "/v1/machine", nil); status != http.StatusBadGateway || e.Code != CodeAgentDown || e.Hint == "" {
+		t.Fatalf("with the agent down: %d %+v", status, e)
 	}
 }

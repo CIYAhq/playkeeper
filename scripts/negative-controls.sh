@@ -1468,6 +1468,26 @@ control "a resource pack's upload over a link has the link's limits" internal/ag
   '"POST /v1/servers/{id}/datapacks":                   true,
 	"POST /v1/servers/{id}/resourcepack":                true,' \
   ./internal/panel '^TestAResourcePackUploadOverALinkHasTheLinksLimits$'
+control "a body too large by its stated size never reaches a joined machine's agent" internal/machinelink/link.go \
+  'case !route.Stream && r.ContentLength > l.o.MaxRequestBytes:' \
+  'case false && !route.Stream && r.ContentLength > l.o.MaxRequestBytes:' \
+  ./internal/machinelink '^TestLinkLimitsRequestBodies$'
+control "a resource pack too large for the link never reaches the machine's agent" internal/machinelink/link.go \
+  'case !route.Stream && r.ContentLength > l.o.MaxRequestBytes:' \
+  'case false && !route.Stream && r.ContentLength > l.o.MaxRequestBytes:' \
+  ./internal/panel '^TestAResourcePackUploadOverALinkHasTheLinksLimits$'
+control "a body that passes the link's limit on its way to the agent is too large, not the agent down" internal/machinelink/proxy.go \
+  'if errors.As(err, &tooLarge) {' \
+  'if false && errors.As(err, &tooLarge) {' \
+  ./internal/machinelink '^TestAgentProxy$'
+control "an upload passed on to an agent says the size it came with" internal/agentclient/client.go \
+  'req.ContentLength = s.size' \
+  '_ = s.size' \
+  ./internal/agentclient '^TestRawSendsTheSizeASizedBodyHas$'
+control "an upload passed on to a joined machine says its size, so the link can refuse it unread" internal/panel/server.go \
+  'agentclient.Sized(r.Body, r.ContentLength)' \
+  'r.Body' \
+  ./internal/panel '^TestAnUploadTooLargeForTheLinkNeverReachesTheMachine$'
 control "a link waits for a copy's deletion as long as its store takes" internal/agent/link.go \
   '"DELETE /v1/servers/{id}/offsite/copies/{name}":     true,' \
   '"DELETE /v1/servers/{id}/offsite/copies/{name}":     false,' \
