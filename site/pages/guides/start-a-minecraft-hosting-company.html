@@ -1,0 +1,106 @@
+{{/*
+path: /guides/start-a-minecraft-hosting-company
+title: How to start a Minecraft hosting company (2026)
+description: Start a Minecraft hosting company on Whop: deploy the Playkeeper Hosting blueprint, connect Playkeeper Cloud and open your store. No VPS to run.
+label: Start a hosting company
+h1: How to start a Minecraft hosting company
+card: How to start a Minecraft hosting company
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: start-a-minecraft-hosting-company
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Deploy the Playkeeper Hosting blueprint on Whop, connect Playkeeper Cloud to it, and open your store. Whop takes the payments, and Playkeeper Cloud runs each customer's servers, so there's no VPS to rent and nothing to install.{{end}}
+
+{{define "closing-title"}}Your hosting company, with no servers to run.{{end}}
+{{define "closing-sub"}}Whop sells the plans, and Playkeeper Cloud runs the servers.{{end}}
+
+{{define "side-title"}}Deploy, connect, open{{end}}
+{{define "side-text"}}Deploy the store on Whop, connect Playkeeper Cloud, and open it.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="how">
+  {{template "h2n" (dict "ID" "how" "N" 1 "Text" "How it works" "Toc" "How it works")}}
+  <p>Whop sells, and Playkeeper Cloud hosts. A customer picks a plan on your store and pays on Whop's checkout. Playkeeper Cloud makes their account with the servers and memory the plan allows, and your Whop chat tells them it's ready. They sign in with their Whop account, create their server and play.</p>
+  <ul>
+    <li><strong>Whop does</strong> the store, checkout, renewals, receipts, taxes, refunds and payouts. Playkeeper never touches the money.</li>
+    <li><strong>Playkeeper Cloud does</strong> the servers, on machines it runs: each customer's own memory, disk and share of the processor, in a locked-down container, with backups they can download.</li>
+    <li><strong>You run the company:</strong> its name, its prices and its customers, who talk to you in your Whop chat. Playkeeper supports you.</li>
+    <li><strong>When a plan ends,</strong> the customer's servers stop. For 14 days they can still sign in and download their backups, and renewing picks up where they left off.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="need">
+  {{template "h2n" (dict "ID" "need" "N" 2 "Text" "What you need" "Toc" "What you need")}}
+  <p>A Whop account. Your store starts with two plans, each its own product, billed monthly with no free trial, and you set their prices:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Plan</th><th scope="col">Servers</th><th scope="col">Memory</th><th scope="col">Disk</th><th scope="col">Price</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Starter</th><td>1</td><td>4 GB</td><td>30 GB</td><td>From $12 a month</td></tr>
+        <tr><th scope="row">Plus</th><td>Up to 2</td><td>8 GB</td><td>60 GB</td><td>From $24 a month</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Each plan's stock on Whop follows the room Playkeeper Cloud has for it, so Whop stops selling a plan while there's none.</p>
+</section>
+
+<section aria-labelledby="steps">
+  {{template "h2n" (dict "ID" "steps" "N" 3 "Text" "Start it, step by step" "Toc" "Step by step")}}
+  {{template "steps" (dict "Class" "steps-lg" "Items" (list
+    (dict "Title" "Deploy the store on Whop" "Text" (html `Open the <a href="https://whop.com/blueprints/app_h3NhVSwzpw0Z6h">Playkeeper Hosting blueprint</a> and choose Deploy. Pick a business, or make one, and your store's address. You get the two plans, hidden, and a store site that says it's not taking orders yet. Whop also adds a free product named after the site, "Playkeeper Hosting", which only opens the site: hide it in your Whop dashboard's Products, so your store page lists only your plans.`))
+    (dict "Title" "Connect Playkeeper Cloud" "Text" (html `On your store site, choose <strong>Connect Playkeeper Cloud</strong>. Pick your business in Whop's picker and approve the app. Whop then opens Playkeeper Cloud inside your dashboard.`))
+    (dict "Title" "Set your prices" "Text" "Playkeeper Cloud lists your plans at their prices. Change any, from $12 a month for each 4 GB, and save.")
+    (dict "Title" "Open the store" "Text" (html `Press <strong>Open the store</strong>. Playkeeper Cloud sets its share on each plan's product, makes your plans visible on Whop and opens your store, so they go on sale on your store site.`))
+  ))}}
+</section>
+
+<section aria-labelledby="buyers">
+  {{template "h2n" (dict "ID" "buyers" "N" 4 "Text" "What a buyer sees" "Toc" "What a buyer sees")}}
+  <ul>
+    <li><strong>Right after paying,</strong> a message in your Whop chat says their server is ready: they sign in from your store site and create it, and it's up a few minutes later. If Playkeeper Cloud needs a moment to make room, the message says it's being set up, and another follows once it's ready.</li>
+    <li><strong>They sign in with Whop</strong> and look after their server themselves: plugins and mods, the console, players and backups, inside what their plan allows.</li>
+    <li><strong>A second plan adds up:</strong> the same account gets the room of both.</li>
+    <li><strong>Cancelling</strong> keeps the plan until the end of what they paid for, and your Whop chat reminds them before it ends.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="costs">
+  {{template "h2n" (dict "ID" "costs" "N" 5 "Text" "What it costs, and who earns what" "Toc" "Costs")}}
+  <ul>
+    <li><strong>Nothing up front:</strong> no VPS to rent, and nothing to pay before your first sale.</li>
+    <li><strong>Playkeeper Cloud takes $8.50 a month for each 4 GB</strong> you sell, so $17 for Plus, as a revenue share of each payment, before Whop's fees. Whop shows it as a percentage of your price, such as 70.84% at $12 or 56.67% at $15, and Playkeeper Cloud sets it again when you change a price.</li>
+    <li><strong>Whop keeps a fee on each payment</strong> and pays you the rest: 2.7% + $0.30 for a domestic card, and 1.5% more for an international one.</li>
+    <li><strong>Keep the share as Playkeeper Cloud sets it.</strong> While it's gone or short, your store takes no new customers, and after three days Playkeeper Cloud stops hosting it.</li>
+    <li><strong>Playkeeper also earns 10% of Whop's profit</strong> on sales through stores made from its blueprint. That comes out of Whop's share, so it doesn't change your prices or payouts.</li>
+  </ul>
+  <p class="fine">Checked on 29 Sep: the card fees in Whop's fees documentation, and the blueprint share in Whop's blueprint documentation.</p>
+</section>
+
+<section aria-labelledby="name">
+  {{template "h2n" (dict "ID" "name" "N" 6 "Text" "Your name, and Minecraft's rules" "Toc" "Your name")}}
+  <ul>
+    <li><strong>Name the company your own way.</strong> Mojang's <a href="https://www.minecraft.net/en-us/usage-guidelines">usage guidelines</a> let a name say it's for Minecraft, as in "Kotoba Miners: A Minecraft server for Redstone builds", but not lead with Minecraft. The store comes without Minecraft's logo or art.</li>
+    <li><strong>Write your own terms.</strong> The store has a template for them: fill in your company's name and how buyers reach you.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Can I start a Minecraft hosting company without coding?" "Yes. Deploy the blueprint on Whop, connect Playkeeper Cloud and open the store. There's no VPS to rent and nothing to install.")
+    (qa "What does it cost to start?" "Nothing up front. Playkeeper Cloud takes $8.50 a month for each 4 GB you sell, out of each payment, and Whop keeps its fee on each payment.")
+    (qa "Who handles payments, taxes and refunds?" "Whop: checkout, renewals, receipts, taxes, refunds and payouts. Playkeeper Cloud only runs the servers.")
+    (qa "Who answers my customers?" "You do, in your Whop chat, and Playkeeper supports you.")
+    (qa "Can I run the servers on my own VPS instead?" "Yes. Playkeeper is free and open source (AGPL-3.0). Install it on your VPS and connect the store in its Settings › Sell on Whop, with a Whop API key.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/minecraft-server-cost" "/sizing" "/guides/play-minecraft-with-friends")}}{{end}}

@@ -39,6 +39,7 @@ const previews = {
   'vultr-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on Vultr', pip: 'pip-hardhat' },
   'port-forward-minecraft-server': { eyebrow: 'Guide', title: 'How to port forward a Minecraft server', pip: 'pip-hardhat' },
   'make-a-minecraft-server': { eyebrow: 'Guide', title: 'How to make a Minecraft server', pip: 'pip-hardhat' },
+  'start-a-minecraft-hosting-company': { eyebrow: 'Guide', title: 'How to start a Minecraft hosting company', pip: 'pip-box' },
   errors: { eyebrow: 'Guide', title: 'Minecraft server errors, and how to fix them', pip: 'pip-hurt' },
   'error-connection-refused': { eyebrow: 'Error fix', title: 'Connection refused: what it means, and the fix', pip: 'pip-hurt' },
   'error-unable-to-access-jarfile': { eyebrow: 'Error fix', title: 'Error: Unable to access jarfile, and the fix', pip: 'pip-hurt' },
