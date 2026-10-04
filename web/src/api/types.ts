@@ -203,6 +203,27 @@ export interface ServerStatus {
   sleep?: SleepStatus
   /** The scheduled backups refused since the last backup that succeeded. */
   backupRefused?: BackupRefusal
+  /** Whether friends can reach the game port from the internet, as the stats service found; absent where the port can't be checked. */
+  internetCheck?: InternetCheck
+}
+
+/** What the stats service found when it connected back to the machine on the game port. */
+export type InternetCheckResult = 'reachable' | 'refused' | 'timeout' | 'unreachable' | 'not-minecraft'
+
+/** POST /api/servers/{id}/internet-check asks for one. */
+export interface InternetCheck {
+  /** The dashboard checks by itself, as usage stats are on; otherwise only someone's "Check from the internet" asks. */
+  auto: boolean
+  checking?: boolean
+  /** What the latest check found, at checkedAt. */
+  result?: InternetCheckResult
+  checkedAt?: string
+  /** Why the latest check couldn't be made, as a sentence, and when the stats service said to try again. */
+  problem?: string
+  retryAt?: string
+  /** The cloud or VPS provider the machine runs at, when it can tell, and its steps for opening the port (every provider's when it can't). */
+  provider?: string
+  stepsUrl: string
 }
 
 /** A file in the server's folder that Playkeeper would not follow or change. */
