@@ -532,6 +532,10 @@ type ServerConfig struct {
 	// until a start brings the server up and adds them. A string keeps
 	// ServerConfig comparable.
 	PendingOperators string `json:"pendingOperators,omitempty"`
+	// CreatorNames (from 0.4.18) are the same names, kept once they're
+	// added: whoever created the server, whom the first steps don't count as
+	// a friend.
+	CreatorNames string `json:"creatorNames,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -1126,7 +1130,10 @@ type MoveInRequest struct {
 	CreatedAt      time.Time `json:"createdAt"`
 	EULAAcceptedAt time.Time `json:"eulaAcceptedAt"`
 	EULAAcceptedBy string    `json:"eulaAcceptedBy"`
-	Actor          string    `json:"actor"`
+	// CreatorNames are whoever created it there (ServerConfig.CreatorNames),
+	// whom its first steps still don't count as friends.
+	CreatorNames string `json:"creatorNames,omitempty"`
+	Actor        string `json:"actor"`
 }
 
 // MoveState is what an agent keeps about a server beside its folder and its

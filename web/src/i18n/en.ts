@@ -98,7 +98,7 @@ export const en = {
   'status.creating': 'Creating',
   'status.unknown': 'Unknown',
   'status.playing': { one: '{count} playing', other: '{count} playing' },
-  'status.nobodyYet': 'nobody yet',
+  'status.nobodyNow': 'nobody on now',
 
   // Why a control can't be used right now (its tooltip)
   'reason.noAgent': 'Waiting for the Playkeeper agent to answer.',
@@ -361,6 +361,7 @@ export const en = {
   'overview.internet.notMinecraft': 'From the internet, port {port} answers with something other than this server: <link>check where your provider or router sends it</link>',
   'overview.internet.check': 'Check from the internet',
   'overview.internet.again': 'Check again',
+  'overview.internet.couldnt': 'Couldn’t check right now · Try again',
   'overview.internet.checkHelp': 'Asks Playkeeper’s stats service to connect to this machine on port {port}, the way a friend’s game does. It keeps nothing.',
   'overview.internet.wait': 'The stats service asked to wait until {time}.',
   'overview.notAnswering': 'Not answering yet',
@@ -3019,7 +3020,7 @@ export const en = {
   'time.inHours': 'in {count} h',
   'time.inMinutes': 'in {count} min',
   'activity.teamJoined': '{name} joined the team as {role}',
-  'activity.allowlistedByLink': '{player} joined with an invite link',
+  'activity.allowlistedByLink': '{player} got on the list with an invite link',
   'team.title': 'Team',
   'team.add': 'Add a team member',
   'team.addCreator': 'Invite a creator',
