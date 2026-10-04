@@ -4738,6 +4738,26 @@ webcontrol "a copied invite link to a named machine is just the link" web/src/pa
   "return data.link.friendly ? url : t('invites.shareBareIP', { url })" \
   "return t('invites.shareBareIP', { url })" \
   web/src/pages/pages.test.tsx 'browser warning on a link to a machine with no name'
+webcontrol "the join card says only people on the allowlist get in" web/src/pages/server/overview.tsx \
+  '{address && s.config?.whitelist !== false && (' \
+  '{false && (' \
+  web/src/pages/pages.test.tsx 'only people on the allowlist get in'
+webcontrol "copying the join card's address says friends need their name on the allowlist" web/src/pages/server/overview.tsx \
+  "{address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={joinCopied(s)} />}" \
+  "{address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />}" \
+  web/src/pages/pages.test.tsx 'only people on the allowlist get in'
+webcontrol "a copied join address mentions the allowlist only while it's on" web/src/lib/machines.ts \
+  "return s?.config?.whitelist === false ? t('toast.copied') : t('toast.copiedJoin')" \
+  "return t('toast.copiedJoin')" \
+  web/src/lib/lib.test.ts 'when a join address is copied'
+webcontrol "a copied invite asks for a friend's name only while the allowlist is on" web/src/lib/machines.ts \
+  "return s?.config?.whitelist === false ? t('players.inviteMessageOpen', { address }) : t('players.inviteMessage', { address })" \
+  "return t('players.inviteMessage', { address })" \
+  web/src/lib/lib.test.ts 'asks a friend invited to join'
+webcontrol "only someone who can add players gets the join card's link to add friends" web/src/pages/server/overview.tsx \
+  "{can(me, 'players.manage')" \
+  '{true' \
+  src/pages/pages.test.tsx 'says only people on the allowlist get in'
 webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
   'const recovered = s.recoveredCrash' \
   'const recovered = s.crash' \

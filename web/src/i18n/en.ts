@@ -349,6 +349,8 @@ export const en = {
   // Overview
   'overview.join': 'Join address',
   'overview.joinHelp': 'In Minecraft: Multiplayer → Add Server, then paste it.',
+  'overview.listHint': 'Only people on the allowlist get in: <link>add your friends</link>',
+  'overview.listHintPlain': 'Only people on the allowlist get in.',
   'join.noIP': 'No address yet: the dashboard hasn’t seen {machine}’s IP.',
   'join.noIPYet': 'No address yet: try again in a minute.',
   'join.noMachine': 'No address yet: the dashboard doesn’t know which machine runs {server}.',
@@ -774,7 +776,8 @@ export const en = {
   'players.tellPhone': 'Tell your friends: Multiplayer → Add Server → {address}',
   'players.copyInvite': 'Copy invite message',
   'players.copyAddress': 'Copy address',
-  'players.inviteMessage': 'Come play Minecraft with me! Open Minecraft (Java Edition), pick Multiplayer, then Add Server, and paste {address}',
+  'players.inviteMessage': 'Come play Minecraft with me! Send me your exact Minecraft name so I can add you to the list. Then open Minecraft (Java Edition), pick Multiplayer, then Add Server, and paste {address}',
+  'players.inviteMessageOpen': 'Come play Minecraft with me! Open Minecraft (Java Edition), pick Multiplayer, then Add Server, and paste {address}',
   'players.everyone': 'Everyone who’s played',
   'players.col.player': 'Player',
   'players.col.lastSeen': 'Last seen',
@@ -1373,7 +1376,7 @@ export const en = {
   'onboarding.invited': 'Added {names}. Send them the join address above.',
   'onboarding.discordPrompt': 'Tell me when friends join: <link>connect Discord</link>',
   'onboarding.joinAddress': 'Join address',
-  'onboarding.joinHint': 'In Minecraft: Multiplayer → Add Server → paste.',
+  'onboarding.joinHint': 'In Minecraft: Multiplayer → Add Server → paste. Add their name below first.',
   'onboarding.skipInvite': 'Skip for now',
   'onboarding.toDashboard': 'Go to my dashboard',
 
@@ -2188,6 +2191,7 @@ export const en = {
 
   // Toasts and errors
   'toast.copied': 'Copied',
+  'toast.copiedJoin': 'Copied. Friends also need their name on the allowlist.',
   'toast.copyFailed': 'Couldn’t copy. Select the text and copy it yourself.',
   'toast.restored': '{server} is back, restored from the backup',
   'toast.versionDone': '{server} is on Minecraft {version} now',

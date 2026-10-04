@@ -153,6 +153,16 @@ export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort'
   return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: noIP(m) }
 }
 
+/** What copying a server's join address says: with the allowlist on, that friends need their name on it too. */
+export function joinCopied(s: Pick<ServerStatus, 'config'> | undefined): string {
+  return s?.config?.whitelist === false ? t('toast.copied') : t('toast.copiedJoin')
+}
+
+/** The message that invites a friend to join at address: with the allowlist on, it asks for their exact Minecraft name first. */
+export function inviteMessage(s: Pick<ServerStatus, 'config'> | undefined, address: string): string {
+  return s?.config?.whitelist === false ? t('players.inviteMessageOpen', { address }) : t('players.inviteMessage', { address })
+}
+
 /** Why a joined machine's server has no address yet, naming the machine only to those who see it. */
 function noIP(m: MachineView): string {
   const name = machineLabel(m)

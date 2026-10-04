@@ -15,7 +15,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { formatDay, formatDuration, localTimeZone, relativeTime } from '@/lib/format'
-import type { Join } from '@/lib/machines'
+import { inviteMessage, joinCopied, type Join } from '@/lib/machines'
 import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, rePlayerName } from '@/lib/router'
@@ -312,7 +312,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   }
   const copyAddress = async () => {
     const ok = await copyText(address)
-    toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
+    toastManager.add(ok ? { title: joinCopied(s), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
 
   let body: ReactNode
@@ -358,7 +358,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
         {manage && <InviteLinks server={s} data={invites.data} onNew={() => setNewOpen(true)} onChanged={invites.refresh} fresh={fresh} />}
         <div className="mt-auto flex items-center gap-3 pt-2">
           <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">{address ? t('players.tellPhone', { address }) : join.reason}</p>
-          {address && <CopyButton text={t('players.inviteMessage', { address })} size="lg" toast={t('toast.copied')} />}
+          {address && <CopyButton text={inviteMessage(s, address)} size="lg" toast={t('toast.copied')} />}
         </div>
       </>
     )
@@ -431,7 +431,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
                 <p className="mt-1 text-xs text-muted-foreground">{address ? t('players.tellBody', { address }) : join.reason}</p>
                 {address && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <CopyButton text={t('players.inviteMessage', { address })} label={t('players.copyInvite')} toast={t('toast.copied')} />
+                    <CopyButton text={inviteMessage(s, address)} label={t('players.copyInvite')} toast={t('toast.copied')} />
                     <Button variant="ghost" size="sm" onClick={copyAddress}>
                       <CopyIcon />
                       {t('players.copyAddress')}
@@ -561,7 +561,7 @@ function EmptyPlayers({ server: s, join, form, phone, manage, onNewLink }: { ser
         <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
           {t('players.theirAddress')}
           <span className="font-semibold text-foreground">{join.address}</span>
-          <CopyButton text={join.address} size="xs" toast={t('toast.copied')} />
+          <CopyButton text={join.address} size="xs" toast={joinCopied(s)} />
         </p>
       ) : (
         <p className="mt-3 text-xs text-muted-foreground">{join.reason}</p>

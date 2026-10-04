@@ -797,6 +797,27 @@ describe('Overview', () => {
     expect(down).not.toContain('Friends also need port')
   })
 
+  // The second-day walkthrough of 4 Oct 2026: the address is what a newcomer
+  // shares, and a friend who wasn't on the allowlist was turned away. The card
+  // says only people on it get in, with a way to add them, and so does
+  // copying the address.
+  it('says only people on the allowlist get in, by the address and as it is copied', async () => {
+    const toast = vi.spyOn(toastManager, 'add')
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    await render(<Overview server={server()} />)
+    expect(page()).toContain('Only people on the allowlist get in: add your friends')
+    expect(link('add your friends').getAttribute('href')).toBe('/servers/survival/players#add')
+    await click(buttons('Copy')[0] ?? button('Copy'))
+    expect(copy).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith({ title: 'Copied. Friends also need their name on the allowlist.', type: 'success' })
+    copy.mockRestore()
+    toast.mockRestore()
+    // Someone who can't add players reads the rule, with no link to a list they can't change.
+    const text = await render(<Overview server={server()} />, workspace({ me: member('viewer', ['view', 'machines.view']) }))
+    expect(text).toContain('Only people on the allowlist get in.')
+    expect([...document.querySelectorAll('a')].some((a) => a.textContent === 'add your friends')).toBe(false)
+  })
+
   // The walkthrough's closed port: once the stats service has connected back
   // to the machine, the card says what it found, and a closed port names the
   // provider whose steps open it.
