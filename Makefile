@@ -67,6 +67,7 @@ test-sh:
 	bash scripts/setup_test.sh
 	bash scripts/package_test.sh
 	bash scripts/quarantine_test.sh
+	bash scripts/negative-controls_test.sh
 	bash scripts/demo-marker_test.sh
 	bash scripts/go-test-shard_test.sh
 	bash scripts/ci-parts_test.sh
