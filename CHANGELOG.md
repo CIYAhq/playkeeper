@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.18
 
 - **The join address's "Answering" line:** a green "Answering on port 25565" read as "friends can join", even while the provider's firewall kept them out. The machine only checks its own server, so the line now says "Answering on" the machine, and a second line says friends also need the port open at their provider, with a link to how to open it.
+- **Hearing when a friend first joins:** in a server's first week, Discord now posts players joining and leaving even with **Someone joined or left** off, as a new server's owner most wants to hear when friends first get in. It stops after the week, or once the admin switches that alert on or off or picks **Keep it off** under it in Settings › Discord; an admin who switched it on before keeps their choice. The online screen after setup and the first steps' "A friend joins" offer **connect Discord**, to whoever may connect it, while it isn't connected.
 
 ## 0.4.17
 

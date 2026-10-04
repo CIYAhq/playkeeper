@@ -2427,6 +2427,8 @@ export interface DiscordSettings {
   liveStatus: boolean
   delivery: DiscordDelivery
   kinds: string[]
+  /** The admin hasn't chosen the join and leave alerts, so each server posts them in its first week whatever their switch says. */
+  joinsFirstWeek?: boolean
 }
 
 export interface PlayerPreview {

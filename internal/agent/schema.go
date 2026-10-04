@@ -473,4 +473,12 @@ CREATE TABLE dashboard_watch (
   set_at        INTEGER NOT NULL
 );
 `,
+	// Whether the admin chose Discord's join and leave alerts themselves:
+	// until they do, a server posts its players joining and leaving in its
+	// first week (discordState.joinsSet). Both are off by default, so an
+	// admin who switched either on before chose them.
+	`
+ALTER TABLE discord ADD COLUMN joins_set INTEGER NOT NULL DEFAULT 0;
+UPDATE discord SET joins_set = 1 WHERE ',' || alerts || ',' LIKE '%,player_joined,%' OR ',' || alerts || ',' LIKE '%,player_left,%';
+`,
 }

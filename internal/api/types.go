@@ -2483,6 +2483,10 @@ type DiscordSettings struct {
 	Delivery    DiscordDelivery `json:"delivery"`
 	// Kinds are the kinds of alert this Playkeeper knows, in order.
 	Kinds []string `json:"kinds"`
+	// JoinsFirstWeek (from 0.4.18) says the admin hasn't chosen the join and
+	// leave alerts, so each server posts its players joining and leaving in
+	// its first week whatever their switch says.
+	JoinsFirstWeek bool `json:"joinsFirstWeek,omitempty"`
 }
 
 // DiscordDelivery is how sending to Discord is going.
@@ -2507,9 +2511,13 @@ type DiscordSettingsRequest struct {
 	Alerts []string `json:"alerts"`
 	// LiveStatus turns the live status message on or off; left out, it
 	// stays as it is.
-	LiveStatus *bool  `json:"liveStatus,omitempty"`
-	Host       string `json:"host,omitempty"`
-	Actor      string `json:"actor"`
+	LiveStatus *bool `json:"liveStatus,omitempty"`
+	// JoinsChosen (from 0.4.18) chooses the join and leave alerts as Alerts
+	// has them, which ends each server's first week of posting them anyway.
+	// Switching either on or off chooses them too.
+	JoinsChosen bool   `json:"joinsChosen,omitempty"`
+	Host        string `json:"host,omitempty"`
+	Actor       string `json:"actor"`
 }
 
 // DiscordNotifyRequest is an alert the panel reports: a join request
