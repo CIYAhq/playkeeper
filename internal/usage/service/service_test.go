@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/usage"
 )
 
@@ -304,6 +306,69 @@ func TestAnInstallFromTheLastDayCountsInIt(t *testing.T) {
 	e.advance(day - 10*time.Minute)
 	if in := e.summary().Installs["1d"]; in.Started != 1 || in.Succeeded != 1 {
 		t.Errorf("an install 23 h 50 min ago: %+v", in)
+	}
+}
+
+func reachedBeat(n int, reached string) usage.Heartbeat {
+	h := beat(n, usage.SourceSite, 1, 1)
+	h.Reached = reached
+	return h
+}
+
+// Each machine counts at the furthest setup step its heartbeats said, which
+// a later heartbeat saying none doesn't undo; one that never said a step
+// counts as none, and a step the service doesn't know of yet under its own
+// name.
+func TestEachMachineCountsAtTheFurthestStepItReached(t *testing.T) {
+	e := newEnv(t)
+	// Ten days ago: a machine where friends played, which then went quiet.
+	e.advance(-10 * day)
+	e.send(usage.PathHeartbeat, reachedBeat(1, usage.ReachedFriends))
+	e.advance(10 * day)
+	// Today: one before its first account, or from before 0.4.18; one that
+	// made its account and then had a server come online; one where someone
+	// played that was then put back on an older version; and one at a step
+	// a later version added.
+	e.send(usage.PathHeartbeat, reachedBeat(2, ""))
+	e.send(usage.PathHeartbeat, reachedBeat(3, usage.ReachedAccount))
+	e.send(usage.PathHeartbeat, reachedBeat(3, usage.ReachedServer))
+	e.send(usage.PathHeartbeat, reachedBeat(4, usage.ReachedPlayed))
+	e.send(usage.PathHeartbeat, reachedBeat(4, ""))
+	e.send(usage.PathHeartbeat, reachedBeat(5, "first-backup"))
+	s := e.summary()
+	today := map[string]int{ReachedNone: 1, usage.ReachedServer: 1, usage.ReachedPlayed: 1, "first-backup": 1}
+	if got := s.Active["1d"].ByReached; !maps.Equal(got, today) {
+		t.Errorf("active 1d by furthest step: %v, want %v", got, today)
+	}
+	month := maps.Clone(today)
+	month[usage.ReachedFriends] = 1
+	if got := s.Active["30d"].ByReached; !maps.Equal(got, month) {
+		t.Errorf("active 30d by furthest step: %v, want %v", got, month)
+	}
+}
+
+// The machines in a database from before the service kept setup steps count
+// as none, until they say one.
+func TestMachinesFromBeforeStepsWereKeptCountAsNone(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "stats.db"), migrations[:2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := hour(time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC))
+	for _, n := range []int{1, 2} {
+		if _, err := db.Exec(`INSERT INTO installs(id, first_seen, last_seen, source, kind, version) VALUES(?, ?, ?, 'site', 'dashboard', '0.4.17')`, id(n), seen, seen); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	e := newEnv(t, func(c *Config) { c.DataDir = dir })
+	if got := e.summary().Active["1d"].ByReached; !maps.Equal(got, map[string]int{ReachedNone: 2}) {
+		t.Errorf("by furthest step, before either said one: %v", got)
+	}
+	e.send(usage.PathHeartbeat, reachedBeat(2, usage.ReachedAccount))
+	if got := e.summary().Active["1d"].ByReached; !maps.Equal(got, map[string]int{ReachedNone: 1, usage.ReachedAccount: 1}) {
+		t.Errorf("by furthest step, once one said its account: %v", got)
 	}
 }
 

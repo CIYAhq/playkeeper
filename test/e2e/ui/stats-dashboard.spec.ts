@@ -17,12 +17,12 @@ test.beforeAll(async ({ playwright }, info) => {
   const reports: [string, object][] = [
     ['/v1/install', { id: id(1), event: 'started', ...system('playkeeper.io', { channel: 'hn' }) }],
     ['/v1/install', { id: id(1), event: 'succeeded', ...system('playkeeper.io', { channel: 'hn' }) }],
-    ['/v1/heartbeat', { id: id(1), ...system('playkeeper.io', { channel: 'hn' }), address: 'free', servers: 2, running: 1 }],
+    ['/v1/heartbeat', { id: id(1), ...system('playkeeper.io', { channel: 'hn' }), address: 'free', servers: 2, running: 1, reached: 'friends' }],
     ['/v1/install', { id: id(2), event: 'started', ...system('github', debian) }],
     ['/v1/install', { id: id(2), event: 'failed', step: 'docker', ...system('github', debian) }],
     ['/v1/install', { id: id(3), event: 'refused', step: 'memory+port', ...system('github') }],
     ['/v1/heartbeat', { id: id(4), ...system('', { osVersion: '22.04' }), address: 'ip', servers: 1, running: 1 }],
-    ['/v1/heartbeat', { id: id(5), ...system('tarball', debian), address: 'own', servers: 0, running: 0 }],
+    ['/v1/heartbeat', { id: id(5), ...system('tarball', debian), address: 'own', servers: 0, running: 0, reached: 'server' }],
   ]
   for (const [path, report] of reports) {
     const res = await request.post(path, { data: report })
@@ -96,6 +96,7 @@ test('signs in with the read token, keeps it in this browser alone and shows the
   await expect(page.locator('#servers-per li')).toHaveText([/^No servers\s*1$/, /^1 server\s*1$/, /^2 servers\s*1$/, /^3 to 5\s*0$/, /^6 to 10\s*0$/, /^11 or more\s*0$/])
   await expect(page.locator('#by-source li')).toHaveText([/^playkeeper\.io command\s*1$/, /^Release tarball\s*1$/, /^Before 0\.4\.4\s*1$/])
   await expect(page.locator('#by-channel li')).toHaveText([/^hn\s*1$/])
+  await expect(page.locator('#by-reached li')).toHaveText([/^No account yet, or before 0\.4\.18\s*1$/, /^A server came online\s*1$/, /^Friends played\s*1$/])
   await expect(page.locator('#foot')).toContainText('0 started in 30 days, 0 running in 7 days')
   await axe(page, 'the dashboard')
 

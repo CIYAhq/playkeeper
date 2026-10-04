@@ -49,6 +49,8 @@ CREATE TABLE site_hours (
 	n       INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (hour, event, channel)
 ) WITHOUT ROWID;
+`, `
+ALTER TABLE installs ADD COLUMN reached TEXT NOT NULL DEFAULT '';
 `}
 
 // keepFor is how long an install the service hears nothing more from, and
@@ -109,15 +111,16 @@ func (s *Service) recordHeartbeat(ctx context.Context, h usage.Heartbeat) error 
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO installs(id, first_seen, last_seen, source, channel, kind, version, os, os_version, arch, address, servers, running, test)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err = tx.ExecContext(ctx, `INSERT INTO installs(id, first_seen, last_seen, source, channel, kind, version, os, os_version, arch, address, servers, running, test, reached)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen,
 			source = CASE WHEN excluded.source != '' THEN excluded.source ELSE installs.source END,
 			channel = CASE WHEN excluded.channel != '' THEN excluded.channel ELSE installs.channel END,
 			kind = excluded.kind, version = excluded.version, os = excluded.os, os_version = excluded.os_version,
 			arch = excluded.arch, address = excluded.address, servers = excluded.servers, running = excluded.running,
-			test = MAX(installs.test, excluded.test)`,
-		h.ID, hour(now), hour(now), h.Source, h.Channel, h.Kind, h.Version, h.OS, h.OSVersion, h.Arch, h.Address, h.Servers, h.Running, boolInt(h.Test))
+			test = MAX(installs.test, excluded.test),
+			reached = CASE WHEN excluded.reached != '' THEN excluded.reached ELSE installs.reached END`,
+		h.ID, hour(now), hour(now), h.Source, h.Channel, h.Kind, h.Version, h.OS, h.OSVersion, h.Arch, h.Address, h.Servers, h.Running, boolInt(h.Test), h.Reached)
 	if err != nil {
 		return err
 	}
