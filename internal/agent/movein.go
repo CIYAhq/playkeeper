@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -50,6 +51,10 @@ func (a *Agent) checkMoveIn(req api.MoveInRequest, actor string) (moveIn, error)
 	if err := validAccount(req.Account); err != nil {
 		return moveIn{}, err
 	}
+	creators, err := validOperators(strings.Fields(req.CreatorNames))
+	if err != nil {
+		return moveIn{}, err
+	}
 	if a.nameTaken(name, "", req.Account) {
 		name = a.uniqueName(name, req.Account)
 	}
@@ -60,7 +65,7 @@ func (a *Agent) checkMoveIn(req api.MoveInRequest, actor string) (moveIn, error)
 	return moveIn{
 		spec:  newServerSpec{id: req.ServerID, slug: req.Slug, name: name, account: req.Account, actor: actor, record: offThePage},
 		mem:   req.MemoryMB,
-		prev:  api.ServerConfig{EULAAcceptedAt: req.EULAAcceptedAt.UTC(), EULAAcceptedBy: by, CreatedAt: created.UTC(), PlayStyle: req.PlayStyle},
+		prev:  api.ServerConfig{EULAAcceptedAt: req.EULAAcceptedAt.UTC(), EULAAcceptedBy: by, CreatedAt: created.UTC(), PlayStyle: req.PlayStyle, CreatorNames: strings.Join(creators, " ")},
 		start: req.Start,
 	}, nil
 }
