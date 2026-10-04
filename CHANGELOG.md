@@ -6,6 +6,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 - **The join address's "Answering" line:** a green "Answering on port 25565" read as "friends can join", even while the provider's firewall kept them out. The machine only checks its own server, so the line now says "Answering on" the machine, and a second line says friends also need the port open at their provider, with a link to how to open it.
 
+- Tests and CI: the stats service's test of `/v1/reach` failed now and then under load. It read what its checks sent in the order they ran, but its fake server keeps each when the connection closes, which can come in another order. It now compares them in any order.
+
 ## 0.4.17
 
 - **Old Minecraft setups that can't get in the way:** the installer now goes next to them by itself, where it used to stop: a service that isn't running and doesn't start with the machine, a stopped container Docker won't start again, and a panel's files when the panel isn't running. It never touches them, and its last screen says so, one line each, like "Left your old Minecraft service (minecraft.service) alone; it isn't running." A setup that runs, starts again by itself or is a running panel still stops it.
