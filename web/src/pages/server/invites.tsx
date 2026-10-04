@@ -3,7 +3,7 @@ import { EllipsisIcon, LinkIcon, PlusIcon, UnlinkIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Approval, Expiry, Invite, InvitesResponse, JoinRequestView, NewInvite, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
-import { copyText, CopyButton, PlayerFace } from '@/components/app/bits'
+import { copyText, CopyButton, Notice, PlayerFace } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, useIsPhone } from '@/components/app/controls'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -29,6 +29,15 @@ const expiryLabel: Record<Expiry, () => string> = {
 
 function approvalLabel(a: Approval | undefined): string {
   return a === 'after_yes' ? t('invites.afterYes') : t('invites.rightAway')
+}
+
+/**
+ * What copying an invite link gives: the link, with a word first about the
+ * browser's warning while the link opens on this machine's IP address and its
+ * own certificate.
+ */
+export function inviteShare(data: InvitesResponse, url: string): string {
+  return data.link.friendly ? url : t('invites.shareBareIP', { url })
 }
 
 /** The full link, and the shorter form the list shows: host, /join/ and the code's start. */
@@ -109,6 +118,31 @@ function NoAddressHint({ className }: { className?: string }) {
   )
 }
 
+/**
+ * The new link's warning while this machine has no name: a friend opening it
+ * sees the browser's "not private" page first. Who can give the machine a
+ * name gets the way to it.
+ */
+function BrowserWarning() {
+  const ws = useWorkspace()
+  const id = ws.machine && can(ws.me, 'machine.manage') ? ws.machine.id : undefined
+  return (
+    <div className="rounded-2xl border border-border p-3.5">
+      <Notice tone="warning" stacked title={t('invites.warningTitle')}>
+        {id
+          ? rich('invites.warningBody', {
+              a: (chunk) => (
+                <a {...linkProps({ name: 'machine-settings', id })} className="font-medium text-success-strong hover:underline">
+                  {chunk}
+                </a>
+              ),
+            })
+          : t('invites.warningBodyPlain')}
+      </Notice>
+    </div>
+  )
+}
+
 /** Invite links under the Players tab's cards: a table on desktop, a list on phones. */
 export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server: ServerStatus; data: InvitesResponse | undefined; onNew: () => void; onChanged: () => Promise<void>; fresh?: string }) {
   const phone = useIsPhone()
@@ -137,7 +171,7 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
                     <span className={cn('block truncate text-base', !active && 'text-muted-foreground')}>{inv.label || t('invites.unnamed')}</span>
                     <span className="block truncate text-[13px] text-muted-foreground">{`${usedText(inv)}${t('common.dot')}${runsOut(inv)}`}</span>
                   </span>
-                  {link && <CopyButton text={link.url} size="lg" disabledReason={active ? undefined : t('invites.linkOff')} toast={t('invites.copiedToast')} />}
+                  {link && <CopyButton text={inviteShare(data, link.url)} size="lg" disabledReason={active ? undefined : t('invites.linkOff')} toast={t('invites.copiedToast')} />}
                   <InviteMenu server={server} invite={inv} after={onChanged} phone />
                 </li>
               )
@@ -195,7 +229,7 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
                   <td className="px-3 whitespace-nowrap">{approvalLabel(inv.approval)}</td>
                   <td className="pr-4 pl-3">
                     <span className="flex items-center justify-end gap-1">
-                      {link && <CopyButton text={link.url} disabledReason={active ? undefined : t('invites.linkOff')} toast={t('invites.copiedToast')} />}
+                      {link && <CopyButton text={inviteShare(data, link.url)} disabledReason={active ? undefined : t('invites.linkOff')} toast={t('invites.copiedToast')} />}
                       <InviteMenu server={server} invite={inv} after={onChanged} />
                     </span>
                   </td>
@@ -239,7 +273,7 @@ function NewInviteForm({ server, data, onClose, onCreated }: { server: ServerSta
     try {
       const inv = await post<Invite>(serverApi(server.id, '/invites'), { ...spec, label: spec.label.trim() })
       const link = data && inviteLink(data.link.base, inv)
-      const copied = link ? await copyText(link.url) : false
+      const copied = data && link ? await copyText(inviteShare(data, link.url)) : false
       toastManager.add({ title: copied ? t('invites.createdCopied') : t('invites.createdToast'), type: 'success' })
       onClose()
       await onCreated(inv)
@@ -256,6 +290,7 @@ function NewInviteForm({ server, data, onClose, onCreated }: { server: ServerSta
         <DialogTitle className="text-lg font-bold">{t('invites.dialogTitle', { server: server.name })}</DialogTitle>
       </DialogHeader>
       <DialogPanel className="flex flex-col gap-4">
+        {data && !data.link.friendly && <BrowserWarning />}
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] font-semibold">{t('invites.nameLabel')}</span>
           <Input value={spec.label} onChange={(e) => setSpec({ ...spec, label: e.target.value })} maxLength={64} placeholder={t('invites.namePlaceholder')} autoComplete="off" autoFocus={!phone} className="max-sm:h-11 max-sm:[&>input]:h-full" />
