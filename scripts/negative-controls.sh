@@ -4684,6 +4684,18 @@ webcontrol "Settings › Memory counts friends for the server's type" web/src/pa
   '{memoryAdviceLine(advice, machineName, catalog?.sizing, s.type, planMaxMB)}' \
   '{memoryAdviceLine(advice, machineName, catalog?.sizing, undefined, planMaxMB)}' \
   web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
+webcontrol "a new invite link warns of the browser warning while the machine has no name" web/src/pages/server/invites.tsx \
+  '{data && !data.link.friendly && <BrowserWarning />}' \
+  '{false && <BrowserWarning />}' \
+  web/src/pages/pages.test.tsx 'browser warning on a link to a machine with no name'
+webcontrol "a copied invite link to a machine with no name says the warning is expected" web/src/pages/server/invites.tsx \
+  "return data.link.friendly ? url : t('invites.shareBareIP', { url })" \
+  'return url' \
+  web/src/pages/pages.test.tsx 'browser warning on a link to a machine with no name'
+webcontrol "a copied invite link to a named machine is just the link" web/src/pages/server/invites.tsx \
+  "return data.link.friendly ? url : t('invites.shareBareIP', { url })" \
+  "return t('invites.shareBareIP', { url })" \
+  web/src/pages/pages.test.tsx 'browser warning on a link to a machine with no name'
 webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
   'const recovered = s.recoveredCrash' \
   'const recovered = s.crash' \
