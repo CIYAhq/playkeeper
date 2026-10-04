@@ -398,7 +398,9 @@ func (s *server) openSession(ts time.Time, player, uuid, source string, startUnc
 		s.id, player, nullStr(uuid), ts.UnixMilli(), boolInt(startUncertain), source); err != nil {
 		return
 	}
-	_ = tx.Commit()
+	if tx.Commit() == nil {
+		s.sessionStarted()
+	}
 }
 
 func (s *server) closeSession(ts time.Time, player, reason string, uncertain bool) {

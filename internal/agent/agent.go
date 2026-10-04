@@ -33,6 +33,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
 	"github.com/CIYAhq/playkeeper/internal/netguard"
+	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/templates"
@@ -215,14 +216,17 @@ type Options struct {
 	// the agent sends its first heartbeat (default a minute) and
 	// UsageInterval how often after that (default 12 hours; negative turns
 	// the heartbeat off). UsageClient carries them (tests; nil uses the
-	// usage client's own). Getenv reads the agent's own environment,
-	// OSRelease is the os-release file the system is read from, and
+	// usage client's own; internet checks go through it too). Getenv reads
+	// the agent's own environment, OSRelease is the os-release file the
+	// system is read from, ProviderRoot is where the files that tell the
+	// machine's provider are read under (default the machine's own), and
 	// Processes lists the machine's command lines (tests replace them).
 	UsageFirst    time.Duration
 	UsageInterval time.Duration
 	UsageClient   *http.Client
 	Getenv        func(string) string
 	OSRelease     string
+	ProviderRoot  string
 	Processes     func() []string
 
 	// 0.4.5: the network guard (internal/netguard). Firewall runs iptables
@@ -595,6 +599,8 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.http01 = &certs.HTTP01Responder{Addr: opts.HTTP01Addr, Shared: a.pageRelaysChallenge}
 	a.usage.kick = make(chan struct{}, 1)
+	a.usage.checkable = sync.OnceValue(a.internetCheckable)
+	a.usage.provider = sync.OnceValue(func() platform.Provider { return platform.DetectProvider(opts.ProviderRoot) })
 	a.upd.kick = make(chan struct{}, 1)
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
@@ -1059,6 +1065,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/usage-stats", a.hUsageStats},
 		{"PUT", "/v1/usage-stats", a.hUsageStatsSet},
 		{"POST", usageFirstAccountPath, a.hUsageFirstAccount},
+		{"POST", "/v1/servers/{id}/internet-check", srv((*server).hInternetCheck)},
 		// wave 5: player profiles, messages and bans; Discord.
 		{"GET", "/v1/servers/{id}/players/profile", srv((*server).hProfile)},
 		{"POST", "/v1/servers/{id}/players/message", srv((*server).hMessage)},

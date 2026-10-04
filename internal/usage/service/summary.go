@@ -101,6 +101,10 @@ type Active struct {
 	ByArch    map[string]int `json:"byArch"`
 	ByAddress map[string]int `json:"byAddress"`
 	ByKind    map[string]int `json:"byKind"`
+	// ByReached is by the furthest setup step their heartbeats said
+	// (usage.Reached*), and ReachedNone for one that said none: before its
+	// first account, or from a version before 0.4.18.
+	ByReached map[string]int `json:"byReached"`
 	// Servers and Running are the Minecraft servers on them, and those
 	// running; ServersPerInstall counts installs by how many they have.
 	Servers           int            `json:"servers"`
@@ -134,6 +138,10 @@ var windows = []struct {
 // dailyDays is how many days Daily covers.
 const dailyDays = 30
 
+// ReachedNone counts, in Active.ByReached, installs whose heartbeats said no
+// setup step.
+const ReachedNone = "none"
+
 // perInstallBucket names the ServersPerInstall bucket of n servers.
 func perInstallBucket(n int) string {
 	switch {
@@ -153,7 +161,7 @@ func newInstalls() *Installs {
 
 func newActive() *Active {
 	return &Active{BySource: map[string]int{}, ByChannel: map[string]int{}, ByVersion: map[string]int{}, ByOS: map[string]int{},
-		ByArch: map[string]int{}, ByAddress: map[string]int{}, ByKind: map[string]int{}, ServersPerInstall: map[string]int{}}
+		ByArch: map[string]int{}, ByAddress: map[string]int{}, ByKind: map[string]int{}, ByReached: map[string]int{}, ServersPerInstall: map[string]int{}}
 }
 
 // Summary counts what the service keeps.
@@ -306,7 +314,7 @@ func (o Outcomes) add(p Outcomes) Outcomes {
 
 // active counts the installs whose last heartbeat came at since or later.
 func (s *Service) active(ctx context.Context, since int64) (*Active, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT source, channel, kind, version, os, os_version, arch, address, servers, running FROM installs
+	rows, err := s.db.QueryContext(ctx, `SELECT source, channel, kind, version, os, os_version, arch, address, servers, running, reached FROM installs
 		WHERE test = 0 AND last_seen != 0 AND last_seen >= ?`, since)
 	if err != nil {
 		return nil, err
@@ -314,11 +322,15 @@ func (s *Service) active(ctx context.Context, since int64) (*Active, error) {
 	defer rows.Close()
 	a := newActive()
 	for rows.Next() {
-		var source, channel, kind, version, os, osVersion, arch, address string
+		var source, channel, kind, version, os, osVersion, arch, address, reached string
 		var servers, running int
-		if err := rows.Scan(&source, &channel, &kind, &version, &os, &osVersion, &arch, &address, &servers, &running); err != nil {
+		if err := rows.Scan(&source, &channel, &kind, &version, &os, &osVersion, &arch, &address, &servers, &running, &reached); err != nil {
 			return nil, err
 		}
+		if reached == "" {
+			reached = ReachedNone
+		}
+		a.ByReached[reached]++
 		a.Installs++
 		switch source {
 		case usage.SourceSite:

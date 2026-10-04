@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -85,7 +87,28 @@ func (c Client) SendHeartbeat(ctx context.Context, h Heartbeat) error {
 	return c.post(ctx, PathHeartbeat, h)
 }
 
+// reCode is the form of the service's codes, like "rate_limited".
+var reCode = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
+
+// ServiceError is an answer the service refused a request with.
+type ServiceError struct {
+	Host   string
+	Status int
+	// Code is the service's own, like "rate_limited".
+	Code string
+	// RetryAfter is how long the service asked to wait, when it said.
+	RetryAfter time.Duration
+}
+
+func (e *ServiceError) Error() string { return fmt.Sprintf("%s answered HTTP %d", e.Host, e.Status) }
+
 func (c Client) post(ctx context.Context, p string, v any) error {
+	return c.do(ctx, p, v, nil, 10*time.Second)
+}
+
+// do posts v to path p and reads the answer into out, unless out is nil. A
+// client of its own waits up to timeout.
+func (c Client) do(ctx context.Context, p string, v, out any, timeout time.Duration) error {
 	raw := c.URL
 	if raw == "" {
 		raw = DefaultURL
@@ -107,7 +130,7 @@ func (c Client) post(ctx context.Context, p string, v any) error {
 	req.Header.Set("User-Agent", "playkeeper/"+c.Version)
 	hc := c.HTTP
 	if hc == nil {
-		hc = &http.Client{Timeout: 10 * time.Second}
+		hc = &http.Client{Timeout: timeout}
 	}
 	// A copy, so the caller's client keeps following redirects elsewhere.
 	nc := *hc
@@ -118,9 +141,24 @@ func (c Client) post(ctx context.Context, p string, v any) error {
 		return fmt.Errorf("could not reach %s: %w", u.Host, err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, MaxBody))
+	answer, _ := io.ReadAll(io.LimitReader(resp.Body, MaxBody))
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("%s answered HTTP %d", u.Host, resp.StatusCode)
+		e := &ServiceError{Host: u.Host, Status: resp.StatusCode}
+		var refusal struct {
+			Code string `json:"code"`
+		}
+		if json.Unmarshal(answer, &refusal) == nil && reCode.MatchString(refusal.Code) {
+			e.Code = refusal.Code
+		}
+		if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 {
+			e.RetryAfter = time.Duration(s) * time.Second
+		}
+		return e
+	}
+	if out != nil {
+		if err := json.Unmarshal(answer, out); err != nil {
+			return fmt.Errorf("%s answered something that isn't JSON", u.Host)
+		}
 	}
 	return nil
 }

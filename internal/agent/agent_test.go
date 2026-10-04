@@ -237,6 +237,7 @@ func (e *agentEnv) options() Options {
 		// No heartbeat unless a test sends one, and none of the machine's
 		// environment, system or processes: CI runs these in an Actions job.
 		UsageInterval: -1, Getenv: func(string) string { return "" }, OSRelease: e.osRelease(), Processes: func() []string { return nil },
+		ProviderRoot: e.dir,
 	}
 	if e.tweak != nil {
 		e.tweak(&opts)
