@@ -34,6 +34,11 @@ const SYSTEMS = {
 const ARCH = { amd64: 'x86 (amd64)', arm64: 'ARM (arm64)' }
 const ADDRESS = { free: 'Free playkeeper.me name', own: 'Own domain', ip: 'IP address only' }
 const KIND = { dashboard: 'Dashboard', joined: 'Joined to another dashboard' }
+const REACHED = {
+  none: 'No account yet, or before 0.4.18', account: 'Made an account', server: 'A server came online', played: 'Someone played',
+  friends: 'Friends played',
+}
+const REACHED_ORDER = Object.keys(REACHED)
 const SERVERS = { 0: 'No servers', 1: '1 server', 2: '2 servers', '3-5': '3 to 5', '6-10': '6 to 10', '11+': '11 or more' }
 const OUTCOMES = { succeeded: 'Succeeded', failed: 'Failed', refused: 'Refused', pending: 'No result that day' }
 const WINDOWS = { '1d': 'day', '7d': '7 days', '30d': '30 days' }
@@ -375,6 +380,7 @@ function renderMachines (s) {
   bars($('servers-per'), Object.keys(SERVERS).map((k) => [k, (a.serversPerInstall || {})[k] || 0]), (k) => SERVERS[k])
   bars($('by-source'), sorted(a.bySource, SOURCE_ORDER), sourceName)
   bars($('by-kind'), sorted(a.byKind), (k) => KIND[k] || k)
+  bars($('by-reached'), sorted(a.byReached, REACHED_ORDER), (k) => REACHED[k] || k)
   const channels = sorted(a.byChannel)
   $('channels').hidden = channels.length === 0
   bars($('by-channel'), channels, (k) => k)

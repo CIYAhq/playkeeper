@@ -1,14 +1,20 @@
 // Package usage is what a Playkeeper install tells the project's stats service
 // (services/stats) and how: a random install ID made on the machine, the
 // Playkeeper version, the system and CPU, how Playkeeper got onto the
-// machine, the kind of address it has and how many Minecraft servers it runs.
-// Never an IP address, a host or server name, or anything about players.
-// README.md ("Usage stats") says what is sent, when, and how to turn it off.
+// machine, the kind of address it has, how many Minecraft servers it runs and
+// the furthest setup step it reached. Never an IP address, a host or server
+// name, or a player's name. README.md ("Usage stats") says what is sent,
+// when, and how to turn it off.
 //
 // The installer sends an Install when a plan is accepted and when the
-// install ends; the agent sends a Heartbeat a minute after it starts and
-// twice a day after that. The service checks every field with the same
-// Check methods, so the client can't send what it would refuse.
+// install ends; the agent sends a Heartbeat a minute after it starts, right
+// after each setup step it reaches for the first time, and twice a day after
+// that. The service checks every field with the same Check methods, so the
+// client can't send what it would refuse.
+//
+// A machine can also ask the service whether its Minecraft port answers from
+// the internet (ReachRequest). The service connects back to the address the
+// request came from, and the request names nothing but the port.
 package usage
 
 import (
@@ -128,7 +134,23 @@ type Heartbeat struct {
 	Address string `json:"address"`
 	Servers int    `json:"servers"`
 	Running int    `json:"running"`
+	// Reached is the furthest setup step the machine has reached, one of
+	// the Reached steps: empty before its first account, and from versions
+	// before 0.4.18. The service takes any token, so a later step needs no
+	// change to it.
+	Reached string `json:"reached,omitempty"`
 }
+
+// The setup steps a heartbeat says a machine reached (Heartbeat.Reached), in
+// order: the dashboard's first account, its first server online, a first
+// player's session on any of its servers (the owner's included), and a
+// second, different player's.
+const (
+	ReachedAccount = "account"
+	ReachedServer  = "server"
+	ReachedPlayed  = "played"
+	ReachedFriends = "friends"
+)
 
 var (
 	reID        = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -138,6 +160,7 @@ var (
 	reArch      = regexp.MustCompile(`^[a-z0-9]{1,16}$`)
 	reChannel   = regexp.MustCompile(`^[a-z0-9-]{0,32}$`)
 	reStep      = regexp.MustCompile(`^[a-z0-9-]{1,32}(\+[a-z0-9-]{1,32}){0,7}$`)
+	reReached   = regexp.MustCompile(`^[a-z0-9-]{0,32}$`)
 )
 
 var (
@@ -199,6 +222,8 @@ func (h Heartbeat) Check() error {
 		return invalid("servers")
 	case h.Running < 0 || h.Running > h.Servers:
 		return invalid("running")
+	case !reReached.MatchString(h.Reached):
+		return invalid("reached")
 	}
 	return h.System.check()
 }

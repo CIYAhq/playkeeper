@@ -5,11 +5,12 @@
 # and the source code link), the dashboard's page and files with the
 # Content-Security-Policy that keeps it to them, reports taken and refused,
 # a copy of the install command taken from playkeeper.io and refused from
-# anywhere else, the counts refused without the token and right with it, day
-# by day and in the funnel too,
-# `playkeeper-stats summary` in the
-# container; then that it runs as a non-root user who can write /data, that
-# neither its files nor its log hold the address a report came from, its user
+# anywhere else, a check of a Minecraft port that connects back to the
+# address asking and is refused for another port, another host or a private
+# address, the counts refused without the token and right with it, day by
+# day and in the funnel too, `playkeeper-stats summary` in the container;
+# then that it runs as a non-root user who can write /data, that neither its
+# files nor its log hold the address a report or a check came from, its user
 # agent or the token, that it reports healthy and stops cleanly; last, that
 # it refuses to start with a read token that is too short and names the
 # setting without showing its value. Needs Docker.
@@ -71,7 +72,7 @@ code=$(report /v1/install "{\"id\":\"$id\",\"event\":\"started\",$system}") || f
 [ "$code" = 204 ] || fail "an install's first report answered $code: $(cat "$out")"
 code=$(report /v1/install "{\"id\":\"$id\",\"event\":\"succeeded\",$system}")
 [ "$code" = 204 ] || fail "an install's last report answered $code: $(cat "$out")"
-code=$(report /v1/heartbeat "{\"id\":\"$id\",$system,\"address\":\"free\",\"servers\":2,\"running\":1,\"hostname\":\"alice-vps\"}")
+code=$(report /v1/heartbeat "{\"id\":\"$id\",$system,\"address\":\"free\",\"servers\":2,\"running\":1,\"reached\":\"played\",\"hostname\":\"alice-vps\"}")
 [ "$code" = 204 ] || fail "a heartbeat answered $code: $(cat "$out")"
 code=$(report /v1/heartbeat "{\"id\":\"$id\",$system,\"address\":\"alice.example.com\",\"servers\":2,\"running\":1}")
 [ "$code" = 400 ] || fail "a heartbeat with an address instead of its kind answered $code, not 400"
@@ -85,6 +86,24 @@ code=$(copy https://playkeeper.io) || fail "POST /v1/site does not answer"
 [ "$code" = 204 ] || fail "a copy of the install command from playkeeper.io answered $code: $(cat "$out")"
 code=$(copy https://elsewhere.example)
 [ "$code" = 403 ] || fail "a copy from another site answered $code, not 403"
+# A check of a Minecraft port connects back to the address asking, which
+# nothing answers for here; then the files and the log below are checked
+# for that address too.
+reach() { # JSON [FROM] — the status the service answered a check asked from FROM (the client by default)
+  curl -sS -o "$out" -w '%{http_code}' --max-time 30 -X POST -H 'Content-Type: application/json' -H "X-Forwarded-For: ${2:-$client}" -A "$agent" \
+    --data "$1" "$base/v1/reach"
+}
+code=$(reach '{"port":25565}') || fail "POST /v1/reach does not answer"
+[ "$code" = 200 ] || fail "a check of port 25565 answered $code: $(cat "$out")"
+grep -qE '^\{"result":"(timeout|unreachable|refused)"\}$' "$out" || fail "a check of $client, where nothing serves Minecraft, answered $(cat "$out")"
+code=$(reach '{"port":22}')
+[ "$code" = 400 ] || fail "a check of port 22 answered $code, not 400"
+code=$(reach '{"port":25565,"host":"192.0.2.1"}')
+[ "$code" = 400 ] || fail "a check naming another host answered $code, not 400"
+code=$(reach '{"port":25565}' 10.0.0.7)
+[ "$code" = 403 ] || fail "a check from a private address answered $code, not 403"
+grep -qF '"code":"not_public"' "$out" || fail "a check from a private address was not refused as one: $(cat "$out")"
+if grep -qF 10.0.0.7 "$out"; then fail "the refusal of a check repeats its address"; fi
 
 code=$(curl -sS -o "$out" -w '%{http_code}' "$base/v1/summary")
 [ "$code" = 401 ] || fail "the counts without the token answered $code, not 401"
@@ -98,6 +117,7 @@ assert s["installs"]["1d"]["started"] == 1 and s["installs"]["1d"]["succeeded"] 
 a = s["active"]["1d"]
 assert a["installs"] == 1 and a["onOurDomain"] == 1 and a["servers"] == 2 and a["running"] == 1, a
 assert a["byAddress"] == {"free": 1}, a["byAddress"]
+assert a["byReached"] == {"played": 1}, a["byReached"]
 assert s["test"] == {"started30d": 0, "active7d": 0}, s["test"]
 f = s["funnel"]["1d"]
 assert f == {"visitors": None, "demoOpens": None, "commandCopies": 1, "started": 1, "succeeded": 1, "stillRunning": 1}, f
@@ -144,4 +164,4 @@ fi
 grep -qF STATS_READ_TOKEN "$out" || fail "refusing a short read token does not name STATS_READ_TOKEN: $(cat "$out")"
 if grep -qF "$short" "$out"; then fail "refusing a short read token shows it"; fi
 
-echo "Stats image checks out: /healthz is ok, / says what installs send and links the source, the dashboard serves its page and files with its Content-Security-Policy, reports taken and invalid ones refused, copies counted from playkeeper.io alone, the counts need the token and are right, day by day and in the funnel too, summary runs in the container, runs as uid $uid and writes /data, no client address, user agent or token in its files or log, healthy, stops cleanly, refuses a short read token without showing it."
+echo "Stats image checks out: /healthz is ok, / says what installs send and links the source, the dashboard serves its page and files with its Content-Security-Policy, reports taken and invalid ones refused, copies counted from playkeeper.io alone, port checks connect back to the address asking and refuse other ports, hosts and private addresses, the counts need the token and are right, day by day and in the funnel too, summary runs in the container, runs as uid $uid and writes /data, no client address, user agent or token in its files or log, healthy, stops cleanly, refuses a short read token without showing it."
