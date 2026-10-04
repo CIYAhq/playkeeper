@@ -15,7 +15,7 @@ import (
 // as id: what the server had where it was, sc.
 func moveInBody(id, slug string, sc *api.ServerConfig, start bool) map[string]any {
 	return map[string]any{"serverId": id, "name": "Survival", "slug": slug, "memoryMB": sc.MemoryMB, "playStyle": sc.PlayStyle, "start": start,
-		"createdAt": sc.CreatedAt, "eulaAcceptedAt": sc.EULAAcceptedAt, "eulaAcceptedBy": sc.EULAAcceptedBy, "actor": "playkeeper"}
+		"createdAt": sc.CreatedAt, "eulaAcceptedAt": sc.EULAAcceptedAt, "eulaAcceptedBy": sc.EULAAcceptedBy, "creatorNames": sc.CreatorNames, "actor": "playkeeper"}
 }
 
 // movingIn makes Survival, a server with a world, and stages a backup of it
@@ -24,7 +24,7 @@ func moveInBody(id, slug string, sc *api.ServerConfig, start bool) map[string]an
 // upload's id.
 func (e *agentEnv) movingIn(style string) (*api.ServerConfig, serverRow, []byte, string) {
 	e.t.Helper()
-	e.createWith(map[string]any{"name": "Survival", "playStyle": style})
+	e.createWith(map[string]any{"name": "Survival", "playStyle": style, "operators": []string{"Steve_Builds"}})
 	had, err := e.srv().serverConfig()
 	if err != nil {
 		e.t.Fatal(err)
@@ -119,6 +119,8 @@ func TestAServerMovedInKeepsWhatItHadWhereItWas(t *testing.T) {
 		t.Errorf("moved in with %d MB, style %q, made %s; it had %d MB, friends, %s", sc.MemoryMB, sc.PlayStyle, sc.CreatedAt, had.MemoryMB, had.CreatedAt)
 	case sc.EULAAcceptedBy != had.EULAAcceptedBy || !sc.EULAAcceptedAt.Equal(had.EULAAcceptedAt):
 		t.Errorf("the EULA accepted by %q at %s, want %q at %s", sc.EULAAcceptedBy, sc.EULAAcceptedAt, had.EULAAcceptedBy, had.EULAAcceptedAt)
+	case had.CreatorNames != "Steve_Builds" || sc.CreatorNames != had.CreatorNames:
+		t.Errorf("moved in made by %q; it was made by %q", sc.CreatorNames, had.CreatorNames)
 	}
 	e.sid = id
 	if _, err := os.Stat(filepath.Join(e.dataDir(), "world", "filler.dat")); err != nil {
@@ -202,6 +204,7 @@ func TestAMoveInTakesOnlyWhatTheDashboardSends(t *testing.T) {
 		"no memory":                         func(b map[string]any) { b["memoryMB"] = 0 },
 		"memory that isn't one of the fits": func(b map[string]any) { b["memoryMB"] = 1000 },
 		"no actor":                          func(b map[string]any) { delete(b, "actor") },
+		"a creator Minecraft can't have":    func(b map[string]any) { b["creatorNames"] = "Steve_Builds bad;name" },
 	} {
 		body := moveInBody("mvdserver2", row.Slug, had, false)
 		change(body)

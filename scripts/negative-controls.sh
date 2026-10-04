@@ -1141,6 +1141,22 @@ control "a turned-away player's alert doesn't hold back a join request of theirs
   '			return string(e.Kind) + ":refused:" + strings.ToLower(oneLine(e.Player))' \
   '			return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))' \
   ./internal/discord '^TestATurnedAwayPlayerPostsWithTheJoinRequests$'
+control "the first steps don't count whoever created the server as a friend" internal/agent/handlers.go \
+  '		creators = strings.Fields(sc.CreatorNames)' \
+  '		creators = nil' \
+  ./internal/agent '^TestTheFirstStepsCountOnlyPlayersOtherThanWhoeverCreatedTheServer$'
+control "a server keeps whoever created it once they're added" internal/agent/handlers.go \
+  ' CreatorNames: strings.Join(operators, " "),' \
+  '' \
+  ./internal/agent '^TestTheFirstStepsCountOnlyPlayersOtherThanWhoeverCreatedTheServer$'
+control "a server moved in keeps whoever created it" internal/agent/movein.go \
+  ', CreatorNames: strings.Join(creators, " ")},' \
+  ', CreatorNames: strings.Join(creators[:0], " ")},' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "a move sends whoever created the server to the machine it goes to" internal/panel/moves.go \
+  ', CreatorNames: cfg.CreatorNames, Actor: placementActor}' \
+  ', Actor: placementActor}' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "the existing-setup check tells a running service from a stopped one" internal/install/install.go \
   '	case slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
   '	case false && slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
@@ -8032,6 +8048,10 @@ webcontrol "the join card checks from the internet by itself only while usage st
   'const due = !!check?.auto && mayCheck' \
   'const due = !!check && mayCheck' \
   web/src/pages/pages.test.tsx 'checks from the internet by itself while usage stats are on'
+webcontrol "a check that couldn't be made says so on its button" web/src/pages/server/overview.tsx \
+  "{check.problem ? t('overview.internet.couldnt') : check.result" \
+  "{false ? t('overview.internet.couldnt') : check.result" \
+  web/src/pages/pages.test.tsx 'keeps the provider line'
 webcontrol "a closed port links its provider's steps" web/src/pages/server/overview.tsx \
   "href={check?.stepsUrl ?? t('onboarding.check.firewallUrl')}" \
   "href={t('onboarding.check.firewallUrl')}" \
