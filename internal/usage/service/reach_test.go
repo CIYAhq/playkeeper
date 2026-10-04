@@ -131,11 +131,22 @@ func TestACheckConnectsBackToTheRequestsOwnAddress(t *testing.T) {
 	if strings.Join(*meant, ", ") != strings.Join(want, ", ") {
 		t.Errorf("the checks connected to %v, want %v", *meant, want)
 	}
-	// What it sent: the status handshake naming the address it reached,
-	// then the status request, and nothing more.
-	for _, to := range []netip.AddrPort{netip.MustParseAddrPort("198.51.100.40:25566"), netip.MustParseAddrPort("[2001:db8:40::7]:25565")} {
-		if sent := <-fake.sent; !bytes.Equal(sent, statusRequest(to)) {
-			t.Errorf("a check of %s sent %x, want only the status request %x", to, sent, statusRequest(to))
+	// What each sent: the status handshake naming the address it reached,
+	// then the status request, and nothing more. The fake hears each
+	// connection end in its own time, so in no particular order.
+	unsent := map[string]bool{}
+	for _, to := range []string{"198.51.100.40:25566", "[2001:db8:40::7]:25565", "198.51.100.41:25565"} {
+		unsent[string(statusRequest(netip.MustParseAddrPort(to)))] = true
+	}
+	for range want {
+		select {
+		case sent := <-fake.sent:
+			if !unsent[string(sent)] {
+				t.Errorf("a check sent %x, want only the status request naming the address it reached, once", sent)
+			}
+			delete(unsent, string(sent))
+		case <-time.After(5 * time.Second):
+			t.Fatal("a check's connection never ended")
 		}
 	}
 }
