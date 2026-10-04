@@ -788,6 +788,10 @@ describe('Overview', () => {
     expect(toast).toHaveBeenCalledWith({ title: 'Copied. Friends also need their name on the allowlist.', type: 'success' })
     copy.mockRestore()
     toast.mockRestore()
+    // Someone who can't add players reads the rule, with no link to a list they can't change.
+    const text = await render(<Overview server={server()} />, workspace({ me: member('viewer', ['view', 'machines.view']) }))
+    expect(text).toContain('Only people on the allowlist get in.')
+    expect([...document.querySelectorAll('a')].some((a) => a.textContent === 'add your friends')).toBe(false)
   })
 
   // The walkthrough's closed port: once the stats service has connected back

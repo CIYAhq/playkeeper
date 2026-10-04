@@ -15,7 +15,7 @@ import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine } from './console'
 import { crashDetail, crashFixes, crashSummary, failureLine, lookupKey, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
 import { formatBytes, formatClock, formatCountdown, formatDate, formatDuration, formatList, formatMB, formatWhen, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
-import { joinCopied, joinOf, machineEventText } from './machines'
+import { inviteMessage, joinCopied, joinOf, machineEventText } from './machines'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments, playersFor } from './memory'
 import { busyReason, controls, createStepOf, isCreating, isSettingUp, packStepOf, phaseTone, statusLabel, statusTone, templateStepOf, whyNot } from './phase'
 import { href, parse, type Route } from './router'
@@ -525,6 +525,15 @@ describe('crash helper', () => {
   it('says friends need their name on the allowlist when a join address is copied, while it is on', () => {
     expect(joinCopied(server())).toBe('Copied. Friends also need their name on the allowlist.')
     expect(joinCopied(server({ config: { ...server().config, whitelist: false } as ServerConfig }))).toBe('Copied')
+  })
+
+  it('asks a friend invited to join for their exact Minecraft name only while the allowlist is on', () => {
+    expect(inviteMessage(server(), 'play.example.com')).toBe(
+      'Come play Minecraft with me! Send me your exact Minecraft name so I can add you to the list. Then open Minecraft (Java Edition), pick Multiplayer, then Add Server, and paste play.example.com',
+    )
+    expect(inviteMessage(server({ config: { ...server().config, whitelist: false } as ServerConfig }), 'play.example.com')).toBe(
+      'Come play Minecraft with me! Open Minecraft (Java Edition), pick Multiplayer, then Add Server, and paste play.example.com',
+    )
   })
 
   it('calls a server being moved one being moved, whatever it last said, and offers nothing to do to it', () => {

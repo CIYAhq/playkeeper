@@ -168,6 +168,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
 
 function JoinCard({ server: s }: { server: ServerStatus }) {
   const { stale, join, name: machine } = useServerMachine(s)
+  const { me } = useWorkspace()
   const phone = useIsPhone()
   const online = !stale && s.phase === 'online'
   const asleep = !stale && s.phase === 'asleep'
@@ -187,13 +188,15 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
       {!phone && <p className="mt-1 text-[13px] text-muted-foreground">{asleep ? t('sleep.joinWakes') : t('overview.joinHelp')}</p>}
       {address && s.config?.whitelist !== false && (
         <p className="mt-1 text-[13px] text-muted-foreground">
-          {rich('overview.listHint', {
-            link: (chunk) => (
-              <a {...linkPath(`/servers/${s.slug}/players#add`)} className="font-medium text-primary hover:underline">
-                {chunk}
-              </a>
-            ),
-          })}
+          {can(me, 'players.manage')
+            ? rich('overview.listHint', {
+                link: (chunk) => (
+                  <a {...linkPath(`/servers/${s.slug}/players#add`)} className="font-medium text-primary hover:underline">
+                    {chunk}
+                  </a>
+                ),
+              })
+            : t('overview.listHintPlain')}
         </p>
       )}
       {phone && asleep && <p className="mt-1 text-[13px] text-muted-foreground">{t('sleep.joinWakesShort')}</p>}
