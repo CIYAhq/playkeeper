@@ -245,7 +245,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		}
 	case minecraft.EventRefused:
 		if !s.refusedLately(p.Player, ts) && s.insertEvent(ts, "join_refused", p.Player, "", "server_log", "", key) && current {
-			s.alert(discord.JoinRefused(p.Player))
+			refused := discord.JoinRefused(p.Player)
+			refused.At = ts
+			s.alert(refused)
 		}
 	case minecraft.EventLeave:
 		if s.insertEvent(ts, "leave", p.Player, "", "server_log", "", key) {

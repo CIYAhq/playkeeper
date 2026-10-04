@@ -349,6 +349,31 @@ func TestDiscordAlertsComeFromTheAgent(t *testing.T) {
 // away showed only in the console. The refusal is one line in the recent
 // activity, however often they try within ten minutes, and an alert with the
 // join requests, which are on by default. Chat can't make one up.
+// A refusal read long after it happened, as when an upgrade to a version
+// that knows refusals reads the running server's log again from its start,
+// goes in the activity but isn't posted as news, as an old join isn't.
+func TestAnOldRefusalReadAgainIsNotPostedToDiscord(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	e.skew.Store(int64(time.Hour))
+	e.fd.addLog("[12:01:00 INFO]: PkLongAgo (IP hidden) lost connection: You are not whitelisted on this server!")
+	e.fd.addLog("[12:01:01 INFO]: PkFence joined the game")
+	e.waitFor("the join after it", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'join' AND player = 'PkFence'`) == 1
+	})
+	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'join_refused' AND player = 'PkLongAgo'`); n != 1 {
+		t.Fatalf("%d refusals of PkLongAgo in the activity, want 1", n)
+	}
+	if code, out := e.call("POST", "/v1/discord/notify", map[string]any{"kind": "join_requested", "serverId": e.sid, "player": "PkAsks", "actor": "panel"}); code != 204 {
+		t.Fatalf("join request: %d %v", code, out)
+	}
+	f.waitMessage(e, "Join request", "PkAsks")
+	if n := f.count("PkLongAgo"); n != 0 {
+		t.Fatalf("the old refusal was posted %d times", n)
+	}
+}
+
 func TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord(t *testing.T) {
 	e, f := newDiscordEnv(t)
 	e.connectDiscord()
