@@ -58,6 +58,11 @@ type usageState struct {
 	// kick wakes the heartbeat loop when the switch turns usage stats on,
 	// or a setup step sends one at once.
 	kick chan struct{}
+	// checkable says whether the machine may ask for internet checks
+	// (internetCheckable), and provider is the cloud it runs at, each
+	// worked out once.
+	checkable func() bool
+	provider  func() platform.Provider
 }
 
 // usageDecision is whether usage stats are on, what decided and the

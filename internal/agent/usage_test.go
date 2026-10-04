@@ -18,30 +18,59 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
-// statsRecorder stands in for the stats service and keeps each heartbeat.
+// statsRecorder stands in for the stats service: it keeps each heartbeat,
+// and each internet check it is asked for, which reach answers (by default,
+// a Minecraft server answered).
 type statsRecorder struct {
-	mu    sync.Mutex
-	beats []map[string]any
-	srv   *httptest.Server
+	mu     sync.Mutex
+	beats  []map[string]any
+	checks []string
+	reach  http.HandlerFunc
+	srv    *httptest.Server
 }
 
 func newStatsRecorder(t *testing.T) *statsRecorder {
 	r := &statsRecorder{}
 	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != "POST" || req.URL.Path != usage.PathHeartbeat {
-			http.NotFound(w, req)
-			return
-		}
 		b, _ := io.ReadAll(req.Body)
-		m := map[string]any{}
-		json.Unmarshal(b, &m)
-		r.mu.Lock()
-		r.beats = append(r.beats, m)
-		r.mu.Unlock()
-		w.WriteHeader(http.StatusNoContent)
+		switch {
+		case req.Method == "POST" && req.URL.Path == usage.PathHeartbeat:
+			m := map[string]any{}
+			json.Unmarshal(b, &m)
+			r.mu.Lock()
+			r.beats = append(r.beats, m)
+			r.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		case req.Method == "POST" && req.URL.Path == usage.PathReach:
+			r.mu.Lock()
+			r.checks = append(r.checks, string(b))
+			answer := r.reach
+			r.mu.Unlock()
+			if answer == nil {
+				answer = func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, `{"result":"reachable"}`) }
+			}
+			answer(w, req)
+		default:
+			http.NotFound(w, req)
+		}
 	}))
 	t.Cleanup(r.srv.Close)
 	return r
+}
+
+// answer has the recorder answer the checks it's asked for from now on with
+// a.
+func (r *statsRecorder) answer(a http.HandlerFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.reach = a
+}
+
+// checked is each check the recorder was asked for, as its body.
+func (r *statsRecorder) checked() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.checks...)
 }
 
 func (r *statsRecorder) count() int {
