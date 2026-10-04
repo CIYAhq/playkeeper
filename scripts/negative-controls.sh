@@ -4570,8 +4570,8 @@ control "a server's first week ends a week after it was made" internal/agent/dis
   '' \
   ./internal/agent '^TestDiscordPostsJoinsAndLeavesInAServersFirstWeek$'
 control "choosing the join alerts ends the first weeks" internal/agent/discord.go \
-  'return !set && err == nil' \
-  'return err == nil' \
+  'set := s.disc.joinsSet' \
+  'set := false' \
   ./internal/agent '^TestDiscordPostsJoinsAndLeavesInAServersFirstWeek$'
 control "Keep it off chooses the join alerts" internal/agent/discord.go \
   'joinsSet := a.disc.joinsSet || req.JoinsChosen ||' \
