@@ -1,6 +1,6 @@
 # stats.playkeeper.io
 
-This folder deploys the stats service behind Playkeeper's anonymous [usage stats](../../README.md#usage-stats): installs report how the install went, and running machines send a heartbeat twice a day, so the project can count installs, running machines and their servers, how far their setup got, and whether they came through playkeeper.io or not. The code is in `cmd/playkeeper-stats`, `internal/usage/service` and `internal/usage` (what a report may say, which both sides check); it is not part of the Playkeeper release.
+This folder deploys the stats service behind Playkeeper's anonymous [usage stats](../../README.md#usage-stats): installs report how the install went, and running machines send a heartbeat twice a day, so the project can count installs, running machines and their servers, how far their setup got, and whether they came through playkeeper.io or not. A machine can also ask it whether its Minecraft port answers from the internet ([Checking a machine's port](#checking-a-machines-port)). The code is in `cmd/playkeeper-stats`, `internal/usage/service` and `internal/usage` (what a report may say, which both sides check); it is not part of the Playkeeper release.
 
 It runs apart from the [names service](../names/README.md) on purpose: it holds no Cloudflare token and needs nothing from it, so neither can harm the other.
 
@@ -10,11 +10,12 @@ It runs apart from the [names service](../names/README.md) on purpose: it holds 
 | `/healthz` | `200` with `ok`, for health checks |
 | `POST /v1/install` | an installer's report: `started`, `succeeded`, `failed` or `refused` |
 | `POST /v1/heartbeat` | a running machine's heartbeat |
+| `POST /v1/reach` | whether the Minecraft port of the machine asking answers from the internet (see [Checking a machine's port](#checking-a-machines-port)) |
 | `POST /v1/site` | a copy of the install command on playkeeper.io, from its pages alone |
 | `GET /v1/summary` | the counts, as JSON, with `Authorization: Bearer <read token>` only (see [Reading the numbers](#reading-the-numbers)) |
 | `/dashboard` | the counts as charts, once you sign in with the read token (see [The dashboard](#the-dashboard)) |
 
-**What it keeps.** One row per install ID with what its reports last said, to the hour, and one row per install per day it sent a heartbeat; and for playkeeper.io, how many times its install command was copied each hour, by the channel's code. Nothing else: no IP address, no header, no user agent, no field a report type doesn't have. The address a request comes from decides the rate limits, in memory, and is dropped; the service keeps no access log, and drops net/http's own log lines, some of which name the client. An install it hears nothing from for 400 days is forgotten. `scripts/stats-check.sh` checks in CI that neither its files nor its log hold the address a report came from.
+**What it keeps.** One row per install ID with what its reports last said, to the hour, and one row per install per day it sent a heartbeat; and for playkeeper.io, how many times its install command was copied each hour, by the channel's code. Nothing else: no IP address, no header, no user agent, no field a report type doesn't have. The address a request comes from decides the rate limits, in memory, and is dropped; a port check also connects back to it, and nothing of the check is kept either. The service keeps no access log, and drops net/http's own log lines, some of which name the client. An install it hears nothing from for 400 days is forgotten. `scripts/stats-check.sh` checks in CI that neither its files nor its log hold the address a report or a port check came from.
 
 `Dockerfile` builds the image (Go and Alpine, pinned by digest; the service runs as user 10001 on port 8080) with a health check on `/healthz`. It is built from the repository root, and `Dockerfile.dockerignore` limits the build to the files it needs.
 
@@ -156,6 +157,28 @@ Or, in Coolify, open the application's **Terminal**, choose its container and ru
 
 A machine counts once whatever it sends: `installs` in `active` are machines, not heartbeats. An install whose machine is later uninstalled stays in `installs` and leaves `active` once 30 days pass without a heartbeat.
 
+## Checking a machine's port
+
+A machine can't see its provider's firewall from inside, so its dashboard asks the service whether its Minecraft port answers from the internet: `POST /v1/reach` with `{"port": 25565}` and nothing else, no install ID and no address. The service connects back to the address the request came from, the one the rate limits use, which only Coolify's proxy can name for a request. It answers `{"result": "…"}`:
+
+| Result | What the service found |
+| --- | --- |
+| `reachable` | a Minecraft server answered its status request |
+| `refused` | the port is closed: the connection was refused |
+| `timeout` | nothing answered within 5 seconds, as when a firewall drops the connection |
+| `unreachable` | the network said the address can't be reached, as when a firewall rejects the connection |
+| `not-minecraft` | something else answered on the port |
+
+It connects:
+
+- only to the address the request came from: a request with any field but `port` is refused (`400`);
+- only when that address is a public one, never one on a private network, this machine's own, a cloud's metadata service or carrier-grade NAT, nor one like NAT64's or 6to4's that leads on to another address (`403`, `not_public`);
+- only on the ports Playkeeper gives Minecraft servers, 25565 to 26564 (`400` for any other).
+
+Then it sends a Minecraft status request, the one a game sends to show a server in its list, and reads no more of the answer than shows it is one: never the players or the server's description. It keeps nothing of a check, in its files or its log: not the address, the port or what answered. Checks have [limits](#limits) of their own, and `scripts/stats-check.sh` checks in CI that a check connects back to the address asking, refuses the rest and leaves no address behind.
+
+Nothing needs setting up: the service connects out from the Coolify server like any program there. The `stats` record is IPv4 only (step 1), so machines ask, and are checked, over IPv4.
+
 ## Running it
 
 ### Updating
@@ -185,7 +208,7 @@ Make a new one as in step 2, replace `STATS_READ_TOKEN` in Coolify and select **
 
 ### If the service is down
 
-Nothing on anyone's machine notices: the installer waits a few seconds at most for its last report, and a machine that can't send a heartbeat logs one line and tries again 12 hours later. The reports sent meanwhile are lost, so a day's active machines can read low after an outage longer than a few hours.
+Nothing on anyone's machine notices: the installer waits a few seconds at most for its last report, and a machine that can't send a heartbeat logs one line and tries again 12 hours later. The reports sent meanwhile are lost, so a day's active machines can read low after an outage longer than a few hours. A dashboard that can't have its port checked says so, and shows what the machine sees for itself.
 
 ### Limits
 
@@ -195,6 +218,9 @@ Nothing on anyone's machine notices: the installer waits a few seconds at most f
 | Reports for one install ID | 6 at once, then 12 an hour | |
 | Install IDs heard of for the first time, everyone together | 5000 a day | `STATS_NEW_INSTALLS_PER_DAY` |
 | A report | JSON of at most 4 KiB, every field in the form `internal/usage` checks | |
+| Port checks from one IPv4 address or IPv6 /64 | one at a time; 5 at once, then 10 an hour, on top of its requests | |
+| Port checks, everyone together | 64 at once | |
+| A port check | JSON of at most 64 bytes naming the port alone; 5 seconds to connect, then 5 for the answer | |
 | Copies of the install command from one address | 10 at once, then 20 an hour | |
 | Copies of the install command, everyone together | 20000 a day | |
 | An install nothing is heard from | forgotten after 400 days, with its days | |

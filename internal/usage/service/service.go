@@ -49,6 +49,8 @@ type Service struct {
 	perIP, perID, newIDs *limiter
 	// perIPSite and siteEvents bound the counts playkeeper.io's pages send.
 	perIPSite, siteEvents *limiter
+	// reach is what the checks of a machine's port share (see reach.go).
+	reach reachState
 	// site reads the site's own numbers; nil without STATS_OA_KEY.
 	site *siteReader
 
@@ -85,6 +87,7 @@ func New(cfg Config) (*Service, error) {
 		perIPSite:  newLimiter(siteEventsPerIPBurst, siteEventsPerIPHour, time.Hour, now),
 		siteEvents: newLimiter(siteEventsPerDay, siteEventsPerDay, day, now),
 		site:       newSiteReader(cfg),
+		reach:      newReachState(now),
 	}
 	for _, p := range cfg.TrustedProxies {
 		if p.Bits() < p.Addr().BitLen() {

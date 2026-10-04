@@ -282,6 +282,70 @@ func TestTheClientPostsTheReportAndNothingElse(t *testing.T) {
 	}
 }
 
+// A reach check names a Minecraft server's port, and nothing else.
+func TestAReachCheckNamesOnlyAMinecraftServersPort(t *testing.T) {
+	for _, p := range []int{ReachPortMin, 25566, ReachPortMax} {
+		if err := (ReachRequest{Port: p}).Check(); err != nil {
+			t.Errorf("port %d was refused: %v", p, err)
+		}
+	}
+	for _, p := range []int{0, 22, 443, 8443, ReachPortMin - 1, ReachPortMax + 1, 65535, 70000} {
+		if err := (ReachRequest{Port: p}).Check(); !errors.Is(err, ErrInvalid) || !strings.HasSuffix(err.Error(), ": port") {
+			t.Errorf("port %d: %v", p, err)
+		}
+	}
+	if got := jsonKeys(t, ReachRequest{Port: ReachPortMin}); !reflect.DeepEqual(got, []string{"port"}) {
+		t.Errorf("a reach check sends %v", got)
+	}
+}
+
+// The client asks with the port alone, and reads what the service found, or
+// why it refused, with how long it asked to wait.
+func TestTheClientAsksForAReachCheckAndReadsTheAnswer(t *testing.T) {
+	type got struct{ method, path, contentType, body string }
+	seen := make(chan got, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		seen <- got{r.Method, r.URL.Path, r.Header.Get("Content-Type"), string(b)}
+		switch string(b) {
+		case `{"port":25565}`:
+			io.WriteString(w, `{"result":"refused"}`)
+		case `{"port":25566}`:
+			w.Header().Set("Retry-After", "60")
+			w.WriteHeader(http.StatusTooManyRequests)
+			io.WriteString(w, `{"error":"Too many requests; try again later.","code":"rate_limited"}`)
+		default:
+			io.WriteString(w, `{"result":"maybe"}`)
+		}
+	}))
+	defer srv.Close()
+	c := Client{URL: srv.URL, Version: "0.4.18"}
+	a, err := c.Reach(context.Background(), 25565)
+	if err != nil || a.Result != ReachRefused {
+		t.Fatalf("a check: %+v, %v", a, err)
+	}
+	if g := <-seen; g.method != "POST" || g.path != PathReach || g.contentType != "application/json" || g.body != `{"port":25565}` {
+		t.Errorf("the check's request: %+v", g)
+	}
+	var se *ServiceError
+	if _, err := c.Reach(context.Background(), 25566); !errors.As(err, &se) || se.Status != http.StatusTooManyRequests || se.Code != "rate_limited" || se.RetryAfter != time.Minute {
+		t.Errorf("a refused check: %v (%+v)", err, se)
+	}
+	<-seen
+	if _, err := c.Reach(context.Background(), 25567); err == nil {
+		t.Error("an answer the client doesn't know was taken")
+	}
+	<-seen
+	if _, err := c.Reach(context.Background(), 22); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a check of port 22: %v", err)
+	}
+	select {
+	case g := <-seen:
+		t.Errorf("a check of port 22 was sent: %+v", g)
+	default:
+	}
+}
+
 func TestTheClientSendsNothingItsCheckRefuses(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))

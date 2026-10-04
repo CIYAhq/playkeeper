@@ -31,6 +31,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("POST "+usage.PathInstall, s.limited(s.install))
 	mux.HandleFunc("POST "+usage.PathHeartbeat, s.limited(s.heartbeat))
+	mux.HandleFunc("POST "+usage.PathReach, s.limited(s.hReach))
 	mux.HandleFunc("GET /v1/summary", s.limited(s.summary))
 	mux.HandleFunc("POST /v1/site", s.limited(s.hSiteEvent))
 	dash := dashboard()

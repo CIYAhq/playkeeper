@@ -8051,6 +8051,56 @@ control "the summary passes on only a plain code from Open Analytics' errors" in
   'if code := reErrorCode.FindString(e.Error.Code); code != "" {' \
   'if code := e.Error.Code; code != "" {' \
   ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+
+# The stats service's port check: it connects back to the request's own
+# address only when that's a public one, only on a Minecraft server's port
+# and only for a request naming the port alone; it sends the status request
+# and nothing more; an address runs one check at a time and a few an hour,
+# and the service a bounded number at once.
+control "a port check connects only to a public address" internal/usage/service/reach.go \
+  '	if !s.reach.public(addr) {' \
+  '	if false && !s.reach.public(addr) {' \
+  ./internal/usage/service '^TestOnlyAMinecraftPortAtAPublicAddressIsChecked$'
+control "a port check never connects into carrier-grade NAT" internal/usage/service/reach.go \
+  '	netip.MustParsePrefix("100.64.0.0/10"), // carrier-grade NAT
+' \
+  '' \
+  ./internal/usage/service '^TestOnlyAMinecraftPortAtAPublicAddressIsChecked$'
+control "a port check never goes through NAT64 to any IPv4 address" internal/usage/service/reach.go \
+  '	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64, which leads to any IPv4 address
+' \
+  '' \
+  ./internal/usage/service '^TestOnlyAMinecraftPortAtAPublicAddressIsChecked$'
+control "a port check connects only to a Minecraft server's port" internal/usage/service/reach.go \
+  '	if req.Check() != nil {' \
+  '	if false && req.Check() != nil {' \
+  ./internal/usage/service '^TestOnlyAMinecraftPortAtAPublicAddressIsChecked$'
+control "a port check names the port alone" internal/usage/service/reach.go \
+  '	dec.DisallowUnknownFields()
+' \
+  '' \
+  ./internal/usage/service '^TestOnlyAMinecraftPortAtAPublicAddressIsChecked$'
+control "a port check sends the status request and nothing more" internal/usage/service/reach.go \
+  'conn.Write(statusRequest(to))' \
+  'conn.Write(append(statusRequest(to), 0x09, 0x01, 0, 0, 0, 0, 0, 0, 0, 0))' \
+  ./internal/usage/service '^TestACheckConnectsBackToTheRequestsOwnAddress$'
+control "an address runs one port check at a time" internal/usage/service/reach.go \
+  '	if !s.reach.start(key) {' \
+  '	if !s.reach.start(key) && false {' \
+  ./internal/usage/service '^TestChecksAreOneAtATimeAndLimited$'
+control "port checks from one address are limited" internal/usage/service/reach.go \
+  'if ok, wait := s.reach.perIP.allow(key); !ok {' \
+  'if ok, wait := s.reach.perIP.allow(key); false && !ok {' \
+  ./internal/usage/service '^TestChecksAreOneAtATimeAndLimited$'
+control "the service runs a bounded number of port checks at once" internal/usage/service/reach.go \
+  '	default:
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusServiceUnavailable, "busy", "Too many checks are running; try again in a minute.")
+		return
+	}' \
+  '	default:
+	}' \
+  ./internal/usage/service '^TestChecksAreOneAtATimeAndLimited$'
 # A server's own address under the machine's own domain.
 control "an own address is only for a machine with its own domain" internal/agent/ownaddress.go \
   'if st.Kind != api.AddressOwn {

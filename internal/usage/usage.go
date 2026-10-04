@@ -11,6 +11,10 @@
 // after each setup step it reaches for the first time, and twice a day after
 // that. The service checks every field with the same Check methods, so the
 // client can't send what it would refuse.
+//
+// A machine can also ask the service whether its Minecraft port answers from
+// the internet (ReachRequest). The service connects back to the address the
+// request came from, and the request names nothing but the port.
 package usage
 
 import (
