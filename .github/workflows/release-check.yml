@@ -31,10 +31,10 @@ on:
         description: The version you will tag, without the v (empty for CHANGELOG.md's newest section)
         type: string
         default: ""
-  # For tokens that can push but can't start workflows by hand, like the
-  # agents': pushing the commit you will tag, unchanged, to a branch named
-  # like this runs the same check on exactly that commit, with the version
-  # from CHANGELOG.md's newest section.
+  # For tokens that can push but can't start workflows by hand: pushing the
+  # commit you will tag, unchanged, to a branch named like this runs the same
+  # check on exactly that commit, with the version from CHANGELOG.md's newest
+  # section.
   push:
     branches: ["siya/release-check-*"]
 

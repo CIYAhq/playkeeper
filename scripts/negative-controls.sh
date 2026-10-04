@@ -1113,7 +1113,7 @@ control "a mirror dnf moved on from isn't taken for one it gave up on" internal/
   '"All mirrors were already tried without success"}' \
   '"All mirrors were already tried without success", "Curl error"}' \
   ./internal/install '^TestDNFTriesAgainWithFreshMetadataOnlyWhenNoMirrorHadWhatItNeeded$'
-# After Bugbot's finding on 5a0f9c7a: dnf 5, though no supported system has
+# After review on 5a0f9c7a: dnf 5, though no supported system has
 # it yet, says it in its own words.
 control "dnf 5's mirror failures are tried again too" internal/install/packages.go \
   ', "Failed to download packages", "All mirrors were already tried without success"}' \
@@ -1154,7 +1154,7 @@ control "preflight refuses a Docker socket that answers as Podman" internal/inst
   'podman := derr == nil && di.Podman' \
   'podman := false' \
   ./internal/install '^TestPreflightRefusesWhatInstallingDockerCEWouldBreak$'
-# After Bugbot's finding on b1557e2e: the fix for Podman's Docker socket names
+# After review on b1557e2e: the fix for Podman's Docker socket names
 # the host's package manager, not dnf on every system.
 control "the Podman socket's fix names the host's package manager" internal/install/install.go \
   'how = " (" + fam.pm.uninstallHint("podman-docker") + ")"' \
@@ -5657,7 +5657,7 @@ control "an add-on or pack error the agent answers with has Playkeeper's hint" i
   '	return &apiError{Status: status, Code: string(e.Kind), Msg: e.Msg, Hint: e.Hint}' \
   ./internal/agent '^TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo$'
 
-# Wave 7 after Bugbot's findings on d825c69: a running map pre-generation keeps
+# Wave 7 after review on d825c69: a running map pre-generation keeps
 # an empty server awake, and a backup dropped from a full copy queue discards
 # what it left at the destination.
 control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
@@ -5693,7 +5693,7 @@ control "only the dropped backups' unfinished copies are discarded" internal/age
 	s.discardUploads(append(all, dropped...))' \
   ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$/^S3$'
 
-# Wave 7 after Bugbot's finding on ee0e519: the uploader claims the copy it
+# Wave 7 after review on ee0e519: the uploader claims the copy it
 # picks as it picks it, the queue trim leaves the claimed copy alone, and
 # turning copies off between the pick and the upload stops the copy.
 control "the queue trim leaves the copy the uploader claimed alone" internal/agent/offsite.go \
@@ -5717,7 +5717,7 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
 	var c *uploadClaim' \
   ./internal/agent '^TestCopiesTurnedOffStopTheCopyBeingMade$'
 
-# Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
+# Wave 7 before review: a schedule lists the retry after a run skipped for
 # players exactly while the runner plans it.
 control "every change to a schedule drops its retry, as the planner does" internal/agent/schedules.go \
   "THEN json_remove(last_run, '\$.retryAt') ELSE" \
@@ -5728,7 +5728,7 @@ webcontrol "the schedule list promises a retry only while it is the next run" we
   'if (!at) return undefined' \
   web/src/pages/server/schedules.test.tsx 'list a retry the agent no longer plans'
 
-# Wave 7 before Bugbot: a schedule changed from a dashboard in another time
+# Wave 7 before review: a schedule changed from a dashboard in another time
 # zone keeps its moments.
 control "the automatic backups keep their time zone while they keep their time" internal/agent/backuprules.go \
   '	} else if tz != "" {' \
@@ -5748,7 +5748,7 @@ webcontrol "the schedule list names the days on the viewer's clock" web/src/page
   'const days = weekdays.filter((d) => timing.days?.includes(d))' \
   web/src/pages/server/schedules.test.tsx 'days that fall on others'
 
-# Wave 7 before Bugbot: a new key reaches the copy being made and the copies
+# Wave 7 before review: a new key reaches the copy being made and the copies
 # waiting, and stopping a copy for it isn't a failed try.
 control "a new key stops the copy being made" internal/agent/offsite.go \
   '	s.stopUpload()
@@ -5777,7 +5777,7 @@ control "a copy stopped as the agent stops isn't a failed try" internal/agent/of
 		// Playkeeper is stopping' \
   ./internal/agent '^TestACopyTheAgentStoppedInResumesFromItsSavedPart$'
 
-# Wave 7 before Bugbot: restoring a copy takes as long as the copy takes to
+# Wave 7 before review: restoring a copy takes as long as the copy takes to
 # come, and every other operation keeps its deadline.
 control "a restore of a copy has no fixed deadline" internal/agent/lifecycle.go \
   'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-check": true, "offsite-recover": true}' \
@@ -5796,7 +5796,7 @@ control "machine operations keep their deadline" internal/agent/agent.go \
   'ctx, cancel := context.WithCancel(a.ctx)' \
   ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^a_machine_operation$'
 
-# Wave 7 before Bugbot: restoring from a recovery key holds no server.
+# Wave 7 before review: restoring from a recovery key holds no server.
 control "a restore from a recovery key holds no server" internal/agent/agent.go \
   '	if stagingOps[kind] {' \
   '	if false && stagingOps[kind] {' \
@@ -5807,7 +5807,7 @@ control "what waits for a restore from a recovery key says what for" internal/ag
   '' \
   ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
 
-# Wave 7 before Bugbot: deleting a server asks before it deletes the only key
+# Wave 7 before review: deleting a server asks before it deletes the only key
 # to its copies somewhere else.
 control "a delete that deletes the only key to the copies is refused" internal/agent/handlers.go \
   '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
@@ -5838,7 +5838,7 @@ webcontrol "the delete dialog confirms deleting without the key" web/src/compone
   '{ confirm: typed.trim() }' \
   web/src/pages/server/settings.test.tsx 'refusal when the page didn'
 
-# Wave 7 after Bugbot's finding on d0492a3a: a copy that was made is recorded
+# Wave 7 after review on d0492a3a: a copy that was made is recorded
 # when the settings can't be read after it.
 control "a made copy is recorded when the settings can't be read after it" internal/agent/offsite.go \
   'if lerr == nil && (!row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config)) {' \
@@ -5856,7 +5856,7 @@ control "a copy recorded without its settings is logged" internal/agent/offsite.
   '_ = lerr' \
   ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_keys_can't_be_read_once_it_is_made$"
 
-# Wave 7 after Bugbot's finding on d0492a3a: saving the settings for copies
+# Wave 7 after review on d0492a3a: saving the settings for copies
 # never puts an old encryption key back.
 control "saving the settings for copies never writes the keys" internal/agent/offsite.go \
   '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at`,
@@ -5869,7 +5869,7 @@ control "the first keys are stored only while there are none" internal/agent/off
   'UPDATE offsite SET keys = ? WHERE server_id = ?' \
   ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^first_keys_stored_while_another_request_stored_its_own$'
 
-# Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
+# Wave 7 after review on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.
 control "a scheduled restart's countdown keeps an empty server awake" internal/agent/sleeping.go \
@@ -6858,7 +6858,7 @@ control "the dashboard can only hold back slugs a server could have" internal/ag
   'if false && !reSlug.MatchString(s) {' \
   ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 
-# Wave 7 second bug hunt and Bugbot on eb3d7540: deleting a server asks
+# Wave 7 second bug hunt and review on eb3d7540: deleting a server asks
 # whenever keys exist and the recovery key was never downloaded, a copy
 # forgotten by a change of place included, and when the settings for copies
 # can't be read.
@@ -13846,7 +13846,7 @@ control "a Paper backup restores from the list the machine has while PaperMC is 
   'for _, k := range a.keptPaperCatalog() {' \
   'for _, k := range []api.CatalogEntry(nil) {' \
   ./internal/agent '^TestAPaperBackupIsRestoredWhilePaperMCIsDown$'
-# After Bugbot's finding on df3638d2: the kept list picks as PaperMC does.
+# After review on df3638d2: the kept list picks as PaperMC does.
 control "a backup of an experimental Paper build restores from the kept list" internal/agent/versions.go \
   '(!k.Experimental && k.PaperBuild >= build || k.PaperBuild == build)' \
   '(!k.Experimental && k.PaperBuild >= build)' \
@@ -13867,7 +13867,7 @@ control "a version list whose upstream failed is asked for again only after a mi
   'c.catalogs[typ] = cachedCatalog{list: l, retryAt: a.now().Add(upstreamRetry)}' \
   'c.catalogs[typ] = cachedCatalog{list: l}' \
   ./internal/agent '^TestWhileMojangsVersionListIsDownAVanillaServerIsStillCreated$'
-# After Bugbot's findings on cb4f6c4d: build lists remember the failure too,
+# After review on cb4f6c4d: build lists remember the failure too,
 # and a build a backup or a pack names survives an outage.
 control "a build list whose upstream failed is asked for again only after a minute" internal/agent/software.go \
   'c.builds[key] = cachedBuilds{list: l, retryAt: a.now().Add(upstreamRetry)}' \
@@ -13877,13 +13877,13 @@ control "a build a backup or a pack names survives an outage" internal/agent/sof
   'offline := err != nil && upstreamTrouble(err) || err == nil && l.from != fromUpstream' \
   'offline := err != nil && upstreamTrouble(err)' \
   ./internal/agent '^TestARestoreAndAPackKeepTheBuildTheyNameWhileTheUpstreamIsDown$'
-# After Bugbot's finding on 69980f58: make version-lists never writes the
+# After review on 69980f58: make version-lists never writes the
 # lists without a type it couldn't keep.
 control "make version-lists never drops a type it couldn't keep" cmd/version-lists/main.go \
   'case unreadable != nil:' \
   'case false:' \
   ./cmd/version-lists '^TestAFailedTypeIsNeverDroppedFromTheLists$'
-# After Bugbot's findings on aec0ac7e and 54eba81a: a caller that leaves
+# After review on aec0ac7e and 54eba81a: a caller that leaves
 # doesn't make an upstream look down, and the fetch holds no lock.
 control "Paper's list is fetched without holding the catalog's lock" internal/agent/versions.go \
   '	c.mu.Unlock()

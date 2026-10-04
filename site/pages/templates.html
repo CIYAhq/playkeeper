@@ -40,7 +40,7 @@ updated: 2026-09-28
       <div class="how-item reveal">
         <img src="{{asset "app/pip/pip-hardhat.svg"}}" alt="" width="64" height="64" loading="lazy" decoding="async">
         <h3>How we check each one</h3>
-        <p>An agent creates a server from it on a real Playkeeper, starts it and reads its log, and lists it only if it reaches Done with every plugin enabled. The first checks caught two that would have failed: Iridium Skyblock needs Vault, and Towny can't found a town with its default economy.</p>
+        <p>We create a server from it on a real Playkeeper, start it and read its log, and list it only if it reaches Done with every plugin enabled. The first checks caught two that would have failed: Iridium Skyblock needs Vault, and Towny can't found a town with its default economy.</p>
       </div>
       <div class="how-item reveal">
         <img src="{{asset "app/pip/pip-letter.svg"}}" alt="" width="64" height="64" loading="lazy" decoding="async">
@@ -57,7 +57,7 @@ updated: 2026-09-28
     {{template "faq" (dict "ID" "questions" "Items" (list
       (qa "Are these Minecraft server templates free?" "Yes. Playkeeper and its templates are free and open source; you pay only for the VPS they run on.")
       (qa "Does a template include a world?" "No. A template sets up a new server. Worlds, allowlists and operators never travel in one.")
-      (qa "What happens when a plugin updates?" "Each template pins the exact version of every add-on it was checked with, so it installs what its page lists. Every week an agent tries the newer versions, and a template takes them once a server starts cleanly with them.")
+      (qa "What happens when a plugin updates?" "Each template pins the exact version of every add-on it was checked with, so it installs what its page lists. Every week an automatic check tries the newer versions, and a template takes them once a server starts cleanly with them.")
       (qa "Can I use a template without Playkeeper?" "Yes. Each template's page has the same server as a Docker command for the itzg image, which Playkeeper runs servers in too.")
       (qa "Can Bedrock players join?" $bedrock)
     ))}}
