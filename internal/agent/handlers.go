@@ -321,6 +321,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.RecoveredCrash = recovered
 	}
 	s.automationStatus(&st)
+	st.InternetCheck = s.internetCheckStatus()
 	return st
 }
 

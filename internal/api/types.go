@@ -116,6 +116,51 @@ type ServerStatus struct {
 	// refused since the last backup that succeeded.
 	Sleep         *SleepStatus   `json:"sleep,omitempty"`
 	BackupRefused *BackupRefusal `json:"backupRefused,omitempty"`
+	// 0.4.18: InternetCheck is whether friends can reach the game port from
+	// the internet, as the stats service found it; nil where the port can't
+	// be checked.
+	InternetCheck *InternetCheck `json:"internetCheck,omitempty"`
+}
+
+// InternetCheck is what the stats service found when it connected back to
+// the machine's address on the server's game port, which shows whether a
+// provider's firewall lets friends in: the machine can't see that itself.
+// The dashboard asks for one with POST /v1/servers/{id}/internet-check.
+type InternetCheck struct {
+	// Auto: the dashboard checks by itself, as usage stats are on. Otherwise
+	// only someone's "Check from the internet" asks.
+	Auto bool `json:"auto"`
+	// Checking: a check is on its way.
+	Checking bool `json:"checking,omitempty"`
+	// Result is what the latest check of the game port found, one of the
+	// InternetCheck* results, at CheckedAt; empty before one has.
+	Result    string     `json:"result,omitempty"`
+	CheckedAt *time.Time `json:"checkedAt,omitempty"`
+	// Problem says, as a sentence, why the latest check couldn't be made,
+	// and RetryAt is when the stats service said to try again.
+	Problem string     `json:"problem,omitempty"`
+	RetryAt *time.Time `json:"retryAt,omitempty"`
+	// Provider is the cloud or VPS provider the machine runs at, when it can
+	// tell, and StepsURL that provider's steps for opening the port, or
+	// every provider's when it can't.
+	Provider string `json:"provider,omitempty"`
+	StepsURL string `json:"stepsUrl"`
+}
+
+// What an internet check found (usage.Reach*).
+const (
+	InternetCheckReachable    = "reachable"
+	InternetCheckRefused      = "refused"
+	InternetCheckTimeout      = "timeout"
+	InternetCheckUnreachable  = "unreachable"
+	InternetCheckNotMinecraft = "not-minecraft"
+)
+
+// InternetCheckRequest asks for an internet check. Auto is the dashboard's
+// own, which the agent makes only while usage stats are on, at most hourly.
+type InternetCheckRequest struct {
+	Actor string `json:"actor"`
+	Auto  bool   `json:"auto,omitempty"`
 }
 
 // FileRefusal is a file in the server's folder that Playkeeper would not

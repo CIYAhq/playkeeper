@@ -796,6 +796,74 @@ describe('Overview', () => {
     expect(down).not.toContain('Friends also need port')
   })
 
+  // The walkthrough's closed port: once the stats service has connected back
+  // to the machine, the card says what it found, and a closed port names the
+  // provider whose steps open it.
+  it('says whether friends can reach the port from the internet, and where to open it when they can’t', async () => {
+    const now = new Date().toISOString()
+    const found = (over: Partial<NonNullable<ServerStatus['internetCheck']>>) =>
+      server({ internetCheck: { auto: true, checkedAt: now, stepsUrl: 'https://playkeeper.io/ports', ...over } })
+    let text = await render(<Overview server={found({ result: 'reachable' })} />)
+    expect(text).toContain('Friends can reach port 25565 from the internet · checked')
+    expect(text).not.toContain('Friends also need port')
+    expect(buttons('Check again')).toHaveLength(1)
+    text = await render(<Overview server={found({ result: 'timeout', provider: 'Oracle Cloud', stepsUrl: 'https://playkeeper.io/ports#oracle-cloud' })} />)
+    expect(text).toContain('Friends can’t reach port 25565: open it at Oracle Cloud')
+    expect(link('Oracle Cloud').href).toBe('https://playkeeper.io/ports#oracle-cloud')
+    expect(text).not.toContain('Friends can reach')
+    text = await render(<Overview server={found({ result: 'refused' })} />)
+    expect(text).toContain('Friends can’t reach port 25565: open it at your provider')
+    expect(link('your provider').href).toBe('https://playkeeper.io/ports')
+    text = await render(<Overview server={found({ result: 'unreachable', provider: 'AWS', stepsUrl: 'https://playkeeper.io/ports#aws' })} />)
+    expect(text).toContain('Friends can’t reach port 25565: open it at AWS')
+    text = await render(<Overview server={found({ result: 'not-minecraft' })} />)
+    expect(text).toContain('From the internet, port 25565 answers with something other than this server')
+    text = await render(<Overview server={found({ result: 'refused', checking: true })} />)
+    expect(text).toContain('Checking from the internet that friends can reach port 25565…')
+    expect(text).not.toContain('Friends can’t reach')
+    expect(buttons('Check again')).toHaveLength(0)
+  })
+
+  // While usage stats are on the card checks by itself, once, and again when
+  // the latest check is an hour old; otherwise anyone who can start the
+  // server gets a button that says what it does.
+  it('checks from the internet by itself while usage stats are on, and offers a button otherwise', async () => {
+    const check = (over: Partial<NonNullable<ServerStatus['internetCheck']>>) =>
+      server({ internetCheck: { auto: true, stepsUrl: 'https://playkeeper.io/ports', ...over } })
+    const asked = () => posts().filter(([path]) => path === '/internet-check')
+    vi.mocked(client.post).mockClear()
+    await render(<Overview server={check({})} />)
+    await render(<Overview server={check({})} />, workspace())
+    expect(asked()).toEqual([
+      ['/internet-check', { auto: true }],
+      ['/internet-check', { auto: true }],
+    ])
+    expect(page()).toContain('Friends also need port 25565 open at your provider')
+    expect(buttons('Check from the internet')).toHaveLength(0)
+    vi.mocked(client.post).mockClear()
+    await render(<Overview server={check({ result: 'reachable', checkedAt: new Date().toISOString() })} />)
+    await render(<Overview server={check({ problem: 'The stats service is busy with other checks.', retryAt: inHours(1) })} />)
+    expect(asked()).toEqual([])
+    expect(page()).toContain('The stats service is busy with other checks. The stats service asked to wait until')
+    expect(button('Check from the internet').disabled).toBe(true)
+    await render(<Overview server={check({ result: 'reachable', checkedAt: hoursAgo(2) })} />)
+    expect(asked()).toEqual([['/internet-check', { auto: true }]])
+
+    vi.mocked(client.post).mockClear()
+    await render(<Overview server={check({ auto: false })} />)
+    expect(asked()).toEqual([])
+    expect(page()).toContain('Asks Playkeeper’s stats service to connect to this machine on port 25565, the way a friend’s game does. It keeps nothing.')
+    await click('Check from the internet')
+    expect(asked()).toEqual([['/internet-check', {}]])
+
+    vi.mocked(client.post).mockClear()
+    await render(<Overview server={check({})} />, workspace({ me: member('viewer', ['view', 'machines.view']) }))
+    await render(<Overview server={check({ auto: false, result: 'timeout', checkedAt: hoursAgo(2) })} />, workspace({ me: member('viewer', ['view', 'machines.view']) }))
+    expect(asked()).toEqual([])
+    expect(buttons('Check again')).toHaveLength(0)
+    expect(page()).toContain('Friends can’t reach port 25565: open it at your provider')
+  })
+
   // Regression for items 62 and 86: after a failed create the steps must
   // point at the step the job failed in, not at the server's own phase.
   it('marks the step a failed create stopped at', async () => {
