@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Activity, AddonNotice, Crash, LagStatus, LogsResponse, MachineView, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
+import type { Activity, AddonNotice, Crash, InternetCheck, LagStatus, LogsResponse, MachineView, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { AIKeyNotice } from '@/components/app/ai-key'
@@ -215,23 +215,95 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
           t('overview.offline', { server: s.name })
         )}
       </p>
-      {online && s.reachable && (
-        <p className="mt-1 text-xs text-muted-foreground max-sm:text-[13px]">
-          {rich(
-            'overview.providerPort',
-            {
-              link: (chunk) => (
-                <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
-                  {chunk}
-                </a>
-              ),
-            },
-            { port: s.gamePort },
-          )}
-        </p>
-      )}
+      {online && s.reachable && <InternetLine server={s} />}
     </Card>
   )
+}
+
+/**
+ * The join card's line about friends reaching the game port: what the stats
+ * service found when it connected back to the machine, or, before it has,
+ * that the provider's firewall needs the port open. The card checks by itself
+ * while usage stats are on, again once the latest check is an hour old, and
+ * otherwise offers a button that asks.
+ */
+function InternetLine({ server: s }: { server: ServerStatus }) {
+  const { me, refresh } = useWorkspace()
+  const now = useNow(60_000)
+  const [asking, setAsking] = useState(false)
+  const asked = useRef('')
+  const check = s.internetCheck
+  const port = s.gamePort
+  const mayCheck = can(me, 'servers.run')
+  const checking = asking || !!check?.checking
+  const waiting = !!check?.retryAt && Date.parse(check.retryAt) > now
+  const due = !!check?.auto && mayCheck && !checking && !waiting && (!check.checkedAt || now - Date.parse(check.checkedAt) >= 3_600_000)
+  const checkedAt = check?.checkedAt
+  useEffect(() => {
+    const key = `${s.id}:${port}:${checkedAt ?? ''}`
+    if (!due || asked.current === key) return
+    asked.current = key
+    post(serverApi(s.id, '/internet-check'), { auto: true }).then(refresh, () => {})
+  }, [due, s.id, port, checkedAt, refresh])
+  const ask = async () => {
+    setAsking(true)
+    try {
+      await post(serverApi(s.id, '/internet-check'), {})
+      await refresh()
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setAsking(false)
+    }
+  }
+  const steps = (chunk: string) => (
+    <a href={check?.stepsUrl ?? t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+      {chunk}
+    </a>
+  )
+  const found = check && !checking ? internetFound(check, port, steps) : undefined
+  const offer = check && mayCheck && !checking && (!check.auto || !!check.result || !!check.problem)
+  return (
+    <>
+      <p className={cn('mt-1 text-xs text-muted-foreground max-sm:text-[13px]', found?.warn && 'font-medium text-warning-foreground')}>
+        {checking ? t('overview.internet.checking', { port }) : (found?.text ?? rich('overview.providerPort', { link: steps }, { port }))}
+      </p>
+      {offer && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground max-sm:text-[13px]">
+          <Button size="sm" variant="outline" disabled={waiting} title={t('overview.internet.checkHelp', { port })} onClick={() => void ask()}>
+            {check.result ? t('overview.internet.again') : t('overview.internet.check')}
+          </Button>
+          {waiting && check.retryAt ? (
+            <span>{[check.problem, t('overview.internet.wait', { time: formatClock(check.retryAt) })].filter(Boolean).join(' ')}</span>
+          ) : check.problem ? (
+            <span>{check.problem}</span>
+          ) : (
+            !check.result && <span>{t('overview.internet.checkHelp', { port })}</span>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** What the latest internet check found, as the join card says it, and whether that's a warning. */
+function internetFound(check: InternetCheck, port: number, steps: (chunk: string) => ReactNode): { text: ReactNode; warn: boolean } | undefined {
+  const result = check.result
+  if (!result) return undefined
+  switch (result) {
+    case 'reachable':
+      return { text: t('overview.internet.reachable', { port, time: relativeTime(check.checkedAt) }), warn: false }
+    case 'refused':
+    case 'timeout':
+    case 'unreachable':
+      return { text: rich('overview.internet.closed', { link: steps }, { port, provider: check.provider || t('overview.internet.yourProvider') }), warn: true }
+    case 'not-minecraft':
+      return { text: rich('overview.internet.notMinecraft', { link: steps }, { port }), warn: true }
+    default: {
+      const unknown: never = result
+      return unknown
+    }
+  }
 }
 
 function PlayingCard({ server: s }: { server: ServerStatus }) {

@@ -481,6 +481,9 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/start", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/start")},
 		{"POST", "/api/servers/{id}/stop", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/stop")},
 		{"POST", "/api/servers/{id}/restart", needSessionCSRF, actRunServers, s.runProxy("/v1/servers/{id}/restart")},
+		// Whether friends can reach the server from the internet: the
+		// machine asks the stats service to connect back to it.
+		smAs(actRunServers, "POST", "/api/servers/{id}/internet-check", "/v1/servers/{id}/internet-check"),
 		{"POST", "/api/servers/{id}/settings", needSessionCSRF, actManageServers, s.hServerSettings},
 		sm("POST", "/api/servers/{id}/version", "/v1/servers/{id}/version"),
 		{"POST", "/api/servers/{id}/delete", needSessionCSRF, actCreateOwnServers, s.hDeleteServer},
