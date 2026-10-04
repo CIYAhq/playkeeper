@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.18
 
+- **The join address's "Answering" line:** a green "Answering on port 25565" read as "friends can join", even while the provider's firewall kept them out. The machine only checks its own server, so the line now says "Answering on" the machine, and a second line says friends also need the port open at their provider, with a link to how to open it.
 - **First steps count friends only:** the owner's own name, which a new server puts on its allowlist, ticked "Invite a friend", and the owner's own first join ticked "A friend joins". A server nobody else had seen showed both done, and the only step left was a backup. Both steps now count only players other than whoever created the server. Someone who got on the list through an invite link but hasn't played no longer shows as "joined", and a server with nobody on says "nobody on now" instead of "nobody yet".
 
 ## 0.4.17

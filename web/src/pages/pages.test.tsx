@@ -760,6 +760,19 @@ describe('Overview', () => {
     expect(later).not.toContain('is up')
   })
 
+  // The walkthrough of 4 Oct 2026: with port 25565 closed at the provider,
+  // the card still said "Answering on port 25565" by a green dot. The machine
+  // only pings its own server, so the line says that, and what friends need.
+  it('says the server answers on its machine, and that friends need the port open at their provider', async () => {
+    const text = await render(<Overview server={server()} />)
+    expect(text).toContain('Answering on my-vps · checked')
+    expect(text).toContain('Friends also need port 25565 open at your provider: how to open it')
+    expect(link('how to open it').href).toBe('https://playkeeper.io/ports')
+    const down = await render(<Overview server={server({ reachable: false })} />)
+    expect(down).toContain('Not answering yet')
+    expect(down).not.toContain('Friends also need port')
+  })
+
   // Regression for items 62 and 86: after a failed create the steps must
   // point at the step the job failed in, not at the server's own phase.
   it('marks the step a failed create stopped at', async () => {

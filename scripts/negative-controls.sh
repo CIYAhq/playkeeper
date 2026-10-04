@@ -4682,6 +4682,14 @@ webcontrol "the Overview says a server that came back on its own had run out of 
   'const recovered = s.recoveredCrash' \
   'const recovered = s.crash' \
   web/src/pages/pages.test.tsx 'had run out of memory'
+webcontrol "the join card says which machine found the server answering" web/src/pages/server/overview.tsx \
+  "t('overview.answering', { machine, time: relativeTime(s.reachableAt) })" \
+  "t('overview.answering', { machine: '', time: relativeTime(s.reachableAt) })" \
+  web/src/pages/pages.test.tsx 'friends need the port open at their provider'
+webcontrol "the join card says friends need the port open at their provider" web/src/pages/server/overview.tsx \
+  '      {online && s.reachable && (' \
+  '      {false && (' \
+  web/src/pages/pages.test.tsx 'friends need the port open at their provider'
 webcontrol "more memory from the Overview restarts the server to use it" web/src/components/app/notices.tsx \
   '{ ...plan.body, ...(restart ? { restart: true } : {}) }' \
   '{ ...plan.body }' \
