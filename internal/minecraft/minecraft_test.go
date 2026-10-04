@@ -56,6 +56,19 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 		{"[11:57:39 INFO]: .ABCDEFGHIJKLMNO joined the game", EventJoin, ".ABCDEFGHIJKLMNO"},
 		{"[11:57:39 INFO]: .ABCDEFGHIJKLMNOP joined the game", EventNone, ""},
 		{"[11:57:39 INFO]: ..Notch joined the game", EventNone, ""},
+		// A player the allowlist turned away: Paper 26.1.2 with the address
+		// hidden, as the walkthrough of 4 Oct 2026 logged it, and with it shown;
+		// vanilla, Fabric and Forge, which say "white-listed"; older vanilla's
+		// GameProfile; a Bedrock player. The "Disconnecting" line before is the
+		// same refusal, so it isn't counted twice.
+		{"[18:23:30 INFO]: PkStranger (IP hidden) lost connection: You are not whitelisted on this server!", EventRefused, "PkStranger"},
+		{"[18:23:30 INFO]: Disconnecting PkStranger (IP hidden): You are not whitelisted on this server!", EventNone, ""},
+		{"[18:23:30 INFO]: PkStranger (/203.0.113.9:51234) lost connection: You are not whitelisted on this server!", EventRefused, "PkStranger"},
+		{"[18:23:30] [Server thread/INFO]: PkStranger (/203.0.113.9:51234) lost connection: You are not white-listed on this server!", EventRefused, "PkStranger"},
+		{"[18:23:30] [Server thread/INFO] [minecraft/ServerLoginPacketListenerImpl]: pkstranger (IP hidden) lost connection: You are not white-listed on this server!", EventRefused, "pkstranger"},
+		{"[18:23:30] [Server thread/INFO]: com.mojang.authlib.GameProfile@5c2f1e3a[id=6ca6fef7-1a51-3147-8e8a-b0e9ce75dc68,name=PkStranger,properties={},legacy=false] (/203.0.113.9:51234) lost connection: You are not white-listed on this server!", EventRefused, "PkStranger"},
+		{"[18:23:30 INFO]: .Notch (IP hidden) lost connection: You are not whitelisted on this server!", EventRefused, ".Notch"},
+		{"[18:23:30 INFO]: PkStranger (IP hidden) lost connection: Disconnected", EventNone, ""},
 	}
 	for _, c := range cases {
 		p := Parse(c.line)
@@ -84,9 +97,12 @@ func TestParseIgnoresSpoofedChat(t *testing.T) {
 		"[20:38:30] [minecraft/MinecraftServer]: Foo joined the game",
 		"[13:35:18 INFO]: [Not Secure] <.Notch> .Foo joined the game",
 		"[13:35:18 INFO]: <PkBotFriend> .Foo joined the game",
+		"[13:35:18 INFO]: <PkBotFriend> Foo (IP hidden) lost connection: You are not whitelisted on this server!",
+		"[13:35:18 INFO]: [Server] Foo (IP hidden) lost connection: You are not whitelisted on this server!",
+		"[13:35:18 INFO]: PkBotFriend issued server command: /say Foo (x) lost connection: You are not white-listed on this server!",
 	}
 	for _, s := range spoofs {
-		if p := Parse(s); p.Kind == EventJoin || p.Kind == EventLeave {
+		if p := Parse(s); p.Kind == EventJoin || p.Kind == EventLeave || p.Kind == EventRefused {
 			t.Errorf("spoofed line produced %s event for %q: %q", p.Kind, p.Player, s)
 		}
 	}

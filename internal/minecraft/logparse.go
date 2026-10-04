@@ -10,9 +10,11 @@ import (
 type EventKind string
 
 const (
-	EventNone        EventKind = ""
-	EventJoin        EventKind = "join"
-	EventLeave       EventKind = "leave"
+	EventNone  EventKind = ""
+	EventJoin  EventKind = "join"
+	EventLeave EventKind = "leave"
+	// EventRefused is a player the allowlist turned away.
+	EventRefused     EventKind = "refused"
 	EventUUID        EventKind = "uuid"
 	EventReady       EventKind = "ready"
 	EventStopping    EventKind = "stopping"
@@ -49,8 +51,13 @@ const prefix = `^\[\d{2}:\d{2}:\d{2}(?: (?:INFO|WARN|ERROR))?\](?: \[Server thre
 const playerName = `(\.[A-Za-z0-9_]{1,15}|[A-Za-z0-9_]{1,16})`
 
 var (
-	reJoin      = regexp.MustCompile(prefix + playerName + ` joined the game$`)
-	reLeave     = regexp.MustCompile(prefix + playerName + ` left the game$`)
+	reJoin  = regexp.MustCompile(prefix + playerName + ` joined the game$`)
+	reLeave = regexp.MustCompile(prefix + playerName + ` left the game$`)
+	// A player the allowlist turned away. Paper and Purpur say "whitelisted",
+	// vanilla, Fabric and Forge "white-listed"; the address in brackets is
+	// "IP hidden" when the server hides it. Older vanilla names the player
+	// inside a GameProfile.
+	reRefused   = regexp.MustCompile(prefix + `(?:` + playerName + `|com\.mojang\.authlib\.GameProfile@[0-9a-f]+\[id=[0-9a-f-]*,name=` + playerName + `,[^\]]*\]) \([^)]*\) lost connection: You are not white-?listed on this server!?$`)
 	reUUID      = regexp.MustCompile(prefix + `UUID of player ` + playerName + ` is ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
 	reReady     = regexp.MustCompile(prefix + `Done \(([0-9.,]+)s\)! For help, type "help"`)
 	reStopping  = regexp.MustCompile(prefix + `Stopping (?:the )?server$`)
@@ -171,6 +178,9 @@ func Parse(line string) Parsed {
 	}
 	if m := reLeave.FindStringSubmatch(line); m != nil {
 		return Parsed{Kind: EventLeave, Player: m[1]}
+	}
+	if m := reRefused.FindStringSubmatch(line); m != nil {
+		return Parsed{Kind: EventRefused, Player: m[1] + m[2]}
 	}
 	if m := reUUID.FindStringSubmatch(line); m != nil {
 		return Parsed{Kind: EventUUID, Player: m[1], UUID: m[2]}
