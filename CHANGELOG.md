@@ -5,6 +5,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.18
 
 - **The join address's "Answering" line:** a green "Answering on port 25565" read as "friends can join", even while the provider's firewall kept them out. The machine only checks its own server, so the line now says "Answering on" the machine, and a second line says friends also need the port open at their provider, with a link to how to open it.
+- **Whether friends can reach your server:** the Overview now checks from the internet, by asking Playkeeper's stats service to connect back to the machine on the server's port, as a friend's game does. When the port is closed, the second line says so, like "Friends can't reach port 25565: open it at Oracle Cloud", with a link to that provider's steps on playkeeper.io/ports. When it's open, it says "Friends can reach port 25565 from the internet". With usage stats on, the Overview checks by itself, at most once an hour; otherwise **Check from the internet** asks. The check sends only the port, and the service keeps nothing of it.
+- **Usage stats say how far setup got:** heartbeats carry one more field, `reached`: the furthest of the dashboard's first account, its first server online, the first time someone plays and the first time a second player does. A machine also sends a heartbeat at those last two, the first time only. They never say who plays or how many, and turning usage stats off still sends nothing.
 
 ## 0.4.17
 
