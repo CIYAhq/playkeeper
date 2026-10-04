@@ -41,7 +41,7 @@ On your computer, run:
 openssl rand -hex 32
 ```
 
-Keep the 64 characters it prints for steps 4 and 6: they open the counts. Put them only into Coolify and Cursor's secrets, never into files, chats or tickets.
+Keep the 64 characters it prints for steps 4 and 6: they open the counts. Put them only into Coolify and the secret store your scripts read, never into files, chats or tickets.
 
 ### 3. Create the application in Coolify
 
@@ -97,7 +97,7 @@ Coolify's proxy writes no access log unless its configuration turns one on. Chec
 
 ### 6. Let the analytics digest read the numbers
 
-In the Cursor Dashboard, open **Cloud Agents** → **Secrets** and add `PLAYKEEPER_STATS_TOKEN` with the token from step 2, scoped to `CIYAhq/playkeeper`. A secret reaches only agents started after it is added.
+Save the token from step 2 as the secret `PLAYKEEPER_STATS_TOKEN` wherever your own scripts read the counts.
 
 The counts stay at zero until installs of 0.4.4 or later arrive: earlier versions send nothing.
 
@@ -204,7 +204,7 @@ Reports that came after that snapshot are lost; running machines send their next
 
 ### Changing the read token
 
-Make a new one as in step 2, replace `STATS_READ_TOKEN` in Coolify and select **Redeploy**, then replace `PLAYKEEPER_STATS_TOKEN` in Cursor's secrets. The old token stops working with the redeploy, and the dashboard asks you to sign in again with the new one.
+Make a new one as in step 2, replace `STATS_READ_TOKEN` in Coolify and select **Redeploy**, then replace `PLAYKEEPER_STATS_TOKEN` where you saved it. The old token stops working with the redeploy, and the dashboard asks you to sign in again with the new one.
 
 ### If the service is down
 

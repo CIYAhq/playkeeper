@@ -4,10 +4,10 @@ name: Templates
 # (site/data/templates) on the latest Playkeeper release, with
 # cmd/template-check. It's a scheduled job: every night and when a release
 # comes out it checks them all, and files an issue naming any that fail; the
-# scheduled template agent then fixes their pins or holds them in a PR. On a
-# pull request it checks only the templates the change adds or changes, and
-# fails when site/data/checks doesn't list what installed. See
-# site/README.md, "Template library".
+# pins are then fixed or the template held in a PR. On a pull request it
+# checks only the templates the change adds or changes, and fails when
+# site/data/checks doesn't list what installed. See site/README.md,
+# "Template library".
 # A release starts it through the Release workflow, which publishes with its
 # own token, and a release published that way starts no other workflow. Only
 # Release's successful run on a tag checks the templates; its failed runs and
@@ -149,9 +149,9 @@ jobs:
   # NeoForge or Forge pack's, is read from the world it saved. The bot joins
   # as a player would, so this job's Playkeeper runs servers in offline mode,
   # on a runner thrown away afterwards. Nightly it makes them for templates
-  # without one; the scheduled template agent looks at them and commits them
-  # from the artifact. Like the check, it runs third-party plugins with
-  # read-only access; thumbnails-report files the issue.
+  # without one, which are then looked at and committed from the artifact.
+  # Like the check, it runs third-party plugins with read-only access;
+  # thumbnails-report files the issue.
   thumbnails:
     name: Thumbnails of templates without one, from their real worlds
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -227,7 +227,7 @@ jobs:
           echo "New thumbnails: ${made:-none}"
 
   thumbnails-report:
-    name: File an issue with the new thumbnails for the template agent
+    name: File an issue with the new thumbnails
     needs: thumbnails
     if: always() && needs.thumbnails.outputs.made != ''
     runs-on: ubuntu-24.04
@@ -241,7 +241,7 @@ jobs:
           MADE: ${{ needs.thumbnails.outputs.made }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent looks at each and commits it to site/static/shots/templates, with its small copy for the dashboard in web/src/assets/template-thumbs. A NeoForge or Forge pack'"'"'s is drawn from its saved world without the mods'"'"' blocks, or made of the pack'"'"'s logo when its spawn is underground: commit a logo only when it'"'"'s the pack'"'"'s own branding, never a Minecraft-logo lookalike, and when a world doesn'"'"'t look like a real, good world shot, make the picture from the pack'"'"'s logo with site/tools/thumbnails/pack-art.mjs instead (site/README.md, Thumbnails).\n' "$MADE" "$(date -u +%F)" "$RUN")
+          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nEach gets looked at and committed to site/static/shots/templates, with its small copy for the dashboard in web/src/assets/template-thumbs. A NeoForge or Forge pack'"'"'s is drawn from its saved world without the mods'"'"' blocks, or made of the pack'"'"'s logo when its spawn is underground: commit a logo only when it'"'"'s the pack'"'"'s own branding, never a Minecraft-logo lookalike, and when a world doesn'"'"'t look like a real, good world shot, make the picture from the pack'"'"'s logo with site/tools/thumbnails/pack-art.mjs instead (site/README.md, Thumbnails).\n' "$MADE" "$(date -u +%F)" "$RUN")
           n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Template thumbnails to add"' --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
             gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
@@ -269,7 +269,7 @@ jobs:
         run: |
           failed=$(cat /tmp/results/*/results.json 2>/dev/null | jq -r '.templates[] | select(.status == "failing") | "- **\(.id)**: \(.failure)"' || true)
           [ -n "$failed" ] || failed="The run stopped before a template's result was written; its log is in the run."
-          body=$(printf 'The template check on %s failed:\n\n%s\n\nRun: %s\n\nThe scheduled template agent fixes the pins or holds the template in a PR.\n' "$(date -u +%F)" "$failed" "$RUN")
+          body=$(printf 'The template check on %s failed:\n\n%s\n\nRun: %s\n\nThe pins get fixed, or the template is held, in a PR.\n' "$(date -u +%F)" "$failed" "$RUN")
           n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Template check failing"' --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
             gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
