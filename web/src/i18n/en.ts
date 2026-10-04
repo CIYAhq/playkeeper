@@ -360,6 +360,7 @@ export const en = {
   'overview.internet.notMinecraft': 'From the internet, port {port} answers with something other than this server: <link>check where your provider or router sends it</link>',
   'overview.internet.check': 'Check from the internet',
   'overview.internet.again': 'Check again',
+  'overview.internet.couldnt': 'Couldn’t check right now · Try again',
   'overview.internet.checkHelp': 'Asks Playkeeper’s stats service to connect to this machine on port {port}, the way a friend’s game does. It keeps nothing.',
   'overview.internet.wait': 'The stats service asked to wait until {time}.',
   'overview.notAnswering': 'Not answering yet',
