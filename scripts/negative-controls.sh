@@ -5,25 +5,92 @@
 # longer in its file doesn't stop the ones after it: every problem is listed
 # again at the end, and the run fails. Nothing is committed.
 # The worktree is made from HEAD, so commit changes before running it.
-# Usage: scripts/negative-controls.sh
+# Usage:
+#   scripts/negative-controls.sh                every control, for hours
+#   scripts/negative-controls.sh --night DATE   the night of DATE's share of
+#     them (YYYY-MM-DD), as the nightly workflow runs it: the same date at the
+#     same commit runs the same controls. With --list it only names them.
+#   scripts/negative-controls.sh --check        runs nothing: names each
+#     control whose guard, file, package, test file or test script is no
+#     longer there, in a second or two (make lint, so CI's Lint job)
 set -euo pipefail
 
+usage() {
+  echo "usage: scripts/negative-controls.sh [--night YYYY-MM-DD [--list] | --check]" >&2
+  exit 2
+}
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
-tmp=$(mktemp -d)
-wt=$tmp/playkeeper
-git -C "$root" worktree add --detach -q "$wt" HEAD
-trap 'git -C "$root" worktree remove --force "$wt"; rm -rf "$tmp"' EXIT
-cd "$wt"
-# The web controls run vitest with the checkout's own dependencies, which
-# scripts/setup.sh installs.
-if [ -d "$root/web/node_modules" ]; then
-  ln -s "$root/web/node_modules" web/node_modules
+mode=all
+case ${1:-} in
+  "") ;;
+  --check) mode=check ;;
+  --night)
+    night=${2:-}
+    if ! [[ $night =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! date -u -d "$night" >/dev/null 2>&1; then usage; fi
+    mode=night
+    case ${3:-} in
+      "") ;;
+      --list) mode=list ;;
+      *) usage ;;
+    esac
+    ;;
+  *) usage ;;
+esac
+# A night's share: the nights since 1970 go in cycles of $nights, and a
+# control runs on the night of each cycle that the CRC of its name and the
+# cycle's number falls on. So every cycle runs every control once, in an
+# order of its own, and a night runs about 1/$nights of them: some 60
+# controls, about 10 minutes on a CI runner. Raise it as the controls grow.
+nights=50
+if [ "$mode" = night ] || [ "$mode" = list ]; then
+  day=$(($(date -u -d "$night" +%s) / 86400))
+  cycle=$((day / nights)) share=$((day % nights))
 fi
-echo "negative controls at $(git rev-parse --short=12 HEAD)"
+
+case $mode in
+  check)
+    cd "$root"
+    aims=$(mktemp)
+    trap 'rm -f "$aims"' EXIT
+    ;;
+  list) cd "$root" ;;
+  *)
+    export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
+    tmp=$(mktemp -d)
+    wt=$tmp/playkeeper
+    git -C "$root" worktree add --detach -q "$wt" HEAD
+    trap 'git -C "$root" worktree remove --force "$wt"; rm -rf "$tmp"' EXIT
+    cd "$wt"
+    # The web controls run vitest with the checkout's own dependencies, which
+    # scripts/setup.sh installs.
+    if [ -d "$root/web/node_modules" ]; then
+      ln -s "$root/web/node_modules" web/node_modules
+    fi
+    echo "negative controls at $(git rev-parse --short=12 HEAD)"
+    if [ "$mode" = night ]; then
+      echo "the night of $night: share $((share + 1)) of $nights in cycle $cycle"
+    fi
+    ;;
+esac
 
 bad=0
 problems=()
+ran=0 all=0
+# tonight says whether the control named runs: every one does, but a
+# night's run only its share, which --list names instead.
+tonight() { # NAME
+  all=$((all + 1))
+  if [ "$mode" = night ] || [ "$mode" = list ]; then
+    local crc
+    crc=$(printf '%s %s' "$cycle" "$1" | cksum)
+    [ $((${crc%% *} % nights)) = "$share" ] || return 1
+  fi
+  ran=$((ran + 1))
+  if [ "$mode" = list ]; then
+    echo "$1"
+    return 1
+  fi
+}
 # problem prints what went wrong with a control and keeps it for the end.
 problem() { # LINE
   echo "$1"
@@ -45,6 +112,7 @@ mutate() { # NAME FILE FROM TO
   fi
 }
 control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
+  tonight "$1" || return 0
   local name=$1 file=$2 pkg=$5 tests=$6 runs=${7:-1}
   mutate "$name" "$file" "$3" "$4" || return 0
   if ! go vet "$pkg" >/dev/null 2>&1; then
@@ -61,6 +129,7 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
 # without that prefix, and TESTS, when given, picks tests by name. Vitest
 # decides, not the type checker, since a mutation may leave a name unused.
 webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
+  tonight "$1" || return 0
   local name=$1 file=$2 testfile=${5#web/} tests=${6:-}
   local only=()
   if [ -n "$tests" ]; then only=(-t "$tests"); fi
@@ -84,6 +153,108 @@ webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
   fi
   rm -rf "$tmp/vitest"
   git checkout -q -- "$file"
+}
+
+# buildcontrol checks the first-load budget as CI's web-tests job does, with
+# make web-budget's production build. Only a build that fails on the budget
+# counts: one that breaks for another reason is INVALID.
+buildcontrol() { # NAME FILE FROM TO
+  tonight "$1" || return 0
+  local name=$1 file=$2
+  if [ ! -e web/node_modules ] && [ -d "$root/web/node_modules" ]; then
+    ln -s "$root/web/node_modules" web/node_modules
+  fi
+  if [ ! -d web/node_modules ]; then
+    problem "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    return
+  fi
+  mutate "$name" "$file" "$3" "$4" || return 0
+  if make --no-print-directory web-budget >/tmp/negative-control.out 2>&1; then
+    problem "MISSED   $name: make web-budget still passes"
+  elif ! grep -q 'First load over budget' /tmp/negative-control.out; then
+    problem "INVALID  $name: make web-budget failed, but not on the budget"
+  else
+    echo "caught   $name: $(grep -m1 -o 'First load over budget.*' /tmp/negative-control.out | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+
+shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
+  tonight "$1" || return 0
+  local name=$1 file=$2 test=$5 shell=sh
+  mutate "$name" "$file" "$3" "$4" || return 0
+  # A bash script is parsed by bash, a POSIX one by sh.
+  case $(head -n1 "$file") in *bash*) shell=bash ;; esac
+  if ! "$shell" -n "$file" 2>/dev/null; then
+    problem "INVALID  $name: the mutated script does not parse"
+  elif bash "$test" >/tmp/negative-control.out 2>&1; then
+    problem "MISSED   $name: $test still passes without the guard"
+  else
+    echo "caught   $name: $(grep -m1 '^FAIL: ' /tmp/negative-control.out | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+
+# With --check, a control only notes what it aims at, NUL-separated: its
+# name, line, file and guard, and its package, test file or test script.
+if [ "$mode" = check ]; then
+  aim() { # KIND NAME FILE GUARD [TARGET]
+    printf '%s\0' "$2" "${BASH_LINENO[1]}" "$3" "$4" "$1" "${5:-}" >>"$aims"
+  }
+  control() { aim go "$1" "$2" "$3" "$5"; }
+  webcontrol() { aim web "$1" "$2" "$3" "$5"; }
+  buildcontrol() { aim build "$1" "$2" "$3"; }
+  shcontrol() { aim sh "$1" "$2" "$3" "$5"; }
+fi
+
+# finish says how the run went, and fails it when a control went wrong, or
+# with --check, when one aims at something no longer there.
+finish() {
+  case $mode in
+    check)
+      perl -e '
+        $/ = "\0";
+        my ($all, @stale, %text) = (0);
+        while (defined(my $name = <STDIN>)) {
+          my ($line, $file, $guard, $kind, $target) = map { scalar <STDIN> } 1 .. 5;
+          chomp($name, $line, $file, $guard, $kind, $target);
+          $all++;
+          my $at = "scripts/negative-controls.sh:$line";
+          if (!-f $file) {
+            push @stale, "STALE    $name ($at): $file is gone";
+            next;
+          }
+          $text{$file} //= do { local $/; open my $f, "<", $file or die "$file: $!\n"; <$f> };
+          push @stale, "STALE    $name ($at): its guard is no longer in $file" if index($text{$file}, $guard) < 0;
+          (my $test = $target) =~ s{^web/}{};
+          push @stale, "STALE    $name ($at): package $target is gone" if $kind eq "go" && !-d $target;
+          push @stale, "STALE    $name ($at): web/$test is gone" if $kind eq "web" && !-f "web/$test";
+          push @stale, "STALE    $name ($at): $target is gone" if $kind eq "sh" && !-f $target;
+        }
+        if (@stale) {
+          print "$_\n" for @stale;
+          my ($n, $one) = (scalar @stale, @stale == 1);
+          printf "\n%d of the %d negative controls %s at what is no longer there. Aim %s at its guard as the code is now, so it removes the same guard, or delete %s if its guard is gone for good.\n",
+            $n, $all, $one ? "aims" : "aim", $one ? "it" : "each", $one ? "it" : "the ones whose guard is";
+          exit 1;
+        }
+        print "all $all negative controls aim at their guards\n";
+      ' <"$aims"
+      return
+      ;;
+    list) return ;;
+    night) echo "the night of $night ran $ran of the $all controls" ;;
+  esac
+  if [ "$bad" != 0 ]; then
+    echo
+    echo "problems: ${#problems[@]} (a STALE control's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run)"
+    printf '%s\n' "${problems[@]}"
+    if [ "$mode" = night ]; then
+      echo "to run them again: scripts/negative-controls.sh --night $night, at $(git rev-parse --short=12 HEAD)"
+    fi
+    exit 1
+  fi
+  echo "every guard's test failed without it"
 }
 
 control "CSRF token check" internal/panel/server.go \
@@ -363,28 +534,6 @@ webcontrol "any page's budget stays where it is" web/src/lib/first-load.ts \
   "bytes: 1_200_000, gzipBytes: 380_000" \
   "bytes: 1_210_000, gzipBytes: 380_000" \
   web/src/lib/first-load.test.ts 'over its budget'
-# buildcontrol checks the first-load budget as CI's web-tests job does, with
-# make web-budget's production build. Only a build that fails on the budget
-# counts: one that breaks for another reason is INVALID.
-buildcontrol() { # NAME FILE FROM TO
-  local name=$1 file=$2
-  if [ ! -e web/node_modules ] && [ -d "$root/web/node_modules" ]; then
-    ln -s "$root/web/node_modules" web/node_modules
-  fi
-  if [ ! -d web/node_modules ]; then
-    problem "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
-    return
-  fi
-  mutate "$name" "$file" "$3" "$4" || return 0
-  if make --no-print-directory web-budget >/tmp/negative-control.out 2>&1; then
-    problem "MISSED   $name: make web-budget still passes"
-  elif ! grep -q 'First load over budget' /tmp/negative-control.out; then
-    problem "INVALID  $name: make web-budget failed, but not on the budget"
-  else
-    echo "caught   $name: $(grep -m1 -o 'First load over budget.*' /tmp/negative-control.out | cut -c1-200)"
-  fi
-  git checkout -q -- "$file"
-}
 buildcontrol "a build over the first-load budget fails CI's check" web/vite.config.ts \
   "sourcemap: false, target: 'es2022'" \
   "sourcemap: false, minify: false, target: 'es2022'"
@@ -3190,20 +3339,6 @@ control "the pre-stop check sizes server.properties without following a link or 
   'if rel == "server.properties" {
 		b, err := os.ReadFile(filepath.Join(dataDir, rel))' \
   ./internal/backup '^TestArchivedSizeDoesNotFollowALinkOrWaitOnAPipe$'
-shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
-  local name=$1 file=$2 test=$5 shell=sh
-  mutate "$name" "$file" "$3" "$4" || return 0
-  # A bash script is parsed by bash, a POSIX one by sh.
-  case $(head -n1 "$file") in *bash*) shell=bash ;; esac
-  if ! "$shell" -n "$file" 2>/dev/null; then
-    problem "INVALID  $name: the mutated script does not parse"
-  elif bash "$test" >/tmp/negative-control.out 2>&1; then
-    problem "MISSED   $name: $test still passes without the guard"
-  else
-    echo "caught   $name: $(grep -m1 '^FAIL: ' /tmp/negative-control.out | cut -c1-200)"
-  fi
-  git checkout -q -- "$file"
-}
 control "the installer deletes get.sh's download when it stops at its flags" cmd/playkeeper/main.go \
   '	defer removeGetDir()
 ' \
@@ -13757,10 +13892,4 @@ webcontrol "the dashboard says when the versions aren't the upstream's own list"
   const text = catalog.versionsFrom === 'kept'" \
   web/src/components/app/versions-from.test.tsx 'names the list built into the release and its date'
 
-if [ "$bad" != 0 ]; then
-  echo
-  echo "problems: ${#problems[@]} (a STALE control's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run)"
-  printf '%s\n' "${problems[@]}"
-  exit 1
-fi
-echo "every guard's test failed without it"
+finish
