@@ -2802,24 +2802,22 @@ control "each version list is fetched on its own" internal/agent/software.go \
   'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, "", func() ([]api.CatalogEntry, time.Time, error) {' \
   ./internal/agent '^TestSlowVersionListHoldsUpOnlyItsOwnCallers$'
 control "a caller that waited for a build list gets what the fetch found" internal/agent/software.go \
-  '	return bs, at, nil
-}' \
-  '	_, _ = bs, at
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.builds[key].builds, c.builds[key].at, nil
-}' \
+  '		return buildList{builds: bs, at: at}, nil' \
+  '		_, _ = bs, at
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.builds[key].list, nil' \
   ./internal/agent '^TestBuildListWaitersGetWhatTheFetchFound$'
 control "a type's kept version list is offered while its source fails" internal/agent/software.go \
-  '		if a.savedSoftwareList(typ, "", &saved) {' \
-  '		if false && a.savedSoftwareList(typ, "", &saved) {' \
+  '	case a.savedSoftwareList(typ, "", &saved):' \
+  '	case false && a.savedSoftwareList(typ, "", &saved):' \
   ./internal/agent '^TestATypesListsOutliveARestartWhileItsSourceFails$'
 control "a type's kept build list is offered while its source fails" internal/agent/software.go \
-  '		if a.savedSoftwareList(typ, mc, &saved) {' \
-  '		if false && a.savedSoftwareList(typ, mc, &saved) {' \
+  '	case a.savedSoftwareList(typ, mc, &saved):' \
+  '	case false && a.savedSoftwareList(typ, mc, &saved):' \
   ./internal/agent '^TestATypesListsOutliveARestartWhileItsSourceFails$'
 control "only a supported type names a kept list's file" internal/agent/software.go \
-  '	if !software.Supported(typ) {
+  '	if !software.Supported(typ) && typ != api.TypePaper {
 		return "", false
 	}
 	var name string' \
@@ -2827,17 +2825,17 @@ control "only a supported type names a kept list's file" internal/agent/software
   ./internal/agent '^TestAKeptListIsNamedOnlyByATypeAndARelease$'
 control "no build list is taken for the version list" internal/agent/software.go \
   '	case savedBuilds, *savedBuilds:
-		if !reListedRelease.MatchString(mc) {' \
+		if typ == api.TypePaper || !reListedRelease.MatchString(mc) {' \
   '	case savedBuilds, *savedBuilds:
 		if mc == "" {
 			name = "catalog-" + typ
 			break
 		}
-		if !reListedRelease.MatchString(mc) {' \
+		if typ == api.TypePaper || !reListedRelease.MatchString(mc) {' \
   ./internal/agent '^(TestAKeptListIsNamedOnlyByATypeAndARelease|TestATypesListsOutliveARestartWhileItsSourceFails)$'
 control "only a Minecraft release names a kept build list's file" internal/agent/software.go \
-  '		if !reListedRelease.MatchString(mc) {' \
-  '		if false {' \
+  '		if typ == api.TypePaper || !reListedRelease.MatchString(mc) {' \
+  '		if typ == api.TypePaper {' \
   ./internal/agent '^TestAKeptListIsNamedOnlyByATypeAndARelease$'
 control "NeoForge's Maven is asked again after a 5xx" internal/minecraft/software/fetch.go \
   '	case http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:' \
@@ -6157,8 +6155,8 @@ webcontrol "free addresses: a claim the service stops answering is the same quie
   "const unavailable = !claimFailed && failed?.failure.error.code === 'names_unreachable' ? failed : undefined" \
   web/src/pages/machine-settings/address.test.tsx 'between the check and the claim'
 webcontrol "free addresses: Claim says why it waits while the service can't be used" web/src/pages/machine-settings/free.tsx \
-  "const reason = unavailable ? t('address.unavailable') : claimReason(address, problem, mine, answer)" \
-  'const reason = claimReason(address, problem, mine, answer)' \
+  "const reason = looking ? t('address.finding') : unavailable ? t('address.unavailable') : claimReason(address, problem, mine, answer)" \
+  "const reason = looking ? t('address.finding') : claimReason(address, problem, mine, answer)" \
   web/src/pages/machine-settings/address.test.tsx 'one quiet line'
 webcontrol "free addresses: names that can't be had now show as a preview only" web/src/pages/machine-settings/free.tsx \
   'const preview = !name || unavailable' \
@@ -7248,11 +7246,13 @@ control "port 80 redirects only while port 443 serves the page" internal/panel/p
   'if _ = https; host == "" || s.pageCerts == nil {' \
   ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
 control "turning the page off gives the ports back" internal/panel/pageports.go \
-  'if !on && !dashboard {
+  '			s.log.Info("port 80 goes back to a program that wants it", "holder", st.HTTPClaimed)
+		}
 		s.closePagePorts(api.PortOff)
 		return
 	}' \
-  'if !on && !dashboard {
+  '			s.log.Info("port 80 goes back to a program that wants it", "holder", st.HTTPClaimed)
+		}
 		return
 	}' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
@@ -7325,8 +7325,8 @@ control "turning the dashboard's port off forgets the visit" internal/agent/dash
   '		_ = ""' \
   ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
 control "the hand-over opens port 443 for the dashboard with the page off" internal/agent/pageports.go \
-  '	if !st.On && !st.Dashboard && !joined || !want.HTTPS && !want.HTTP {' \
-  '	if !st.On && !joined || !want.HTTPS && !want.HTTP {' \
+  '	if !st.On && !st.Dashboard && !joined && !pointer || !want.HTTPS && !want.HTTP {' \
+  '	if !st.On && !joined && !pointer || !want.HTTPS && !want.HTTP {' \
   ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
 control "the dashboard wants port 443 only once the machine's name works" internal/agent/dashboardport.go \
   '	return a.namedHost()' \
@@ -7852,12 +7852,12 @@ control "joined page: at the look's end, servers the record doesn't have on that
   '				if true || slices.ContainsFunc(left, func(j joinedName) bool { return s.pageHeldOn(j.id) }) {' \
   ./internal/panel '^TestAServerTheRecordDoesntHaveOnWhoseMachineNeverAnswersLetsThePortsGo$'
 control "joined page: the agent logs the ports it hands over for a joined server's page" internal/agent/pageports.go \
-  '	if len(files) > 0 && !st.On && !st.Dashboard {' \
-  '	if false && len(files) > 0 && !st.On && !st.Dashboard {' \
+  '		a.log.Info("the public page'"'"'s ports go to the panel for a server on a joined machine", "https", out[0].State, "http", out[1].State)' \
+  '' \
   ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
 control "joined page: the agent logs only the hand-overs for a joined server's page alone" internal/agent/pageports.go \
-  '	if len(files) > 0 && !st.On && !st.Dashboard {' \
-  '	if len(files) > 0 {' \
+  '	case len(files) == 0 || st.On || st.Dashboard:' \
+  '	case len(files) == 0:' \
   ./internal/agent '^TestThePortsOpenForAJoinedServersPageWithNoServerHereOnIt$'
 control "the share card cuts a line too long at once" internal/sharecard/card.go \
   '	keep := max(0, (w/scale+1)/advance-len("..."))
@@ -7931,10 +7931,10 @@ control "test installs aren't counted as installs" internal/usage/service/summar
   'WHERE (started_at >= ? OR outcome_at >= ?)' \
   ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
 control "a heartbeat without the test mark doesn't clear it" internal/usage/service/store.go \
-  '			test = MAX(installs.test, excluded.test)`,
-		h.ID,' \
-  '			test = excluded.test`,
-		h.ID,' \
+  '			test = MAX(installs.test, excluded.test),
+			reached = CASE' \
+  '			test = excluded.test,
+			reached = CASE' \
   ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
 control "an install from within the last day counts in it" internal/usage/service/summary.go \
   'in, err := s.installs(ctx, now, hour(now)-int64(w.span/time.Second))' \
@@ -7978,9 +7978,9 @@ control "with usage stats off, the agent sends nothing" internal/agent/usage.go 
   ./internal/agent '^TestTurnedOffNothingIsSentAndTurningThemOnSendsAtOnce$'
 control "turning usage stats on sends a heartbeat at once" internal/agent/usage.go \
   '	if req.On {
-		select {' \
+		a.kickUsage()' \
   '	if false && req.On {
-		select {' \
+		a.kickUsage()' \
   ./internal/agent '^TestTurnedOffNothingIsSentAndTurningThemOnSendsAtOnce$'
 control "an agent keeps the usage ID it made" internal/agent/usage.go \
   'err != nil || (ok && usage.IsID(id))' \
