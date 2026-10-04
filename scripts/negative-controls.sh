@@ -4462,8 +4462,8 @@ control "a role change checks the member's links against their new rights" inter
   'after, err := t, error(nil)' \
   ./internal/panel '^TestRoleChangesTurnOffOnlyTheLinksTheNewRightsForbid$'
 control "two-factor changes reach Discord whatever the switches say" internal/discord/alerts.go \
-  'return a.Has(k) || k.always()' \
-  'return a.Has(k)' \
+  'return a.Has(e.Kind) || e.Kind.always() ||' \
+  'return a.Has(e.Kind) ||' \
   ./internal/discord '^TestTwoFactorChangesArePostedWhateverTheSwitches$'
 control "the agent checks the member name it posts to Discord" internal/agent/discord.go \
   'if invites.ValidUsername(req.Member) != nil {' \
@@ -4597,6 +4597,46 @@ control "Minecraft update alerts read each server type's own versions" internal/
   'versions, _, _ = a.typeCatalog(ctx, typ)' \
   'versions, _, _ = a.versionCatalog(ctx)' \
   ./internal/agent '^TestMinecraftUpdateAlertsReadEachTypesOwnVersions$'
+control "Discord posts first-week joins and leaves with their switch off" internal/discord/alerts.go \
+  '|| e.FirstWeek && (e.Kind == KindPlayerJoined || e.Kind == KindPlayerLeft)' \
+  '' \
+  ./internal/discord '^TestFirstWeekJoinsAndLeavesArePostedWhateverTheirSwitches$'
+control "a first week posts only joins and leaves" internal/discord/alerts.go \
+  'e.FirstWeek && (e.Kind == KindPlayerJoined || e.Kind == KindPlayerLeft)' \
+  'e.FirstWeek' \
+  ./internal/discord '^TestFirstWeekJoinsAndLeavesArePostedWhateverTheirSwitches$'
+control "a first-week join waiting to be sent still goes out" internal/discord/notifier.go \
+  'return old || !n.settings.Alerts.posts(e)' \
+  'return old || !n.settings.Alerts.Has(e.Kind)' \
+  ./internal/discord '^TestFirstWeekJoinsAndLeavesArePostedWhateverTheirSwitches$'
+control "the agent marks a new server's joins and leaves as its first week's" internal/agent/discord.go \
+  'e.FirstWeek = s.inFirstWeek()' \
+  'e.FirstWeek = false' \
+  ./internal/agent '^TestDiscordPostsJoinsAndLeavesInAServersFirstWeek$'
+control "a server's first week ends a week after it was made" internal/agent/discord.go \
+  '&& s.now().Before(sc.CreatedAt.Add(firstWeek))' \
+  '' \
+  ./internal/agent '^TestDiscordPostsJoinsAndLeavesInAServersFirstWeek$'
+control "choosing the join alerts ends the first weeks" internal/agent/discord.go \
+  'set := s.disc.joinsSet' \
+  'set := false' \
+  ./internal/agent '^TestDiscordPostsJoinsAndLeavesInAServersFirstWeek$'
+control "Keep it off chooses the join alerts" internal/agent/discord.go \
+  'joinsSet := a.disc.joinsSet || req.JoinsChosen ||' \
+  'joinsSet := a.disc.joinsSet ||' \
+  ./internal/agent '^TestDiscordPostsJoinsAndLeavesInAServersFirstWeek$'
+control "switching the join alert on or off chooses them" internal/agent/discord.go \
+  'before.Has(discord.KindPlayerJoined) != s.Alerts.Has(discord.KindPlayerJoined) ||' \
+  '' \
+  ./internal/agent '^TestDiscordSwitchingAJoinAlertChoosesThem$'
+control "the join alerts stay chosen after a restart" internal/agent/discord.go \
+  'a.disc.joinsSet = name, host, joinsSet == 1' \
+  'a.disc.joinsSet = name, host, false' \
+  ./internal/agent '^TestDiscordPostsJoinsAndLeavesInAServersFirstWeek$'
+control "an admin who switched join alerts on before 0.4.18 chose them" internal/agent/schema.go \
+  "UPDATE discord SET joins_set = 1 WHERE" \
+  "UPDATE discord SET joins_set = 0 WHERE" \
+  ./internal/agent '^TestDiscordJoinAlertsSwitchedOnBeforeTheUpgradeWereChosen$'
 control "the machine's Docker health needs no server" internal/agent/host.go \
   'a.dockerOK = err == nil' \
   '_ = err == nil' \
@@ -4730,6 +4770,26 @@ webcontrol "a copied invite link to a named machine is just the link" web/src/pa
   "return data.link.friendly ? url : t('invites.shareBareIP', { url })" \
   "return t('invites.shareBareIP', { url })" \
   web/src/pages/pages.test.tsx 'browser warning on a link to a machine with no name'
+webcontrol "the join card says only people on the allowlist get in" web/src/pages/server/overview.tsx \
+  '{address && s.config?.whitelist !== false && (' \
+  '{false && (' \
+  web/src/pages/pages.test.tsx 'only people on the allowlist get in'
+webcontrol "copying the join card's address says friends need their name on the allowlist" web/src/pages/server/overview.tsx \
+  "{address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={joinCopied(s)} />}" \
+  "{address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />}" \
+  web/src/pages/pages.test.tsx 'only people on the allowlist get in'
+webcontrol "a copied join address mentions the allowlist only while it's on" web/src/lib/machines.ts \
+  "return s?.config?.whitelist === false ? t('toast.copied') : t('toast.copiedJoin')" \
+  "return t('toast.copiedJoin')" \
+  web/src/lib/lib.test.ts 'when a join address is copied'
+webcontrol "a copied invite asks for a friend's name only while the allowlist is on" web/src/lib/machines.ts \
+  "return s?.config?.whitelist === false ? t('players.inviteMessageOpen', { address }) : t('players.inviteMessage', { address })" \
+  "return t('players.inviteMessage', { address })" \
+  web/src/lib/lib.test.ts 'asks a friend invited to join'
+webcontrol "only someone who can add players gets the join card's link to add friends" web/src/pages/server/overview.tsx \
+  "{can(me, 'players.manage')" \
+  '{true' \
+  src/pages/pages.test.tsx 'says only people on the allowlist get in'
 webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
   'const recovered = s.recoveredCrash' \
   'const recovered = s.crash' \
@@ -6309,6 +6369,27 @@ webcontrol "Discord's preview lists only the dashboard machine's servers" web/sr
   "return servers.filter((x) => machineOf(x, machines)?.kind !== 'remote')" \
   'return servers' \
   src/pages/pages.test.tsx 'previews the live status'
+webcontrol "Settings › Discord says a new server posts joins in its first week" web/src/pages/discord.tsx \
+  'const firstWeek = r.kinds === firstWeekKinds && !on && !!s.joinsFirstWeek' \
+  'const firstWeek = false' \
+  src/pages/pages.test.tsx 'first week anyway'
+webcontrol "Keep it off chooses the join alerts" web/src/pages/discord.tsx \
+  'onClick={() => void onSave({ alerts: s.alerts, liveStatus: s.liveStatus, joinsChosen: true })}' \
+  'onClick={() => void onSave({ alerts: s.alerts, liveStatus: s.liveStatus })}' \
+  src/pages/pages.test.tsx 'first week anyway'
+webcontrol "the first steps offer Discord only until a friend has joined" web/src/components/app/checklist.tsx \
+  "{step.id === 'joined' && !done && <DiscordJoinPrompt" \
+  "{step.id === 'joined' && <DiscordJoinPrompt" \
+  src/pages/pages.test.tsx 'offers Discord to hear when a friend joins'
+webcontrol "only whoever may connect Discord is asked whether it is" web/src/components/app/checklist.tsx \
+  '    if (!manage) return
+    let stopped = false' \
+  '    let stopped = false' \
+  src/pages/pages.test.tsx 'offers Discord to hear when a friend joins'
+webcontrol "the online screen offers Discord" web/src/pages/onboarding.tsx \
+  '<DiscordJoinPrompt text="onboarding.discordPrompt" className="mt-4 text-left text-[13px]" />' \
+  '{false && <DiscordJoinPrompt text="onboarding.discordPrompt" className="mt-4 text-left text-[13px]" />}' \
+  src/pages/pages.test.tsx 'is followed by Discord'
 
 # Wave 7: the sleep operation looks again right before it stops the server,
 # and saving the sleep setting takes the operation lock.

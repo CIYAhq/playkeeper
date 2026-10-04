@@ -164,7 +164,7 @@ func New(o Options) *Notifier {
 	return n
 }
 
-// Notify queues an alert for e if its kind is turned on. An alert of the
+// Notify queues an alert for e if the switches post it. An alert of the
 // same kind about the same thing as one queued within the kind's quiet
 // period is dropped, so a crash loop or a player who keeps reconnecting
 // posts once every few minutes rather than every time.
@@ -175,7 +175,7 @@ func (n *Notifier) Notify(e Event) {
 	if e.At.IsZero() {
 		e.At = now
 	}
-	if n.settings.Webhook.IsZero() || n.broken != nil || !n.settings.Alerts.posts(e.Kind) {
+	if n.settings.Webhook.IsZero() || n.broken != nil || !n.settings.Alerts.posts(e) {
 		return
 	}
 	for s, t := range n.quietUntil {
@@ -375,7 +375,7 @@ func (n *Notifier) plan(now time.Time) (*job, time.Time) {
 		if old {
 			stale++
 		}
-		return old || !n.settings.Alerts.posts(e.Kind)
+		return old || !n.settings.Alerts.posts(e)
 	})
 	if stale > 0 {
 		n.log.Warn("discord: dropped alerts that could not be sent in time", "count", stale, "webhook", w)

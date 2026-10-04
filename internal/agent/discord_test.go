@@ -19,6 +19,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/discord"
+	"github.com/CIYAhq/playkeeper/internal/store"
 )
 
 // The webhooks the tests connect, the second for moving alerts to another
@@ -402,6 +403,147 @@ func TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord(t *testing.T
 	}
 	if n := f.count("tried to join"); n != 1 {
 		t.Fatalf("%d Discord alerts for one player turned away", n)
+	}
+}
+
+// In a server's first week, players joining and leaving go out with their
+// alerts off, as a friend's first visits are what a new server's owner wants
+// to hear about, until the admin chooses those alerts. Saving the other
+// switches doesn't choose them, and an older server posts them only once
+// they're on.
+func TestDiscordPostsJoinsAndLeavesInAServersFirstWeek(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	joinsFirstWeek := func() any {
+		_, out := e.call("GET", "/v1/discord", nil)
+		return out["joinsFirstWeek"]
+	}
+	if got := joinsFirstWeek(); got != true {
+		t.Fatalf("joinsFirstWeek before the join alerts are chosen: %v", got)
+	}
+	e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
+	f.waitMessage(e, "Player joined", "PkBotBuilder")
+	e.fd.addLog("[12:01:30 INFO]: PkBotBuilder left the game")
+	f.waitMessage(e, "Player left", "PkBotBuilder")
+
+	put := func(body map[string]any) {
+		t.Helper()
+		body["actor"] = "admin"
+		if code, out := e.call("PUT", "/v1/discord", body); code != 200 {
+			t.Fatalf("settings: %d %v", code, out)
+		}
+	}
+	defaults := []string{"crash", "recovered", "low_disk", "backup_failed", "update_available", "join_requested"}
+	put(map[string]any{"alerts": append(defaults, "stopped")})
+	if got := joinsFirstWeek(); got != true {
+		t.Fatalf("joinsFirstWeek after saving the other switches: %v", got)
+	}
+	age := func(d time.Duration) {
+		t.Helper()
+		s := e.srv()
+		sc, err := s.serverConfig()
+		if err != nil || sc == nil {
+			t.Fatalf("config: %v", err)
+		}
+		sc.CreatedAt = time.Now().Add(-d).UTC()
+		if err := s.saveServerConfig(*sc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The log's lines are read in order: once a later player's join is
+	// recorded, player's join and leave have been through the switches. A
+	// join request posted after them goes out after them too.
+	notPosted := func(player, fence, asks string) {
+		t.Helper()
+		for _, l := range []string{player + " joined the game", player + " left the game", fence + " joined the game"} {
+			e.fd.addLog("[12:02:00 INFO]: " + l)
+		}
+		e.waitFor(fence+" joining recorded", func() bool {
+			return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'join' AND player = ?`, fence) == 1
+		})
+		if code, out := e.call("POST", "/v1/discord/notify", map[string]any{"kind": "join_requested", "serverId": e.sid, "player": asks, "actor": "panel"}); code != 204 {
+			t.Fatalf("join request: %d %v", code, out)
+		}
+		f.waitMessage(e, "Join request", asks)
+		if n := f.count(player); n != 0 {
+			t.Fatalf("%s joining or leaving was posted %d times", player, n)
+		}
+	}
+	age(firstWeek + time.Hour)
+	notPosted("PkBotMiner", "PkBotDigger", "PkBotAsks")
+
+	age(time.Hour)
+	put(map[string]any{"alerts": defaults, "joinsChosen": true})
+	if got := joinsFirstWeek(); got != nil {
+		t.Fatalf("joinsFirstWeek after choosing the join alerts off: %v", got)
+	}
+	notPosted("PkBotFarmer", "PkBotPlanter", "PkBotWaits")
+	e.stop()
+	e.start()
+	if got := joinsFirstWeek(); got != nil {
+		t.Fatalf("joinsFirstWeek after a restart: %v", got)
+	}
+}
+
+// Switching the join or the leave alert on or off chooses them both; saving
+// them as they were doesn't.
+func TestDiscordSwitchingAJoinAlertChoosesThem(t *testing.T) {
+	for name, saves := range map[string][][]string{
+		"saved as they were": {{"crash"}, {"crash", "recovered"}},
+		"leaves on":          {{"crash", "player_left"}},
+		"joins on and off":   {{"player_joined"}, {}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e, _ := newDiscordEnv(t)
+			e.connectDiscord()
+			for _, alerts := range saves {
+				if code, out := e.call("PUT", "/v1/discord", map[string]any{"alerts": alerts, "actor": "admin"}); code != 200 {
+					t.Fatalf("settings %v: %d %v", alerts, code, out)
+				}
+			}
+			_, out := e.call("GET", "/v1/discord", nil)
+			if got, want := out["joinsFirstWeek"] == true, name == "saved as they were"; got != want {
+				t.Errorf("joinsFirstWeek %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// An admin who switched the join or leave alert on before the first weeks
+// came chose them; one who left both off didn't.
+func TestDiscordJoinAlertsSwitchedOnBeforeTheUpgradeWereChosen(t *testing.T) {
+	before := slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "ADD COLUMN joins_set") })
+	if before < 0 {
+		t.Fatal("no migration adds discord.joins_set")
+	}
+	for alerts, want := range map[string]int{
+		"crash,recovered,low_disk,backup_failed,update_available,join_requested": 0,
+		"crash,player_left":        1,
+		"player_joined":            1,
+		"":                         0,
+		"crash,player_joined_more": 0,
+	} {
+		path := filepath.Join(t.TempDir(), "agent.db")
+		db, err := store.Open(path, migrations[:before])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO discord(id, alerts) VALUES(1, ?)`, alerts); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+		if db, err = store.Open(path, migrations); err != nil {
+			t.Fatal(err)
+		}
+		var got int
+		if err := db.QueryRow(`SELECT joins_set FROM discord WHERE id = 1`).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+		if got != want {
+			t.Errorf("alerts %q: joins_set %d after the upgrade, want %d", alerts, got, want)
+		}
 	}
 }
 

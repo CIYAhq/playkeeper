@@ -17,6 +17,12 @@ import { phaseTone } from '@/lib/phase'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
+/** What a change in Settings › Discord saves. */
+type DiscordChange = Pick<DiscordSettings, 'alerts' | 'liveStatus'> & { joinsChosen?: boolean }
+
+/** The kinds each server posts in its first week, whatever their switch says, until the admin chooses them. */
+const firstWeekKinds: DiscordKind[] = ['player_joined', 'player_left']
+
 /** The alert switches, each for one or more kinds of alert. Kinds without a switch keep their setting. */
 const alertRows: { kinds: DiscordKind[]; title: MessageKey; hint?: MessageKey }[] = [
   { kinds: ['crash', 'recovered'], title: 'discord.alert.crash' },
@@ -24,7 +30,7 @@ const alertRows: { kinds: DiscordKind[]; title: MessageKey; hint?: MessageKey }[
   { kinds: ['backup_failed'], title: 'discord.alert.backup' },
   { kinds: ['low_disk'], title: 'discord.alert.disk', hint: 'discord.alert.diskHint' },
   { kinds: ['update_available'], title: 'discord.alert.update', hint: 'discord.alert.updateHint' },
-  { kinds: ['player_joined', 'player_left'], title: 'discord.alert.players', hint: 'discord.alert.playersHint' },
+  { kinds: firstWeekKinds, title: 'discord.alert.players', hint: 'discord.alert.playersHint' },
 ]
 
 interface Problem {
@@ -43,10 +49,10 @@ export function DiscordSettingsSection() {
   const saving = useRef(0)
   const s = local ?? disc.data
 
-  async function save(next: Pick<DiscordSettings, 'alerts' | 'liveStatus'>) {
+  async function save(next: DiscordChange) {
     if (!s) return
     const n = ++saving.current
-    setLocal({ ...s, ...next })
+    setLocal({ ...s, alerts: next.alerts, liveStatus: next.liveStatus, joinsFirstWeek: s.joinsFirstWeek && !next.joinsChosen })
     try {
       const res = await put<DiscordSettings>('/api/discord', next)
       if (n !== saving.current) return
@@ -246,11 +252,11 @@ function ConnectedCard({ settings: s, onChanged }: { settings: DiscordSettings; 
   )
 }
 
-function AlertsCard({ settings: s, onSave }: { settings: DiscordSettings; onSave: (next: Pick<DiscordSettings, 'alerts' | 'liveStatus'>) => Promise<void> }) {
+function AlertsCard({ settings: s, onSave }: { settings: DiscordSettings; onSave: (next: DiscordChange) => Promise<void> }) {
   const rows = alertRows.filter((r) => r.kinds.every((k) => s.kinds.includes(k)))
   function toggle(kinds: DiscordKind[], on: boolean) {
     const rest = s.alerts.filter((k) => !kinds.includes(k as DiscordKind))
-    void onSave({ alerts: on ? [...rest, ...kinds] : rest, liveStatus: s.liveStatus })
+    void onSave({ alerts: on ? [...rest, ...kinds] : rest, liveStatus: s.liveStatus, joinsChosen: kinds === firstWeekKinds || undefined })
   }
   return (
     <Card aria-labelledby="alerts-title">
@@ -260,12 +266,23 @@ function AlertsCard({ settings: s, onSave }: { settings: DiscordSettings; onSave
         {rows.map((r) => {
           const on = r.kinds.some((k) => s.alerts.includes(k))
           const id = `alert-${r.kinds[0]}`
+          const firstWeek = r.kinds === firstWeekKinds && !on && !!s.joinsFirstWeek
           return (
             <li key={r.title} className="flex min-h-12 items-center gap-4 border-b border-border py-2 last:border-b-0">
-              <label htmlFor={id} className="min-w-0 flex-1">
-                <span className="block text-[13px] font-semibold">{t(r.title)}</span>
-                {r.hint && <span className="block text-xs text-muted-foreground">{t(r.hint)}</span>}
-              </label>
+              <div className="min-w-0 flex-1">
+                <label htmlFor={id} className="block">
+                  <span className="block text-[13px] font-semibold">{t(r.title)}</span>
+                  {r.hint && !firstWeek && <span className="block text-xs text-muted-foreground">{t(r.hint)}</span>}
+                </label>
+                {firstWeek && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('discord.alert.playersFirstWeek')}{' '}
+                    <button type="button" className="font-medium text-primary hover:underline" onClick={() => void onSave({ alerts: s.alerts, liveStatus: s.liveStatus, joinsChosen: true })}>
+                      {t('discord.alert.keepOff')}
+                    </button>
+                  </p>
+                )}
+              </div>
               <Switch id={id} checked={on} onCheckedChange={(v) => toggle(r.kinds, v)} />
             </li>
           )
@@ -280,7 +297,7 @@ export function postedServers(servers: ServerStatus[], machines: MachineView[]):
   return servers.filter((x) => machineOf(x, machines)?.kind !== 'remote')
 }
 
-function LiveStatusCard({ settings: s, onSave }: { settings: DiscordSettings; onSave: (next: Pick<DiscordSettings, 'alerts' | 'liveStatus'>) => Promise<void> }) {
+function LiveStatusCard({ settings: s, onSave }: { settings: DiscordSettings; onSave: (next: DiscordChange) => Promise<void> }) {
   const ws = useWorkspace()
   const servers = ws.servers ?? []
   const posted = postedServers(servers, ws.machines)
