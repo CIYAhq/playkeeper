@@ -1130,9 +1130,13 @@ control "a player the allowlist keeps turning away is one line in the activity" 
   'if s.insertEvent(' \
   ./internal/agent '^TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord$'
 control "a player the allowlist turned away is posted to Discord" internal/agent/collector.go \
-  '			s.alert(discord.JoinRefused(p.Player))' \
-  '			_ = p' \
+  '			s.alert(refused)' \
+  '			_ = refused' \
   ./internal/agent '^TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord$'
+control "a refusal read long after it happened isn't posted as news" internal/agent/collector.go \
+  '			refused.At = ts' \
+  '			_ = ts' \
+  ./internal/agent '^TestAnOldRefusalReadAgainIsNotPostedToDiscord$'
 control "a turned-away player's alert doesn't hold back a join request of theirs" internal/discord/alerts.go \
   '			return string(e.Kind) + ":refused:" + strings.ToLower(oneLine(e.Player))' \
   '			return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))' \
