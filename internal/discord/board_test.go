@@ -216,6 +216,28 @@ func TestJoinRequestAlertNamesThePlayerAndServerButNotTheLink(t *testing.T) {
 	}
 }
 
+// A player the allowlist turned away posts with the join requests, on by
+// default, once however often they try, and apart from a request of theirs.
+func TestATurnedAwayPlayerPostsWithTheJoinRequests(t *testing.T) {
+	h := newDashboardHarness(t, Settings{Webhook: testWebhook(t, ""), Alerts: DefaultAlerts()})
+	e := JoinRefused("Pixel_Pia")
+	e.Server = ServerInfo{ID: "srv1", Name: "Survival"}
+	h.Notify(e)
+	h.Notify(e)
+	asked := JoinRequested("Pixel_Pia")
+	asked.Server = e.Server
+	h.Notify(asked)
+	h.sendDue()
+	reqs := h.fake.take()
+	if len(reqs) != 1 || len(reqs[0].Msg.Embeds) != 2 {
+		t.Fatalf("one turned-away alert and one request: %+v", reqs)
+	}
+	got := reqs[0].Msg.Embeds[0]
+	if got.Title != "Turned away" || !strings.HasPrefix(got.Description, "**Pixel\\_Pia** tried to join **Survival**, but isn't on the allowlist. Add them on the Players tab.") {
+		t.Errorf("turned away: %+v", got)
+	}
+}
+
 func TestDashboardTestMessageTalksAboutEveryServer(t *testing.T) {
 	h := newDashboardHarness(t, Settings{Webhook: testWebhook(t, "")})
 	if err := h.SendTest(context.Background()); err != nil {

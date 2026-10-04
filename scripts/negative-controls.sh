@@ -1273,6 +1273,38 @@ control "run again, the summary says what to do when the link won't open" cmd/pl
 	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
   '	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
   ./cmd/playkeeper '^TestTheInstallCommandRunAgainSaysHowToGetIn$'
+control "the log parser knows a player the allowlist turned away" internal/minecraft/logparse.go \
+  '	if m := reRefused.FindStringSubmatch(line); m != nil {' \
+  '	if m := reRefused.FindStringSubmatch(line); m != nil && false {' \
+  ./internal/minecraft '^TestParseRecognisesPlayerEvents$'
+control "a player the allowlist keeps turning away is one line in the activity" internal/agent/collector.go \
+  'if !s.refusedLately(p.Player, ts) && s.insertEvent(' \
+  'if s.insertEvent(' \
+  ./internal/agent '^TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord$'
+control "a player the allowlist turned away is posted to Discord" internal/agent/collector.go \
+  '			s.alert(refused)' \
+  '			_ = refused' \
+  ./internal/agent '^TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord$'
+control "a refusal read long after it happened isn't posted as news" internal/agent/collector.go \
+  '			refused.At = ts' \
+  '			_ = ts' \
+  ./internal/agent '^TestAnOldRefusalReadAgainIsNotPostedToDiscord$'
+control "a turned-away player's alert doesn't hold back a join request of theirs" internal/discord/alerts.go \
+  '			return string(e.Kind) + ":refused:" + strings.ToLower(oneLine(e.Player))' \
+  '			return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))' \
+  ./internal/discord '^TestATurnedAwayPlayerPostsWithTheJoinRequests$'
+webcontrol "Players offers to add only a turned-away player who isn't on the list now" web/src/pages/server/players.tsx \
+  "if (a.kind !== 'refused' || !a.player || onList(a.player) ||" \
+  "if (a.kind !== 'refused' || !a.player ||" \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
+webcontrol "Players names a player the allowlist turned away again and again once" web/src/pages/server/players.tsx \
+  'if (!out.some((r) => nameKey(r) === nameKey({ name }))) out.push({ name, ts: a.ts })' \
+  'out.push({ name, ts: a.ts })' \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
+webcontrol "Players forgets refusals older than a week" web/src/pages/server/players.tsx \
+  '|| now - new Date(a.ts).getTime() > 7 * 86_400_000) continue' \
+  ') continue' \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
 control "the first steps don't count whoever created the server as a friend" internal/agent/handlers.go \
   '		creators = strings.Fields(sc.CreatorNames)' \
   '		creators = nil' \

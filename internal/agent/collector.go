@@ -243,6 +243,12 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 				s.alert(discord.Event{Kind: discord.KindPlayerJoined, Player: p.Player, At: ts})
 			}
 		}
+	case minecraft.EventRefused:
+		if !s.refusedLately(p.Player, ts) && s.insertEvent(ts, "join_refused", p.Player, "", "server_log", "", key) && current {
+			refused := discord.JoinRefused(p.Player)
+			refused.At = ts
+			s.alert(refused)
+		}
 	case minecraft.EventLeave:
 		if s.insertEvent(ts, "leave", p.Player, "", "server_log", "", key) {
 			s.closeSession(ts, p.Player, "left", false)
@@ -352,6 +358,20 @@ func (s *server) insertEvent(ts time.Time, kind, player, uuid, source, detail, k
 	}
 	n, _ := res.RowsAffected()
 	return n == 1
+}
+
+// refusedAgain is how long after the allowlist turned a player away another
+// refusal of theirs is no new line: a friend who isn't on the list tries
+// again and again.
+const refusedAgain = 10 * time.Minute
+
+// refusedLately reports whether the allowlist turned player away within
+// refusedAgain before ts.
+func (s *server) refusedLately(player string, ts time.Time) bool {
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE server_id = ? AND kind = 'join_refused' AND LOWER(player) = LOWER(?) AND ts > ? AND ts <= ?`,
+		s.id, player, ts.Add(-refusedAgain).UnixMilli(), ts.UnixMilli()).Scan(&n)
+	return n > 0
 }
 
 func (s *server) recordEvent(ts time.Time, kind, player, source, detail string) {

@@ -861,6 +861,8 @@ export interface PlayersSummary {
 
 export type ActivityKind =
   | 'joined'
+  // Someone the allowlist turned away as they tried to join (0.4.18).
+  | 'refused'
   | 'crashed'
   | 'crashed_memory'
   | 'created'

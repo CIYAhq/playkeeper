@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ArchiveIcon, ArchiveXIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, FilePenIcon, FilePlusIcon, FileUpIcon, FolderInputIcon, FolderPlusIcon, HistoryIcon, LogInIcon, MemoryStickIcon, MoonIcon, PencilLineIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, Trash2Icon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveXIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, FilePenIcon, FilePlusIcon, FileUpIcon, FolderInputIcon, FolderPlusIcon, HistoryIcon, LogInIcon, MemoryStickIcon, MoonIcon, PencilLineIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, Trash2Icon, UserMinusIcon, UserPlusIcon, UserRoundXIcon, UserXIcon } from 'lucide-react'
 import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { ListSkeleton } from '@/components/app/skeletons'
@@ -13,6 +13,8 @@ function icon(kind: ActivityKind): ReactNode {
   switch (kind) {
     case 'joined':
       return <LogInIcon />
+    case 'refused':
+      return <UserRoundXIcon />
     case 'crashed':
       return <CircleAlertIcon />
     case 'crashed_memory':
@@ -122,6 +124,8 @@ export function activityText(a: Activity, server: string, me: string, here = fal
   switch (a.kind) {
     case 'joined':
       return here ? t('activity.joinedHere', { player }) : t('activity.joined', { player, server })
+    case 'refused':
+      return here ? t('activity.refusedHere', { player }) : t('activity.refused', { player, server })
     case 'crashed':
       return t('activity.crashed', { server })
     case 'crashed_memory':

@@ -144,8 +144,71 @@ function usePlayerLists(server: ServerStatus, whitelist: WhitelistEntry[] | unde
     }
   }
 
+  /** Adds a player the page already knows by name, such as one the allowlist turned away. */
+  async function addName(who: string) {
+    try {
+      await listing.run({ add: { name: who } }, () => post(serverApi(server.id, '/whitelist'), { name: who }), reload)
+      toastManager.add({ title: t('players.addedToast', { name: who }), type: 'success' })
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    }
+  }
+
   const form: AddForm = { name, setName, error, add }
-  return { whitelist: withChanges(whitelist, listing.changes, nameKey), operators: withChanges(operators, opping.changes, nameKey), form, act }
+  return { whitelist: withChanges(whitelist, listing.changes, nameKey), operators: withChanges(operators, opping.changes, nameKey), form, act, addName }
+}
+
+type Refusal = { name: string; ts: string }
+
+/** Who the allowlist turned away in the last week, newest first, while they're still not on it. */
+export function refusedLately(activity: Activity[] | undefined, onList: (name: string) => boolean, now = Date.now()): Refusal[] {
+  const out: Refusal[] = []
+  for (const a of activity ?? []) {
+    if (a.kind !== 'refused' || !a.player || onList(a.player) || now - new Date(a.ts).getTime() > 7 * 86_400_000) continue
+    const name = a.player
+    if (!out.some((r) => nameKey(r) === nameKey({ name }))) out.push({ name, ts: a.ts })
+  }
+  return out
+}
+
+/** Players the allowlist turned away lately, each with a way to add them. */
+function RefusedJoins({ server, refused, onAdd }: { server: ServerStatus; refused: Refusal[]; onAdd: (name: string) => Promise<void> }) {
+  const phone = useIsPhone()
+  const { offline } = useServerMachine(server)
+  const [adding, setAdding] = useState<string>()
+  if (refused.length === 0) return null
+  const blocked = listLocked(server, offline)
+  return (
+    <div className={cn('flex flex-col gap-3', phone ? 'rounded-3xl border border-border bg-white p-4' : 'pb-1')} role="status">
+      {refused.slice(0, 3).map((r) => (
+        <div key={nameKey(r)} className={cn('flex animate-enter items-center gap-3', phone && 'flex-wrap')}>
+          <PlayerFace name={r.name} size={phone ? 36 : 32} />
+          <p className="min-w-0 flex-1">
+            <span className={cn('block truncate font-semibold', phone ? 'text-base' : 'text-[13px]')}>{t('players.triedToJoin', { name: r.name })}</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {t('players.notOnList')}
+              {t('common.dot')}
+              {relativeTime(r.ts)}
+            </span>
+          </p>
+          <Button
+            size={phone ? 'lg' : 'sm'}
+            className={cn(phone && 'w-full')}
+            loading={adding === nameKey(r)}
+            disabledReason={blocked}
+            onClick={async () => {
+              setAdding(nameKey(r))
+              await onAdd(r.name)
+              setAdding(undefined)
+            }}
+          >
+            <UserPlusIcon />
+            {t('players.addThem')}
+          </Button>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 /** The "add a player" field and button, used on the page, in the empty state and on phones. */
@@ -508,6 +571,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   return (
     <>
       {notice}
+      {manage && <RefusedJoins server={s} refused={refusedLately(p.activity, onList)} onAdd={lists.addName} />}
       {body}
       {dialog}
     </>

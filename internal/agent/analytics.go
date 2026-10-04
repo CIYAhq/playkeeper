@@ -405,7 +405,7 @@ func (s *server) Events(limit int) ([]api.Event, error) {
 // Docker's kill or Java running out, is called "crashed_memory".
 var (
 	activityEvents = map[string]string{
-		"join": "joined", "server_crashed": "crashed", "server_created": "created", "world_restored": "restored",
+		"join": "joined", "join_refused": "refused", "server_crashed": "crashed", "server_created": "created", "world_restored": "restored",
 		"server_version_changed": "version", "server_stopped_externally": "stopped_outside",
 		// Wave 7 (0.4.0)
 		"server_fell_asleep": "fell_asleep", "server_woke_up": "woke_up", "backup_refused": "backup_refused",
