@@ -181,7 +181,7 @@ function RefusedJoins({ server, refused, onAdd }: { server: ServerStatus; refuse
   return (
     <div className={cn('flex flex-col gap-3', phone ? 'rounded-3xl border border-border bg-white p-4' : 'pb-1')} role="status">
       {refused.slice(0, 3).map((r) => (
-        <div key={nameKey(r)} className="flex animate-enter items-center gap-3">
+        <div key={nameKey(r)} className={cn('flex animate-enter items-center gap-3', phone && 'flex-wrap')}>
           <PlayerFace name={r.name} size={phone ? 36 : 32} />
           <p className="min-w-0 flex-1">
             <span className={cn('block truncate font-semibold', phone ? 'text-base' : 'text-[13px]')}>{t('players.triedToJoin', { name: r.name })}</span>
@@ -193,6 +193,7 @@ function RefusedJoins({ server, refused, onAdd }: { server: ServerStatus; refuse
           </p>
           <Button
             size={phone ? 'lg' : 'sm'}
+            className={cn(phone && 'w-full')}
             loading={adding === nameKey(r)}
             disabledReason={blocked}
             onClick={async () => {
