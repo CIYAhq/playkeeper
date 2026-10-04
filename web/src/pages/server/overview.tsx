@@ -273,15 +273,13 @@ function InternetLine({ server: s }: { server: ServerStatus }) {
       </p>
       {offer && (
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground max-sm:text-[13px]">
-          <Button size="sm" variant="outline" disabled={waiting} title={t('overview.internet.checkHelp', { port })} onClick={() => void ask()}>
-            {check.result ? t('overview.internet.again') : t('overview.internet.check')}
+          <Button size="sm" variant="outline" disabled={waiting} title={check.problem ?? t('overview.internet.checkHelp', { port })} onClick={() => void ask()}>
+            {check.problem ? t('overview.internet.couldnt') : check.result ? t('overview.internet.again') : t('overview.internet.check')}
           </Button>
           {waiting && check.retryAt ? (
             <span>{[check.problem, t('overview.internet.wait', { time: formatClock(check.retryAt) })].filter(Boolean).join(' ')}</span>
-          ) : check.problem ? (
-            <span>{check.problem}</span>
           ) : (
-            !check.result && <span>{t('overview.internet.checkHelp', { port })}</span>
+            !check.result && !check.problem && <span>{t('overview.internet.checkHelp', { port })}</span>
           )}
         </div>
       )}

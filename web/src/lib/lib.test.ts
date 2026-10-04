@@ -536,6 +536,14 @@ describe('crash helper', () => {
     )
   })
 
+  // The second-day walkthrough of 4 Oct 2026: "Online · nobody yet" stayed
+  // after two people had played.
+  it('says nobody is on now, not "yet", once the players have left', () => {
+    const players = { online: 0, max: 10, names: [], source: 'ping', at: new Date().toISOString() }
+    expect(serverState(server({ phase: 'online', players }), false).detail).toBe('nobody on now')
+    expect(serverState(server({ phase: 'online', players: { ...players, online: 2, names: ['Alex', 'Steve'] } }), false).detail).toBe('2 playing')
+  })
+
   it('calls a server being moved one being moved, whatever it last said, and offers nothing to do to it', () => {
     for (const phase of ['stopped', 'online', 'crashed', 'asleep'] as const) {
       expect(statusLabel(server({ phase, moving: true, crash: crash({ start: true }) }))).toBe('Being moved')

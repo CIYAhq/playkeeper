@@ -901,7 +901,7 @@ func (s *Server) copyServer(ctx context.Context, mv serverMove, from, to machine
 	}
 	cfg := st.Config
 	in := api.MoveInRequest{ServerID: id, Name: st.Name, Slug: slug, Account: accountLimit(mv.userID), MemoryMB: cfg.MemoryMB, PlayStyle: cfg.PlayStyle, Start: start,
-		CreatedAt: cfg.CreatedAt, EULAAcceptedAt: cfg.EULAAcceptedAt, EULAAcceptedBy: cfg.EULAAcceptedBy, Actor: placementActor}
+		CreatedAt: cfg.CreatedAt, EULAAcceptedAt: cfg.EULAAcceptedAt, EULAAcceptedBy: cfg.EULAAcceptedBy, CreatorNames: cfg.CreatorNames, Actor: placementActor}
 	if err := s.moveIn(ctx, mv, to, rid, in); err != nil {
 		discardUpload(ctx, to, rid)
 		return fmt.Errorf("%s couldn't make it from its folder: %w", machineLabel(to), err)

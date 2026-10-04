@@ -186,6 +186,48 @@ func (rt *refusingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("no requests leave these tests")
 }
 
+// A stats service without the check, as the live one is until the owner
+// redeploys it, answers 404; its proxy answers 502 while it's down; and it
+// can't be reached at all. None of them is a check that found the port
+// closed: the status says only why there's no answer.
+func TestAServiceThatCantCheckNeverSaysThePortIsClosed(t *testing.T) {
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+	})
+	e.create()
+	e.answering()
+	for _, c := range []struct {
+		name, problem string
+		answer        http.HandlerFunc
+	}{
+		{"a service from before the check", "answered HTTP 404", http.NotFound},
+		{"its proxy while it's down", "answered HTTP 502", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, "<html><body>Bad Gateway</body></html>")
+		}},
+		{"a service that can't be reached", "couldn't ask the stats service", func(w http.ResponseWriter, _ *http.Request) {
+			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+				conn.Close()
+			}
+		}},
+	} {
+		rec.answer(c.answer)
+		e.later(internetCheckAgain + time.Second)
+		e.answering()
+		if code, out := e.internetCheck(false); code != http.StatusAccepted {
+			t.Fatalf("%s: %d %v", c.name, code, out)
+		}
+		got := e.checkDone(func(ic api.InternetCheck) bool { return strings.Contains(ic.Problem, c.problem) })
+		if got.Result != "" || got.CheckedAt != nil {
+			t.Errorf("%s: %+v", c.name, got)
+		}
+	}
+	if n := len(rec.checked()); n != 3 {
+		t.Errorf("the stats service was asked %d times, want 3", n)
+	}
+}
+
 // A test install and playkeeper dev never ask the project's stats service
 // for a check, so the dashboard offers none.
 func TestTestInstallsAndDevNeverAskTheProjectsStatsService(t *testing.T) {
