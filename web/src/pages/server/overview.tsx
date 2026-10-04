@@ -27,7 +27,7 @@ import { can } from '@/lib/access'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, failureLine, isMemoryCrash, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
 import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, sameDay } from '@/lib/format'
-import { awayLong, joinOf, machineLabel, machineRoute } from '@/lib/machines'
+import { awayLong, joinCopied, joinOf, machineLabel, machineRoute } from '@/lib/machines'
 import { busyReason, createStepOf, failedJob, isSettingUp, packStepOf, phaseLabel, statusTone, templateStepOf, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { formatTPS } from '@/lib/running'
@@ -168,6 +168,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
 
 function JoinCard({ server: s }: { server: ServerStatus }) {
   const { stale, join, name: machine } = useServerMachine(s)
+  const { me } = useWorkspace()
   const phone = useIsPhone()
   const online = !stale && s.phase === 'online'
   const asleep = !stale && s.phase === 'asleep'
@@ -177,7 +178,7 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
     <Card>
       <div className="flex items-start justify-between gap-3">
         <CardTitle className="max-sm:text-[17px]">{t('overview.join')}</CardTitle>
-        {address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />}
+        {address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={joinCopied(s)} />}
       </div>
       {address ? (
         <p className={cn('mt-2 font-extrabold tracking-[-0.01em] break-all tabular-nums', long ? 'text-xl leading-[26px]' : 'text-[26px] leading-8 max-sm:text-[28px]')}>{address}</p>
@@ -185,6 +186,19 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
         <p className="mt-2 text-sm text-muted-foreground max-sm:text-[15px]">{join.reason}</p>
       )}
       {!phone && <p className="mt-1 text-[13px] text-muted-foreground">{asleep ? t('sleep.joinWakes') : t('overview.joinHelp')}</p>}
+      {address && s.config?.whitelist !== false && (
+        <p className="mt-1 text-[13px] text-muted-foreground">
+          {can(me, 'players.manage')
+            ? rich('overview.listHint', {
+                link: (chunk) => (
+                  <a {...linkPath(`/servers/${s.slug}/players#add`)} className="font-medium text-primary hover:underline">
+                    {chunk}
+                  </a>
+                ),
+              })
+            : t('overview.listHintPlain')}
+        </p>
+      )}
       {phone && asleep && <p className="mt-1 text-[13px] text-muted-foreground">{t('sleep.joinWakesShort')}</p>}
       <BedrockJoin server={s} />
       <p className={cn('mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground max-sm:pt-3 max-sm:text-[13px]', phone && asleep && 'hidden')}>
@@ -897,7 +911,7 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
         <Card>
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="max-sm:text-[17px]">{t('overview.join')}</CardTitle>
-            {join.address && <CopyButton text={join.address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />}
+            {join.address && <CopyButton text={join.address} size={phone ? 'lg' : 'sm'} toast={joinCopied(s)} />}
           </div>
           {join.address ? (
             <p className="mt-2 text-xl leading-7 font-extrabold tracking-[-0.01em] break-all">{join.address}</p>

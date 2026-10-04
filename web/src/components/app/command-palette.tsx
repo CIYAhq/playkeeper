@@ -23,7 +23,7 @@ import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/c
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { can, canCreate, settingsHome } from '@/lib/access'
-import { joinOf, machineLabel, machineOf, machineRoute, reachOf, type Join } from '@/lib/machines'
+import { joinCopied, joinOf, machineLabel, machineOf, machineRoute, reachOf, type Join } from '@/lib/machines'
 import { controls } from '@/lib/phase'
 import { navigate, type Route, type ServerTab } from '@/lib/router'
 
@@ -75,7 +75,7 @@ function actionsFor(s: ServerStatus, join: Join, me: Me): PaletteItem[] {
       hint: address,
       icon: <CopyIcon />,
       run: () =>
-        void copyText(address).then((ok) => toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
+        void copyText(address).then((ok) => toastManager.add(ok ? { title: joinCopied(s), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
     })
   if (can(me, 'players.manage')) items.push({ value: `add:${s.id}`, label: t('cmd.addPlayer', { server: s.name }), icon: <UserPlusIcon />, run: () => navigate(`/servers/${s.slug}/players#add`) })
   return items

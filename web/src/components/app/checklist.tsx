@@ -1,12 +1,15 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ArchiveIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, DownloadIcon, LockIcon, PlusIcon, UserPlusIcon, XIcon } from 'lucide-react'
-import type { ServerStatus } from '@/api/types'
+import { get } from '@/api/client'
+import type { DiscordSettings, ServerStatus } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Progress, SectionLabel } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
-import { t } from '@/i18n'
+import { t, type MessageKey } from '@/i18n'
+import { rich } from '@/i18n/rich'
+import { can } from '@/lib/access'
 import { checklist, complete, progress, type Step, type StepId } from '@/lib/checklist'
 import { relativeTime } from '@/lib/format'
 import { isSettingUp } from '@/lib/phase'
@@ -161,6 +164,38 @@ function StepButton({ step, server, size = 'sm', className, onBackup }: { step: 
   )
 }
 
+/** A line offering Discord to hear when friends join, for whoever may connect it while it isn't connected. */
+export function DiscordJoinPrompt({ text, className }: { text: MessageKey; className?: string }) {
+  const { me } = useWorkspace()
+  const manage = can(me, 'machine.manage')
+  const [connected, setConnected] = useState<boolean>()
+  useEffect(() => {
+    if (!manage) return
+    let stopped = false
+    get<DiscordSettings>('/api/discord').then(
+      (d) => {
+        if (!stopped) setConnected(d.connected)
+      },
+      () => undefined,
+    )
+    return () => {
+      stopped = true
+    }
+  }, [manage])
+  if (!manage || connected !== false) return null
+  return (
+    <p className={cn('text-xs text-muted-foreground', className)}>
+      {rich(text, {
+        link: (c) => (
+          <a {...linkProps({ name: 'discord' })} className="font-medium text-primary hover:underline">
+            {c}
+          </a>
+        ),
+      })}
+    </p>
+  )
+}
+
 function Tile({ step, index, server, onBackup }: { step: Step; index: number; server: ServerStatus; onBackup?: () => void }) {
   const done = step.state === 'done'
   const next = step.state === 'next'
@@ -190,6 +225,7 @@ function Tile({ step, index, server, onBackup }: { step: Step; index: number; se
       </div>
       <h3 className={cn('mt-2.5 text-[13px] font-semibold', locked && 'text-muted-foreground')}>{stepTitle(step.id)}</h3>
       <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{stepHint(step, server)}</p>
+      {step.id === 'joined' && !done && <DiscordJoinPrompt text="checklist.joinedDiscord" className="mt-auto pt-2 leading-4" />}
       {next && <StepButton step={step} server={server} className="mt-auto w-full" onBackup={onBackup} />}
     </li>
   )
@@ -209,6 +245,7 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
   }
   if (phone) {
     const next = p.next
+    const joinedLeft = steps.some((s) => s.id === 'joined' && s.state !== 'done')
     return (
       <section aria-label={t('checklist.label')} className="rounded-3xl border border-border bg-warm p-4">
         <div className="flex items-center justify-between">
@@ -228,6 +265,7 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
             <StepButton step={next} server={server} size="touch" className="mt-4 w-full" onBackup={onBackup} />
           </>
         )}
+        {joinedLeft && <DiscordJoinPrompt text="checklist.joinedDiscord" className="mt-3 text-[13px] leading-5" />}
       </section>
     )
   }

@@ -6,6 +6,7 @@ import type { LogsResponse, Me, Operation, OperatorEntry, Preflight, PreflightCh
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
+import { DiscordJoinPrompt } from '@/components/app/checklist'
 import { serverAction } from '@/components/app/server-action'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
 import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
@@ -23,6 +24,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatMB, serverJoinAddress } from '@/lib/format'
 import { failureLine } from '@/lib/crash'
+import { joinCopied } from '@/lib/machines'
 import { createStepOf, isSettingUp } from '@/lib/phase'
 import { useAppearAtOnce } from '@/lib/presence'
 import { navigate } from '@/lib/router'
@@ -780,7 +782,7 @@ function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: strin
           <span className="text-2xl font-extrabold tabular-nums" data-testid="join-address">
             {address}
           </span>
-          <CopyButton text={address} variant="default" size="sm" toast={t('toast.copied')} />
+          <CopyButton text={address} variant="default" size="sm" toast={joinCopied(s)} />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint')}</p>
       </div>
@@ -807,6 +809,7 @@ function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: strin
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">{added.length ? t('onboarding.invited', { names: added.join(', ') }) : t('onboarding.inviteHint')}</p>
       </form>
+      <DiscordJoinPrompt text="onboarding.discordPrompt" className="mt-4 text-left text-[13px]" />
       <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-4">
         <Button variant="ghost" size="sm" onClick={dashboard}>
           {t('onboarding.skipInvite')}

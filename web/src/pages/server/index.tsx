@@ -21,7 +21,7 @@ import { t } from '@/i18n'
 import { can, canCreate } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { formatMB, relativeTime } from '@/lib/format'
-import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
+import { awayOf, isStale, joinCopied, outOfReach, reachOf } from '@/lib/machines'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
 import { Appear } from '@/lib/presence'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
@@ -210,7 +210,7 @@ function useCopyAddress(server: ServerStatus) {
   const { join } = useServerMachine(server)
   const copy = async () => {
     const ok = await copyText(join.address)
-    toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
+    toastManager.add(ok ? { title: joinCopied(server), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
   return { copy, reason: join.address ? undefined : join.reason }
 }
