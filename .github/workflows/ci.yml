@@ -126,7 +126,7 @@ jobs:
           { echo "parts=$parts"; echo "package=$package"; } >> "$GITHUB_OUTPUT"
 
   lint:
-    name: Lint — gofmt, go vet, ESLint, TypeScript, THIRD_PARTY_NOTICES, shellcheck
+    name: Lint — gofmt, go vet, ESLint, TypeScript, THIRD_PARTY_NOTICES, negative controls' guards, shellcheck
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
