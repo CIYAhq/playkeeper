@@ -263,7 +263,7 @@ function InternetLine({ server: s }: { server: ServerStatus }) {
             {check.problem ? t('overview.internet.couldnt') : check.result ? t('overview.internet.again') : t('overview.internet.check')}
           </Button>
           {waiting && check.retryAt ? (
-            <span>{t('overview.internet.wait', { time: formatClock(check.retryAt) })}</span>
+            <span>{[check.problem, t('overview.internet.wait', { time: formatClock(check.retryAt) })].filter(Boolean).join(' ')}</span>
           ) : (
             !check.result && !check.problem && <span>{t('overview.internet.checkHelp', { port })}</span>
           )}

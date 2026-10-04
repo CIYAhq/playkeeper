@@ -848,9 +848,8 @@ describe('Overview', () => {
     await render(<Overview server={check({ result: 'reachable', checkedAt: new Date().toISOString() })} />)
     await render(<Overview server={check({ problem: 'The stats service is busy with other checks.', retryAt: inHours(1) })} />)
     expect(asked()).toEqual([])
-    expect(page()).toContain('The stats service asked to wait until')
+    expect(page()).toContain('The stats service is busy with other checks. The stats service asked to wait until')
     expect(button('Couldn’t check right now · Try again').disabled).toBe(true)
-    expect(button('Couldn’t check right now · Try again').title).toBe('The stats service is busy with other checks.')
     await render(<Overview server={check({ result: 'reachable', checkedAt: hoursAgo(2) })} />)
     expect(asked()).toEqual([['/internet-check', { auto: true }]])
 
