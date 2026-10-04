@@ -6,6 +6,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 - **The join address's "Answering" line:** a green "Answering on port 25565" read as "friends can join", even while the provider's firewall kept them out. The machine only checks its own server, so the line now says "Answering on" the machine, and a second line says friends also need the port open at their provider, with a link to how to open it.
 
+- **Invite links on a machine with no name:** a friend opening one met the browser's "Your connection is not private" page, and nothing had warned them. The new-link dialog now says friends will see a browser warning, and offers the free name first. A copied link comes with a line saying the warning is expected and how to get past it.
+
 ## 0.4.17
 
 - **Old Minecraft setups that can't get in the way:** the installer now goes next to them by itself, where it used to stop: a service that isn't running and doesn't start with the machine, a stopped container Docker won't start again, and a panel's files when the panel isn't running. It never touches them, and its last screen says so, one line each, like "Left your old Minecraft service (minecraft.service) alone; it isn't running." A setup that runs, starts again by itself or is a running panel still stops it.
