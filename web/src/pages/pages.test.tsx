@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import type {
   Action,
+  Activity,
   AddonSources,
   Address,
   Backup,
@@ -574,6 +575,11 @@ describe('Activity', () => {
     expect(activityText({ ts: '', kind: 'stopped', actor: 'cli:alice', actorKind: 'cli', actorName: 'alice' }, 'Survival', 'siya')).toBe('alice stopped Survival')
     expect(activityText({ ts: '', kind: 'restarted', actor: 'siya' }, 'Survival', 'siya')).toBe('Survival restarted')
     expect(activityText({ ts: '', kind: 'backup', actor: 'siya' }, 'Survival', 'siya')).toBe('You backed up Survival')
+  })
+
+  it('says who the allowlist turned away', () => {
+    expect(activityText({ ts: '', kind: 'refused', player: 'PkStranger' }, 'Survival', 'siya')).toBe('PkStranger tried to join Survival, but isn’t on the allowlist')
+    expect(activityText({ ts: '', kind: 'refused', player: 'PkStranger' }, 'Survival', 'siya', true)).toBe('PkStranger tried to join, but isn’t on the allowlist')
   })
 })
 
@@ -2769,6 +2775,26 @@ describe('Players', () => {
     expect(text).not.toContain('0 people')
     expect(text).toContain('Loading…')
     expect(document.querySelectorAll('li [data-slot="skeleton"]').length).toBeGreaterThan(0)
+  })
+
+  // The second-day walkthrough of 4 Oct 2026: a friend the allowlist turned
+  // away showed only in the console. Who it turned away in the last week is
+  // on top, once each, with Add them, until they're on the list.
+  it('puts who the allowlist turned away lately on top, with Add them', async () => {
+    const activity: Activity[] = [
+      { ts: hoursAgo(0.1), serverId: 'abcdefghjk', kind: 'refused', player: 'PkStranger' },
+      { ts: hoursAgo(0.5), serverId: 'abcdefghjk', kind: 'refused', player: 'pkstranger' },
+      { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'refused', player: 'mara_k' },
+      { ts: hoursAgo(24 * 8), serverId: 'abcdefghjk', kind: 'refused', player: 'OldTimer' },
+    ]
+    answer({ '/whitelist': [{ name: 'mara_k' }], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': activity, '/invites': noInvites, '/join-requests': [] })
+    vi.mocked(client.post).mockClear()
+    const text = await render(<PlayersPage server={server()} />)
+    expect(text).toContain('PkStranger tried to join')
+    expect(text).toContain('Not on the allowlist')
+    expect(text.match(/tried to join/g)).toHaveLength(1)
+    await press('Add them')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/whitelist', { name: 'PkStranger' })
   })
 
   it('explains how to invite someone when nobody has joined', async () => {

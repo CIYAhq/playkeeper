@@ -198,8 +198,11 @@ type Event struct {
 	// Bytes is the free disk space (low disk) or the backup's size (backup
 	// succeeded); 0 if unknown.
 	Bytes int64
-	// Player is the player who joined, left or asks to join.
-	Player string
+	// Player is the player who joined, left or asks to join. Refused says,
+	// for a join request, that the allowlist turned them away as they tried
+	// to join, rather than that they asked through an invite link.
+	Player  string
+	Refused bool
 	// Version is the Playkeeper version that is available or, with
 	// Minecraft set, the Minecraft version the server can be updated to.
 	Version   string
@@ -304,6 +307,12 @@ func DashboardBack(machine string, minutes int) Event {
 // the admin's yes. It never names the link: its name is private.
 func JoinRequested(player string) Event { return Event{Kind: KindJoinRequested, Player: player} }
 
+// JoinRefused is a player the allowlist turned away, which the owner can
+// fix by adding them, so it posts with the join requests.
+func JoinRefused(player string) Event {
+	return Event{Kind: KindJoinRequested, Player: player, Refused: true}
+}
+
 // Crashed is a crash of the server. explanation is the crash helper's short,
 // plain-English account of what went wrong ("" if there is none); restarting
 // is false once Playkeeper has stopped restarting the server.
@@ -388,7 +397,12 @@ func (e Event) subject() string {
 
 func (e Event) subjectInServer() string {
 	switch e.Kind {
-	case KindPlayerJoined, KindPlayerLeft, KindJoinRequested:
+	case KindJoinRequested:
+		if e.Refused {
+			return string(e.Kind) + ":refused:" + strings.ToLower(oneLine(e.Player))
+		}
+		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))
+	case KindPlayerJoined, KindPlayerLeft:
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))
 	case KindUpdateAvailable:
 		if e.Minecraft {
@@ -485,7 +499,11 @@ func (e Event) embed(info ServerInfo) embed {
 	case KindPlayerLeft:
 		title, text = "Player left", player(e.Player)+" left "+name+"."
 	case KindJoinRequested:
-		title, text = "Join request", player(e.Player)+" wants to join "+name+". Let them in or say no on the Players tab."
+		if e.Refused {
+			title, text = "Turned away", player(e.Player)+" tried to join "+name+", but isn't on the allowlist. Add them on the Players tab."
+		} else {
+			title, text = "Join request", player(e.Player)+" wants to join "+name+". Let them in or say no on the Players tab."
+		}
 	case KindTwoFactor:
 		who := member(e.Member)
 		switch {

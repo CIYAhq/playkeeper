@@ -38,6 +38,7 @@ var alertKinds = map[string]discord.Kind{
 	"Player joined":                discord.KindPlayerJoined,
 	"Player left":                  discord.KindPlayerLeft,
 	"Join request":                 discord.KindJoinRequested,
+	"Turned away":                  discord.KindJoinRequested,
 }
 
 // mark is how many requests the fake Discord has had so far.

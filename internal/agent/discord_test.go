@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -342,6 +343,41 @@ func TestDiscordAlertsComeFromTheAgent(t *testing.T) {
 	f.waitMessage(e, "Back online")
 	// Alerts link to the server's page on the dashboard.
 	f.waitMessage(e, "https://play.example.com:"+fmt.Sprint(e.cfg.PanelPort)+"/servers/")
+}
+
+// The second-day walkthrough of 4 Oct 2026: a friend the allowlist turned
+// away showed only in the console. The refusal is one line in the recent
+// activity, however often they try within ten minutes, and an alert with the
+// join requests, which are on by default. Chat can't make one up.
+func TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	e.fd.addLog("[12:01:00 INFO]: Disconnecting PkStranger (IP hidden): You are not whitelisted on this server!")
+	e.fd.addLog("[12:01:00 INFO]: PkStranger (IP hidden) lost connection: You are not whitelisted on this server!")
+	f.waitMessage(e, "Turned away", "**PkStranger** tried to join **My server**, but isn't on the allowlist. Add them on the Players tab.")
+	e.fd.addLog("[12:01:20 INFO]: PkStranger (IP hidden) lost connection: You are not whitelisted on this server!")
+	e.fd.addLog("[12:02:40 INFO]: pkstranger (IP hidden) lost connection: You are not whitelisted on this server!")
+	e.fd.addLog("[12:02:41 INFO]: <PkStranger> Bob (IP hidden) lost connection: You are not whitelisted on this server!")
+	e.fd.addLog("[12:03:00 INFO]: PkFriend joined the game")
+	e.waitFor("the join after them", func() bool { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'join'`) == 1 })
+	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'join_refused'`); n != 1 {
+		t.Fatalf("%d lines for one player turned away three times, and a chat message", n)
+	}
+	var activity []api.Activity
+	e.decode("GET", "/v1/activity?limit=20", &activity)
+	var refused []string
+	for _, a := range activity {
+		if a.Kind == "refused" {
+			refused = append(refused, a.Player)
+		}
+	}
+	if !slices.Equal(refused, []string{"PkStranger"}) {
+		t.Fatalf("the activity's refusals: %v", refused)
+	}
+	if n := f.count("tried to join"); n != 1 {
+		t.Fatalf("%d Discord alerts for one player turned away", n)
+	}
 }
 
 // The alert when Playkeeper gives up restarting a server says so once, and

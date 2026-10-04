@@ -1121,6 +1121,22 @@ control "run again, the summary says what to do when the link won't open" cmd/pl
 	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
   '	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
   ./cmd/playkeeper '^TestTheInstallCommandRunAgainSaysHowToGetIn$'
+control "the log parser knows a player the allowlist turned away" internal/minecraft/logparse.go \
+  '	if m := reRefused.FindStringSubmatch(line); m != nil {' \
+  '	if m := reRefused.FindStringSubmatch(line); m != nil && false {' \
+  ./internal/minecraft '^TestParseRecognisesPlayerEvents$'
+control "a player the allowlist keeps turning away is one line in the activity" internal/agent/collector.go \
+  'if !s.refusedLately(p.Player, ts) && s.insertEvent(' \
+  'if s.insertEvent(' \
+  ./internal/agent '^TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord$'
+control "a player the allowlist turned away is posted to Discord" internal/agent/collector.go \
+  '			s.alert(discord.JoinRefused(p.Player))' \
+  '			_ = p' \
+  ./internal/agent '^TestAPlayerTheAllowlistTurnsAwayShowsInTheActivityAndOnDiscord$'
+control "a turned-away player's alert doesn't hold back a join request of theirs" internal/discord/alerts.go \
+  '			return string(e.Kind) + ":refused:" + strings.ToLower(oneLine(e.Player))' \
+  '			return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))' \
+  ./internal/discord '^TestATurnedAwayPlayerPostsWithTheJoinRequests$'
 control "the existing-setup check tells a running service from a stopped one" internal/install/install.go \
   '	case slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
   '	case false && slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
@@ -4670,6 +4686,18 @@ webcontrol "Settings › Memory counts friends for the server's type" web/src/pa
   '{memoryAdviceLine(advice, machineName, catalog?.sizing, s.type, planMaxMB)}' \
   '{memoryAdviceLine(advice, machineName, catalog?.sizing, undefined, planMaxMB)}' \
   web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
+webcontrol "Players offers to add only a turned-away player who isn't on the list now" web/src/pages/server/players.tsx \
+  "if (a.kind !== 'refused' || !a.player || onList(a.player) ||" \
+  "if (a.kind !== 'refused' || !a.player ||" \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
+webcontrol "Players names a player the allowlist turned away again and again once" web/src/pages/server/players.tsx \
+  'if (!out.some((r) => nameKey(r) === nameKey({ name }))) out.push({ name, ts: a.ts })' \
+  'out.push({ name, ts: a.ts })' \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
+webcontrol "Players forgets refusals older than a week" web/src/pages/server/players.tsx \
+  '|| now - new Date(a.ts).getTime() > 7 * 86_400_000) continue' \
+  ') continue' \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
 webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
   'const recovered = s.recoveredCrash' \
   'const recovered = s.crash' \
