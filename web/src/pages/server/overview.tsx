@@ -22,6 +22,7 @@ import { WorldMissingNotice } from '@/components/app/world-missing'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { rich } from '@/i18n/rich'
 import { can } from '@/lib/access'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, failureLine, isMemoryCrash, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
@@ -166,7 +167,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
 }
 
 function JoinCard({ server: s }: { server: ServerStatus }) {
-  const { stale, join } = useServerMachine(s)
+  const { stale, join, name: machine } = useServerMachine(s)
   const phone = useIsPhone()
   const online = !stale && s.phase === 'online'
   const asleep = !stale && s.phase === 'asleep'
@@ -192,7 +193,7 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
         ) : online && s.reachable ? (
           <>
             <span className="size-2 rounded-full bg-success" aria-hidden="true" />
-            {phone || s.joinAddress?.endsWith(`:${s.gamePort}`) ? t('overview.answeringPhone', { time: relativeTime(s.reachableAt) }) : t('overview.answering', { port: s.gamePort, time: relativeTime(s.reachableAt) })}
+            {t('overview.answering', { machine, time: relativeTime(s.reachableAt) })}
           </>
         ) : online ? (
           <>
@@ -203,6 +204,21 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
           t('overview.offline', { server: s.name })
         )}
       </p>
+      {online && s.reachable && (
+        <p className="mt-1 text-xs text-muted-foreground max-sm:text-[13px]">
+          {rich(
+            'overview.providerPort',
+            {
+              link: (chunk) => (
+                <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+                  {chunk}
+                </a>
+              ),
+            },
+            { port: s.gamePort },
+          )}
+        </p>
+      )}
     </Card>
   )
 }
