@@ -6,6 +6,7 @@ import type { LogsResponse, Me, Operation, OperatorEntry, Preflight, PreflightCh
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
+import { DiscordJoinPrompt } from '@/components/app/checklist'
 import { serverAction } from '@/components/app/server-action'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
 import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionBlocked, versionCards, VersionsFrom, type CreateChoices } from '@/components/app/create'
@@ -807,6 +808,7 @@ function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: strin
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">{added.length ? t('onboarding.invited', { names: added.join(', ') }) : t('onboarding.inviteHint')}</p>
       </form>
+      <DiscordJoinPrompt text="onboarding.discordPrompt" className="mt-4 text-left text-[13px]" />
       <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-4">
         <Button variant="ghost" size="sm" onClick={dashboard}>
           {t('onboarding.skipInvite')}

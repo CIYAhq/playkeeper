@@ -152,8 +152,12 @@ func ParseAlerts(s string) Alerts {
 // Has reports whether alerts of kind k are on.
 func (a Alerts) Has(k Kind) bool { return slices.Contains(a, k) }
 
-// posts reports whether alerts of kind k go out with these switches.
-func (a Alerts) posts(k Kind) bool { return a.Has(k) || k.always() }
+// posts reports whether e goes out with these switches: its kind is on or
+// always posts, or it's a player joining or leaving a server in its first
+// week.
+func (a Alerts) posts(e Event) bool {
+	return a.Has(e.Kind) || e.Kind.always() || e.FirstWeek && (e.Kind == KindPlayerJoined || e.Kind == KindPlayerLeft)
+}
 
 // String lists the kinds, comma-separated, in the order of Kinds.
 func (a Alerts) String() string {
@@ -198,8 +202,12 @@ type Event struct {
 	// Bytes is the free disk space (low disk) or the backup's size (backup
 	// succeeded); 0 if unknown.
 	Bytes int64
-	// Player is the player who joined, left or asks to join.
-	Player string
+	// Player is the player who joined, left or asks to join. FirstWeek says
+	// a player joined or left a server in its first week, before the admin
+	// chose the join and leave alerts, which posts it whatever their switch
+	// says.
+	Player    string
+	FirstWeek bool
 	// Version is the Playkeeper version that is available or, with
 	// Minecraft set, the Minecraft version the server can be updated to.
 	Version   string

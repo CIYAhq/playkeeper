@@ -543,6 +543,29 @@ func TestAlertsThatAreOffOrTooOldAreDropped(t *testing.T) {
 	}
 }
 
+// Players joining and leaving a server in its first week go out with their
+// switches off, even after the switches change while they wait; nothing
+// else does for being in a first week.
+func TestFirstWeekJoinsAndLeavesArePostedWhateverTheirSwitches(t *testing.T) {
+	h := newHarness(t, Settings{Webhook: testWebhook(t, ""), Alerts: DefaultAlerts()})
+	firstWeek := func(e Event) Event { e.FirstWeek = true; return e }
+	h.Notify(firstWeek(PlayerJoined("Steve")))
+	h.Notify(firstWeek(PlayerLeft("Steve")))
+	h.Notify(PlayerJoined("Alex"))
+	h.Notify(firstWeek(Stopped()))
+	h.SetSettings(Settings{Webhook: testWebhook(t, ""), Alerts: Alerts{KindCrash}})
+	h.sendDue()
+	var got []string
+	for _, r := range h.fake.take() {
+		for _, e := range r.Msg.Embeds {
+			got = append(got, e.Title+": "+strings.TrimSuffix(e.Description, dashboardLine))
+		}
+	}
+	if want := []string{"Player joined: **Steve** joined **Survival**.", "Player left: **Steve** left **Survival**."}; !slices.Equal(got, want) {
+		t.Errorf("%q\nwant\n%q", got, want)
+	}
+}
+
 func TestTwoFactorChangesArePostedWhateverTheSwitches(t *testing.T) {
 	h := newHarness(t, Settings{Webhook: testWebhook(t, ""), Alerts: Alerts{}})
 	h.Notify(TwoFactorChanged("mara", true, true))

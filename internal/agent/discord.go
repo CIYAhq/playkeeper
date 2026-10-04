@@ -52,7 +52,16 @@ type discordState struct {
 	connectedAt time.Time
 	host        string
 	lowDisk     bool
+	// joinsSet says the admin chose the join and leave alerts themselves.
+	// Until they do, a server posts its players joining and leaving in its
+	// first week, when a friend's first visits are what its owner most
+	// wants to hear about.
+	joinsSet bool
 }
+
+// firstWeek is how long after its creation a server posts its players
+// joining and leaving while the admin hasn't chosen those alerts.
+const firstWeek = 7 * 24 * time.Hour
 
 // initDiscord loads the saved settings and makes the notifier; Start runs it.
 func (a *Agent) initDiscord() error {
@@ -66,10 +75,10 @@ func (a *Agent) initDiscord() error {
 	}
 	s := discord.DefaultSettings()
 	var raw, name, alerts, msgID, host string
-	var live int
+	var live, joinsSet int
 	var connected int64
-	err := a.db.QueryRow(`SELECT webhook_url, webhook_name, alerts, live_status, status_message_id, public_host, connected_at FROM discord WHERE id = 1`).
-		Scan(&raw, &name, &alerts, &live, &msgID, &host, &connected)
+	err := a.db.QueryRow(`SELECT webhook_url, webhook_name, alerts, live_status, status_message_id, public_host, connected_at, joins_set FROM discord WHERE id = 1`).
+		Scan(&raw, &name, &alerts, &live, &msgID, &host, &connected, &joinsSet)
 	switch {
 	case err == nil:
 		if raw != "" {
@@ -80,7 +89,7 @@ func (a *Agent) initDiscord() error {
 			}
 		}
 		s.Alerts, s.LiveStatus, s.StatusMessageID = discord.ParseAlerts(alerts), live == 1, msgID
-		a.disc.name, a.disc.host = name, host
+		a.disc.name, a.disc.host, a.disc.joinsSet = name, host, joinsSet == 1
 		if connected > 0 {
 			a.disc.connectedAt = time.UnixMilli(connected).UTC()
 		}
@@ -190,13 +199,28 @@ func (s *server) discordInfo() discord.ServerInfo {
 	return info
 }
 
-// alert posts e about this server if Discord is connected and e's kind on.
+// alert posts e about this server if Discord is connected and e's kind on,
+// or it's a player joining or leaving in the server's first week.
 func (s *server) alert(e discord.Event) {
 	if !s.discordConnected() {
 		return
 	}
 	e.Server = s.discordInfo()
+	if e.Kind == discord.KindPlayerJoined || e.Kind == discord.KindPlayerLeft {
+		e.FirstWeek = s.inFirstWeek()
+	}
 	s.disc.n.Notify(e)
+}
+
+// inFirstWeek reports whether the server posts its players joining and
+// leaving whatever their switch says: it's under a week old, and the admin
+// hasn't chosen those alerts.
+func (s *server) inFirstWeek() bool {
+	s.disc.mu.Lock()
+	set := s.disc.joinsSet
+	s.disc.mu.Unlock()
+	sc, err := s.serverConfig()
+	return !set && err == nil && sc != nil && !sc.CreatedAt.IsZero() && s.now().Before(sc.CreatedAt.Add(firstWeek))
 }
 
 // discordStatus is the server's line in the live status message: its state
@@ -352,7 +376,7 @@ func (a *Agent) alertMinecraftUpdates(ctx context.Context) {
 func (a *Agent) discordSettings() api.DiscordSettings {
 	a.disc.mu.Lock()
 	s := a.disc.settings
-	out := api.DiscordSettings{Connected: !s.Webhook.IsZero(), LiveStatus: s.LiveStatus, Alerts: []string{}, Kinds: []string{}}
+	out := api.DiscordSettings{Connected: !s.Webhook.IsZero(), LiveStatus: s.LiveStatus, Alerts: []string{}, Kinds: []string{}, JoinsFirstWeek: !a.disc.joinsSet}
 	if out.Connected {
 		out.WebhookName = a.disc.name
 		if !a.disc.connectedAt.IsZero() {
@@ -473,6 +497,7 @@ func (a *Agent) hDiscordSettings(w http.ResponseWriter, r *http.Request) {
 	host := cleanHost(req.Host)
 	a.disc.mu.Lock()
 	s := a.disc.settings
+	before := s.Alerts
 	s.Alerts = alerts
 	if req.LiveStatus != nil {
 		s.LiveStatus = *req.LiveStatus
@@ -483,12 +508,16 @@ func (a *Agent) hDiscordSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Alerts = discord.ParseAlerts(alerts.String())
-	_, err = a.db.Exec(`INSERT INTO discord(id, alerts, live_status, public_host) VALUES(1, ?, ?, ?)
+	// Switching the join and leave alerts on or off chooses them, which ends
+	// their first weeks; saving the other switches doesn't.
+	joinsSet := a.disc.joinsSet || req.JoinsChosen ||
+		before.Has(discord.KindPlayerJoined) != s.Alerts.Has(discord.KindPlayerJoined) || before.Has(discord.KindPlayerLeft) != s.Alerts.Has(discord.KindPlayerLeft)
+	_, err = a.db.Exec(`INSERT INTO discord(id, alerts, live_status, public_host, joins_set) VALUES(1, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET alerts = excluded.alerts, live_status = excluded.live_status,
-		public_host = CASE WHEN excluded.public_host = '' THEN public_host ELSE excluded.public_host END`,
-		s.Alerts.String(), boolInt(s.LiveStatus), host)
+		public_host = CASE WHEN excluded.public_host = '' THEN public_host ELSE excluded.public_host END, joins_set = excluded.joins_set`,
+		s.Alerts.String(), boolInt(s.LiveStatus), host, boolInt(joinsSet))
 	if err == nil {
-		a.disc.settings = s
+		a.disc.settings, a.disc.joinsSet = s, joinsSet
 		if host != "" {
 			a.disc.host = host
 		}

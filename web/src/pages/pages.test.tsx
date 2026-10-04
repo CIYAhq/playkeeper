@@ -748,6 +748,29 @@ describe('Overview', () => {
     expect(text).toContain('mara_k is on the allowlist.')
   })
 
+  // The walkthrough of 4 Oct 2026: nothing told the owner when a friend first
+  // joined, so nothing brought them back the next day.
+  it('offers Discord to hear when a friend joins, until one has or it’s connected, to whoever may connect it', async () => {
+    const waiting = server({ firstSteps: { invited: 'mara_k', backedUp: false, downloaded: false } })
+    const discord = (connected: boolean): DiscordSettings => ({ connected, alerts: [], liveStatus: false, delivery: {}, kinds: [] })
+    answer({ '/api/discord': discord(false) })
+    expect(await render(<Overview server={waiting} />)).toContain('A friend joinsThis one ticks itself.Hear when a friend joins: connect Discord')
+    expect(link('connect Discord').getAttribute('href')).toBe('/settings/discord')
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    expect(await render(<Overview server={waiting} />)).toContain('Back up nowHear when a friend joins: connect Discord')
+    phone.mockRestore()
+
+    answer({ '/api/discord': discord(true) })
+    expect(await render(<Overview server={waiting} />)).not.toContain('connect Discord')
+    answer({ '/api/discord': discord(false) })
+    const joined = server({ firstSteps: { invited: 'mara_k', friendJoined: 'mara_k', friendJoinedAt: new Date().toISOString(), backedUp: false, downloaded: false } })
+    expect(await render(<Overview server={joined} />)).not.toContain('connect Discord')
+    vi.mocked(client.get).mockClear()
+    const moderator = workspace({ me: { ...me, access: { ...me.access, role: 'moderator', can: ['view', 'servers.run', 'players.manage'] } } })
+    expect(await render(<Overview server={waiting} />, moderator)).not.toContain('connect Discord')
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => p === '/api/discord')).toBe(false)
+  })
+
   // The walkthrough of 1 Oct 2026: "Survival is up" under "Starting Survival failed".
   it('says the server is up in its first steps only while it is', async () => {
     const start = failed('start', 'starting', 'The server stopped while starting (exit code 1).')
@@ -3202,6 +3225,19 @@ describe('Onboarding', () => {
       expect(page()).toContain('Steve_Builds is on the allowlist and an operator.')
     })
 
+    // The walkthrough of 4 Oct 2026: nothing told the owner when a friend
+    // first joined, so nothing brought them back the next day.
+    it('is followed by Discord, offered to hear when friends join', async () => {
+      const settingUp = server({ phase: 'starting', startedAt: undefined, operation: { id: 'op1', kind: 'create', status: 'running', phase: 'starting', actor: 'siya', startedAt: new Date().toISOString() } })
+      const ws = workspace({ servers: [settingUp], prefs: { 'minecraft.name': 'Steve_Builds' } })
+      answer({ '/logs': { epoch: 'e', lines: [], next: 0, truncated: false } })
+      await render(<Onboarding />, ws)
+      const discord: DiscordSettings = { connected: false, alerts: [], liveStatus: false, delivery: {}, kinds: [] }
+      await online(ws, { '/whitelist': [steve], '/operators': [{ ...steve, level: 4 }], '/api/discord': discord })
+      expect(page()).toContain('Only people you add can join.Tell me when friends join: connect Discord')
+      expect(link('connect Discord').getAttribute('href')).toBe('/settings/discord')
+    })
+
     // A first start that timed out but came up after all: the agent adds the
     // name once it sees the server online.
     it('waits for the agent to add it before saying how it went', async () => {
@@ -3822,7 +3858,25 @@ describe('Discord', () => {
     const players = row?.querySelector<HTMLElement>('[role="switch"]')
     if (!players) throw new Error('no switch for players joining')
     await click(players)
-    expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: [...connected.alerts, 'player_joined', 'player_left'], liveStatus: true })
+    expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: [...connected.alerts, 'player_joined', 'player_left'], liveStatus: true, joinsChosen: true })
+  })
+
+  // The walkthrough of 4 Oct 2026: nothing told a new server's owner that a
+  // friend had joined. A new server posts players joining and leaving in its
+  // first week, and the switch says so until its admin chooses.
+  it('says a new server posts players joining and leaving in its first week anyway, until that’s kept off', async () => {
+    const firstWeek: DiscordSettings = { connected: true, webhookName: 'Playkeeper alerts', connectedAt: hoursAgo(1), alerts: ['crash', 'recovered', 'join_requested', 'backup_failed', 'low_disk', 'update_available'], liveStatus: true, delivery: {}, kinds, joinsFirstWeek: true }
+    answer({ '/api/discord': firstWeek })
+    const text = await render(<DiscordSettingsSection />)
+    expect(text).toContain('Someone joined or leftOn anyway in a new server’s first week, so you hear when friends first join. Keep it off')
+    expect(text).not.toContain('Can get chatty on busy evenings')
+    const chosen = { ...firstWeek, joinsFirstWeek: undefined }
+    vi.mocked(client.put).mockResolvedValueOnce(chosen)
+    answer({ '/api/discord': chosen })
+    await click(button('Keep it off'))
+    expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: firstWeek.alerts, liveStatus: true, joinsChosen: true })
+    expect(page()).toContain('Someone joined or leftCan get chatty on busy evenings')
+    expect(page()).not.toContain('first week')
   })
 
   // The dashboard's agent posts the message with its own machine's servers, so the preview shows only those.
