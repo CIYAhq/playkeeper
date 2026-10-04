@@ -98,7 +98,7 @@ export const en = {
   'status.creating': 'Creating',
   'status.unknown': 'Unknown',
   'status.playing': { one: '{count} playing', other: '{count} playing' },
-  'status.nobodyYet': 'nobody yet',
+  'status.nobodyNow': 'nobody on now',
 
   // Why a control can't be used right now (its tooltip)
   'reason.noAgent': 'Waiting for the Playkeeper agent to answer.',
@@ -3018,7 +3018,7 @@ export const en = {
   'time.inHours': 'in {count} h',
   'time.inMinutes': 'in {count} min',
   'activity.teamJoined': '{name} joined the team as {role}',
-  'activity.allowlistedByLink': '{player} joined with an invite link',
+  'activity.allowlistedByLink': '{player} got on the list with an invite link',
   'team.title': 'Team',
   'team.add': 'Add a team member',
   'team.addCreator': 'Invite a creator',

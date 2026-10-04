@@ -48,7 +48,7 @@ const (
 	movedState  = `{"rows":{"servers":[{"public_page":0,"packs_token":"packtoken"}],"schedules":[{"id":"sched12345","name":"nightly"}],"offsite":[{"secret":"the-secret","keys":"the-keys"}]}}`
 	movedServer = "cafebabe23"
 	movedStatus = `{"id":"cafebabe23","name":"alex","slug":"alex","phase":"online","desired":"running","gamePort":25566,
-		"config":{"memoryMB":2048,"playStyle":"friends","createdAt":"2026-09-20T10:00:00Z","eulaAcceptedAt":"2026-09-20T10:00:00Z","eulaAcceptedBy":"alex"}}`
+		"config":{"memoryMB":2048,"playStyle":"friends","createdAt":"2026-09-20T10:00:00Z","eulaAcceptedAt":"2026-09-20T10:00:00Z","eulaAcceptedBy":"alex","creatorNames":"alex_mc"}}`
 	movedUpload = "0123456789abcdef"
 )
 
@@ -327,7 +327,7 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	in := f.moveIn
 	f.mu.Unlock()
 	for k, want := range map[string]any{"serverId": movedServer, "name": "alex", "slug": "alex", "account": accountLimit(f.alex.id), "memoryMB": float64(2048), "playStyle": "friends", "start": true,
-		"eulaAcceptedBy": "alex", "eulaAcceptedAt": "2026-09-20T10:00:00Z", "createdAt": "2026-09-20T10:00:00Z", "actor": placementActor} {
+		"eulaAcceptedBy": "alex", "eulaAcceptedAt": "2026-09-20T10:00:00Z", "createdAt": "2026-09-20T10:00:00Z", "creatorNames": "alex_mc", "actor": placementActor} {
 		if in[k] != want {
 			t.Errorf("the move-in's %s: %v, want %v", k, in[k], want)
 		}

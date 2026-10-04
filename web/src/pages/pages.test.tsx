@@ -535,7 +535,7 @@ describe('Home for team members', () => {
       { ts: hoursAgo(2), serverId: 'abcdefghjk', kind: 'allowlisted', player: 'pixelpia', actor: 'siya' },
     ] })
     const text = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: both() }))
-    expect(text).toContain('Lenn0x joined with an invite link')
+    expect(text).toContain('Lenn0x got on the list with an invite link')
     expect(text).toContain('siya added pixelpia to the allowlist')
     expect(text).not.toContain('invite:')
   })

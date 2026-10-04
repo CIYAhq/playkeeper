@@ -1121,6 +1121,22 @@ control "run again, the summary says what to do when the link won't open" cmd/pl
 	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
   '	fmt.Fprintf(w, "  2. %s\n\n", browserWarning)' \
   ./cmd/playkeeper '^TestTheInstallCommandRunAgainSaysHowToGetIn$'
+control "the first steps don't count whoever created the server as a friend" internal/agent/handlers.go \
+  '		creators = strings.Fields(sc.CreatorNames)' \
+  '		creators = nil' \
+  ./internal/agent '^TestTheFirstStepsCountOnlyPlayersOtherThanWhoeverCreatedTheServer$'
+control "a server keeps whoever created it once they're added" internal/agent/handlers.go \
+  ' CreatorNames: strings.Join(operators, " "),' \
+  '' \
+  ./internal/agent '^TestTheFirstStepsCountOnlyPlayersOtherThanWhoeverCreatedTheServer$'
+control "a server moved in keeps whoever created it" internal/agent/movein.go \
+  ', CreatorNames: strings.Join(creators, " ")},' \
+  ', CreatorNames: strings.Join(creators[:0], " ")},' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "a move sends whoever created the server to the machine it goes to" internal/panel/moves.go \
+  ', CreatorNames: cfg.CreatorNames, Actor: placementActor}' \
+  ', Actor: placementActor}' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "the existing-setup check tells a running service from a stopped one" internal/install/install.go \
   '	case slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
   '	case false && slices.Contains([]string{"active", "activating", "reloading"}, strings.TrimSpace(active)):' \
