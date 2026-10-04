@@ -41,6 +41,9 @@ func TestReportsWithEveryFieldInRangePassTheirCheck(t *testing.T) {
 		func(h *Heartbeat) { h.Servers, h.Running = 0, 0 },
 		func(h *Heartbeat) { h.Servers, h.Running = MaxServers, MaxServers },
 		func(h *Heartbeat) { h.Test = true },
+		func(h *Heartbeat) { h.Reached = ReachedAccount },
+		func(h *Heartbeat) { h.Reached = ReachedFriends },
+		func(h *Heartbeat) { h.Reached = "first-backup" },
 	} {
 		c := h
 		change(&c)
@@ -81,6 +84,9 @@ func TestReportsWithAFieldOutOfRangeAreRefusedWithoutShowingIt(t *testing.T) {
 		"servers ":  func(h *Heartbeat) { h.Servers = -1 },
 		"running":   func(h *Heartbeat) { h.Servers, h.Running = 1, 2 },
 		"running ":  func(h *Heartbeat) { h.Running = -1 },
+		"reached":   func(h *Heartbeat) { h.Reached = "Played" },
+		"reached ":  func(h *Heartbeat) { h.Reached = secret },
+		"reached  ": func(h *Heartbeat) { h.Reached = strings.Repeat("a", 33) },
 	}
 	for field, change := range cases {
 		h := goodHeartbeat()

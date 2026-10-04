@@ -71,7 +71,7 @@ code=$(report /v1/install "{\"id\":\"$id\",\"event\":\"started\",$system}") || f
 [ "$code" = 204 ] || fail "an install's first report answered $code: $(cat "$out")"
 code=$(report /v1/install "{\"id\":\"$id\",\"event\":\"succeeded\",$system}")
 [ "$code" = 204 ] || fail "an install's last report answered $code: $(cat "$out")"
-code=$(report /v1/heartbeat "{\"id\":\"$id\",$system,\"address\":\"free\",\"servers\":2,\"running\":1,\"hostname\":\"alice-vps\"}")
+code=$(report /v1/heartbeat "{\"id\":\"$id\",$system,\"address\":\"free\",\"servers\":2,\"running\":1,\"reached\":\"played\",\"hostname\":\"alice-vps\"}")
 [ "$code" = 204 ] || fail "a heartbeat answered $code: $(cat "$out")"
 code=$(report /v1/heartbeat "{\"id\":\"$id\",$system,\"address\":\"alice.example.com\",\"servers\":2,\"running\":1}")
 [ "$code" = 400 ] || fail "a heartbeat with an address instead of its kind answered $code, not 400"
@@ -98,6 +98,7 @@ assert s["installs"]["1d"]["started"] == 1 and s["installs"]["1d"]["succeeded"] 
 a = s["active"]["1d"]
 assert a["installs"] == 1 and a["onOurDomain"] == 1 and a["servers"] == 2 and a["running"] == 1, a
 assert a["byAddress"] == {"free": 1}, a["byAddress"]
+assert a["byReached"] == {"played": 1}, a["byReached"]
 assert s["test"] == {"started30d": 0, "active7d": 0}, s["test"]
 f = s["funnel"]["1d"]
 assert f == {"visitors": None, "demoOpens": None, "commandCopies": 1, "started": 1, "succeeded": 1, "stillRunning": 1}, f
