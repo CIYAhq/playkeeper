@@ -147,7 +147,7 @@ webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
   if (cd web && TMPDIR="$tmp/vitest" npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
     problem "MISSED   $name: ${tests:-$testfile} still passes without the guard"
   elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
-    problem "INVALID  $name: no test ran to fail"
+    problem "INVALID  $name: no test ran to fail; vitest said: $(grep -m1 -iE 'error|no test|cannot|failed' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   else
     echo "caught   $name: $(grep -m1 -E '^(AssertionError|Error): |^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
