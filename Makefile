@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-panel-race test-web test-sh web-budget web build package notices site dev e2e-vm clean template-check template-thumbnails plugins version-lists
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-controls lint-sh typecheck test test-go test-go-other test-agent test-panel-race test-web test-sh web-budget web build package notices site dev e2e-vm clean template-check template-thumbnails plugins version-lists
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -19,7 +19,7 @@ setup: ## Install pinned Go/Node into .tools/ and the web dependencies
 
 check: lint typecheck test web-budget ## Everything CI's check job runs: lint, typecheck, unit tests, the first-load budget
 
-lint: lint-go lint-web lint-notices ## gofmt, go vet, ESLint (web UI and browser tests), THIRD_PARTY_NOTICES up to date
+lint: lint-go lint-web lint-notices lint-controls ## gofmt, go vet, ESLint (web UI and browser tests), THIRD_PARTY_NOTICES up to date, every negative control aimed at its guard
 
 lint-go:
 	@unformatted=$$(gofmt -l cmd internal web/*.go); if [ -n "$$unformatted" ]; then echo "gofmt needed: $$unformatted"; exit 1; fi
@@ -30,6 +30,9 @@ lint-web:
 
 lint-notices:
 	./scripts/third-party-notices.sh --check
+
+lint-controls:
+	./scripts/negative-controls.sh --check
 
 lint-sh: ## shellcheck the shell scripts (needs shellcheck installed)
 	shellcheck -x $(SH_FILES)
@@ -64,6 +67,7 @@ test-sh:
 	bash scripts/setup_test.sh
 	bash scripts/package_test.sh
 	bash scripts/quarantine_test.sh
+	bash scripts/negative-controls_test.sh
 	bash scripts/demo-marker_test.sh
 	bash scripts/go-test-shard_test.sh
 	bash scripts/ci-parts_test.sh
