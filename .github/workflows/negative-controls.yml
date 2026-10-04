@@ -1,0 +1,72 @@
+name: Negative controls, a night's share
+
+# scripts/negative-controls.sh removes each safety guard in turn and checks
+# that the tests covering it fail. All of them take hours, so each night
+# this runs one share of them on main, about 10 minutes: the nights go in
+# cycles, and a cycle runs every control once (the script's --night). The
+# date picks the share, so `scripts/negative-controls.sh --night DATE` at
+# the same commit runs the same controls again, and Run workflow takes a
+# date too. A control that went wrong turns the run red, with the problems
+# and that command in its summary; nothing waits on it. On every pull
+# request, CI's Lint job checks that each control still aims at its guard
+# (--check). A pull request that changes this workflow runs it too.
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  pull_request:
+    paths:
+      - .github/workflows/negative-controls.yml
+  workflow_dispatch:
+    inputs:
+      night:
+        description: "The night whose share to run, YYYY-MM-DD (today's, UTC, when empty)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: negative-controls-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  share:
+    name: A night's share of the negative controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: The night's share
+        env:
+          NIGHT: ${{ inputs.night }}
+        run: |
+          night=${NIGHT:-$(date -u +%F)}
+          set +e
+          scripts/negative-controls.sh --night "$night" 2>&1 | tee /tmp/negative-controls.out
+          status=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### Negative controls, the night of $night"
+            echo
+            grep -E '^the night of .* ran ' /tmp/negative-controls.out || true
+            echo
+            if [ "$status" -eq 0 ]; then
+              echo "Every guard's test failed without it."
+            else
+              echo '```'
+              sed -n '/^problems: /,$p' /tmp/negative-controls.out | grep -E '^(STALE|MISSED|INVALID) ' || tail -20 /tmp/negative-controls.out
+              echo '```'
+              echo
+              echo "To run them again: \`scripts/negative-controls.sh --night $night\` at $(git rev-parse --short=12 HEAD)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
