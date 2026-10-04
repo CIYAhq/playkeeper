@@ -487,6 +487,10 @@ type ServerConfig struct {
 	// until a start brings the server up and adds them. A string keeps
 	// ServerConfig comparable.
 	PendingOperators string `json:"pendingOperators,omitempty"`
+	// CreatorNames (from 0.4.18) are the same names, kept once they're
+	// added: whoever created the server, whom the first steps don't count as
+	// a friend.
+	CreatorNames string `json:"creatorNames,omitempty"`
 }
 
 type CreateServerRequest struct {

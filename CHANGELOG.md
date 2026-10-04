@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.18
+
+- **First steps count friends only:** the owner's own name, which a new server puts on its allowlist, ticked "Invite a friend", and the owner's own first join ticked "A friend joins". A server nobody else had seen showed both done, and the only step left was a backup. Both steps now count only players other than whoever created the server. Someone who got on the list through an invite link but hasn't played no longer shows as "joined", and a server with nobody on says "nobody on now" instead of "nobody yet".
+
 ## 0.4.17
 
 - **Old Minecraft setups that can't get in the way:** the installer now goes next to them by itself, where it used to stop: a service that isn't running and doesn't start with the machine, a stopped container Docker won't start again, and a panel's files when the panel isn't running. It never touches them, and its last screen says so, one line each, like "Left your old Minecraft service (minecraft.service) alone; it isn't running." A setup that runs, starts again by itself or is a running panel still stops it.

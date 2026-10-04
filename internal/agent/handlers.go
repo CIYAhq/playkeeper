@@ -374,14 +374,33 @@ func opPhase(op *api.Operation) (api.Phase, bool) {
 }
 
 // firstSteps ticks off the "Get started" checklist from what has happened.
+// A friend is anyone but whoever created the server: the create puts their
+// own name on the allowlist, and their own join is no friend's.
 func (s *server) firstSteps() api.FirstSteps {
 	var fs api.FirstSteps
-	if list, err := s.whitelist(); err == nil && len(list) > 0 {
-		fs.Invited = list[0].Name
+	var creators []string
+	if sc, err := s.serverConfig(); err == nil && sc != nil {
+		creators = strings.Fields(sc.CreatorNames)
+	}
+	creator := func(name string) bool {
+		return slices.ContainsFunc(creators, func(c string) bool { return strings.EqualFold(c, name) })
+	}
+	if list, err := s.whitelist(); err == nil {
+		for _, e := range list {
+			if !creator(e.Name) {
+				fs.Invited = e.Name
+				break
+			}
+		}
+	}
+	q, args := `SELECT player, start_ts FROM sessions WHERE server_id = ?`, []any{s.id}
+	for _, c := range creators {
+		q += ` AND LOWER(player) != ?`
+		args = append(args, strings.ToLower(c))
 	}
 	var player string
 	var ts int64
-	if s.db.QueryRow(`SELECT player, start_ts FROM sessions WHERE server_id = ? ORDER BY start_ts LIMIT 1`, s.id).Scan(&player, &ts) == nil {
+	if s.db.QueryRow(q+` ORDER BY start_ts LIMIT 1`, args...).Scan(&player, &ts) == nil {
 		t := time.UnixMilli(ts).UTC()
 		fs.FriendJoined, fs.FriendJoinedAt = player, &t
 	}
@@ -591,7 +610,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	base := api.ServerConfig{
 		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapFor(req.MemoryMB, typ, 0),
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
-		PlayStyle: req.PlayStyle, Gameplay: gp, PendingOperators: strings.Join(operators, " "),
+		PlayStyle: req.PlayStyle, Gameplay: gp, PendingOperators: strings.Join(operators, " "), CreatorNames: strings.Join(operators, " "),
 	}
 	// The activity line names the software as the catalog does ("Fabric 26.2"); the loader lives on the server's pages.
 	sc, label := withBuild(base, entry), entry.Label

@@ -270,3 +270,35 @@ func TestACreateRefusesOperatorsMinecraftCantHave(t *testing.T) {
 		t.Fatalf("a refused create left %d servers", n)
 	}
 }
+
+// The second-day walkthrough of 4 Oct 2026: the owner's own name, which the
+// create puts on the allowlist, ticked "Invite a friend", and the owner's own
+// join ticked "A friend joins", so a server nobody else had seen showed both
+// done. The first steps count only players other than whoever created it.
+func TestTheFirstStepsCountOnlyPlayersOtherThanWhoeverCreatedTheServer(t *testing.T) {
+	e := newAgentEnv(t)
+	code, out := e.startCreate(map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin", "operators": []string{"Steve_Builds"}})
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	e.sid = out["serverId"].(string)
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("the first start: %+v", op)
+	}
+	if sc := e.status().Config; sc == nil || sc.PendingOperators != "" || sc.CreatorNames != "Steve_Builds" {
+		t.Fatalf("whoever created the server is kept once added: %+v", sc)
+	}
+	e.putData("whitelist.json", `[{"uuid":"00000000-0000-0000-0000-0000000000a1","name":"Steve_Builds"}]`)
+	e.fd.addLog("[12:01:00 INFO]: steve_builds joined the game")
+	e.waitFor("the owner's session", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions`) == 1 })
+	if fs := e.status().FirstSteps; fs.Invited != "" || fs.FriendJoined != "" {
+		t.Fatalf("the owner alone ticked the first steps: %+v", fs)
+	}
+
+	e.putData("whitelist.json", `[{"uuid":"00000000-0000-0000-0000-0000000000a1","name":"Steve_Builds"},{"uuid":"00000000-0000-0000-0000-0000000000a2","name":"Alex"}]`)
+	e.fd.addLog("[12:02:00 INFO]: Alex joined the game")
+	e.waitFor("Alex's join", func() bool { return e.status().FirstSteps.FriendJoined == "Alex" })
+	if fs := e.status().FirstSteps; fs.Invited != "Alex" || fs.FriendJoinedAt == nil {
+		t.Fatalf("a friend on the list who joined: %+v", fs)
+	}
+}

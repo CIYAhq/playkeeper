@@ -65,7 +65,7 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
       return {
         tone,
         label: t('status.online'),
-        detail: st.players ? (st.players.online > 0 ? t('status.playing', { count: st.players.online }) : t('status.nobodyYet')) : undefined,
+        detail: st.players ? (st.players.online > 0 ? t('status.playing', { count: st.players.online }) : t('status.nobodyNow')) : undefined,
         labelClass: 'text-success-foreground',
       }
     case 'crashed': {
