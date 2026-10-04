@@ -20,21 +20,33 @@ import (
 )
 
 // Anonymous usage stats (internal/usage): a heartbeat a minute after the
-// agent starts, right after the dashboard's first account is made and
-// right after the machine's first server comes online, and twice a day
-// after that, saying the machine runs Playkeeper, which version on which
-// system, its kind of address and how many Minecraft servers it has.
+// agent starts, right after each setup step the machine reaches for the
+// first time, and twice a day after that, saying the machine runs
+// Playkeeper, which version on which system, its kind of address, how many
+// Minecraft servers it has and the furthest setup step it reached.
 // README.md ("Usage stats") says what each field is.
 const (
 	kvUsageID    = "usage_id"
 	kvUsageStats = "usage_stats"
 	kvUsageSent  = "usage_sent"
 	// The setup steps that send a heartbeat at once, the first time the
-	// machine reaches each: the dashboard's first account, and its first
-	// server online.
+	// machine reaches each: the dashboard's first account, its first server
+	// online, the first player's session on any of its servers (the
+	// owner's included), and a second, different player's.
 	kvUsageAccount = "usage_first_account"
 	kvUsageOnline  = "usage_first_online"
+	kvUsagePlayed  = "usage_first_played"
+	kvUsageFriends = "usage_friends"
 )
+
+// usageSteps are the setup steps, furthest first, each with what a
+// heartbeat says for it (usage.Heartbeat.Reached).
+var usageSteps = []struct{ key, reached string }{
+	{kvUsageFriends, usage.ReachedFriends},
+	{kvUsagePlayed, usage.ReachedPlayed},
+	{kvUsageOnline, usage.ReachedServer},
+	{kvUsageAccount, usage.ReachedAccount},
+}
 
 // usageFirstAccountPath is the panel saying the dashboard's first account
 // was just made. Only the agent's socket answers it (see socketOnly).
@@ -137,7 +149,20 @@ func (a *Agent) usageReport(ctx context.Context) (usage.Heartbeat, error) {
 		}
 	}
 	h.Servers, h.Running = min(h.Servers, usage.MaxServers), min(h.Running, usage.MaxServers)
+	h.Reached = a.usageReached()
 	return h, nil
+}
+
+// usageReached is the furthest setup step the machine has reached, or none
+// before its first: the dashboard's first account, or a joined machine's
+// first server online.
+func (a *Agent) usageReached() string {
+	for _, step := range usageSteps {
+		if _, noted, err := a.kvGet(step.key); err == nil && noted {
+			return step.reached
+		}
+	}
+	return ""
 }
 
 func (a *Agent) statsService() string {
@@ -269,19 +294,46 @@ func (s *server) opEnded() {
 	}
 }
 
-// loadUsage notes the first server online already on a machine whose servers
-// came online before Playkeeper noted it (before 0.4.16), so updating sends
-// no heartbeat for a step taken long ago.
+// sessionStarted notes the setup steps a player's session can reach: the
+// first on any of the machine's servers, then the first by a second,
+// different player.
+func (s *server) sessionStarted() {
+	if err := s.usageStep(kvUsagePlayed); err != nil {
+		s.log.Info("could not note the first player for usage stats", "err", err)
+		return
+	}
+	if _, noted, err := s.kvGet(kvUsageFriends); err != nil || noted {
+		return
+	}
+	var players int
+	if err := s.db.QueryRow(`SELECT COUNT(DISTINCT lower(player)) FROM sessions`).Scan(&players); err != nil || players < 2 {
+		return
+	}
+	if err := s.usageStep(kvUsageFriends); err != nil {
+		s.log.Info("could not note a second player for usage stats", "err", err)
+	}
+}
+
+// loadUsage notes the setup steps a machine took before Playkeeper noted
+// them, from what it keeps anyway: a server that came online (before
+// 0.4.16), and players' sessions (before 0.4.18). So updating sends no
+// heartbeat for a step taken long ago.
 func (a *Agent) loadUsage() {
-	if _, noted, err := a.kvGet(kvUsageOnline); err != nil || noted {
-		return
-	}
-	var ran bool
-	if err := a.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM events WHERE kind = 'server_ready')`).Scan(&ran); err != nil || !ran {
-		return
-	}
-	if err := a.kvSet(kvUsageOnline, a.now().UTC().Format(time.RFC3339)); err != nil {
-		a.log.Warn("could not note that a server came online before", "err", err)
+	for _, step := range []struct{ key, took string }{
+		{kvUsageOnline, `SELECT EXISTS(SELECT 1 FROM events WHERE kind = 'server_ready')`},
+		{kvUsagePlayed, `SELECT EXISTS(SELECT 1 FROM sessions)`},
+		{kvUsageFriends, `SELECT COUNT(DISTINCT lower(player)) >= 2 FROM sessions`},
+	} {
+		if _, noted, err := a.kvGet(step.key); err != nil || noted {
+			continue
+		}
+		var took bool
+		if err := a.db.QueryRow(step.took).Scan(&took); err != nil || !took {
+			continue
+		}
+		if err := a.kvSet(step.key, a.now().UTC().Format(time.RFC3339)); err != nil {
+			a.log.Warn("could not note a setup step taken before", "step", step.key, "err", err)
+		}
 	}
 }
 

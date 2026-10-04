@@ -107,7 +107,7 @@ func TestTheHeartbeatIsWhatTheDashboardShows(t *testing.T) {
 	e.create()
 	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 2 })
 	st := e.usageStats()
-	want := usage.Heartbeat{ID: "00112233445566778899aabbccddeeff", Address: usage.AddressIP, Servers: 1, Running: 1, System: usage.System{
+	want := usage.Heartbeat{ID: "00112233445566778899aabbccddeeff", Address: usage.AddressIP, Servers: 1, Running: 1, Reached: usage.ReachedServer, System: usage.System{
 		Version: version.Version, OS: "debian", OSVersion: "13", Arch: runtime.GOARCH, Source: usage.SourceSite, Channel: "hn", Kind: usage.KindDashboard}}
 	if st.Report != want {
 		t.Errorf("the report is %+v, want %+v", st.Report, want)
@@ -116,7 +116,7 @@ func TestTheHeartbeatIsWhatTheDashboardShows(t *testing.T) {
 		t.Errorf("usage stats: %+v", st)
 	}
 	first := rec.beat(0)
-	if first["id"] != want.ID || first["servers"] != float64(0) || first["address"] != usage.AddressIP || first["os"] != "debian" {
+	if _, said := first["reached"]; first["id"] != want.ID || first["servers"] != float64(0) || first["address"] != usage.AddressIP || first["os"] != "debian" || said {
 		t.Errorf("the first heartbeat: %v", first)
 	}
 	if online := rec.heartbeat(1); online != want {
@@ -147,7 +147,7 @@ func TestEachSetupStepSendsAHeartbeatOnce(t *testing.T) {
 	}
 	firstAccount()
 	e.waitFor("the first account's heartbeat", func() bool { return rec.count() == 1 })
-	if h := rec.heartbeat(0); h.Servers != 0 || h.Running != 0 || h.Address != usage.AddressIP {
+	if h := rec.heartbeat(0); h.Servers != 0 || h.Running != 0 || h.Address != usage.AddressIP || h.Reached != usage.ReachedAccount {
 		t.Errorf("the first account's heartbeat: %+v", h)
 	}
 	firstAccount()
@@ -156,7 +156,7 @@ func TestEachSetupStepSendsAHeartbeatOnce(t *testing.T) {
 	}
 	e.create()
 	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 2 })
-	if h := rec.heartbeat(1); h.Servers != 1 || h.Running != 1 {
+	if h := rec.heartbeat(1); h.Servers != 1 || h.Running != 1 || h.Reached != usage.ReachedServer {
 		t.Errorf("the first server's heartbeat: %+v", h)
 	}
 	if op := e.runOp("POST", "/restart"); op.Status != api.OpSucceeded {
@@ -307,6 +307,82 @@ func TestAnUpdatedMachineSendsNoHeartbeatForAnOldFirstServer(t *testing.T) {
 	if !rec.quiet(0) {
 		t.Errorf("%d heartbeats for a first server that came online before the update", rec.count())
 	}
+}
+
+// The first player's session on any of the machine's servers, the owner's
+// included, sends a heartbeat at once, and so does the first by a second,
+// different player. Each says the furthest step the machine reached, and
+// none names a player.
+func TestPlayersSendTheLaterSetupStepsOnce(t *testing.T) {
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+	})
+	e.create()
+	e.waitFor("the first server's heartbeat", func() bool { return rec.count() == 1 })
+	e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
+	e.waitFor("the first player's heartbeat", func() bool { return rec.count() == 2 })
+	if h := rec.heartbeat(1); h.Reached != usage.ReachedPlayed || h.Servers != 1 || h.Running != 1 {
+		t.Errorf("the first player's heartbeat: %+v", h)
+	}
+	e.fd.addLog("[12:02:00 INFO]: PkBotBuilder left the game")
+	e.fd.addLog("[12:03:00 INFO]: pkbotbuilder joined the game")
+	if !rec.quiet(2) {
+		t.Fatalf("the same player back sent %d heartbeats in all", rec.count())
+	}
+	e.fd.addLog("[12:04:00 INFO]: PkBotFriend joined the game")
+	e.waitFor("the second player's heartbeat", func() bool { return rec.count() == 3 })
+	if h := rec.heartbeat(2); h.Reached != usage.ReachedFriends {
+		t.Errorf("the second player's heartbeat: %+v", h)
+	}
+	e.fd.addLog("[12:05:00 INFO]: PkBotStranger joined the game")
+	if !rec.quiet(3) {
+		t.Errorf("a third player sent %d heartbeats in all", rec.count())
+	}
+	for i := range 3 {
+		if b, _ := json.Marshal(rec.beat(i)); strings.Contains(strings.ToLower(string(b)), "pkbot") {
+			t.Errorf("heartbeat %d names a player: %s", i+1, b)
+		}
+	}
+	if st := e.usageStats(); st.Report.Reached != usage.ReachedFriends {
+		t.Errorf("the report: %+v", st.Report)
+	}
+}
+
+// A machine whose players played before Playkeeper noted it, as one updated
+// from an earlier version, sends no heartbeat for them, and says how far its
+// setup got.
+func TestAnUpdatedMachineSendsNoHeartbeatForPlayersBefore(t *testing.T) {
+	e, rec := sendingEnv(t, time.Hour, func(e *agentEnv) {
+		e.tweak = func(o *Options) { o.UsageInterval = -1 }
+	})
+	e.create()
+	e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
+	e.fd.addLog("[12:02:00 INFO]: PkBotFriend joined the game")
+	e.waitFor("both players' sessions", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions`) == 2 })
+	if _, err := e.a.db.Exec(`DELETE FROM kv WHERE key IN (?, ?)`, kvUsagePlayed, kvUsageFriends); err != nil {
+		t.Fatal(err)
+	}
+	e.stop()
+	e.tweak = func(o *Options) { o.UsageFirst, o.UsageInterval = time.Hour, time.Hour }
+	e.start()
+	if st := e.usageStats(); st.Report.Reached != usage.ReachedFriends {
+		t.Fatalf("after the update: %+v", st.Report)
+	}
+	e.fd.addLog("[12:03:00 INFO]: PkBotStranger joined the game")
+	if !rec.quiet(0) {
+		t.Errorf("%d heartbeats for players who played before the update", rec.count())
+	}
+}
+
+// A joined machine makes no account, so its furthest step is its first
+// server online.
+func TestAJoinedMachinesFurthestStepStartsAtItsFirstServer(t *testing.T) {
+	e := newAgentEnvWith(t, func(e *agentEnv) { e.cfg.Dev, e.cfg.NoPanel = false, true })
+	if st := e.usageStats(); st.Report.Reached != "" {
+		t.Fatalf("before its first server: %+v", st.Report)
+	}
+	e.create()
+	e.waitFor("the first server online", func() bool { return e.usageStats().Report.Reached == usage.ReachedServer })
 }
 
 // Root's choices come first, then the switch: playkeeper dev never sends,
