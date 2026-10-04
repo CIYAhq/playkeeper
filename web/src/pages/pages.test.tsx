@@ -773,6 +773,23 @@ describe('Overview', () => {
     expect(down).not.toContain('Friends also need port')
   })
 
+  // The second-day walkthrough of 4 Oct 2026: the address is what a newcomer
+  // shares, and a friend who wasn't on the allowlist was turned away. The card
+  // says only people on it get in, with a way to add them, and so does
+  // copying the address.
+  it('says only people on the allowlist get in, by the address and as it is copied', async () => {
+    const toast = vi.spyOn(toastManager, 'add')
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    await render(<Overview server={server()} />)
+    expect(page()).toContain('Only people on the allowlist get in: add your friends')
+    expect(link('add your friends').getAttribute('href')).toBe('/servers/survival/players#add')
+    await click(buttons('Copy')[0] ?? button('Copy'))
+    expect(copy).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith({ title: 'Copied. Friends also need their name on the allowlist.', type: 'success' })
+    copy.mockRestore()
+    toast.mockRestore()
+  })
+
   // Regression for items 62 and 86: after a failed create the steps must
   // point at the step the job failed in, not at the server's own phase.
   it('marks the step a failed create stopped at', async () => {

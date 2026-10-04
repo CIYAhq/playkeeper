@@ -4670,6 +4670,18 @@ webcontrol "Settings › Memory counts friends for the server's type" web/src/pa
   '{memoryAdviceLine(advice, machineName, catalog?.sizing, s.type, planMaxMB)}' \
   '{memoryAdviceLine(advice, machineName, catalog?.sizing, undefined, planMaxMB)}' \
   web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
+webcontrol "the join card says only people on the allowlist get in" web/src/pages/server/overview.tsx \
+  '{address && s.config?.whitelist !== false && (' \
+  '{false && (' \
+  web/src/pages/pages.test.tsx 'only people on the allowlist get in'
+webcontrol "copying the join card's address says friends need their name on the allowlist" web/src/pages/server/overview.tsx \
+  "{address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={joinCopied(s)} />}" \
+  "{address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />}" \
+  web/src/pages/pages.test.tsx 'only people on the allowlist get in'
+webcontrol "a copied join address mentions the allowlist only while it's on" web/src/lib/machines.ts \
+  "return s?.config?.whitelist === false ? t('toast.copied') : t('toast.copiedJoin')" \
+  "return t('toast.copiedJoin')" \
+  web/src/lib/lib.test.ts 'when a join address is copied'
 webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
   'const recovered = s.recoveredCrash' \
   'const recovered = s.crash' \

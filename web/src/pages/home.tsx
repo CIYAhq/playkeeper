@@ -23,7 +23,7 @@ import { rich } from '@/i18n/rich'
 import { can, canCreate, canCreateOn, welcomeKey } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatDate, formatList, formatLongDate, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
-import { awayLabel, awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
+import { awayLabel, awayLong, awayOf, byMachine, isAway, isStale, joinCopied, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseTone, statusLabel, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
@@ -397,7 +397,7 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
         {join.address ? (
           <>
             <span className="min-w-0 flex-1 truncate">{join.address}</span>
-            <CopyButton text={join.address} size="sm" className="bg-white" />
+            <CopyButton text={join.address} size="sm" className="bg-white" toast={joinCopied(s)} />
           </>
         ) : (
           <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground" title={join.reason}>

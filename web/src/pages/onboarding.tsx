@@ -23,6 +23,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatMB, serverJoinAddress } from '@/lib/format'
 import { failureLine } from '@/lib/crash'
+import { joinCopied } from '@/lib/machines'
 import { createStepOf, isSettingUp } from '@/lib/phase'
 import { useAppearAtOnce } from '@/lib/presence'
 import { navigate } from '@/lib/router'
@@ -780,7 +781,7 @@ function OnlineStage({ server: s, owner }: { server: ServerStatus; owner?: strin
           <span className="text-2xl font-extrabold tabular-nums" data-testid="join-address">
             {address}
           </span>
-          <CopyButton text={address} variant="default" size="sm" toast={t('toast.copied')} />
+          <CopyButton text={address} variant="default" size="sm" toast={joinCopied(s)} />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint')}</p>
       </div>

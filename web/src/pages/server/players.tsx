@@ -15,7 +15,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { formatDay, formatDuration, localTimeZone, relativeTime } from '@/lib/format'
-import type { Join } from '@/lib/machines'
+import { joinCopied, type Join } from '@/lib/machines'
 import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, rePlayerName } from '@/lib/router'
@@ -312,7 +312,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   }
   const copyAddress = async () => {
     const ok = await copyText(address)
-    toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
+    toastManager.add(ok ? { title: joinCopied(s), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
 
   let body: ReactNode
@@ -561,7 +561,7 @@ function EmptyPlayers({ server: s, join, form, phone, manage, onNewLink }: { ser
         <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
           {t('players.theirAddress')}
           <span className="font-semibold text-foreground">{join.address}</span>
-          <CopyButton text={join.address} size="xs" toast={t('toast.copied')} />
+          <CopyButton text={join.address} size="xs" toast={joinCopied(s)} />
         </p>
       ) : (
         <p className="mt-3 text-xs text-muted-foreground">{join.reason}</p>

@@ -6,6 +6,10 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 - **The join address's "Answering" line:** a green "Answering on port 25565" read as "friends can join", even while the provider's firewall kept them out. The machine only checks its own server, so the line now says "Answering on" the machine, and a second line says friends also need the port open at their provider, with a link to how to open it.
 
+## 0.4.18
+
+- **Sharing the address:** the address is what a newcomer shares, and a friend whose name wasn't on the allowlist was turned away. The Join address card now says "Only people on the allowlist get in: add your friends", linking to adding them. Copying the address anywhere says "Copied. Friends also need their name on the allowlist.", onboarding's hint says to add their name first, and the invite message asks the friend for their exact Minecraft name.
+
 ## 0.4.17
 
 - **Old Minecraft setups that can't get in the way:** the installer now goes next to them by itself, where it used to stop: a service that isn't running and doesn't start with the machine, a stopped container Docker won't start again, and a panel's files when the panel isn't running. It never touches them, and its last screen says so, one line each, like "Left your old Minecraft service (minecraft.service) alone; it isn't running." A setup that runs, starts again by itself or is a running panel still stops it.
