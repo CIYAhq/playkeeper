@@ -133,13 +133,13 @@ func jsonKeys(t *testing.T, v any) []string {
 // What a report carries, field by field; README.md's "Usage stats" lists the
 // same (TestTheReadmeListsEveryFieldSent).
 var (
-	heartbeatFields = []string{"address", "arch", "channel", "id", "kind", "os", "osVersion", "running", "servers", "source", "test", "version"}
+	heartbeatFields = []string{"address", "arch", "channel", "id", "kind", "os", "osVersion", "reached", "running", "servers", "source", "test", "version"}
 	installFields   = []string{"arch", "channel", "event", "id", "kind", "os", "osVersion", "source", "step", "test", "version"}
 )
 
 func TestReportsCarryOnlyTheirFields(t *testing.T) {
 	h := goodHeartbeat()
-	h.Channel, h.Test = "hn", true
+	h.Channel, h.Test, h.Reached = "hn", true, ReachedPlayed
 	if got := jsonKeys(t, h); !reflect.DeepEqual(got, heartbeatFields) {
 		t.Errorf("a heartbeat sends %v, want %v", got, heartbeatFields)
 	}

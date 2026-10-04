@@ -649,6 +649,8 @@ export interface UsageReport {
   address: 'free' | 'own' | 'ip'
   servers: number
   running: number
+  /** The furthest step of the machine's setup, from 0.4.18; absent before its first. */
+  reached?: 'account' | 'server' | 'played' | 'friends'
 }
 
 /** What decides whether a machine sends usage stats: root's choices come first, then the switch. */
