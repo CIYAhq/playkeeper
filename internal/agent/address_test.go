@@ -1607,11 +1607,11 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 	}
 }
 
-// Bugbot's case: the claim of the new name is stored but its answer is
-// lost, and so are the lists of names, so the machine keeps its old name
-// and can't claim it back, as the key holds the new one. The address
-// loop's next refresh finds that out and moves the machine to the new
-// name, records and certificate included, without a new change.
+// The case review found: the claim of the new name is stored but its
+// answer is lost, and so are the lists of names, so the machine keeps its
+// old name and can't claim it back, as the key holds the new one. The
+// address loop's next refresh finds that out and moves the machine to the
+// new name, records and certificate included, without a new change.
 func TestFreeNameChangeTheMachineCouldNotConfirmEndsOnTheNewName(t *testing.T) {
 	e := newAddressEnv(t, nil)
 	e.addServerNamed("Survival")
