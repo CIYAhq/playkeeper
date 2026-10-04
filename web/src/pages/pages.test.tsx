@@ -17,6 +17,7 @@ import type {
   DiscordSettings,
   FileRefusal,
   HetznerStock,
+  Invite,
   InvitesResponse,
   JoinInfo,
   JoinPreview,
@@ -2926,6 +2927,34 @@ describe('Players', () => {
     expect(buttons('New invite link').length).toBeGreaterThan(0)
     await click(button('Let in'))
     expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/join-requests/r1/approve')
+  })
+
+  // The second-day walkthrough of 4 Oct 2026: on a machine with no name, an
+  // invite link opens the browser's "Your connection is not private" for the
+  // friend, whom nothing had told. The new link's dialog says so and offers
+  // the free name, and what's copied says the warning is expected.
+  it('warns of the browser warning on a link to a machine with no name, and says it in what it copies', async () => {
+    const made: Invite = { id: 'inv9', kind: 'player', projectId: 'p2345abcde', serverId: 'abcdefghjk', approval: 'right_away', createdBy: 1, createdAt: new Date().toISOString(), expiresAt: inHours(7 * 24), maxUses: 5, uses: 0, usesLeft: 5, status: 'active', path: '/join/Nw3vT8kLp2QsXa7m' }
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    for (const named of [false, true]) {
+      const data: InvitesResponse = named ? { ...noInvites, link: { base: 'https://alex.playkeeper.me', friendly: true } } : noInvites
+      answer({ '/whitelist': [{ name: 'mara_k' }], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': data, '/join-requests': [] })
+      answerPosts({ '/invites': made })
+      await render(<PlayersPage server={server()} />)
+      await click(buttons('New invite link')[0] ?? button('New invite link'))
+      await click(button('Create link'))
+      if (named) {
+        expect(copy).toHaveBeenLastCalledWith('https://alex.playkeeper.me/join/Nw3vT8kLp2QsXa7m')
+        continue
+      }
+      expect(copy).toHaveBeenLastCalledWith('Your browser will say this link isn’t private. That’s expected for a new server: click Advanced, then Proceed (Safari: Show Details, then visit this website). https://203.0.113.10:8443/join/Nw3vT8kLp2QsXa7m')
+    }
+    copy.mockRestore()
+    answer({ '/whitelist': [{ name: 'mara_k' }], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': noInvites, '/join-requests': [] })
+    await render(<PlayersPage server={server()} />)
+    await click(buttons('New invite link')[0] ?? button('New invite link'))
+    expect(page()).toContain('Friends will see a browser warning')
+    expect(link('Give it a free name first').getAttribute('href')).toBe(`/machines/${machine.id}/settings`)
   })
 
   it('shows a viewer the list without adding players or invite links', async () => {

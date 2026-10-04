@@ -1141,6 +1141,18 @@ control "a turned-away player's alert doesn't hold back a join request of theirs
   '			return string(e.Kind) + ":refused:" + strings.ToLower(oneLine(e.Player))' \
   '			return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))' \
   ./internal/discord '^TestATurnedAwayPlayerPostsWithTheJoinRequests$'
+webcontrol "Players offers to add only a turned-away player who isn't on the list now" web/src/pages/server/players.tsx \
+  "if (a.kind !== 'refused' || !a.player || onList(a.player) ||" \
+  "if (a.kind !== 'refused' || !a.player ||" \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
+webcontrol "Players names a player the allowlist turned away again and again once" web/src/pages/server/players.tsx \
+  'if (!out.some((r) => nameKey(r) === nameKey({ name }))) out.push({ name, ts: a.ts })' \
+  'out.push({ name, ts: a.ts })' \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
+webcontrol "Players forgets refusals older than a week" web/src/pages/server/players.tsx \
+  '|| now - new Date(a.ts).getTime() > 7 * 86_400_000) continue' \
+  ') continue' \
+  web/src/pages/pages.test.tsx 'turned away lately on top'
 control "the first steps don't count whoever created the server as a friend" internal/agent/handlers.go \
   '		creators = strings.Fields(sc.CreatorNames)' \
   '		creators = nil' \
@@ -4706,18 +4718,18 @@ webcontrol "Settings › Memory counts friends for the server's type" web/src/pa
   '{memoryAdviceLine(advice, machineName, catalog?.sizing, s.type, planMaxMB)}' \
   '{memoryAdviceLine(advice, machineName, catalog?.sizing, undefined, planMaxMB)}' \
   web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
-webcontrol "Players offers to add only a turned-away player who isn't on the list now" web/src/pages/server/players.tsx \
-  "if (a.kind !== 'refused' || !a.player || onList(a.player) ||" \
-  "if (a.kind !== 'refused' || !a.player ||" \
-  web/src/pages/pages.test.tsx 'turned away lately on top'
-webcontrol "Players names a player the allowlist turned away again and again once" web/src/pages/server/players.tsx \
-  'if (!out.some((r) => nameKey(r) === nameKey({ name }))) out.push({ name, ts: a.ts })' \
-  'out.push({ name, ts: a.ts })' \
-  web/src/pages/pages.test.tsx 'turned away lately on top'
-webcontrol "Players forgets refusals older than a week" web/src/pages/server/players.tsx \
-  '|| now - new Date(a.ts).getTime() > 7 * 86_400_000) continue' \
-  ') continue' \
-  web/src/pages/pages.test.tsx 'turned away lately on top'
+webcontrol "a new invite link warns of the browser warning while the machine has no name" web/src/pages/server/invites.tsx \
+  '{data && !data.link.friendly && <BrowserWarning />}' \
+  '{false && <BrowserWarning />}' \
+  web/src/pages/pages.test.tsx 'browser warning on a link to a machine with no name'
+webcontrol "a copied invite link to a machine with no name says the warning is expected" web/src/pages/server/invites.tsx \
+  "return data.link.friendly ? url : t('invites.shareBareIP', { url })" \
+  'return url' \
+  web/src/pages/pages.test.tsx 'browser warning on a link to a machine with no name'
+webcontrol "a copied invite link to a named machine is just the link" web/src/pages/server/invites.tsx \
+  "return data.link.friendly ? url : t('invites.shareBareIP', { url })" \
+  "return t('invites.shareBareIP', { url })" \
+  web/src/pages/pages.test.tsx 'browser warning on a link to a machine with no name'
 webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
   'const recovered = s.recoveredCrash' \
   'const recovered = s.crash' \
