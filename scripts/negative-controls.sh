@@ -4997,11 +4997,9 @@ control "staging counts what it writes against MaxTotalBytes" internal/worldimpo
   ./internal/worldimport '^TestStagingCountsWhatItWrites$'
 control "the first render follows every run that comes online, however it started" internal/agent/collector.go \
   '			if take {
-				s.mapRunOnline(runStart)
-			}' \
-  '			if false && take {
-				s.mapRunOnline(runStart)
-			}' \
+				s.mapRunOnline(runStart)' \
+  '			if take {
+				_ = runStart' \
   ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
 control "a restart is put off only while squaremap needs it" internal/agent/maps.go \
   'if l := s.mapLive(r.Context(), true); !rec.pendingRestart(l) {' \
@@ -12690,8 +12688,8 @@ control "fleet watch: an overbooked machine is short of some memory" internal/ag
   'discord.Overbooked(machine, req.MemoryMB), named && in(req.MemoryMB, 0, maxFleetMemory)' \
   ./internal/agent '^TestDiscordNotifyTakesTheFleetsAlertsWithEveryAlertOff$'
 control "fleet watch: the fleet's alerts go out whatever the switches say" internal/discord/alerts.go \
-  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked:' \
-  'case KindTwoFactor, KindAdminConfirmed, KindInStock:' \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock, KindMachineOff, KindMachineBack, KindLowRoom, KindDiskFilling, KindBusyCPU, KindSlowTicks, KindOverbooked,' \
+  'case KindTwoFactor, KindAdminConfirmed, KindInStock,' \
   ./internal/discord '^TestFleetAlertsArePostedWhateverTheSwitches$'
 control "fleet watch: a machine's name can't format the alert" internal/discord/alerts.go \
   '	if name = userText(name, 64); name == "" {
