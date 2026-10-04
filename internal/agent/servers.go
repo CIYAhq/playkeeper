@@ -124,6 +124,9 @@ type server struct {
 	// admitAfter is when the reconciler may try again to add the players a
 	// create asked for, after the server gave no answer about them.
 	admitAfter time.Time
+	// check is the latest internet check of the game port
+	// (internetcheck.go).
+	check internetCheck
 
 	// rconLock holds the console connection; a channel, so waiting for it
 	// honours a command's deadline.

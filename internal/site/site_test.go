@@ -510,7 +510,7 @@ func TestThePrivacyPolicy(t *testing.T) {
 	if !ok {
 		t.Fatal("there is no /privacy")
 	}
-	for _, want := range []string{"CIYA TECHNOLOGIES LTD, Pyrrou 11, 4105 Limassol, Cyprus", "Version of 1 October 2026", `<a href="mailto:me@siya.digital">me@siya.digital</a>`} {
+	for _, want := range []string{"CIYA TECHNOLOGIES LTD, Pyrrou 11, 4105 Limassol, Cyprus", "Version of 4 October 2026", `<a href="mailto:me@siya.digital">me@siya.digital</a>`} {
 		if !strings.Contains(policy, want) {
 			t.Errorf("the privacy policy doesn't say %s", want)
 		}

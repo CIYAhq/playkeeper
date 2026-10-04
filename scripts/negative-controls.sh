@@ -4691,8 +4691,8 @@ webcontrol "the join card says which machine found the server answering" web/src
   "t('overview.answering', { machine: '', time: relativeTime(s.reachableAt) })" \
   web/src/pages/pages.test.tsx 'friends need the port open at their provider'
 webcontrol "the join card says friends need the port open at their provider" web/src/pages/server/overview.tsx \
-  '      {online && s.reachable && (' \
-  '      {false && (' \
+  '      {online && s.reachable && <InternetLine server={s} />}' \
+  '      {false && <InternetLine server={s} />}' \
   web/src/pages/pages.test.tsx 'friends need the port open at their provider'
 webcontrol "more memory from the Overview restarts the server to use it" web/src/components/app/notices.tsx \
   '{ ...plan.body, ...(restart ? { restart: true } : {}) }' \
@@ -7988,6 +7988,36 @@ webcontrol "the usage stats switch stays still where root or playkeeper dev deci
   'disabled={!!locked} title={locked}' \
   'disabled={false} title={locked}' \
   web/src/pages/settings.test.tsx 'keeps the switch still'
+
+# The internet check: the dashboard's own checks need usage stats on and
+# hold an hour, no check asks before the stats service said to, and a test
+# install or playkeeper dev never asks the project's own service; the join
+# card checks by itself only while usage stats are on, and links a closed
+# port to its provider's steps.
+control "the dashboard's own internet checks need usage stats on" internal/agent/internetcheck.go \
+  'if on, _, _ := s.usageDecision(); auto && !on {' \
+  'if on, _, _ := s.usageDecision(); false && auto && !on {' \
+  ./internal/agent '^TestWithUsageStatsOffOnlyAskingChecksFromTheInternet$'
+control "an automatic internet check holds an hour" internal/agent/internetcheck.go \
+  '		holds = internetCheckEvery' \
+  '		holds = internetCheckAgain' \
+  ./internal/agent '^TestWhileUsageStatsAreOnTheDashboardChecksFromTheInternet$'
+control "an internet check waits as long as the stats service said" internal/agent/internetcheck.go \
+  ' || now.Before(c.retryAt)) {' \
+  ') {' \
+  ./internal/agent '^TestACheckSaysWhatItFoundOrWhyItCouldntBeMade$'
+control "a test install or playkeeper dev never asks the project's stats service for a check" internal/agent/internetcheck.go \
+  'return a.statsService() != usage.DefaultURL || !a.cfg.Dev && !a.usageTest()' \
+  'return true' \
+  ./internal/agent '^TestTestInstallsAndDevNeverAskTheProjectsStatsService$'
+webcontrol "the join card checks from the internet by itself only while usage stats are on" web/src/pages/server/overview.tsx \
+  'const due = !!check?.auto && mayCheck' \
+  'const due = !!check && mayCheck' \
+  web/src/pages/pages.test.tsx 'checks from the internet by itself while usage stats are on'
+webcontrol "a closed port links its provider's steps" web/src/pages/server/overview.tsx \
+  "href={check?.stepsUrl ?? t('onboarding.check.firewallUrl')}" \
+  "href={t('onboarding.check.firewallUrl')}" \
+  web/src/pages/pages.test.tsx 'says whether friends can reach the port from the internet'
 
 # The stats dashboard: it loads only its own files and asks only its own
 # service for the counts; the days leave test installs out and count an
