@@ -801,6 +801,33 @@ describe('Overview', () => {
     expect(buttons('Check again')).toHaveLength(0)
   })
 
+  // Until the owner redeploys the stats service it answers the check 404,
+  // and it can be down: the card mustn't say the port is closed when no
+  // check found it so. It keeps #382's line, and the button says it
+  // couldn't check right now.
+  it('keeps the provider line, and says it couldn’t check right now, when the stats service can’t check', async () => {
+    const failed = (over: Partial<NonNullable<ServerStatus['internetCheck']>>) =>
+      server({ internetCheck: { auto: true, stepsUrl: 'https://playkeeper.io/ports#oracle-cloud', provider: 'Oracle Cloud', ...over } })
+    for (const problem of [
+      'The stats service at stats.playkeeper.io answered HTTP 404, so it couldn’t check from the internet.',
+      'Playkeeper couldn’t ask the stats service at stats.playkeeper.io to check from the internet.',
+    ]) {
+      for (const auto of [true, false]) {
+        const text = await render(<Overview server={failed({ auto, problem })} />)
+        expect(text).toContain('Friends also need port 25565 open at your provider: how to open it')
+        expect(text).not.toContain('Friends can’t reach')
+        expect(text).not.toContain('Friends can reach')
+        expect(text).not.toContain(problem)
+        const b = button('Couldn’t check right now · Try again')
+        expect(b.disabled).toBe(false)
+        expect(b.title).toBe(problem)
+      }
+    }
+    vi.mocked(client.post).mockClear()
+    await click('Couldn’t check right now · Try again')
+    expect(posts().filter(([path]) => path === '/internet-check')).toEqual([['/internet-check', {}]])
+  })
+
   // While usage stats are on the card checks by itself, once, and again when
   // the latest check is an hour old; otherwise anyone who can start the
   // server gets a button that says what it does.
@@ -821,8 +848,9 @@ describe('Overview', () => {
     await render(<Overview server={check({ result: 'reachable', checkedAt: new Date().toISOString() })} />)
     await render(<Overview server={check({ problem: 'The stats service is busy with other checks.', retryAt: inHours(1) })} />)
     expect(asked()).toEqual([])
-    expect(page()).toContain('The stats service is busy with other checks. The stats service asked to wait until')
-    expect(button('Check from the internet').disabled).toBe(true)
+    expect(page()).toContain('The stats service asked to wait until')
+    expect(button('Couldn’t check right now · Try again').disabled).toBe(true)
+    expect(button('Couldn’t check right now · Try again').title).toBe('The stats service is busy with other checks.')
     await render(<Overview server={check({ result: 'reachable', checkedAt: hoursAgo(2) })} />)
     expect(asked()).toEqual([['/internet-check', { auto: true }]])
 

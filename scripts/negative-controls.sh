@@ -8002,6 +8002,10 @@ webcontrol "the join card checks from the internet by itself only while usage st
   'const due = !!check?.auto && mayCheck' \
   'const due = !!check && mayCheck' \
   web/src/pages/pages.test.tsx 'checks from the internet by itself while usage stats are on'
+webcontrol "a check that couldn't be made says so on its button" web/src/pages/server/overview.tsx \
+  "{check.problem ? t('overview.internet.couldnt') : check.result" \
+  "{false ? t('overview.internet.couldnt') : check.result" \
+  web/src/pages/pages.test.tsx 'keeps the provider line'
 webcontrol "a closed port links its provider's steps" web/src/pages/server/overview.tsx \
   "href={check?.stepsUrl ?? t('onboarding.check.firewallUrl')}" \
   "href={t('onboarding.check.firewallUrl')}" \
