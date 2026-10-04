@@ -143,8 +143,10 @@ webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
   mutate "$name" "$file" "$3" "$4" || return 0
   # Vitest leaves a copy of every module it loaded in a folder under TMPDIR,
   # about 9 MB a run, so each run has a TMPDIR of its own, deleted after it.
+  # Without NO_COLOR, as on a CI runner, its colours split the lines read
+  # below.
   mkdir -p "$tmp/vitest"
-  if (cd web && TMPDIR="$tmp/vitest" npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
+  if (cd web && TMPDIR="$tmp/vitest" NO_COLOR=1 npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
     problem "MISSED   $name: ${tests:-$testfile} still passes without the guard"
   elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
     problem "INVALID  $name: no test ran to fail"
@@ -170,7 +172,7 @@ buildcontrol() { # NAME FILE FROM TO
     return
   fi
   mutate "$name" "$file" "$3" "$4" || return 0
-  if make --no-print-directory web-budget >/tmp/negative-control.out 2>&1; then
+  if NO_COLOR=1 make --no-print-directory web-budget >/tmp/negative-control.out 2>&1; then
     problem "MISSED   $name: make web-budget still passes"
   elif ! grep -q 'First load over budget' /tmp/negative-control.out; then
     problem "INVALID  $name: make web-budget failed, but not on the budget"
